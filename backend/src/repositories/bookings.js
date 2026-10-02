@@ -1,6 +1,15 @@
 const crypto = require("node:crypto");
 const db = require("../config/db");
 
+function appendBookingScopeFilters(options, filters, values, prefix = "") {
+  for (const [option, column] of [["tenantId", "tenant_id"], ["locationId", "location_id"], ["customerUserId", "customer_user_id"]]) {
+    if (options[option]) {
+      values.push(Number(options[option]));
+      filters.push(`${prefix}${column} = $${values.length}`);
+    }
+  }
+}
+
 const BOOKING_COLUMNS = `
   bookings.id,
   bookings.reference,
@@ -815,15 +824,7 @@ async function listBookingsForCheckInReminder(options = {}) {
     filters.push("bookings.scheduled_start_at + INTERVAL '15 minutes' >= $1::timestamptz");
   }
 
-  if (options.tenantId) {
-    values.push(Number(options.tenantId));
-    filters.push(`bookings.tenant_id = $${values.length}`);
-  }
-
-  if (options.customerUserId) {
-    values.push(Number(options.customerUserId));
-    filters.push(`bookings.customer_user_id = $${values.length}`);
-  }
+  appendBookingScopeFilters(options, filters, values, "bookings.");
 
   const result = await queryClient.query(
     `
@@ -911,15 +912,7 @@ async function expirePendingBookings(options = {}) {
     "payment_proof_object_key IS NULL"
   ];
 
-  if (options.tenantId) {
-    values.push(Number(options.tenantId));
-    filters.push(`tenant_id = $${values.length}`);
-  }
-
-  if (options.customerUserId) {
-    values.push(Number(options.customerUserId));
-    filters.push(`customer_user_id = $${values.length}`);
-  }
+  appendBookingScopeFilters(options, filters, values, "");
 
   const result = await queryClient.query(
     `

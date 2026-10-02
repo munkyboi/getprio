@@ -216,6 +216,12 @@ async function expirePendingBookingsForTenant(tenantId) {
   return expired;
 }
 
+async function expirePendingBookingsForLocation(tenantId, locationId) {
+  const expired = await expirePendingBookings({ tenantId, locationId });
+  await notifyDueCheckInReminderBookings({ tenantId, locationId });
+  return expired;
+}
+
 async function expirePendingBookingsForCustomer(customerUserId) {
   const expired = await expirePendingBookings({ customerUserId });
   await notifyDueCheckInReminderBookings({ customerUserId });
@@ -1750,6 +1756,7 @@ module.exports = {
   createVendorPaymentProofAccess,
   expirePendingBookingsForCustomer,
   expirePendingBookingsForTenant,
+  expirePendingBookingsForLocation,
   evaluateComposedBookingSlots,
   notifyDueCheckInReminderBookings,
   listBookingSlots,

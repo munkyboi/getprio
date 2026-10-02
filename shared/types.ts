@@ -1121,6 +1121,7 @@ export interface RejectVendorBookingPaymentRequest {
 }
 
 export interface VendorBookingSummary extends CustomerBookingSummary {
+  hasPaymentProof?: boolean;
   customerUserId: string | null;
   customerName: string;
   customerEmail: string;

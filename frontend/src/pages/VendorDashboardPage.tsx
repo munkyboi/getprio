@@ -76,7 +76,7 @@ import {
 } from "@tabler/icons-react";
 import { notifications } from "@mantine/notifications";
 import { useMediaQuery } from "@mantine/hooks";
-import { differenceInMinutes, getDay } from "date-fns";
+import { getDay } from "date-fns";
 import { Navigate, NavLink, useLocation, useNavigate, useParams } from "react-router-dom";
 import type {
   BillingOverviewResponse,
@@ -790,17 +790,13 @@ function isCheckedInBookingTicket(ticket: {
   return ticket.servicePriorityBand === "checked_in_booking" || Boolean(ticket.linkedBookingReference);
 }
 
-function getMinutesFromNow(value: string | Date): number {
-  return differenceInMinutes(new Date(), new Date(value));
-}
-
-function getBookingCheckInState(booking: VendorBookingSummary) {
-  const minutesFromStart = getMinutesFromNow(booking.scheduledStartAt);
+function getBookingCheckInState(booking: VendorBookingSummary, now = Date.now()) {
+  const startAt = new Date(booking.scheduledStartAt).getTime();
+  const validStart = Number.isFinite(startAt);
   return {
-    isTooEarly: minutesFromStart < -15,
-    isLate: minutesFromStart > 15,
-    isEligibleStatus: ["confirmed", "rescheduled"].includes(booking.status),
-    minutesFromStart
+    isTooEarly: !validStart || now < startAt - 15 * 60 * 1000,
+    isLate: validStart && now > startAt + 15 * 60 * 1000,
+    isEligibleStatus: ["confirmed", "rescheduled"].includes(booking.status)
   };
 }
 
@@ -1075,6 +1071,13 @@ export default function VendorDashboardPage() {
   const localQueueDayUpdateRef = useRef<LocalQueueDayUpdate | null>(null);
   const [bookingDetailModalId, setBookingDetailModalId] = useState<string | null>(null);
   const [bookingDetailOpen, setBookingDetailOpen] = useState(false);
+  const [bookingCheckInNow, setBookingCheckInNow] = useState(Date.now);
+  useEffect(() => {
+    if (currentSection !== "bookings" && !bookingDetailOpen) return;
+    setBookingCheckInNow(Date.now());
+    const timer = window.setInterval(() => setBookingCheckInNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [currentSection, bookingDetailOpen]);
   const [bookingDetailLoading, setBookingDetailLoading] = useState(false);
   const [bookingDetailBooking, setBookingDetailBooking] = useState<VendorBookingSummary | null>(null);
   const [bookingDetailError, setBookingDetailError] = useState("");
@@ -2718,6 +2721,14 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
   const queueDayState = resolveQueueDayState(snapshot?.queueDay);
   const queueDayClosed = queueDayState !== "open";
   const queueDayPaused = Boolean(snapshot?.queueDay?.isPaused);
+  const bookingSnapshotMatchesLocation = Boolean(selectedLocationSlug && snapshot?.location?.slug === selectedLocationSlug && snapshot.tenant.slug === selectedTenantSlug);
+  const bookingCheckInBlocked = !bookingSnapshotMatchesLocation || queueDayClosed || queueDayPaused || snapshot?.queueDay?.intakeMode === "paused";
+  let bookingCheckInGuidance = "Resume queue intake before checking in customers.";
+  if (!bookingSnapshotMatchesLocation) {
+    bookingCheckInGuidance = "Loading this location's queue status. Please wait.";
+  } else if (queueDayClosed) {
+    bookingCheckInGuidance = "Open the queue before checking in customers.";
+  }
   const queueDayUnopened = queueDayState === "unopened";
   const queueDayActuallyClosed = queueDayState === "closed";
   const queueDayReconciling =
@@ -3036,6 +3047,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       setVendorBookings((current) =>
         current.map((item) => (item.id === response.booking.id ? response.booking : item))
       );
+      setBookingDetailBooking((current) => current?.id === response.booking.id ? response.booking : current);
       clearBookingAlert(response.booking.id);
       await reloadDashboardSnapshot();
       await reloadBookings();
@@ -3060,6 +3072,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         current.map((item) => (item.id === response.booking.id ? response.booking : item))
       );
       clearBookingAlert(response.booking.id);
+      setBookingDetailBooking((current) => current?.id === response.booking.id ? response.booking : current);
       await reloadBookings();
       showSuccessNotification("Booking marked no-show", `${response.booking.reference} was canceled as a no-show.`);
     } catch (noShowError) {
@@ -3067,6 +3080,27 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     } finally {
       setBusyAction("");
     }
+  }
+
+  function renderStaffNoShowAction(booking: VendorBookingSummary) {
+    const state = getBookingCheckInState(booking, bookingCheckInNow);
+    const canMarkNoShow = canOperateBookingQueue && !canAdminBookings && state.isEligibleStatus && state.isLate;
+    if (!canMarkNoShow || booking.checkedInAt || booking.linkedTicket) {
+      return null;
+    }
+    return (
+      <Button
+        color="red"
+        leftSection={<IconAlertTriangle size={16} />}
+        mih={44}
+        disabled={Boolean(busyAction)}
+        loading={busyAction === `booking-no-show:${booking.id}`}
+        onClick={() => void handleMarkBookingNoShow(booking)}
+        variant="light"
+      >
+        Mark no-show
+      </Button>
+    );
   }
 
   async function handleViewBookingPaymentProof(booking: VendorBookingSummary) {
@@ -7441,7 +7475,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       const paymentReviewPending = booking.paymentStatus === "pending";
                       const paymentVerified = booking.paymentStatus === "paid";
                       const manualPaymentRequired = Boolean(booking.serviceManualPaymentRequired);
-                      const checkInState = getBookingCheckInState(booking);
+                      const checkInState = getBookingCheckInState(booking, bookingCheckInNow);
                       const hasExpired = Boolean(booking.expiredAt);
                       const isGroupFundedBooking = booking.bookingPaymentSource === "group_funded" || Boolean(booking.groupFundedBookingId);
                       const bookingBundleItems = isGroupFundedBooking && booking.groupFundedCampaign?.bundleItems?.length
@@ -7463,8 +7497,15 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       const displayedTotalCents = isGroupFundedBooking && booking.groupFundedCampaign
                         ? Number(booking.groupFundedCampaign.targetAmountCents || 0) + Number(booking.groupFundedCampaign.roundingAdjustmentCents || 0)
                         : displayedServiceItems.reduce((total, item) => total + Number(item.priceAmountCents || 0), 0);
+                      let bookingProofLabel = "No manual payment";
+                      if (isGroupFundedBooking) {
+                        bookingProofLabel = "No individual proof";
+                      } else if (manualPaymentRequired) {
+                        bookingProofLabel = booking.hasPaymentProof || booking.paymentProof ? "Proof submitted" : "Proof required";
+                      }
+                      const canReviewBookingPayment = canAdminBookings && paymentReviewPending && Boolean(booking.paymentProof);
                       const actionButtons = (() => {
-                        if (canAdminBookings && paymentReviewPending && booking.paymentProof) {
+                        if (canReviewBookingPayment) {
                           return (
                             <Group gap="xs" justify="flex-end" wrap="nowrap">
                               <IconActionButton
@@ -7662,7 +7703,8 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                                 <ActionIcon
                                   aria-label="Late check-in"
                                   color="orange"
-                                  disabled={busyAction === `booking-check-in:${booking.id}:override`}
+                                  disabled={Boolean(busyAction) || bookingCheckInBlocked}
+                                  title={bookingCheckInBlocked ? bookingCheckInGuidance : undefined}
                                   onClick={() => handleCheckInBooking(booking, true)}
                                   variant="light"
                                 >
@@ -7774,16 +7816,28 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                                 {isGroupFundedBooking ? "Campaign funded" : booking.paymentStatus}
                               </Badge>
                               <Text c="dimmed" size="xs">
-                                {isGroupFundedBooking
-                                  ? "No individual proof"
-                                  : manualPaymentRequired
-                                    ? booking.paymentProof ? "Proof submitted" : "Proof required"
-                                    : "No manual payment"}
+                                {bookingProofLabel}
                               </Text>
                             </Stack>
                           </Table.Td>
                           <Table.Td>
-                            <Group gap="xs" wrap="wrap">{actionButtons}</Group>
+                            <Group gap="xs" wrap="wrap">
+                              {canOperateBookingQueue && checkInState.isEligibleStatus && !checkInState.isTooEarly && !checkInState.isLate && !booking.checkedInAt && !booking.linkedTicket ? (
+                                <Button
+                                  leftSection={<IconCalendarCheck size={16} />}
+                                  mih={44}
+                                  loading={busyAction === `booking-check-in:${booking.id}`}
+                                  disabled={Boolean(busyAction) || bookingCheckInBlocked}
+                                  title={bookingCheckInBlocked ? bookingCheckInGuidance : undefined}
+                                  onClick={() => void handleCheckInBooking(booking)}
+                                >
+                                  Check in customer
+                                </Button>
+                              ) : null}
+                              {canOperateBookingQueue && checkInState.isEligibleStatus && !booking.checkedInAt && !booking.linkedTicket && bookingCheckInBlocked ? <Text c="dimmed" size="xs">{bookingCheckInGuidance}</Text> : null}
+                              {renderStaffNoShowAction(booking)}
+                              {actionButtons}
+                            </Group>
                           </Table.Td>
                         </Table.Tr>
                       );
@@ -9389,8 +9443,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     ];
     const detailBooking = bookingDetailBooking;
     const detailPaymentReviewable = Boolean(
-      detailBooking &&
-      detailBooking.paymentProof &&
+      canAdminBookings && detailBooking?.paymentProof &&
       detailBooking.paymentStatus === "pending" &&
       (detailBooking.status === "pending" || detailBooking.status === "rescheduled")
     );
@@ -9398,6 +9451,13 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     const detailManualPaymentRequired = Boolean(detailBooking?.serviceManualPaymentRequired);
     const detailPaymentGateActive = Boolean(detailBooking && detailManualPaymentRequired && !detailPaymentVerified);
     const detailBookingExpired = Boolean(detailBooking?.expiredAt);
+    const detailCheckInState = detailBooking ? getBookingCheckInState(detailBooking, bookingCheckInNow) : null;
+    let detailCheckInLabel = "Check in customer";
+    if (detailCheckInState?.isTooEarly) {
+      detailCheckInLabel = "Check-in opens 15 minutes before the booking";
+    } else if (detailCheckInState?.isLate) {
+      detailCheckInLabel = "Check in customer late";
+    }
     const detailCampaignBundleItems = detailBooking?.groupFundedCampaign?.bundleItems || [];
     const detailBookingBundleItems = detailBooking?.bundleItems || [];
     const detailServiceItems = detailCampaignBundleItems.length
@@ -9599,6 +9659,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     <Text className="neura-label">Payment</Text>
                   </Group>
                   <Text className="booking-detail__panel-title">{detailBooking.paymentStatus}</Text>
+                  {canAdminBookings ? <>
                   <Text c="dimmed" size="sm">
                     {isGroupFundedDetailBooking
                       ? "Verified through the group-funded campaign"
@@ -9625,7 +9686,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       <Text c="dimmed" size="sm">
                         {detailBooking.paymentProof.fileName} · {formatBytes(detailBooking.paymentProof.sizeBytes)}
                       </Text>
-                      <Button
+                      {canAdminBookings ? <Button
                         leftSection={<IconExternalLink size={14} />}
                         loading={busyAction === `booking-proof:${detailBooking.id}`}
                         onClick={() => handleViewBookingPaymentProof(detailBooking)}
@@ -9634,7 +9695,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                         w="fit-content"
                       >
                         View proof
-                      </Button>
+                      </Button> : null}
                     </Stack>
                   ) : isGroupFundedDetailBooking ? (
                     <Text c="dimmed" size="sm">No individual payment proof is required.</Text>
@@ -9679,6 +9740,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       </Button>
                     </Stack>
                   ) : null}
+                  </> : null}
                 </Paper>
                 <Paper withBorder radius="md" p="md" className="booking-detail__panel">
                   <Group gap="xs" mb="xs">
@@ -9717,6 +9779,34 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   >
                     Open booking queue
                   </Button>
+                  {canOperateBookingQueue && getBookingCheckInState(detailBooking, bookingCheckInNow).isEligibleStatus && !detailBooking.checkedInAt && !detailBooking.linkedTicket ? (
+                    <Stack gap={4}>
+                      {bookingCheckInBlocked ? <Text c="dimmed" size="sm">{bookingCheckInGuidance}</Text> : null}
+                    <Button
+                      leftSection={<IconCalendarCheck size={16} />}
+                      mih={44}
+                      disabled={Boolean(busyAction) || bookingCheckInBlocked || getBookingCheckInState(detailBooking, bookingCheckInNow).isTooEarly}
+                      title={bookingCheckInBlocked ? bookingCheckInGuidance : undefined}
+                      loading={busyAction === `booking-check-in:${detailBooking.id}${getBookingCheckInState(detailBooking, bookingCheckInNow).isLate ? ":override" : ""}`}
+                      onClick={() => {
+                        if (getBookingCheckInState(detailBooking).isLate) {
+                          openConfirmAction({
+                            title: "Check in this customer late?",
+                            description: "The booking is more than 15 minutes past its scheduled start. Confirm that the customer has arrived to create their queue ticket.",
+                            confirmLabel: "Check in customer",
+                            confirmColor: "orange",
+                            onConfirm: async () => { await handleCheckInBooking(detailBooking, true); }
+                          });
+                        } else {
+                          void handleCheckInBooking(detailBooking);
+                        }
+                      }}
+                    >
+                      {detailCheckInLabel}
+                    </Button>
+                    </Stack>
+                  ) : null}
+                  {renderStaffNoShowAction(detailBooking)}
                   {canAdminBookings && detailBooking.status === "pending" ? (
                     <>
                       <Button

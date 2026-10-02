@@ -1,3 +1,5 @@
+const { projectOperationalBooking } = require("./vendorBookingReadModel");
+const permissions = require("../services/permissions");
 const staffAccessEmailService = require("../services/staffAccessEmailService");
 const express = require("express");
 const tenantRepository = require("../repositories/tenants");
@@ -120,6 +122,26 @@ async function assertQueueLocationAccess(user, tenant, location) {
     throw error;
   }
 }
+async function assertBookingReadAccess(user, tenant, location) {
+  if (permissions.userHasPermission(user, "tenant.booking.manage", { tenantId: tenant._id })) {
+    return true;
+  }
+  assertTenantPermission(user, tenant._id, "tenant.queue.operate");
+  if (!location || !(await tenantMembershipLocationRepository.userHasLocationAssignment(user._id, tenant._id, location._id))) {
+    const error = new Error("Select an assigned location to view its bookings.");
+    error.statusCode = 403;
+    throw error;
+  }
+  return false;
+}
+
+function formatBookingForOperator(user, tenant, booking) {
+  const formatted = formatVendorBooking(booking);
+  return permissions.userHasPermission(user, "tenant.booking.manage", { tenantId: tenant._id })
+    ? formatted
+    : projectOperationalBooking(formatted);
+}
+
 function formatVendorBooking(booking) {
   const groupFundedCampaign = booking.groupFundedCampaign
     ? {
@@ -244,8 +266,10 @@ router.get(
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
     assertTenantPermission(req.user, tenant._id, "tenant.queue.read");
     const location = await getLocationForTenant(tenant, normalizeRequestText(req.query.location));
+    if (permissions.getTenantRole(req.user, tenant._id) === "staff") {
+      await assertBookingReadAccess(req.user, tenant, location);
+    }
     const snapshot = await getQueueSnapshot(tenant, { location });
-
     res.json(snapshot);
   })
 );
@@ -270,6 +294,12 @@ router.get(
     assertTenantPermission(req.user, tenant._id, "tenant.queue.read");
     const billing = await billingService.getBillingOverview(tenant._id);
     const locations = await storeLocationRepository.listLocationsByTenantId(tenant._id);
+    const visibleLocations = permissions.getTenantRole(req.user, tenant._id) === "staff"
+      ? (await Promise.all(locations.map(async (location) => ({
+          location,
+          assigned: await tenantMembershipLocationRepository.userHasLocationAssignment(req.user._id, tenant._id, location._id)
+        })))).filter((entry) => entry.assigned).map((entry) => entry.location)
+      : locations;
     const activeLocationLimit =
       billing.subscription?.entitlements?.locations ||
       billing.plans.find((plan) => plan.slug === billing.subscription?.planSlug)?.entitlements.locations ||
@@ -279,7 +309,7 @@ router.get(
     res.json({
       activeLocationLimit,
       defaultTimezone: platformSettings.defaultTimezone,
-      locations: await Promise.all(locations.map((location) => formatLocation(location, tenant)))
+      locations: await Promise.all(visibleLocations.map((location) => formatLocation(location, tenant)))
     });
   })
 );
@@ -611,6 +641,7 @@ router.get(
       getLocationForTenant,
       bookingService,
       bookingRepository,
+      assertBookingReadAccess,
       formatPaginationMetadata,
       parsePaginationParams
     })
@@ -621,7 +652,6 @@ router.get(
   "/tenant/:tenantSlug/bookings/:bookingId",
   asyncHandler(async (req, res) => {
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
-    assertTenantPermission(req.user, tenant._id, "tenant.booking.manage");
     const booking = await bookingRepository.findBookingById(req.params.bookingId);
 
     if (!booking || String(booking.tenantId) !== String(tenant._id)) {
@@ -633,15 +663,28 @@ router.get(
     if (normalizeRequestText(req.query.location)) {
       const location = await getLocationForTenant(tenant, normalizeRequestText(req.query.location));
       if (String(booking.locationId) !== String(location._id)) {
-        const error = new Error("Booking not found for this location.");
+        const error = new Error("Booking not found.");
         error.statusCode = 404;
         throw error;
       }
     }
 
+    const bookingLocation = await getLocationForTenant(tenant, booking.locationSlug);
+    let canManageBookings;
+    try {
+      canManageBookings = await assertBookingReadAccess(req.user, tenant, bookingLocation);
+    } catch (accessError) {
+      if (accessError.statusCode !== 403) {
+        throw accessError;
+      }
+      const error = new Error("Booking not found.");
+      error.statusCode = 404;
+      throw error;
+    }
+
     res.json({
       booking: {
-        ...formatVendorBooking(booking),
+        ...(canManageBookings ? formatVendorBooking(booking) : projectOperationalBooking(formatVendorBooking(booking))),
         organizerCampaign: null
       }
     });
@@ -804,7 +847,9 @@ router.post(
       assertTenantPermission,
       assertQueueLocationAccess,
       getLocationForTenant,
-      bookingService
+      bookingService,
+      assertBookingReadAccess,
+      formatBookingForOperator
     })
   )
 );
@@ -819,6 +864,8 @@ router.post(
       assertTenantPermission,
       getLocationForTenant,
       bookingService,
+      assertBookingReadAccess,
+      formatBookingForOperator,
       publishSnapshot
     })
   )
