@@ -7491,6 +7491,12 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       const displayedTotalCents = isGroupFundedBooking && booking.groupFundedCampaign
                         ? Number(booking.groupFundedCampaign.targetAmountCents || 0) + Number(booking.groupFundedCampaign.roundingAdjustmentCents || 0)
                         : displayedServiceItems.reduce((total, item) => total + Number(item.priceAmountCents || 0), 0);
+                      let bookingProofLabel = "No manual payment";
+                      if (isGroupFundedBooking) {
+                        bookingProofLabel = "No individual proof";
+                      } else if (manualPaymentRequired) {
+                        bookingProofLabel = booking.hasPaymentProof || booking.paymentProof ? "Proof submitted" : "Proof required";
+                      }
                       const canReviewBookingPayment = canAdminBookings && paymentReviewPending && Boolean(booking.paymentProof);
                       const actionButtons = (() => {
                         if (canReviewBookingPayment) {
@@ -7804,11 +7810,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                                 {isGroupFundedBooking ? "Campaign funded" : booking.paymentStatus}
                               </Badge>
                               <Text c="dimmed" size="xs">
-                                {isGroupFundedBooking
-                                  ? "No individual proof"
-                                  : manualPaymentRequired
-                                    ? booking.hasPaymentProof || booking.paymentProof ? "Proof submitted" : "Proof required"
-                                    : "No manual payment"}
+                                {bookingProofLabel}
                               </Text>
                             </Stack>
                           </Table.Td>
