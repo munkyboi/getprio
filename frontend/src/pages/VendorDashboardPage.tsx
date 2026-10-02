@@ -7469,8 +7469,9 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       const displayedTotalCents = isGroupFundedBooking && booking.groupFundedCampaign
                         ? Number(booking.groupFundedCampaign.targetAmountCents || 0) + Number(booking.groupFundedCampaign.roundingAdjustmentCents || 0)
                         : displayedServiceItems.reduce((total, item) => total + Number(item.priceAmountCents || 0), 0);
+                      const canReviewBookingPayment = canAdminBookings && paymentReviewPending && Boolean(booking.paymentProof);
                       const actionButtons = (() => {
-                        if (canAdminBookings && paymentReviewPending && booking.paymentProof) {
+                        if (canReviewBookingPayment) {
                           return (
                             <Group gap="xs" justify="flex-end" wrap="nowrap">
                               <IconActionButton
@@ -7784,7 +7785,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                                 {isGroupFundedBooking
                                   ? "No individual proof"
                                   : manualPaymentRequired
-                                    ? booking.paymentProof ? "Proof submitted" : "Proof required"
+                                    ? booking.hasPaymentProof || booking.paymentProof ? "Proof submitted" : "Proof required"
                                     : "No manual payment"}
                               </Text>
                             </Stack>
@@ -7804,6 +7805,19 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                                 </Button>
                               ) : null}
                               {canOperateBookingQueue && checkInState.isEligibleStatus && !booking.checkedInAt && !booking.linkedTicket && bookingCheckInBlocked ? <Text c="dimmed" size="xs">{bookingCheckInGuidance}</Text> : null}
+                              {canOperateBookingQueue && !canAdminBookings && checkInState.isEligibleStatus && checkInState.isLate && !booking.checkedInAt && !booking.linkedTicket ? (
+                                <Button
+                                  color="red"
+                                  leftSection={<IconAlertTriangle size={16} />}
+                                  mih={44}
+                                  disabled={Boolean(busyAction)}
+                                  loading={busyAction === `booking-no-show:${booking.id}`}
+                                  onClick={() => void handleMarkBookingNoShow(booking)}
+                                  variant="light"
+                                >
+                                  Mark no-show
+                                </Button>
+                              ) : null}
                               {actionButtons}
                             </Group>
                           </Table.Td>
@@ -9411,8 +9425,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     ];
     const detailBooking = bookingDetailBooking;
     const detailPaymentReviewable = Boolean(
-      canAdminBookings && detailBooking &&
-      detailBooking.paymentProof &&
+      canAdminBookings && detailBooking?.paymentProof &&
       detailBooking.paymentStatus === "pending" &&
       (detailBooking.status === "pending" || detailBooking.status === "rescheduled")
     );
@@ -9420,6 +9433,13 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     const detailManualPaymentRequired = Boolean(detailBooking?.serviceManualPaymentRequired);
     const detailPaymentGateActive = Boolean(detailBooking && detailManualPaymentRequired && !detailPaymentVerified);
     const detailBookingExpired = Boolean(detailBooking?.expiredAt);
+    const detailCheckInState = detailBooking ? getBookingCheckInState(detailBooking, bookingCheckInNow) : null;
+    let detailCheckInLabel = "Check in customer";
+    if (detailCheckInState?.isTooEarly) {
+      detailCheckInLabel = "Check-in opens 15 minutes before the booking";
+    } else if (detailCheckInState?.isLate) {
+      detailCheckInLabel = "Check in customer late";
+    }
     const detailCampaignBundleItems = detailBooking?.groupFundedCampaign?.bundleItems || [];
     const detailBookingBundleItems = detailBooking?.bundleItems || [];
     const detailServiceItems = detailCampaignBundleItems.length
@@ -9764,9 +9784,22 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                         }
                       }}
                     >
-                      {getBookingCheckInState(detailBooking, bookingCheckInNow).isTooEarly ? "Check-in opens 15 minutes before the booking" : getBookingCheckInState(detailBooking, bookingCheckInNow).isLate ? "Check in customer late" : "Check in customer"}
+                      {detailCheckInLabel}
                     </Button>
                     </Stack>
+                  ) : null}
+                  {canOperateBookingQueue && !canAdminBookings && detailCheckInState?.isEligibleStatus && detailCheckInState.isLate && !detailBooking.checkedInAt && !detailBooking.linkedTicket ? (
+                    <Button
+                      color="red"
+                      leftSection={<IconAlertTriangle size={16} />}
+                      mih={44}
+                      disabled={Boolean(busyAction)}
+                      loading={busyAction === `booking-no-show:${detailBooking.id}`}
+                      onClick={() => void handleMarkBookingNoShow(detailBooking)}
+                      variant="light"
+                    >
+                      Mark no-show
+                    </Button>
                   ) : null}
                   {canAdminBookings && detailBooking.status === "pending" ? (
                     <>

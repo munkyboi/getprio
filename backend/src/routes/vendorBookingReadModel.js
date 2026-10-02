@@ -9,6 +9,9 @@ function projectOperationalBooking(booking) {
     "scheduledStartAt", "scheduledEndAt", "status", "paymentStatus", "pendingExpiresAt",
     "expiredAt", "expirationReason", "linkedTicket", "checkedInAt", "noShowAt", "createdAt", "updatedAt"
   ];
-  return Object.fromEntries(fields.map((field) => [field, booking[field]]));
+  return {
+    ...Object.fromEntries(fields.map((field) => [field, booking[field]])),
+    hasPaymentProof: Boolean(booking.paymentProof)
+  };
 }
 module.exports = { projectOperationalBooking };

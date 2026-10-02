@@ -458,15 +458,16 @@ export default function CustomerBookingDetailPage() {
   const isBeforeCheckInWindow = Number.isFinite(checkInWindowStartsAt) && currentTime < checkInWindowStartsAt;
   const isInsideCheckInWindow = Number.isFinite(checkInWindowStartsAt) && currentTime >= checkInWindowStartsAt && currentTime <= checkInWindowEndsAt;
   const checkInAvailable = Boolean(booking.linkedTicket);
-  const checkInActionLabel = booking.linkedTicket
-    ? "Open live queue status"
-    : !["confirmed", "rescheduled"].includes(booking.status) || hasExpired
-      ? "Check-in unavailable"
-    : isBeforeCheckInWindow
-    ? `Check-in available in ${formatCheckInCountdown(checkInWindowStartsAt - currentTime)}`
-    : isInsideCheckInWindow
-      ? "Waiting for vendor check-in"
-      : "Ask the vendor about check-in";
+  let checkInActionLabel = "Ask the vendor about check-in";
+  if (booking.linkedTicket) {
+    checkInActionLabel = "Open live queue status";
+  } else if (!["confirmed", "rescheduled"].includes(booking.status) || hasExpired) {
+    checkInActionLabel = "Check-in unavailable";
+  } else if (isBeforeCheckInWindow) {
+    checkInActionLabel = `Check-in available in ${formatCheckInCountdown(checkInWindowStartsAt - currentTime)}`;
+  } else if (isInsideCheckInWindow) {
+    checkInActionLabel = "Waiting for vendor check-in";
+  }
   const totalBookingHoursLabel = formatDurationLabel(bookingStart, bookingEnd);
   const bookingTotalFeeCents = groupFundedCampaign
     ? fundingTargetAmountCents
