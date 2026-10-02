@@ -670,7 +670,17 @@ router.get(
     }
 
     const bookingLocation = await getLocationForTenant(tenant, booking.locationSlug);
-    const canManageBookings = await assertBookingReadAccess(req.user, tenant, bookingLocation);
+    let canManageBookings;
+    try {
+      canManageBookings = await assertBookingReadAccess(req.user, tenant, bookingLocation);
+    } catch (accessError) {
+      if (accessError.statusCode !== 403) {
+        throw accessError;
+      }
+      const error = new Error("Booking not found.");
+      error.statusCode = 404;
+      throw error;
+    }
 
     res.json({
       booking: {
