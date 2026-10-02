@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import {
   Alert,
-  Anchor,
   Badge,
   Button,
   Container,
@@ -963,10 +962,14 @@ export default function JoinedQueuePage() {
                       <Text c="dimmed" size="sm">Your vendor checked you in. This ticket now tracks your place in the queue.</Text>
                       <Text size="sm"><strong>Email alerts:</strong> {bookingEmailStatus}</Text>
                       <Text c="dimmed" size="sm">
-                        Browser alerts use your account notification settings and permission in this browser.
-                        You do not need to enable alerts again for this ticket. Keep this page open to follow live updates.
+                        Browser alerts require queue alerts to be enabled in your account, browser permission, and an active browser subscription.
+                        Check your notification settings if you are unsure. Keep this page open to follow live updates.
                       </Text>
-                      {user ? <Anchor component={Link} to="/account/notifications" size="sm">View notification settings</Anchor> : null}
+                      {user ? (
+                        <Button component={Link} to="/account/notifications" variant="subtle" mih={44} size="md">
+                          View notification settings
+                        </Button>
+                      ) : null}
                     </Stack>
                   ) : null}
                   <Divider className="ticket-page-barcode-divider" />
