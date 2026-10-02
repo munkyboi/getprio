@@ -241,6 +241,8 @@ without a valid linked schedule use the vendor average. These inputs prepare lat
 estimation work. `baseline-v1` still calculates position × vendor average and does not
 infer service start, resource availability, or occupancy from a booking schedule.
 
+The optional resource-capacity foundation provides a separate read-only reservation diagnostic. See [Resource capacity audit](docs/plan/resource-capacity-audit.md) for its command and limits, and [the implementation plan](docs/plan/queue-resource-occupancy.md) for the service-session workflow. Draft configuration cannot enable tracking in this release; current customer estimates and queue operations are unchanged.
+
 ## Main API routes
 
 ### Auth

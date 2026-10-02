@@ -321,6 +321,8 @@ channel proves it was a walk-in. Customer identity, contacts, and lookup codes a
 The query remains inside the audit's read-only transaction. No booking links are repaired,
 and no ticket is created or updated. The displayed baseline estimate remains unchanged.
 
+The separate [resource-capacity audit](plan/resource-capacity-audit.md) inspects draft pool mappings and overlapping booking-item reservation demand. Apply `20261003_add_resource_capacity_foundation.sql` through the usual additive migration deployment before using it. Tracking is disabled by a database constraint in this release. The report does not infer actual occupancy, change customer estimates, or create service sessions. Empty mappings are expected until the later vendor configuration slice.
+
 `--scope developer-sandbox` reads only Developer API observations explicitly tagged
 `sandbox`. Omitting `--scope` (or using `--scope all`) retains both separate reports.
 With `all`, a vendor slug filters only vendor results; Developer API results stay global.
