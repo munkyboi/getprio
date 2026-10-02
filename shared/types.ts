@@ -1385,6 +1385,8 @@ export interface QueueFocusTicket {
   servicePriorityBand?: QueuePriorityBand;
   carryOverExpiresAt?: string | Date | null;
   currentQueueDayId?: string | null;
+  linkedBookingReference?: string | null;
+  notifyByEmail?: boolean;
   emailJourneyMode?: "not_eligible" | "metered" | "journey_exhausted";
   position: number | null;
   estimatedWaitMinutes: number;

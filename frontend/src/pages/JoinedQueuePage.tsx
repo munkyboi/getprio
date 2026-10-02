@@ -264,6 +264,15 @@ export default function JoinedQueuePage() {
   const businessName = snapshot?.tenant?.name || tenantSlugValue;
   const locationName = snapshot?.location?.name || "Main location";
   const locationDetailLabel = [snapshot?.location?.city, snapshot?.location?.province].filter(Boolean).join(", ") || snapshot?.location?.country || "Philippines";
+  const linkedBookingReference = snapshot?.focusTicket?.linkedBookingReference;
+  const isBookingTicket = Boolean(linkedBookingReference) || snapshot?.focusTicket?.servicePriorityBand === "checked_in_booking";
+  const bookingEmailStatus = snapshot?.focusTicket?.emailJourneyMode === "journey_exhausted"
+    ? "Paused — the vendor's email allowance has been reached."
+    : snapshot?.focusTicket?.notifyByEmail === true
+      ? "Enabled — carried over from your booking."
+      : snapshot?.focusTicket?.notifyByEmail === false
+        ? "Not enabled for this ticket."
+        : "Email alert status is unavailable. Follow updates on this page.";
   const ticketIsConfirmed = Boolean(
     snapshot?.focusTicket?.status === "called" && snapshot.focusTicket.customerConfirmedAt
   );
@@ -937,6 +946,9 @@ export default function JoinedQueuePage() {
                       <Badge className={`booking-detail-ticket-status ticket-page-ticket-status ticket-page-ticket-status--${ticketDisplayStatus}`} size="lg">
                         {ticketState.label}
                       </Badge>
+                      {isBookingTicket ? (
+                        <Badge color="teal" size="lg" variant="light">Booking</Badge>
+                      ) : null}
                       {ticketIsCarriedOver ? (
                         <Badge className="ticket-page-carry-over-badge" color="blue" size="lg" variant="light">
                           Carried over
@@ -944,6 +956,22 @@ export default function JoinedQueuePage() {
                       ) : null}
                     </Group>
                   </div>
+                  {isBookingTicket ? (
+                    <Stack gap="xs">
+                      {linkedBookingReference ? <Text size="sm">Booking reference: <strong>{linkedBookingReference}</strong></Text> : null}
+                      <Text c="dimmed" size="sm">Your vendor checked you in. This ticket now tracks your place in the queue.</Text>
+                      <Text size="sm"><strong>Email alerts:</strong> {bookingEmailStatus}</Text>
+                      <Text c="dimmed" size="sm">
+                        Browser alerts require queue alerts to be enabled in your account, browser permission, and an active browser subscription.
+                        Check your notification settings if you are unsure. Keep this page open to follow live updates.
+                      </Text>
+                      {user ? (
+                        <Button component={Link} to="/account/notifications" variant="subtle" mih={44} size="md">
+                          View notification settings
+                        </Button>
+                      ) : null}
+                    </Stack>
+                  ) : null}
                   <Divider className="ticket-page-barcode-divider" />
                   <TicketBarcode value={snapshot?.focusTicket?.lookupCode || lookupCode} />
                 </Stack>

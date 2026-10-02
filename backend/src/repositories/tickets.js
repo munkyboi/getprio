@@ -117,6 +117,7 @@ function withLinkedBookingReferenceSelect() {
       SELECT bookings.reference
       FROM bookings
       WHERE bookings.queue_ticket_id = tickets.id
+        AND bookings.tenant_id = tickets.tenant_id
       LIMIT 1
     ) AS linked_booking_reference
   `;
@@ -377,7 +378,7 @@ async function findTicketByIdForUpdate(ticketId, options = {}) {
 async function findTicketByTenantAndLookupCode(tenantId, lookupCode, options = {}) {
   const queryClient = buildQueryClient(options.client);
   const result = await queryClient.query(
-    `SELECT ${withCustomerDisplayNameSelect()} FROM tickets WHERE tenant_id = $1 AND lookup_code = $2 LIMIT 1`,
+    `SELECT ${withLinkedBookingReferenceSelect()} FROM tickets WHERE tenant_id = $1 AND lookup_code = $2 LIMIT 1`,
     [Number(tenantId), lookupCode]
   );
 

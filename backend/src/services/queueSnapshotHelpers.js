@@ -230,6 +230,8 @@ async function buildQueueSnapshot(tenant, options = {}, getTenantUsage) {
       servicePriorityBand: lookupTicket.servicePriorityBand || "normal",
       carryOverExpiresAt: lookupTicket.carryOverExpiresAt || null,
       currentQueueDayId: lookupTicket.currentQueueDayId || null,
+      linkedBookingReference: lookupTicket.linkedBookingReference || null,
+      notifyByEmail: Boolean(lookupTicket.notifyByEmail && lookupTicket.customerEmail),
       emailJourneyMode: lookupTicket.emailJourneyMode || "not_eligible",
       position: position || null,
       estimatedWaitMinutes: prediction.estimatedWaitMinutes,
