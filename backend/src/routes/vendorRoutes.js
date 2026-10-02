@@ -663,7 +663,7 @@ router.get(
     if (normalizeRequestText(req.query.location)) {
       const location = await getLocationForTenant(tenant, normalizeRequestText(req.query.location));
       if (String(booking.locationId) !== String(location._id)) {
-        const error = new Error("Booking not found for this location.");
+        const error = new Error("Booking not found.");
         error.statusCode = 404;
         throw error;
       }
