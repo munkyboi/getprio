@@ -457,12 +457,14 @@ export default function CustomerBookingDetailPage() {
   const checkInWindowEndsAt = Number.isFinite(bookingStartTimestamp) ? bookingStartTimestamp + (15 * 60 * 1000) : Number.NaN;
   const isBeforeCheckInWindow = Number.isFinite(checkInWindowStartsAt) && currentTime < checkInWindowStartsAt;
   const isInsideCheckInWindow = Number.isFinite(checkInWindowStartsAt) && currentTime >= checkInWindowStartsAt && currentTime <= checkInWindowEndsAt;
-  const checkInAvailable = Boolean(booking.linkedTicket) && isInsideCheckInWindow;
-  const checkInActionLabel = isBeforeCheckInWindow
+  const checkInAvailable = Boolean(booking.linkedTicket);
+  const checkInActionLabel = booking.linkedTicket
+    ? "Open live queue status"
+    : isBeforeCheckInWindow
     ? `Check-in available in ${formatCheckInCountdown(checkInWindowStartsAt - currentTime)}`
     : isInsideCheckInWindow
-      ? "Check-in"
-      : "Check-in unavailable";
+      ? "Waiting for vendor check-in"
+      : "Ask the vendor about check-in";
   const totalBookingHoursLabel = formatDurationLabel(bookingStart, bookingEnd);
   const bookingTotalFeeCents = groupFundedCampaign
     ? fundingTargetAmountCents

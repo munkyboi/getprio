@@ -3036,6 +3036,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       setVendorBookings((current) =>
         current.map((item) => (item.id === response.booking.id ? response.booking : item))
       );
+      setBookingDetailBooking((current) => current?.id === response.booking.id ? response.booking : current);
       clearBookingAlert(response.booking.id);
       await reloadDashboardSnapshot();
       await reloadBookings();
@@ -7783,7 +7784,20 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                             </Stack>
                           </Table.Td>
                           <Table.Td>
-                            <Group gap="xs" wrap="wrap">{actionButtons}</Group>
+                            <Group gap="xs" wrap="wrap">
+                              {canOperateBookingQueue && checkInState.isEligibleStatus && !checkInState.isTooEarly && !checkInState.isLate && !booking.checkedInAt && !booking.linkedTicket ? (
+                                <Button
+                                  leftSection={<IconCalendarCheck size={16} />}
+                                  mih={44}
+                                  loading={busyAction === `booking-check-in:${booking.id}`}
+                                  disabled={Boolean(busyAction)}
+                                  onClick={() => void handleCheckInBooking(booking)}
+                                >
+                                  Check in customer
+                                </Button>
+                              ) : null}
+                              {actionButtons}
+                            </Group>
                           </Table.Td>
                         </Table.Tr>
                       );
@@ -9717,6 +9731,29 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   >
                     Open booking queue
                   </Button>
+                  {canOperateBookingQueue && getBookingCheckInState(detailBooking).isEligibleStatus && !detailBooking.checkedInAt && !detailBooking.linkedTicket ? (
+                    <Button
+                      leftSection={<IconCalendarCheck size={16} />}
+                      mih={44}
+                      disabled={Boolean(busyAction) || getBookingCheckInState(detailBooking).isTooEarly}
+                      loading={busyAction === `booking-check-in:${detailBooking.id}${getBookingCheckInState(detailBooking).isLate ? ":override" : ""}`}
+                      onClick={() => {
+                        if (getBookingCheckInState(detailBooking).isLate) {
+                          openConfirmAction({
+                            title: "Check in this customer late?",
+                            description: "The booking is more than 15 minutes past its scheduled start. Confirm that the customer has arrived to create their queue ticket.",
+                            confirmLabel: "Check in customer",
+                            confirmColor: "orange",
+                            onConfirm: async () => { await handleCheckInBooking(detailBooking, true); }
+                          });
+                        } else {
+                          void handleCheckInBooking(detailBooking);
+                        }
+                      }}
+                    >
+                      {getBookingCheckInState(detailBooking).isTooEarly ? "Check-in opens 15 minutes before the booking" : getBookingCheckInState(detailBooking).isLate ? "Check in customer late" : "Check in customer"}
+                    </Button>
+                  ) : null}
                   {canAdminBookings && detailBooking.status === "pending" ? (
                     <>
                       <Button
