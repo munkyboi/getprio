@@ -224,10 +224,22 @@ Set `API_ENVIRONMENT=sandbox`, `DATABASE_HOST`, and `DATABASE_NAME` to values ma
 node scripts/wait-time-prediction-audit.mjs
 ```
 
-It verifies the configured Sandbox database target before connecting and again after connection,
-then reports aggregate metrics only; it does not print vendor IDs or change database state. The
-baseline audit supports coverage and error analysis; a future candidate model still needs a
+It verifies the configured database target before connecting and again after connection,
+then reports aggregate metrics without changing database state. Vendor reports support
+`--scope vendors --vendor-slug <slug>`. To inspect a specific ticket's stored booking link,
+add `--ticket-number PB002 --location-slug main --date 2026-10-02`; these three flags must
+be supplied together with the vendor scope and slug. This optional report contains only
+operational ticket/booking references and service-duration context, not customer contact
+details or lookup codes. See [deployment guidance](docs/digitalocean-deployment.md).
+The baseline audit supports coverage and error analysis; a future candidate model still needs a
 time-separated holdout evaluation before production use.
+
+New vendor observations may include versioned `serviceTimeContext`: the current ticket,
+aggregate workload ahead, and the observed ticket's own schedule duration. Linked bookings
+use their scheduled elapsed duration (parallel bundles are not added together); tickets
+without a valid linked schedule use the vendor average. These inputs prepare later
+estimation work. `baseline-v1` still calculates position × vendor average and does not
+infer service start, resource availability, or occupancy from a booking schedule.
 
 ## Main API routes
 

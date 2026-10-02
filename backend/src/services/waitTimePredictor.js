@@ -25,6 +25,11 @@ function predictWaitTime(input) {
     currentTicketElapsedMinutes: Math.round(currentTicketElapsedMinutes),
     queuePaused: Boolean(input.queuePaused)
   };
+  // Version this additive context independently: baseline-v1's calculation is
+  // unchanged, and future rollout can distinguish samples with schedule input.
+  if (input.serviceTimeContext) {
+    features.serviceTimeContext = input.serviceTimeContext;
+  }
   const estimate = features.position * features.averageServiceMinutes;
   const sampleBucket = new Date(
     Math.floor(observedAt.getTime() / SAMPLE_BUCKET_MILLISECONDS) * SAMPLE_BUCKET_MILLISECONDS

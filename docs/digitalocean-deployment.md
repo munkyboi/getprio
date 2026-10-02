@@ -305,6 +305,22 @@ the summary includes recorded samples for the selected vendor regardless of its 
 approval status. Vendor Portal samples have no environment tag, so they must not be
 described as Sandbox simply because the audit CLI is configured that way.
 
+For a ticket such as `PB002`, inspect its stored booking link and schedule-duration
+inputs using all three ticket-context flags. Replace the vendor slug, location, business
+date, and database target with the actual values:
+
+```bash
+DATABASE_HOST='your-db-host' DATABASE_NAME='your-db-name' node scripts/wait-time-prediction-audit.mjs --scope vendors --vendor-slug 'your-vendor-slug' --location-slug 'main' --date '2026-10-02' --ticket-number 'PB002'
+```
+
+`ticketContext` shows the booking reference, ticket status, and duration source.
+`booking_schedule` means the linked booking has a valid start/end schedule;
+`vendor_average` means the ticket has no valid linked schedule. A null booking
+reference means no booking link was recorded for that ticket, not that its issuing
+channel proves it was a walk-in. Customer identity, contacts, and lookup codes are omitted.
+The query remains inside the audit's read-only transaction. No booking links are repaired,
+and no ticket is created or updated. The displayed baseline estimate remains unchanged.
+
 `--scope developer-sandbox` reads only Developer API observations explicitly tagged
 `sandbox`. Omitting `--scope` (or using `--scope all`) retains both separate reports.
 With `all`, a vendor slug filters only vendor results; Developer API results stay global.
