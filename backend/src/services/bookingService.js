@@ -217,7 +217,9 @@ async function expirePendingBookingsForTenant(tenantId) {
 }
 
 async function expirePendingBookingsForLocation(tenantId, locationId) {
-  return expirePendingBookings({ tenantId, locationId });
+  const expired = await expirePendingBookings({ tenantId, locationId });
+  await notifyDueCheckInReminderBookings({ tenantId, locationId });
+  return expired;
 }
 
 async function expirePendingBookingsForCustomer(customerUserId) {

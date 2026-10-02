@@ -1,3 +1,4 @@
+const { projectOperationalBooking } = require("./vendorBookingReadModel");
 const { getLocationForTenant } = require("./vendorRouteHelpers");
 const { assertPublicTextFieldsAllowed } = require("../services/contentModeration");
 
@@ -317,7 +318,7 @@ async function handleListBookings({ req, res, getAuthorizedTenant, assertTenantP
     scheduledDateTo: scheduledDateTo || null,
     search: search || null
   });
-  res.json({ bookings: bookings.map(formatVendorBooking), pagination: formatPaginationMetadata(totalItems, page, pageSize) });
+  res.json({ bookings: bookings.map((booking) => canManageBookings ? formatVendorBooking(booking) : projectOperationalBooking(formatVendorBooking(booking))), pagination: formatPaginationMetadata(totalItems, page, pageSize) });
 }
 
 async function handleBookingMutation({ req, res, getAuthorizedTenant, assertTenantPermission, getLocationForTenant, bookingService, publishSnapshot, permission, action, responseKey = "booking" }) {
@@ -329,26 +330,28 @@ async function handleBookingMutation({ req, res, getAuthorizedTenant, assertTena
   res.json({ [responseKey]: formatVendorBooking(booking) });
 }
 
-async function handleCheckInBooking({ req, res, getAuthorizedTenant, assertTenantPermission, assertQueueLocationAccess, getLocationForTenant, bookingService }) {
+async function handleCheckInBooking({ req, res, getAuthorizedTenant, assertTenantPermission, assertQueueLocationAccess, getLocationForTenant, bookingService, formatBookingForOperator, assertBookingReadAccess }) {
   const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
   assertTenantPermission(req.user, tenant._id, "tenant.queue.operate");
   const location = await getLocationForTenant(tenant, req.body.locationSlug || req.query.location);
+  if (assertBookingReadAccess) await assertBookingReadAccess(req.user, tenant, location);
   if (assertQueueLocationAccess) {
     await assertQueueLocationAccess(req.user, tenant, location);
   }
   const result = await bookingService.checkInVendorBooking({
     tenant, location, bookingId: req.params.bookingId, user: req.user, overrideWindow: Boolean(req.body.overrideWindow), overrideReason: req.body.overrideReason
   });
-  res.status(201).json({ booking: formatVendorBooking(result.booking), ticket: result.ticket });
+  res.status(201).json({ booking: formatBookingForOperator ? formatBookingForOperator(req.user, tenant, result.booking) : formatVendorBooking(result.booking), ticket: result.ticket });
 }
 
-async function handleMarkNoShow({ req, res, getAuthorizedTenant, assertTenantPermission, getLocationForTenant, bookingService, publishSnapshot }) {
+async function handleMarkNoShow({ req, res, getAuthorizedTenant, assertTenantPermission, getLocationForTenant, bookingService, publishSnapshot, formatBookingForOperator, assertBookingReadAccess }) {
   const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
   assertTenantPermission(req.user, tenant._id, "tenant.queue.operate");
   const location = await getLocationForTenant(tenant, req.body.locationSlug || req.query.location);
+  if (assertBookingReadAccess) await assertBookingReadAccess(req.user, tenant, location);
   const booking = await bookingService.markVendorBookingNoShow({ tenant, location, bookingId: req.params.bookingId, user: req.user });
   await publishSnapshot(tenant, { location });
-  res.json({ booking: formatVendorBooking(booking) });
+  res.json({ booking: formatBookingForOperator ? formatBookingForOperator(req.user, tenant, booking) : formatVendorBooking(booking) });
 }
 
 async function handleListAvailability({ req, res, getAuthorizedTenant, assertTenantPermission, getLocationForTenant, vendorAvailabilityRepository }) {

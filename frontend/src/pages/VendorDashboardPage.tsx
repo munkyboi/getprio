@@ -9621,6 +9621,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     <Text className="neura-label">Payment</Text>
                   </Group>
                   <Text className="booking-detail__panel-title">{detailBooking.paymentStatus}</Text>
+                  {canAdminBookings ? <>
                   <Text c="dimmed" size="sm">
                     {isGroupFundedDetailBooking
                       ? "Verified through the group-funded campaign"
@@ -9701,6 +9702,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       </Button>
                     </Stack>
                   ) : null}
+                  </> : null}
                 </Paper>
                 <Paper withBorder radius="md" p="md" className="booking-detail__panel">
                   <Group gap="xs" mb="xs">

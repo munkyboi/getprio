@@ -460,6 +460,8 @@ export default function CustomerBookingDetailPage() {
   const checkInAvailable = Boolean(booking.linkedTicket);
   const checkInActionLabel = booking.linkedTicket
     ? "Open live queue status"
+    : !["confirmed", "rescheduled"].includes(booking.status) || hasExpired
+      ? "Check-in unavailable"
     : isBeforeCheckInWindow
     ? `Check-in available in ${formatCheckInCountdown(checkInWindowStartsAt - currentTime)}`
     : isInsideCheckInWindow

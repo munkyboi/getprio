@@ -19,32 +19,26 @@ export interface VendorCapacityExperience {
   capacity: VendorCapacitySummary | null;
 }
 
-export function getBootstrap(
+export async function getBootstrap(
   token: string,
   tenantSlug: string,
   locationQuery: string,
   includeNotificationSettings = true
 ) {
-  return Promise.all([
-    apiRequest<StoreLocationsResponse>(`/vendor/tenant/${tenantSlug}/locations`, { token }),
-    apiRequest<QueueSnapshot>(`/vendor/tenant/${tenantSlug}/dashboard${locationQuery}`, { token }),
+  const locationsResponse = await apiRequest<StoreLocationsResponse>(`/vendor/tenant/${tenantSlug}/locations`, { token });
+  const requestedSlug = new URLSearchParams(locationQuery.replace(/^\?/, "")).get("location");
+  const selectedLocation = locationsResponse.locations.find((location) => location.slug === requestedSlug)
+    || locationsResponse.locations.find((location) => location.isPrimary)
+    || locationsResponse.locations[0];
+  if (!selectedLocation) throw new Error("No assigned location is available. Ask your vendor administrator to assign a location.");
+  const scopedQuery = `?location=${encodeURIComponent(selectedLocation.slug)}`;
+  const [snapshotResponse, notificationSettingsResponse] = await Promise.all([
+    apiRequest<QueueSnapshot>(`/vendor/tenant/${tenantSlug}/dashboard${scopedQuery}`, { token }),
     includeNotificationSettings
-      ? apiRequest<{ notificationSettings: TenantNotificationSettings }>(`/vendor/tenant/${tenantSlug}/notification-settings`, {
-          token
-        })
-      : Promise.resolve<{ notificationSettings: TenantNotificationSettings }>({
-          notificationSettings: {
-            queueJoin: true,
-            bookingIntake: true,
-            paymentProofReview: true,
-            bookingStatusChanges: true
-          }
-        })
-  ]).then(([locationsResponse, snapshotResponse, notificationSettingsResponse]) => ({
-    locationsResponse,
-    snapshotResponse,
-    notificationSettings: notificationSettingsResponse.notificationSettings
-  }));
+      ? apiRequest<{ notificationSettings: TenantNotificationSettings }>(`/vendor/tenant/${tenantSlug}/notification-settings`, { token })
+      : Promise.resolve({ notificationSettings: { queueJoin: true, bookingIntake: true, paymentProofReview: true, bookingStatusChanges: true } })
+  ]);
+  return { locationsResponse, snapshotResponse, notificationSettings: notificationSettingsResponse.notificationSettings };
 }
 
 export function getBillingOverview(token: string, tenantSlug: string) {

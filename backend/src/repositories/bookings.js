@@ -820,6 +820,11 @@ async function listBookingsForCheckInReminder(options = {}) {
     filters.push(`bookings.tenant_id = $${values.length}`);
   }
 
+  if (options.locationId) {
+    values.push(Number(options.locationId));
+    filters.push(`bookings.location_id = $${values.length}`);
+  }
+
   if (options.customerUserId) {
     values.push(Number(options.customerUserId));
     filters.push(`bookings.customer_user_id = $${values.length}`);

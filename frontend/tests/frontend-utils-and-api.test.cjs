@@ -825,6 +825,9 @@ test("vendor dashboard api helpers build the expected paths", async () => {
 
   await withFetch(async (url, options) => {
     calls.push([String(url), options]);
+    if (String(url).endsWith("/locations")) {
+      return mockResponse(200, { locations: [{ slug: "main", isPrimary: true }] });
+    }
     if (String(url).includes("/uploads/direct")) {
       return mockResponse(200, { uploaded: true });
     }

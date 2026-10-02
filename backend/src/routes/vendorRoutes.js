@@ -1,3 +1,4 @@
+const { projectOperationalBooking } = require("./vendorBookingReadModel");
 const permissions = require("../services/permissions");
 const staffAccessEmailService = require("../services/staffAccessEmailService");
 const express = require("express");
@@ -134,6 +135,13 @@ async function assertBookingReadAccess(user, tenant, location) {
   return false;
 }
 
+function formatBookingForOperator(user, tenant, booking) {
+  const formatted = formatVendorBooking(booking);
+  return permissions.userHasPermission(user, "tenant.booking.manage", { tenantId: tenant._id })
+    ? formatted
+    : projectOperationalBooking(formatted);
+}
+
 function formatVendorBooking(booking) {
   const groupFundedCampaign = booking.groupFundedCampaign
     ? {
@@ -258,8 +266,10 @@ router.get(
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
     assertTenantPermission(req.user, tenant._id, "tenant.queue.read");
     const location = await getLocationForTenant(tenant, normalizeRequestText(req.query.location));
+    if (permissions.getTenantRole(req.user, tenant._id) === "staff") {
+      await assertBookingReadAccess(req.user, tenant, location);
+    }
     const snapshot = await getQueueSnapshot(tenant, { location });
-
     res.json(snapshot);
   })
 );
@@ -660,11 +670,11 @@ router.get(
     }
 
     const bookingLocation = await getLocationForTenant(tenant, booking.locationSlug);
-    await assertBookingReadAccess(req.user, tenant, bookingLocation);
+    const canManageBookings = await assertBookingReadAccess(req.user, tenant, bookingLocation);
 
     res.json({
       booking: {
-        ...formatVendorBooking(booking),
+        ...(canManageBookings ? formatVendorBooking(booking) : projectOperationalBooking(formatVendorBooking(booking))),
         organizerCampaign: null
       }
     });
@@ -827,7 +837,9 @@ router.post(
       assertTenantPermission,
       assertQueueLocationAccess,
       getLocationForTenant,
-      bookingService
+      bookingService,
+      assertBookingReadAccess,
+      formatBookingForOperator
     })
   )
 );
@@ -842,6 +854,8 @@ router.post(
       assertTenantPermission,
       getLocationForTenant,
       bookingService,
+      assertBookingReadAccess,
+      formatBookingForOperator,
       publishSnapshot
     })
   )
