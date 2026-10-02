@@ -6,6 +6,7 @@ function projectOperationalBooking(booking) {
     "locationId", "locationName", "locationSlug", "serviceId", "serviceName", "serviceSlug",
     "serviceManualPaymentRequired", "servicePriceAmountCents", "serviceCurrency", "servicePriceDisplay",
     "bundleItems", "executionMode", "bookingQuantity", "customerName", "customerPhone", "customerEmail",
+    "contactVerificationChannel",
     "scheduledStartAt", "scheduledEndAt", "status", "paymentStatus", "pendingExpiresAt",
     "expiredAt", "expirationReason", "linkedTicket", "checkedInAt", "noShowAt", "createdAt", "updatedAt"
   ];

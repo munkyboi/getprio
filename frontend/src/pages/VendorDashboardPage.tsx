@@ -3066,6 +3066,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         current.map((item) => (item.id === response.booking.id ? response.booking : item))
       );
       clearBookingAlert(response.booking.id);
+      setBookingDetailBooking((current) => current?.id === response.booking.id ? response.booking : current);
       await reloadBookings();
       showSuccessNotification("Booking marked no-show", `${response.booking.reference} was canceled as a no-show.`);
     } catch (noShowError) {
@@ -3073,6 +3074,27 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     } finally {
       setBusyAction("");
     }
+  }
+
+  function renderStaffNoShowAction(booking: VendorBookingSummary) {
+    const state = getBookingCheckInState(booking, bookingCheckInNow);
+    const canMarkNoShow = canOperateBookingQueue && !canAdminBookings && state.isEligibleStatus && state.isLate;
+    if (!canMarkNoShow || booking.checkedInAt || booking.linkedTicket) {
+      return null;
+    }
+    return (
+      <Button
+        color="red"
+        leftSection={<IconAlertTriangle size={16} />}
+        mih={44}
+        disabled={Boolean(busyAction)}
+        loading={busyAction === `booking-no-show:${booking.id}`}
+        onClick={() => void handleMarkBookingNoShow(booking)}
+        variant="light"
+      >
+        Mark no-show
+      </Button>
+    );
   }
 
   async function handleViewBookingPaymentProof(booking: VendorBookingSummary) {
@@ -7805,19 +7827,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                                 </Button>
                               ) : null}
                               {canOperateBookingQueue && checkInState.isEligibleStatus && !booking.checkedInAt && !booking.linkedTicket && bookingCheckInBlocked ? <Text c="dimmed" size="xs">{bookingCheckInGuidance}</Text> : null}
-                              {canOperateBookingQueue && !canAdminBookings && checkInState.isEligibleStatus && checkInState.isLate && !booking.checkedInAt && !booking.linkedTicket ? (
-                                <Button
-                                  color="red"
-                                  leftSection={<IconAlertTriangle size={16} />}
-                                  mih={44}
-                                  disabled={Boolean(busyAction)}
-                                  loading={busyAction === `booking-no-show:${booking.id}`}
-                                  onClick={() => void handleMarkBookingNoShow(booking)}
-                                  variant="light"
-                                >
-                                  Mark no-show
-                                </Button>
-                              ) : null}
+                              {renderStaffNoShowAction(booking)}
                               {actionButtons}
                             </Group>
                           </Table.Td>
@@ -9788,19 +9798,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     </Button>
                     </Stack>
                   ) : null}
-                  {canOperateBookingQueue && !canAdminBookings && detailCheckInState?.isEligibleStatus && detailCheckInState.isLate && !detailBooking.checkedInAt && !detailBooking.linkedTicket ? (
-                    <Button
-                      color="red"
-                      leftSection={<IconAlertTriangle size={16} />}
-                      mih={44}
-                      disabled={Boolean(busyAction)}
-                      loading={busyAction === `booking-no-show:${detailBooking.id}`}
-                      onClick={() => void handleMarkBookingNoShow(detailBooking)}
-                      variant="light"
-                    >
-                      Mark no-show
-                    </Button>
-                  ) : null}
+                  {renderStaffNoShowAction(detailBooking)}
                   {canAdminBookings && detailBooking.status === "pending" ? (
                     <>
                       <Button
