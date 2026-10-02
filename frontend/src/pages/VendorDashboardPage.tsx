@@ -9411,7 +9411,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     ];
     const detailBooking = bookingDetailBooking;
     const detailPaymentReviewable = Boolean(
-      detailBooking &&
+      canAdminBookings && detailBooking &&
       detailBooking.paymentProof &&
       detailBooking.paymentStatus === "pending" &&
       (detailBooking.status === "pending" || detailBooking.status === "rescheduled")
@@ -9647,7 +9647,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       <Text c="dimmed" size="sm">
                         {detailBooking.paymentProof.fileName} · {formatBytes(detailBooking.paymentProof.sizeBytes)}
                       </Text>
-                      <Button
+                      {canAdminBookings ? <Button
                         leftSection={<IconExternalLink size={14} />}
                         loading={busyAction === `booking-proof:${detailBooking.id}`}
                         onClick={() => handleViewBookingPaymentProof(detailBooking)}
@@ -9656,7 +9656,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                         w="fit-content"
                       >
                         View proof
-                      </Button>
+                      </Button> : null}
                     </Stack>
                   ) : isGroupFundedDetailBooking ? (
                     <Text c="dimmed" size="sm">No individual payment proof is required.</Text>
@@ -9728,7 +9728,6 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   Close
                 </Button>
                 <Group gap="xs">
-                  {canOperateBookingQueue && getBookingCheckInState(detailBooking, bookingCheckInNow).isEligibleStatus && !detailBooking.checkedInAt && !detailBooking.linkedTicket && bookingCheckInBlocked ? <Text c="dimmed" size="sm">{bookingCheckInGuidance}</Text> : null}
                   <Button
                     variant="default"
                     onClick={() => {
@@ -9741,6 +9740,8 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     Open booking queue
                   </Button>
                   {canOperateBookingQueue && getBookingCheckInState(detailBooking, bookingCheckInNow).isEligibleStatus && !detailBooking.checkedInAt && !detailBooking.linkedTicket ? (
+                    <Stack gap={4}>
+                      {bookingCheckInBlocked ? <Text c="dimmed" size="sm">{bookingCheckInGuidance}</Text> : null}
                     <Button
                       leftSection={<IconCalendarCheck size={16} />}
                       mih={44}
@@ -9763,6 +9764,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     >
                       {getBookingCheckInState(detailBooking, bookingCheckInNow).isTooEarly ? "Check-in opens 15 minutes before the booking" : getBookingCheckInState(detailBooking, bookingCheckInNow).isLate ? "Check in customer late" : "Check in customer"}
                     </Button>
+                    </Stack>
                   ) : null}
                   {canAdminBookings && detailBooking.status === "pending" ? (
                     <>

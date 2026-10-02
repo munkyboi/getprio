@@ -284,6 +284,12 @@ router.get(
     assertTenantPermission(req.user, tenant._id, "tenant.queue.read");
     const billing = await billingService.getBillingOverview(tenant._id);
     const locations = await storeLocationRepository.listLocationsByTenantId(tenant._id);
+    const visibleLocations = permissions.getTenantRole(req.user, tenant._id) === "staff"
+      ? (await Promise.all(locations.map(async (location) => ({
+          location,
+          assigned: await tenantMembershipLocationRepository.userHasLocationAssignment(req.user._id, tenant._id, location._id)
+        })))).filter((entry) => entry.assigned).map((entry) => entry.location)
+      : locations;
     const activeLocationLimit =
       billing.subscription?.entitlements?.locations ||
       billing.plans.find((plan) => plan.slug === billing.subscription?.planSlug)?.entitlements.locations ||
@@ -293,7 +299,7 @@ router.get(
     res.json({
       activeLocationLimit,
       defaultTimezone: platformSettings.defaultTimezone,
-      locations: await Promise.all(locations.map((location) => formatLocation(location, tenant)))
+      locations: await Promise.all(visibleLocations.map((location) => formatLocation(location, tenant)))
     });
   })
 );

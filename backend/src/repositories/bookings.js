@@ -916,6 +916,11 @@ async function expirePendingBookings(options = {}) {
     filters.push(`tenant_id = $${values.length}`);
   }
 
+  if (options.locationId) {
+    values.push(Number(options.locationId));
+    filters.push(`location_id = $${values.length}`);
+  }
+
   if (options.customerUserId) {
     values.push(Number(options.customerUserId));
     filters.push(`customer_user_id = $${values.length}`);

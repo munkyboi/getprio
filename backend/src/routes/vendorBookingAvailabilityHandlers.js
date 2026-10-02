@@ -303,7 +303,11 @@ async function handleListBookings({ req, res, getAuthorizedTenant, assertTenantP
     error.statusCode = 400;
     throw error;
   }
-  if (canManageBookings) await bookingService.expirePendingBookingsForTenant(tenant._id);
+  if (canManageBookings) {
+    await bookingService.expirePendingBookingsForTenant(tenant._id);
+  } else {
+    await bookingService.expirePendingBookingsForLocation(tenant._id, location._id);
+  }
   const { bookings, totalItems } = await bookingRepository.listBookingsForTenant(tenant._id, {
     page,
     pageSize,
