@@ -2721,8 +2721,14 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
   const queueDayState = resolveQueueDayState(snapshot?.queueDay);
   const queueDayClosed = queueDayState !== "open";
   const queueDayPaused = Boolean(snapshot?.queueDay?.isPaused);
-  const bookingCheckInBlocked = !snapshot || queueDayClosed || queueDayPaused || snapshot.queueDay?.intakeMode === "paused";
-  const bookingCheckInGuidance = queueDayClosed ? "Open the queue before checking in customers." : "Resume queue intake before checking in customers.";
+  const bookingSnapshotMatchesLocation = Boolean(selectedLocationSlug && snapshot?.location?.slug === selectedLocationSlug && snapshot.tenant.slug === selectedTenantSlug);
+  const bookingCheckInBlocked = !bookingSnapshotMatchesLocation || queueDayClosed || queueDayPaused || snapshot?.queueDay?.intakeMode === "paused";
+  let bookingCheckInGuidance = "Resume queue intake before checking in customers.";
+  if (!bookingSnapshotMatchesLocation) {
+    bookingCheckInGuidance = "Loading this location's queue status. Please wait.";
+  } else if (queueDayClosed) {
+    bookingCheckInGuidance = "Open the queue before checking in customers.";
+  }
   const queueDayUnopened = queueDayState === "unopened";
   const queueDayActuallyClosed = queueDayState === "closed";
   const queueDayReconciling =
