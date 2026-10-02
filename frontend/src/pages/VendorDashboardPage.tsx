@@ -76,7 +76,7 @@ import {
 } from "@tabler/icons-react";
 import { notifications } from "@mantine/notifications";
 import { useMediaQuery } from "@mantine/hooks";
-import { differenceInMinutes, getDay } from "date-fns";
+import { getDay } from "date-fns";
 import { Navigate, NavLink, useLocation, useNavigate, useParams } from "react-router-dom";
 import type {
   BillingOverviewResponse,
@@ -790,17 +790,13 @@ function isCheckedInBookingTicket(ticket: {
   return ticket.servicePriorityBand === "checked_in_booking" || Boolean(ticket.linkedBookingReference);
 }
 
-function getMinutesFromNow(value: string | Date): number {
-  return differenceInMinutes(new Date(), new Date(value));
-}
-
-function getBookingCheckInState(booking: VendorBookingSummary) {
-  const minutesFromStart = getMinutesFromNow(booking.scheduledStartAt);
+function getBookingCheckInState(booking: VendorBookingSummary, now = Date.now()) {
+  const startAt = new Date(booking.scheduledStartAt).getTime();
+  const validStart = Number.isFinite(startAt);
   return {
-    isTooEarly: minutesFromStart < -15,
-    isLate: minutesFromStart > 15,
-    isEligibleStatus: ["confirmed", "rescheduled"].includes(booking.status),
-    minutesFromStart
+    isTooEarly: !validStart || now < startAt - 15 * 60 * 1000,
+    isLate: validStart && now > startAt + 15 * 60 * 1000,
+    isEligibleStatus: ["confirmed", "rescheduled"].includes(booking.status)
   };
 }
 
@@ -1075,6 +1071,13 @@ export default function VendorDashboardPage() {
   const localQueueDayUpdateRef = useRef<LocalQueueDayUpdate | null>(null);
   const [bookingDetailModalId, setBookingDetailModalId] = useState<string | null>(null);
   const [bookingDetailOpen, setBookingDetailOpen] = useState(false);
+  const [bookingCheckInNow, setBookingCheckInNow] = useState(Date.now);
+  useEffect(() => {
+    if (currentSection !== "bookings" && !bookingDetailOpen) return;
+    setBookingCheckInNow(Date.now());
+    const timer = window.setInterval(() => setBookingCheckInNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [currentSection, bookingDetailOpen]);
   const [bookingDetailLoading, setBookingDetailLoading] = useState(false);
   const [bookingDetailBooking, setBookingDetailBooking] = useState<VendorBookingSummary | null>(null);
   const [bookingDetailError, setBookingDetailError] = useState("");
@@ -2718,6 +2721,8 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
   const queueDayState = resolveQueueDayState(snapshot?.queueDay);
   const queueDayClosed = queueDayState !== "open";
   const queueDayPaused = Boolean(snapshot?.queueDay?.isPaused);
+  const bookingCheckInBlocked = !snapshot || queueDayClosed || queueDayPaused || snapshot.queueDay?.intakeMode === "paused";
+  const bookingCheckInGuidance = queueDayClosed ? "Open the queue before checking in customers." : "Resume queue intake before checking in customers.";
   const queueDayUnopened = queueDayState === "unopened";
   const queueDayActuallyClosed = queueDayState === "closed";
   const queueDayReconciling =
@@ -7442,7 +7447,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       const paymentReviewPending = booking.paymentStatus === "pending";
                       const paymentVerified = booking.paymentStatus === "paid";
                       const manualPaymentRequired = Boolean(booking.serviceManualPaymentRequired);
-                      const checkInState = getBookingCheckInState(booking);
+                      const checkInState = getBookingCheckInState(booking, bookingCheckInNow);
                       const hasExpired = Boolean(booking.expiredAt);
                       const isGroupFundedBooking = booking.bookingPaymentSource === "group_funded" || Boolean(booking.groupFundedBookingId);
                       const bookingBundleItems = isGroupFundedBooking && booking.groupFundedCampaign?.bundleItems?.length
@@ -7663,7 +7668,8 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                                 <ActionIcon
                                   aria-label="Late check-in"
                                   color="orange"
-                                  disabled={busyAction === `booking-check-in:${booking.id}:override`}
+                                  disabled={Boolean(busyAction) || bookingCheckInBlocked}
+                                  title={bookingCheckInBlocked ? bookingCheckInGuidance : undefined}
                                   onClick={() => handleCheckInBooking(booking, true)}
                                   variant="light"
                                 >
@@ -7790,12 +7796,14 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                                   leftSection={<IconCalendarCheck size={16} />}
                                   mih={44}
                                   loading={busyAction === `booking-check-in:${booking.id}`}
-                                  disabled={Boolean(busyAction)}
+                                  disabled={Boolean(busyAction) || bookingCheckInBlocked}
+                                  title={bookingCheckInBlocked ? bookingCheckInGuidance : undefined}
                                   onClick={() => void handleCheckInBooking(booking)}
                                 >
                                   Check in customer
                                 </Button>
                               ) : null}
+                              {canOperateBookingQueue && checkInState.isEligibleStatus && !booking.checkedInAt && !booking.linkedTicket && bookingCheckInBlocked ? <Text c="dimmed" size="xs">{bookingCheckInGuidance}</Text> : null}
                               {actionButtons}
                             </Group>
                           </Table.Td>
@@ -9720,6 +9728,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   Close
                 </Button>
                 <Group gap="xs">
+                  {canOperateBookingQueue && getBookingCheckInState(detailBooking, bookingCheckInNow).isEligibleStatus && !detailBooking.checkedInAt && !detailBooking.linkedTicket && bookingCheckInBlocked ? <Text c="dimmed" size="sm">{bookingCheckInGuidance}</Text> : null}
                   <Button
                     variant="default"
                     onClick={() => {
@@ -9731,12 +9740,13 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   >
                     Open booking queue
                   </Button>
-                  {canOperateBookingQueue && getBookingCheckInState(detailBooking).isEligibleStatus && !detailBooking.checkedInAt && !detailBooking.linkedTicket ? (
+                  {canOperateBookingQueue && getBookingCheckInState(detailBooking, bookingCheckInNow).isEligibleStatus && !detailBooking.checkedInAt && !detailBooking.linkedTicket ? (
                     <Button
                       leftSection={<IconCalendarCheck size={16} />}
                       mih={44}
-                      disabled={Boolean(busyAction) || getBookingCheckInState(detailBooking).isTooEarly}
-                      loading={busyAction === `booking-check-in:${detailBooking.id}${getBookingCheckInState(detailBooking).isLate ? ":override" : ""}`}
+                      disabled={Boolean(busyAction) || bookingCheckInBlocked || getBookingCheckInState(detailBooking, bookingCheckInNow).isTooEarly}
+                      title={bookingCheckInBlocked ? bookingCheckInGuidance : undefined}
+                      loading={busyAction === `booking-check-in:${detailBooking.id}${getBookingCheckInState(detailBooking, bookingCheckInNow).isLate ? ":override" : ""}`}
                       onClick={() => {
                         if (getBookingCheckInState(detailBooking).isLate) {
                           openConfirmAction({
@@ -9751,7 +9761,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                         }
                       }}
                     >
-                      {getBookingCheckInState(detailBooking).isTooEarly ? "Check-in opens 15 minutes before the booking" : getBookingCheckInState(detailBooking).isLate ? "Check in customer late" : "Check in customer"}
+                      {getBookingCheckInState(detailBooking, bookingCheckInNow).isTooEarly ? "Check-in opens 15 minutes before the booking" : getBookingCheckInState(detailBooking, bookingCheckInNow).isLate ? "Check in customer late" : "Check in customer"}
                     </Button>
                   ) : null}
                   {canAdminBookings && detailBooking.status === "pending" ? (

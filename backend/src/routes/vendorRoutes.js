@@ -1,3 +1,4 @@
+const permissions = require("../services/permissions");
 const staffAccessEmailService = require("../services/staffAccessEmailService");
 const express = require("express");
 const tenantRepository = require("../repositories/tenants");
@@ -120,6 +121,19 @@ async function assertQueueLocationAccess(user, tenant, location) {
     throw error;
   }
 }
+async function assertBookingReadAccess(user, tenant, location) {
+  if (permissions.userHasPermission(user, "tenant.booking.manage", { tenantId: tenant._id })) {
+    return true;
+  }
+  assertTenantPermission(user, tenant._id, "tenant.queue.operate");
+  if (!location || !(await tenantMembershipLocationRepository.userHasLocationAssignment(user._id, tenant._id, location._id))) {
+    const error = new Error("Select an assigned location to view its bookings.");
+    error.statusCode = 403;
+    throw error;
+  }
+  return false;
+}
+
 function formatVendorBooking(booking) {
   const groupFundedCampaign = booking.groupFundedCampaign
     ? {
@@ -611,6 +625,7 @@ router.get(
       getLocationForTenant,
       bookingService,
       bookingRepository,
+      assertBookingReadAccess,
       formatPaginationMetadata,
       parsePaginationParams
     })
@@ -621,7 +636,6 @@ router.get(
   "/tenant/:tenantSlug/bookings/:bookingId",
   asyncHandler(async (req, res) => {
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
-    assertTenantPermission(req.user, tenant._id, "tenant.booking.manage");
     const booking = await bookingRepository.findBookingById(req.params.bookingId);
 
     if (!booking || String(booking.tenantId) !== String(tenant._id)) {
@@ -638,6 +652,9 @@ router.get(
         throw error;
       }
     }
+
+    const bookingLocation = await getLocationForTenant(tenant, booking.locationSlug);
+    await assertBookingReadAccess(req.user, tenant, bookingLocation);
 
     res.json({
       booking: {

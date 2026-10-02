@@ -286,11 +286,13 @@ async function normalizeAvailabilityExceptionPayload(tenant, body, existingExcep
   };
 }
 
-async function handleListBookings({ req, res, getAuthorizedTenant, assertTenantPermission, getLocationForTenant, bookingService, bookingRepository, formatPaginationMetadata, parsePaginationParams }) {
+async function handleListBookings({ req, res, getAuthorizedTenant, assertTenantPermission, assertBookingReadAccess, getLocationForTenant, bookingService, bookingRepository, formatPaginationMetadata, parsePaginationParams }) {
   const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
-  assertTenantPermission(req.user, tenant._id, "tenant.booking.manage");
   const { page, pageSize } = parsePaginationParams(req.query);
   const location = req.query.location ? await getLocationForTenant(tenant, req.query.location) : null;
+  const canManageBookings = assertBookingReadAccess
+    ? await assertBookingReadAccess(req.user, tenant, location)
+    : (assertTenantPermission(req.user, tenant._id, "tenant.booking.manage"), true);
   const status = String(req.query.status || "").trim();
   const scheduledDateFrom = String(req.query.scheduledDateFrom || req.query.scheduledDate || "").trim();
   const scheduledDateTo = String(req.query.scheduledDateTo || req.query.scheduledDate || "").trim();
@@ -301,7 +303,7 @@ async function handleListBookings({ req, res, getAuthorizedTenant, assertTenantP
     error.statusCode = 400;
     throw error;
   }
-  await bookingService.expirePendingBookingsForTenant(tenant._id);
+  if (canManageBookings) await bookingService.expirePendingBookingsForTenant(tenant._id);
   const { bookings, totalItems } = await bookingRepository.listBookingsForTenant(tenant._id, {
     page,
     pageSize,
