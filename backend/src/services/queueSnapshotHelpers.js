@@ -8,6 +8,7 @@ const waitTimePredictionRepository = require("../repositories/waitTimePrediction
 const queueFeeService = require("./queueFeeService");
 const storeHoursService = require("./storeHoursService");
 const { predictWaitTime } = require("./waitTimePredictor");
+const { buildServiceTimeContext } = require("./queueEstimationInputs");
 const {
   getDateKey,
   getQueueIntakeState,
@@ -188,7 +189,14 @@ async function buildQueueSnapshot(tenant, options = {}, getTenantUsage) {
       averageServiceMinutes: tenant.averageServiceMinutes,
       priorityBand: lookupTicket.servicePriorityBand || "normal",
       currentTicketCalledAt: predictionCurrent?.calledAt || null,
-      queuePaused: Boolean(predictionPause)
+      queuePaused: Boolean(predictionPause),
+      serviceTimeContext: buildServiceTimeContext({
+        ticket: lookupTicket,
+        position: position || 0,
+        waitingTickets: predictionWaitingTickets,
+        currentTicket: predictionCurrent,
+        averageServiceMinutes: tenant.averageServiceMinutes
+      })
     });
 
     if (

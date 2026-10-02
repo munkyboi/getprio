@@ -6,6 +6,7 @@ import console from "node:console";
 import { hostname } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, URL } from "node:url";
+import { parseTicketContextOptions, readTicketContext } from "./wait-time-ticket-context.mjs";
 
 const require = createRequire(import.meta.url);
 const env = require("../backend/src/config/env");
@@ -264,7 +265,11 @@ async function readDeveloperSandboxReport(client) {
 }
 
 async function runAudit() {
-  const options = parseOptions(process.argv.slice(2));
+  const { reportArgs, ticketContext } = parseTicketContextOptions(process.argv.slice(2));
+  const options = parseOptions(reportArgs);
+  if (ticketContext && (options.scope !== "vendors" || !options.vendorSlug)) {
+    throw new Error("Ticket context requires --scope vendors and --vendor-slug.");
+  }
   const configuredTarget = assertDatabaseTarget();
   let client;
   let transactionOpen = false;
@@ -312,6 +317,7 @@ async function runAudit() {
     if (options.scope !== "vendors") {
       report.developerApiSandbox = await readDeveloperSandboxReport(client);
     }
+    if (ticketContext) report.ticketContext = await readTicketContext(client, vendorId, ticketContext);
 
     console.log(JSON.stringify(report, null, 2));
   } finally {

@@ -89,7 +89,8 @@ function mapTicket(row) {
     carriedOverAt: row.carried_over_at,
     carryOverCount: row.carry_over_count || 0,
     servicePriorityBand: row.service_priority_band || "normal",
-    linkedBookingReference: row.linked_booking_reference || null,
+    linkedBookingReference: row.linked_booking_reference || row.linked_booking_estimation?.reference || null,
+    linkedBookingEstimation: row.linked_booking_estimation || null,
     rejoinDeadlineAt: row.rejoin_deadline_at,
     originalQueueDayId: row.original_queue_day_id ? String(row.original_queue_day_id) : null,
     currentQueueDayId: row.current_queue_day_id ? String(row.current_queue_day_id) : null,
@@ -114,12 +115,28 @@ function withLinkedBookingReferenceSelect() {
   return `
     ${withCustomerDisplayNameSelect()},
     (
-      SELECT bookings.reference
+      SELECT json_build_object(
+        'reference', bookings.reference,
+        'scheduledStartAt', bookings.scheduled_start_at,
+        'scheduledEndAt', bookings.scheduled_end_at,
+        'executionMode', bookings.execution_mode,
+        'serviceItems', COALESCE((
+          SELECT json_agg(json_build_object(
+            'scheduledStartAt', items.scheduled_start_at,
+            'scheduledEndAt', items.scheduled_end_at
+          ) ORDER BY items.sort_order, items.id)
+          FROM booking_bundle_items items
+          WHERE items.booking_id = bookings.id
+            AND items.tenant_id = tickets.tenant_id
+            AND items.location_id = tickets.location_id
+        ), '[]'::json)
+      )
       FROM bookings
       WHERE bookings.queue_ticket_id = tickets.id
         AND bookings.tenant_id = tickets.tenant_id
+        AND bookings.location_id = tickets.location_id
       LIMIT 1
-    ) AS linked_booking_reference
+    ) AS linked_booking_estimation
   `;
 }
 
