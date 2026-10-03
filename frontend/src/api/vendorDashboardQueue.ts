@@ -92,6 +92,16 @@ export function callNextTicket(token: string, tenantSlug: string, locationQuery:
   );
 }
 
+export function recordTicketService(
+  token: string, tenantSlug: string, locationQuery: string, ticketId: string,
+  action: "start" | "complete" | "interrupt"
+) {
+  return apiRequest<VendorDashboardActionResponse>(
+    `/vendor/tenant/${tenantSlug}/queue/tickets/${ticketId}/service/${action}${locationQuery}`,
+    { method: "POST", token }
+  );
+}
+
 export function serveCurrentTicket(token: string, tenantSlug: string, locationQuery: string) {
   return apiRequest<VendorDashboardActionResponse>(
     `/vendor/tenant/${tenantSlug}/queue/current/serve${locationQuery}`,

@@ -466,9 +466,14 @@ function redactQueueTicketIdentity(ticket) {
   return publicTicket;
 }
 
+function withoutStaffServiceTiming(snapshot) {
+  const { unfinishedServiceTiming: _staffTiming, ...customerSnapshot } = snapshot;
+  return customerSnapshot;
+}
+
 function formatPublicQueueSnapshot(snapshot) {
   return {
-    ...snapshot,
+    ...withoutStaffServiceTiming(snapshot),
     current: redactQueueTicketIdentity(snapshot.current),
     nextUp: (snapshot.nextUp || []).map(redactQueueTicketIdentity),
     overflow: (snapshot.overflow || []).map(redactQueueTicketIdentity),
@@ -510,7 +515,7 @@ router.get(
       throw error;
     }
 
-    res.json(lookupCode ? snapshot : formatPublicQueueSnapshot(snapshot));
+    res.json(lookupCode ? withoutStaffServiceTiming(snapshot) : formatPublicQueueSnapshot(snapshot));
   })
 );
 
@@ -880,7 +885,7 @@ router.delete(
         lookupCode: result.ticket.lookupCode,
         status: result.ticket.status
       },
-      snapshot: result.snapshot
+      snapshot: withoutStaffServiceTiming(result.snapshot)
     });
   })
 );
@@ -915,7 +920,7 @@ router.get(
 
     const writeSnapshot = async (snapshot) => {
       const payload = lookupCode
-        ? await getQueueSnapshot(tenant, { lookupCode, location })
+        ? withoutStaffServiceTiming(await getQueueSnapshot(tenant, { lookupCode, location }))
         : formatPublicQueueSnapshot(
             snapshot || (await getQueueSnapshot(tenant, { location }))
           );

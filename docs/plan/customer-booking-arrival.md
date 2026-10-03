@@ -20,4 +20,4 @@ This includes the web booking page and the versioned backend contract. Native mo
 
 ## Next slice
 
-Configure generic resource pools and service requirements; add explicit service start/completion and transactional resource allocation for opted-in vendors. Resource tracking remains disabled by its existing database constraint. Do not publish occupancy-based wait estimates or reinterpret called/served history as actual occupancy. Existing vendors keep their simple workflow.
+Optional staff service start/completion is implemented in the service timing slice; see `service-timing.md`. Configure generic resource pools and service requirements, then add transactional resource allocation for opted-in vendors. Resource tracking remains disabled by its existing database constraint. Do not publish occupancy-based wait estimates or reinterpret called/served history as actual occupancy. Existing vendors keep their simple workflow.

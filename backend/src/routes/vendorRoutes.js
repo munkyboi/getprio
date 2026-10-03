@@ -28,6 +28,7 @@ const publicBoardThemeUploadService = require("../services/publicBoardThemeUploa
 const vendorMediaUploadService = require("../services/vendorMediaUploadService");
 const locationPaymentQrUploadService = require("../services/locationPaymentQrUploadService");
 const bookingService = require("../services/bookingService");
+const { recordTicketService } = require("../services/ticketServiceTimingService");
 const entitlementAdmissionService = require("../services/entitlementAdmissionService");
 const ratingService = require("../services/ratingService");
 const PDFDocument = require("pdfkit");
@@ -1229,6 +1230,21 @@ router.post(
     });
   })
 );
+
+// Ticket IDs make stale tabs and retries target the same service, never the next customer.
+for (const action of ["start", "complete", "interrupt"]) {
+  router.post(`/tenant/:tenantSlug/queue/tickets/:ticketId/service/${action}`, asyncHandler(async (req, res) => {
+    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+    assertTenantPermission(req.user, tenant._id, "tenant.ticket.update_state");
+    const location = await getLocationForTenant(tenant, normalizeRequestText(req.query.location));
+    await assertQueueLocationAccess(req.user, tenant, location);
+    const result = await recordTicketService(tenant, req.params.ticketId, action, {
+      location, actorUserId: req.user._id
+    });
+    res.json({ ticket: { id: String(result.ticket._id), ticketNumber: result.ticket.ticketNumber,
+      status: result.ticket.status }, snapshot: result.snapshot });
+  }));
+}
 
 router.post(
   "/tenant/:tenantSlug/queue/current/serve",

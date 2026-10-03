@@ -383,6 +383,7 @@ const emptyLocationForm = {
   paymentQrImageUrl: "",
   paymentQrActive: false,
   customerSelfCheckInEnabled: false,
+  serviceTimingEnabled: false,
   isPrimary: false,
   isActive: true,
   hours: defaultHours
@@ -4526,6 +4527,14 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
               onChange={(event) => setLocationForm((current) => ({ ...current, customerSelfCheckInEnabled: event.currentTarget.checked }))}
             />
           </ModalSection>
+          <ModalSection title="Service timing" description="Record when staff actually start and finish serving a customer.">
+            <Switch
+              checked={locationForm.serviceTimingEnabled}
+              label="Track service start and completion"
+              description="Use Call next, Start service, then Complete service. This records actual service time; it does not reserve resources or change wait estimates. Turning this off keeps unfinished records available for staff to resolve."
+              onChange={(event) => setLocationForm((current) => ({ ...current, serviceTimingEnabled: event.currentTarget.checked }))}
+            />
+          </ModalSection>
           <ModalSection
             title="Visibility and access"
             description="These switches control whether the branch is active and whether it is treated as the main location."
@@ -4875,6 +4884,39 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     return (
       <Stack gap="md">
         {renderStats()}
+        {(snapshot?.unfinishedServiceTiming || []).some((record) => record.id !== activeTicket?.id) ? (
+          <Card className="neura-card" padding="lg">
+            <Stack gap="md">
+              <Title order={3}>Unfinished service records</Title>
+              <Text c="dimmed" size="sm">These services have a recorded start but no recorded end. Closing a queue does not finish service. The oldest 100 unfinished records are shown. Resolving a record here preserves its existing queue and booking outcome.</Text>
+              {(snapshot?.unfinishedServiceTiming || []).filter((record) => record.id !== activeTicket?.id).map((record) => (
+                <Paper key={record.id} withBorder p="md" radius="md">
+                  <Stack gap="xs">
+                    <Text fw={600}>{record.ticketNumber} · {record.status}</Text>
+                    <Text size="sm">Started {formatDateTime(record.serviceStartedAt)}</Text>
+                    <Group wrap="wrap">
+                      {(["complete", "interrupt"] as const).map((action) => (
+                        <Button key={action} variant="outline" mih={44} disabled={Boolean(busyAction)}
+                          onClick={() => setConfirmAction({
+                            title: action === "complete" ? "Record service completion?" : "Record interrupted service?",
+                            description: "The current time will be recorded as the service end. The existing queue and booking outcome will be preserved.",
+                            confirmLabel: action === "complete" ? "Record completion" : "Record interruption", confirmColor: "orange",
+                            onConfirm: async () => {
+                              await runAction(`service-${action}`, () => vendorDashboardQueue.recordTicketService(
+                                token, selectedTenantSlug, locationQuery, record.id, action
+                              ));
+                            }
+                          })}>
+                          {action === "complete" ? "Record completion" : "Record interruption"}
+                        </Button>
+                      ))}
+                    </Group>
+                  </Stack>
+                </Paper>
+              ))}
+            </Stack>
+          </Card>
+        ) : null}
         <Grid gutter="md">
           <Grid.Col span={{ base: 12, lg: 8 }}>
           <Card className="neura-card" h="100%" padding="lg">
@@ -5058,19 +5100,26 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     {activeTicket && (activeTicket.customerConfirmedAt || activeTicket.joinChannel === "vendor") ? (
                       <Button
                         className="neura-secondary-button"
-                        disabled={busyAction === "serve-current"}
+                        disabled={Boolean(busyAction)}
                         leftSection={<IconCheck size={16} />}
-                        loading={busyAction === "serve-current"}
+                        loading={["serve-current", "service-start", "service-complete"].includes(busyAction || "")}
                         onClick={async () => {
-                          const success = await runAction("serve-current", () =>
-                            vendorDashboardQueue.serveCurrentTicket(token, selectedTenantSlug, locationQuery)
+                          const tracking = snapshot?.location?.serviceTimingEnabled || Boolean(activeTicket.serviceStartedAt);
+                          const action = activeTicket.serviceStartedAt ? "complete" : "start";
+                          const success = await runAction(tracking ? `service-${action}` : "serve-current", () =>
+                            tracking
+                              ? vendorDashboardQueue.recordTicketService(token, selectedTenantSlug, locationQuery, activeTicket.id, action)
+                              : vendorDashboardQueue.serveCurrentTicket(token, selectedTenantSlug, locationQuery)
                           );
                           if (success) {
-                            showSuccessNotification("Customer served", "The ticket was marked as served.");
+                            showSuccessNotification(
+                              tracking && action === "start" ? "Service started" : "Customer served",
+                              tracking && action === "start" ? "The actual service start has been recorded." : "The ticket was marked as served."
+                            );
                           }
                         }}
                       >
-                        Serve customer
+                        {activeTicket.serviceStartedAt ? "Complete service" : snapshot?.location?.serviceTimingEnabled ? "Start service" : "Serve customer"}
                       </Button>
                     ) : (
                       <Button
@@ -5087,7 +5136,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     )}
                     <Button
                       variant="default"
-                      disabled={busyAction === "skip-current" || !activeTicket}
+                      disabled={Boolean(busyAction) || !activeTicket || Boolean(activeTicket.serviceStartedAt)}
                       onClick={async () => {
                         const success = await runAction("skip-current", () =>
                           vendorDashboardQueue.skipCurrentTicket(token, selectedTenantSlug, locationQuery)
@@ -5100,6 +5149,21 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     >
                       Skip current
                     </Button>
+                    {activeTicket?.serviceStartedAt ? (
+                      <Button variant="outline" color="orange" mih={44} disabled={Boolean(busyAction)}
+                        onClick={() => setConfirmAction({
+                          title: "Interrupt service?",
+                          description: "Record that service ended without completion and mark the called ticket unserved. This is excluded from completed service duration samples.",
+                          confirmLabel: "Record interruption", confirmColor: "orange",
+                          onConfirm: async () => {
+                            await runAction("service-interrupt", () => vendorDashboardQueue.recordTicketService(
+                              token, selectedTenantSlug, locationQuery, activeTicket.id, "interrupt"
+                            ));
+                          }
+                        })}>
+                        Interrupt service
+                      </Button>
+                    ) : null}
                   </Group>
                   <SimpleGrid cols={{ base: 1, sm: intakeState?.autoPauseEnabled ? 3 : 2 }} spacing="md">
                     <Paper withBorder radius="md" p="md">
@@ -5116,6 +5180,11 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       <Text c="dimmed" size="sm">
                         {activeTicket?.customerName || "No active ticket"}
                       </Text>
+                      {activeTicket?.serviceStartedAt ? (
+                        <Text c="teal" size="sm">Service started {formatDateTime(activeTicket.serviceStartedAt)}</Text>
+                      ) : snapshot?.location?.serviceTimingEnabled && activeTicket ? (
+                        <Text c="dimmed" size="sm">Called · service has not started</Text>
+                      ) : null}
                       {activeTicket?.linkedBookingReference ? (
                         <Text c="dimmed" size="xs">
                           Booking {activeTicket.linkedBookingReference}
@@ -6048,6 +6117,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         paymentQrImageUrl: locationItem.paymentQrImageUrl,
         paymentQrActive: locationItem.paymentQrActive,
         customerSelfCheckInEnabled: locationItem.customerSelfCheckInEnabled === true,
+        serviceTimingEnabled: locationItem.serviceTimingEnabled === true,
         isPrimary: locationItem.isPrimary,
         isActive: locationItem.isActive,
         hours: locationItem.hours.length ? locationItem.hours : defaultHours
@@ -6163,6 +6233,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         paymentQrImageUrl: locationForm.paymentQrImageUrl,
         paymentQrActive: locationForm.paymentQrActive,
         customerSelfCheckInEnabled: locationForm.customerSelfCheckInEnabled,
+        serviceTimingEnabled: locationForm.serviceTimingEnabled,
         isPrimary: locationForm.isPrimary,
         isActive: locationForm.isActive
       };

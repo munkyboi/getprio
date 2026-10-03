@@ -637,11 +637,21 @@ async function updateCurrentTicketStatus(tenant, status, options = {}) {
   const ticket = await db.withTransaction(async (client) => {
     const currentTicket = await ticketRepository.findCurrentCalledTicket(tenant._id, {
       client,
+      forUpdate: true,
       locationId: location?._id,
       dateKey
     });
     if (!currentTicket) {
       return null;
+    }
+
+    const branch = await client.query(`SELECT service_timing_enabled FROM store_locations
+      WHERE id = $1 AND tenant_id = $2`, [location._id, tenant._id]);
+    if ((currentTicket.serviceStartedAt && !currentTicket.serviceEndedAt)
+      || (status === "served" && branch.rows[0]?.service_timing_enabled)) {
+      const error = new Error("Use Start service and Complete service, or record an interrupted service, for this ticket.");
+      error.statusCode = 409;
+      throw error;
     }
 
     if (status === "served" && !currentTicket.customerConfirmedAt && currentTicket.joinChannel !== "vendor") {
@@ -655,6 +665,7 @@ async function updateCurrentTicketStatus(tenant, status, options = {}) {
       client,
       locationId: location?._id,
       dateKey,
+      ticketId: currentTicket._id,
       rejoinDeadlineAt: status === "skipped" ? getRecoveryDeadline() : null
     });
     if (!updatedTicket) {

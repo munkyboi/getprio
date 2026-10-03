@@ -268,6 +268,7 @@ export interface StoreLocationSummary {
   paymentQrActive: boolean;
   queueLifecycleMode?: "legacy" | "shadow" | "enforced";
   customerSelfCheckInEnabled?: boolean;
+  serviceTimingEnabled?: boolean;
   isPrimary: boolean;
   isActive: boolean;
   joinUrl: string;
@@ -1294,6 +1295,7 @@ export interface LocationPaymentQrUploadResponse {
 }
 
 export interface CreateStoreLocationRequest {
+  serviceTimingEnabled?: boolean;
   customerSelfCheckInEnabled?: boolean;
   name: string;
   slug: string;
@@ -1335,6 +1337,7 @@ export interface QueueCurrentTicket {
   customerName: string;
   customerDisplayName?: string | null;
   calledAt: string | Date | null;
+  serviceStartedAt?: string | Date | null;
   joinChannel?: JoinChannel;
   customerConfirmedAt?: string | Date | null;
   servicePriorityBand?: QueuePriorityBand;
@@ -1471,7 +1474,15 @@ export interface QueueIntakeStatus {
   stateLabel: string;
 }
 
+export interface UnfinishedServiceTiming {
+  id: string;
+  ticketNumber: string;
+  status: TicketStatus;
+  serviceStartedAt: string | Date;
+}
+
 export interface QueueSnapshot {
+  unfinishedServiceTiming?: UnfinishedServiceTiming[];
   tenant: TenantSummary;
   location: StoreLocationSummary | null;
   publicBoardTheme: PublicBoardThemeResponse;
