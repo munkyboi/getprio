@@ -6255,6 +6255,10 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         const next = current.filter((item) => item.id !== hoursResponse.location.id);
         return [...next, hoursResponse.location].sort((a, b) => Number(b.isPrimary) - Number(a.isPrimary) || a.name.localeCompare(b.name));
       });
+      setSnapshot((current) => current && current.location?.id === hoursResponse.location.id
+        ? { ...current, location: hoursResponse.location }
+        : current);
+      await queryClient.invalidateQueries({ queryKey: ["vendor-dashboard-queue-lifecycle", token, selectedTenantSlug] });
       setSelectedLocationSlug(hoursResponse.location.slug);
       setLocationDialogOpen(false);
       setPaymentQrUploadFile(null);

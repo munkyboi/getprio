@@ -42,7 +42,7 @@ for (const joinChannel of ["vendor", "online", "qr", undefined]) {
       const events = [];
       const writes = [];
       const mocks = {
-        "../config/db": { withTransaction: async (run) => run({}) },
+        "../config/db": { withTransaction: async (run) => run({ query: async () => ({ rows: [{ service_timing_enabled: false }] }) }) },
         "../repositories/queueDayClosures": { findActiveClosure: async () => null },
         "../repositories/tickets": {
           findCurrentCalledTicket: async () => current,

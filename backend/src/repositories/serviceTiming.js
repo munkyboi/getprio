@@ -27,6 +27,7 @@ async function finish(ticket, outcome, actorUserId, client) {
   await client.query(`
     UPDATE tickets SET service_ended_at = clock_timestamp(), service_outcome = $2,
       service_ended_by_user_id = $3,
+      status_reason = CASE WHEN status = 'called' AND $2 = 'interrupted' THEN 'service_interrupted' ELSE status_reason END,
       status = CASE WHEN status = 'called' THEN CASE WHEN $2 = 'completed' THEN 'served' ELSE 'unserved' END ELSE status END,
       served_at = CASE WHEN status = 'called' AND $2 = 'completed' THEN clock_timestamp() ELSE served_at END,
       unserved_at = CASE WHEN status = 'called' AND $2 = 'interrupted' THEN clock_timestamp() ELSE unserved_at END,

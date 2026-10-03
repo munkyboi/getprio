@@ -2,7 +2,7 @@
 
 ## Scope
 
-Generic branch opt-in: Locations → Edit location → Service timing → Track service start and completion. Default off; existing vendors retain Call next → Serve customer. Location management permissions control opt-in, and queue location access plus `tenant.ticket.update_state` control observations.
+Generic branch opt-in: Locations → Edit location → Service timing → Track service start and completion. Default off; existing vendors retain Call next → Serve customer. Bootstrap and migration contain matching timing columns/constraints; location saves update and refresh the selected queue snapshot. Location management permissions control opt-in, and queue location access plus `tenant.ticket.update_state` control observations.
 
 Enabled branches use Call next → confirm the ticket where required → Start service → Complete service. Calling remains a summons, not proof of service start. These are staff-recorded observations; there is no resource reservation/allocation, no automatic end at the booked duration, no wait estimate change, and no inference from historical called/served timestamps. Developer API independent queues and native mobile UI are outside this slice.
 
@@ -11,10 +11,10 @@ Enabled branches use Call next → confirm the ticket where required → Start s
 - `POST /api/vendor/tenant/:tenantSlug/queue/tickets/:ticketId/service/start`, `/complete`, `/interrupt`, with the existing `?location=...` selector. No client-supplied timestamps, actors, duration, or tenant IDs.
 - Start requires an opted-in branch, a scoped called ticket, and customer confirmation for non-vendor joins. The start is recorded once under a ticket lock, with the setting read under a branch lock. The booked-start calling gate remains in force.
 - Complete/interruption requires a recorded start. Same-outcome retries return the existing result; a conflicting retry returns 409. A stale tab always targets its original ticket ID.
-- While service is active, legacy Serve/Skip cannot discard the observation. Complete marks a still-called ticket served and resolves its linked booking through the existing completion fields. Interrupt marks a still-called ticket unserved, retains existing booking semantics, and excludes the observation from completed duration samples.
+- While service is active, legacy Serve/Skip cannot discard the observation. Complete marks a still-called ticket served and resolves its linked booking through the existing completion fields. Interrupt marks a still-called ticket unserved with `service_interrupted` reason, retains existing booking semantics, and excludes the observation from completed duration samples. Web status, push and email copy describe an interruption rather than claiming the queue closed.
 - Queue closure and changing the setting do not imply service ended. If queue closure already made the ticket terminal, staff resolve the remaining timing record from Unfinished service records, even on a closed queue or disabled branch. The existing queue/booking outcome is preserved. Completion after queue resolution is reported separately by the audit; it must be reviewed before training.
 - Unfinished records show the oldest 100, across business dates at the selected branch, without customer identities. Resolving them exposes later records. Staff timing recovery is loaded for authenticated vendor reads and mutation snapshots; public/customer reads do not query it, and public responses/streams strip it.
-- `service_started`, `service_completed`, `service_interrupted` events record authenticated actors. End clocks are recorded when staff act, so delayed entry can bias observations. One timing record per ticket; another service requires a new ticket.
+- `service_started`, `service_completed`, `service_interrupted` events record authenticated actors. Account deletion anonymizes both timing actor references while preserving observation timestamps/outcomes. End clocks are recorded when staff act, so delayed entry can bias observations. One timing record per ticket; another service requires a new ticket.
 
 ## Read-only audit
 
@@ -34,7 +34,7 @@ The configured connection must match both expected values. The audit uses a read
 
 ## Verification gates
 
-Focused type checks, lint, whitespace review, and hosted CI are separate from runtime acceptance. No local test suite or migration is run for this implementation request. The existing barcode/Serve UI assertion was updated after hosted CI identified its fixed-label expectation. Local services require the ignored GetPrio environment from Bitwarden; CLI authentication remains unavailable.
+Focused type checks, lint, whitespace review, and hosted CI are separate from runtime acceptance. No local test suite or migration is run for this implementation request. The existing barcode/Serve UI assertion and legacy confirmation transaction fixture were updated after hosted CI exposed their old assumptions. Local services require the ignored GetPrio environment from Bitwarden; CLI authentication remains unavailable.
 
 Before enabling on a live branch, verify in an isolated environment: opt-in/off, role/branch denial, ticket confirmation, duplicate start/finish, conflicting outcomes, stale-ticket requests, concurrent start versus Serve/Skip/close, branch setting changes, explicit interruption, completion after closure, booking fulfillment, and walk-ins. Inspect actions, notices, settings and confirmation modal on mobile/tablet/desktop and keyboard/short-height layouts. Verify SSE updates and read-only audit results. An explicit delayed completion is not proof of accurate service time.
 
