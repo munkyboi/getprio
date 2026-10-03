@@ -16,7 +16,7 @@ Static frontend/backend type checks, focused lint, whitespace review. No local t
 
 In an isolated environment, verify branch opt-in/off, cross-customer denial, early/late window, paused/closed intake, concurrent staff/customer arrival and retry, schedule-bound calling, and normal walk-in calling. Inspect the new branch switch and customer action on mobile/tablet/desktop. Do not enable the setting or change bookings in production as part of read-only release inspection.
 
-This includes the web booking page and the versioned backend contract. Native mobile presentation has not been changed.
+This includes the web booking page and the versioned backend contract. Native mobile presentation has not been changed. The customer arrival window uses the authoritative booking start, matching the backend even if bundle display times differ after rescheduling. Arrived bookings direct staff to the live queue instead of offering incompatible booking edits.
 
 ## Next slice
 

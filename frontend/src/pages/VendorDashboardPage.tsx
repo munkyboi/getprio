@@ -7601,6 +7601,9 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       }
                       const canReviewBookingPayment = canAdminBookings && paymentReviewPending && Boolean(booking.paymentProof);
                       const actionButtons = (() => {
+                        if (booking.checkedInAt || booking.linkedTicket) {
+                          return <Text c="dimmed" size="xs">Manage from the live queue.</Text>;
+                        }
                         if (canReviewBookingPayment) {
                           return (
                             <Group gap="xs" justify="flex-end" wrap="nowrap">

@@ -469,8 +469,10 @@ export default function CustomerBookingDetailPage() {
   const bookingEndTimestamp = Math.max(...bookingServiceItems.map((item) => toTimestamp(item.scheduledEndAt)).filter(Number.isFinite));
   const bookingStart = Number.isFinite(bookingStartTimestamp) ? new Date(bookingStartTimestamp) : booking.scheduledStartAt;
   const bookingEnd = Number.isFinite(bookingEndTimestamp) ? new Date(bookingEndTimestamp) : booking.scheduledEndAt;
-  const checkInWindowStartsAt = Number.isFinite(bookingStartTimestamp) ? bookingStartTimestamp - (15 * 60 * 1000) : Number.NaN;
-  const checkInWindowEndsAt = Number.isFinite(bookingStartTimestamp) ? bookingStartTimestamp + (15 * 60 * 1000) : Number.NaN;
+  // Match the server arrival window even if bundle display schedules differ after rescheduling.
+  const arrivalStartTimestamp = toTimestamp(booking.scheduledStartAt);
+  const checkInWindowStartsAt = Number.isFinite(arrivalStartTimestamp) ? arrivalStartTimestamp - (15 * 60 * 1000) : Number.NaN;
+  const checkInWindowEndsAt = Number.isFinite(arrivalStartTimestamp) ? arrivalStartTimestamp + (15 * 60 * 1000) : Number.NaN;
   const isBeforeCheckInWindow = Number.isFinite(checkInWindowStartsAt) && currentTime < checkInWindowStartsAt;
   const isInsideCheckInWindow = Number.isFinite(checkInWindowStartsAt) && currentTime >= checkInWindowStartsAt && currentTime <= checkInWindowEndsAt;
   const checkInAvailable = Boolean(booking.linkedTicket);
