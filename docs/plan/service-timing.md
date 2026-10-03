@@ -34,7 +34,7 @@ The configured connection must match both expected values. The audit uses a read
 
 ## Verification gates
 
-Focused type checks, lint, whitespace review, and hosted CI are separate from runtime acceptance. No local test suite or migration is run for this implementation request. Local services require the ignored GetPrio environment from Bitwarden; CLI authentication remains unavailable.
+Focused type checks, lint, whitespace review, and hosted CI are separate from runtime acceptance. No local test suite or migration is run for this implementation request. The existing barcode/Serve UI assertion was updated after hosted CI identified its fixed-label expectation. Local services require the ignored GetPrio environment from Bitwarden; CLI authentication remains unavailable.
 
 Before enabling on a live branch, verify in an isolated environment: opt-in/off, role/branch denial, ticket confirmation, duplicate start/finish, conflicting outcomes, stale-ticket requests, concurrent start versus Serve/Skip/close, branch setting changes, explicit interruption, completion after closure, booking fulfillment, and walk-ins. Inspect actions, notices, settings and confirmation modal on mobile/tablet/desktop and keyboard/short-height layouts. Verify SSE updates and read-only audit results. An explicit delayed completion is not proof of accurate service time.
 
