@@ -175,17 +175,21 @@ function IconActionButton({
   color = "gray",
   onClick,
   children,
-  disabled = false
+  disabled = false,
+  loading = false,
+  size
 }: {
   label: string;
   color?: string;
   onClick: () => void;
   children: React.ReactNode;
   disabled?: boolean;
+  loading?: boolean;
+  size?: number;
 }) {
   return (
     <Tooltip label={label} withArrow>
-      <ActionIcon aria-label={label} color={color} disabled={disabled} onClick={onClick} variant="light">
+      <ActionIcon aria-label={label} color={color} disabled={disabled} loading={loading} size={size} onClick={onClick} variant="light">
         {children}
       </ActionIcon>
     </Tooltip>
@@ -2741,14 +2745,14 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       intakeState.autoPauseThreshold &&
       intakeState.currentWaitingCount >= intakeState.autoPauseThreshold
   );
-  const serviceOptions = useMemo(
-    () => [
+  const [weeklyServiceOptions, exceptionServiceOptions] = useMemo(
+    () => [availabilityBlockForm.serviceSlug, availabilityExceptionForm.serviceSlug].map((selectedServiceSlug) => [
       { value: "", label: "All services" },
       ...services
-        .filter((service) => service.isActive)
-        .map((service) => ({ value: service.slug, label: service.name }))
-    ],
-    [services]
+        .filter((service) => service.isActive || service.slug === selectedServiceSlug)
+        .map((service) => ({ value: service.slug, label: `${service.name}${service.isActive ? "" : " (Not offered for booking)"}` }))
+    ]),
+    [services, availabilityBlockForm.serviceSlug, availabilityExceptionForm.serviceSlug]
   );
   const locationOptions = useMemo(
     () =>
@@ -2777,7 +2781,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
 
   useEffect(() => {
     setBookingPage(1);
-  }, [bookingSearch, bookingStatusFilter, bookingDateRange]);
+  }, [bookingSearch, bookingStatusFilter, bookingDateRange, selectedTenantSlug, selectedLocationSlug]);
 
   async function runAction(
     actionName: string,
@@ -3171,6 +3175,10 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
   }
 
   function openServiceDialog(service?: VendorServiceSummary) {
+    if (!locationServicesQuery.data) {
+      setError("Branch service settings are still loading. Please try again once they are available.");
+      return;
+    }
     const locationServices = (locationServicesQuery.data?.locationServices || []).filter(
       (entry) => service ? entry.serviceId === service.id : false
     );
@@ -3199,7 +3207,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         return {
           locationSlug: location.slug,
           capacity: existing?.capacity || 1,
-          isActive: existing?.isActive ?? true,
+          isActive: existing?.isActive ?? (!service && location.slug === selectedLocationSlug),
           sortOrder: existing?.sortOrder || 0,
           priceAmountCents: existing?.priceAmountCents ?? null,
           priceDisplay: existing?.priceDisplay ?? null,
@@ -6385,7 +6393,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
             <Group justify="space-between" align="flex-start" className="service-dialog__header">
               <div>
                 <Text c="dimmed" size="sm">
-                  Configure booking details, pricing, and the service&apos;s availability state.
+                  Set the service duration, price, and branches where customers can book it.
                 </Text>
               </div>
               <Badge variant="light" color="orange">
@@ -6428,11 +6436,11 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     }}
                   />
                   <TextInput
-                    label="Slug"
-                    description={checkingServiceSlug ? "Checking slug availability..." : serviceSlugMessage}
+                    label="Booking link identifier"
+                    description={checkingServiceSlug ? "Checking link availability..." : serviceSlugMessage || "Generated from the service name. Changing it changes this service’s booking link."}
                     error={
-                      !serviceSlugAvailable && serviceForm.slug
-                        ? serviceSlugMessage || "That service slug is already taken for this vendor."
+                      !checkingServiceSlug && !serviceSlugAvailable && serviceForm.slug && serviceSlugMessage
+                        ? serviceSlugMessage
                         : undefined
                     }
                     value={serviceForm.slug || ""}
@@ -6442,7 +6450,8 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     }}
                   />
                   <NumberInput
-                    label="Duration"
+                    label="Service duration"
+                    description="Time reserved for one booking unit."
                     min={5}
                     max={480}
                     required
@@ -6486,8 +6495,9 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     }
                   />
                   <TextInput
-                    label="Price display override"
-                    placeholder="Leave blank to auto-format"
+                    label="Customer price label (optional)"
+                    description="Changes the displayed label only. The numeric price determines the fee unless the branch has a price override."
+                    placeholder="Leave blank to use the formatted price"
                     value={serviceForm.priceDisplay || ""}
                     onChange={(event) =>
                       setServiceForm((current) => ({ ...current, priceDisplay: event.target.value }))
@@ -6495,8 +6505,8 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   />
                   <Switch
                     checked={serviceForm.manualPaymentRequired === true}
-                    label="Require manual payment"
-                    description="Customers must submit payment reference and proof before vendor confirmation."
+                    label="Require payment proof before confirmation"
+                    description="Customers submit a payment reference and receipt for you to review. This does not collect payment automatically."
                     onChange={(event) =>
                       setServiceForm((current) => ({
                         ...current,
@@ -6506,7 +6516,8 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   />
                   <Switch
                     checked={serviceForm.allowBookingQuantity === true}
-                    label="Allow units"
+                    label="Allow multiple duration units"
+                    description={`Each unit adds ${serviceForm.durationMinutes} minutes and the service price. This is not the number of people or resources reserved.`}
                     onChange={(event) =>
                       setServiceForm((current) => ({
                         ...current,
@@ -6519,7 +6530,8 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   />
                   {serviceForm.allowBookingQuantity ? (
                     <TextInput
-                      label="Unit label"
+                      label="Duration unit name"
+                      description="The name customers see when choosing duration units, such as Hours or Sessions."
                       maxLength={40}
                       required
                       value={serviceForm.bookingQuantityLabel || "Units"}
@@ -6536,15 +6548,15 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     data={[
                       {
                         value: "service",
-                        label: "Same service only"
+                        label: "Separate capacity for this service"
                       },
                       {
                         value: "location",
-                        label: "All services at this branch"
+                        label: "Share capacity with all branch services"
                       }
                     ]}
-                    label="Booking capacity"
-                    description="Controls whether overlapping bookings from other services can consume this service's slot capacity."
+                    label="Which bookings share capacity?"
+                    description="Separate counts this service only. Shared also counts other services at the branch. An all-services weekly rule always shares capacity."
                     value={serviceForm.bookingCapacityScope || "service"}
                     onChange={(value) =>
                       setServiceForm((current) => ({
@@ -6555,11 +6567,71 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   />
                   <Divider />
                   <div>
-                    <Text fw={700}>Branch inventory</Text>
+                    <Text fw={700}>Branches offering this service</Text>
                     <Text c="dimmed" size="sm">
-                      Set the number of courts or slots this service has at each location.
+                      Enable each branch where this service can be booked. Capacity counts overlapping booking items, not people or physical resources.
                     </Text>
                   </div>
+                  {(serviceForm.locationServices || []).map((assignment, index) => (
+                    <Stack gap="xs" key={assignment.locationSlug}>
+                      <Switch
+                        label={locations.find((location) => location.slug === assignment.locationSlug)?.name || assignment.locationSlug}
+                        checked={assignment.isActive !== false}
+                        onChange={(event) => {
+                          const isActive = event.currentTarget.checked;
+                          setServiceForm((current) => ({
+                            ...current,
+                            locationServices: current.locationServices?.map((entry, entryIndex) => entryIndex === index ? { ...entry, isActive } : entry)
+                          }));
+                        }}
+                      />
+                      <NumberInput
+                        label={`${locations.find((location) => location.slug === assignment.locationSlug)?.name || assignment.locationSlug} booking capacity`}
+                        min={1}
+                        max={100}
+                        allowDecimal={false}
+                        disabled={assignment.isActive === false}
+                        value={assignment.capacity}
+                        onChange={(value) => setServiceForm((current) => ({
+                          ...current,
+                          locationServices: current.locationServices?.map((entry, entryIndex) => entryIndex === index ? { ...entry, capacity: Number(value) || 1 } : entry)
+                        }))}
+                      />
+                      <NumberInput
+                        label="Branch price override (optional)"
+                        description="Leave blank to use the service price above."
+                        decimalScale={2}
+                        fixedDecimalScale
+                        prefix="PHP "
+                        min={0}
+                        disabled={assignment.isActive === false}
+                        value={assignment.priceAmountCents == null ? "" : assignment.priceAmountCents / 100}
+                        onChange={(value) => setServiceForm((current) => ({
+                          ...current,
+                          locationServices: current.locationServices?.map((entry, entryIndex) => entryIndex === index ? {
+                            ...entry,
+                            priceAmountCents: value === "" ? null : Math.max(0, Math.round((Number(value) || 0) * 100))
+                          } : entry)
+                        }))}
+                      />
+                      <TextInput
+                        label="Branch customer price label (optional)"
+                        description="Display text only; it does not change the numeric booking price."
+                        disabled={assignment.isActive === false}
+                        value={assignment.priceDisplay || ""}
+                        onChange={(event) => {
+                          const priceDisplay = event.currentTarget.value;
+                          setServiceForm((current) => ({
+                            ...current,
+                            locationServices: current.locationServices?.map((entry, entryIndex) => entryIndex === index ? { ...entry, priceDisplay } : entry)
+                          }));
+                        }}
+                      />
+                    </Stack>
+                  ))}
+                  <Text c="dimmed" size="xs">
+                    The current booking limit uses the higher of this branch service capacity and the matching weekly rule or date exception capacity.
+                  </Text>
 
                 </Stack>
               </Card>
@@ -6582,7 +6654,8 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                 />
                 <Switch
                   checked={serviceForm.isActive !== false}
-                  label="Active service"
+                  label="Offer this service for booking"
+                  description="When off, customers cannot make new bookings. Existing bookings remain in your records."
                   onChange={(event) =>
                     setServiceForm((current) => ({ ...current, isActive: event.currentTarget.checked }))
                   }
@@ -6635,7 +6708,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
             <Group justify="space-between" align="flex-start" className="service-dialog__header">
               <div>
                 <Text c="dimmed" size="sm">
-                  Define recurring weekly hours for a location, with optional service scoping and notes.
+                  Set the times customers can book each week, the services covered, and how many bookings can overlap.
                 </Text>
               </div>
               <Badge variant="light" color="orange">
@@ -6664,7 +6737,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                         return {
                           ...current,
                           weekday,
-                          ...getWeeklyAvailabilityDefaults(selectedLocation?.hours || [], weekday)
+                          ...getWeeklyAvailabilityDefaults(availabilityBlockLocation?.hours || [], weekday)
                         };
                       });
                     }}
@@ -6700,9 +6773,11 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     {formatPreviewHourRange(availabilityBlockLocation, availabilityBlockForm.weekday)}. Weekly availability must stay within these business hours.
                   </Text>
                   <NumberInput
-                    label="Capacity"
+                    label="Simultaneous booking capacity"
+                    description="All services shares this limit across the branch. A specific service counts its bookings; its branch setting can raise the limit."
                     min={1}
                     max={100}
+                    allowDecimal={false}
                     value={availabilityBlockForm.capacity}
                     onChange={(value) =>
                       setAvailabilityBlockForm((current) => ({ ...current, capacity: Number(value) || 1 }))
@@ -6714,8 +6789,8 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
               <Card className="service-dialog__panel" withBorder radius="xl" p="md">
                 <Stack gap="md">
                   <div>
-                    <Text className="service-dialog__label">Scope</Text>
-                    <Text fw={700}>Service and state</Text>
+                    <Text className="service-dialog__label">Booking availability</Text>
+                    <Text fw={700}>Where this schedule applies</Text>
                   </div>
                   <Select
                     allowDeselect={false}
@@ -6740,8 +6815,10 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     }}
                   />
                   <Select
-                    data={serviceOptions}
-                    label="Service"
+                    allowDeselect={false}
+                    data={weeklyServiceOptions}
+                    label="Applies to"
+                    description="All services uses shared branch capacity. Select one service to apply this schedule only to it."
                     value={availabilityBlockForm.serviceSlug || ""}
                     onChange={(value) =>
                       setAvailabilityBlockForm((current) => ({ ...current, serviceSlug: value || "" }))
@@ -6749,7 +6826,8 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   />
                   <Switch
                     checked={availabilityBlockForm.isActive !== false}
-                    label="Active weekly rule"
+                    label="Use this weekly schedule"
+                    description="When off, this rule is ignored. If no weekly rules are enabled, bookings use business hours with the current fallback capacity."
                     onChange={(event) =>
                       setAvailabilityBlockForm((current) => ({
                         ...current,
@@ -6784,7 +6862,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
               <Text c="dimmed" size="sm">
                 {editingAvailabilityBlockId
                   ? "Update the weekly rule and keep the schedule aligned with the current location."
-                  : "Create the rule before exposing it in the weekly availability table."}
+                  : "This schedule controls available booking times. Turning it off does not cancel existing bookings."}
               </Text>
               <Group gap="sm">
                 <Button variant="default" onClick={() => setAvailabilityBlockDialogOpen(false)}>
@@ -6929,7 +7007,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     <Text fw={700}>Service and availability</Text>
                   </div>
                   <Select
-                    data={serviceOptions}
+                    data={exceptionServiceOptions}
                     label="Service"
                     value={availabilityExceptionForm.serviceSlug || ""}
                     onChange={(value) =>
@@ -7000,7 +7078,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       <Stack gap="lg">
         <SimpleGrid cols={{ base: 1, md: 3 }}>
           <MetricCard
-            detail="Visible to future booking flows."
+            detail="Available for new bookings at enabled branches."
             label="Active services"
             value={activeServices}
           />
@@ -7413,6 +7491,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
               <div>
                 <Text className="neura-label">{canAdminBookings ? "Vendor Admin" : "Vendor Staff"}</Text>
                 <Title order={3}>{canAdminBookings ? "Incoming booking requests" : "Booking check-in queue"}</Title>
+                <Text c="dimmed" size="sm">Showing bookings for {selectedLocation?.name || selectedLocationSlug} only. If a reference is missing, choose the customer’s booking branch using Location above.</Text>
               </div>
               <Group gap="sm">
                 <TextInput
@@ -7699,18 +7778,16 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                               >
                                 <IconCalendar size={16} />
                               </IconActionButton>
-                              <Tooltip label="Late check-in override: customer is more than 15 minutes past the scheduled start." withArrow>
-                                <ActionIcon
-                                  aria-label="Late check-in"
-                                  color="orange"
-                                  disabled={Boolean(busyAction) || bookingCheckInBlocked}
-                                  title={bookingCheckInBlocked ? bookingCheckInGuidance : undefined}
-                                  onClick={() => handleCheckInBooking(booking, true)}
-                                  variant="light"
-                                >
-                                  <IconCalendarCheck size={16} />
-                                </ActionIcon>
-                              </Tooltip>
+                              <IconActionButton
+                                label={bookingCheckInBlocked ? `Late check-in: ${bookingCheckInGuidance}` : "Late check-in: customer is more than 15 minutes past the scheduled start"}
+                                color="orange"
+                                size={44}
+                                loading={busyAction === `booking-check-in:${booking.id}:override`}
+                                disabled={Boolean(busyAction) || bookingCheckInBlocked}
+                                onClick={() => void handleCheckInBooking(booking, true)}
+                              >
+                                <IconCalendarCheck size={18} />
+                              </IconActionButton>
                               <IconActionButton
                                 label="Mark no-show"
                                 color="red"
@@ -7823,16 +7900,16 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                           <Table.Td>
                             <Group gap="xs" wrap="wrap">
                               {canOperateBookingQueue && checkInState.isEligibleStatus && !checkInState.isTooEarly && !checkInState.isLate && !booking.checkedInAt && !booking.linkedTicket ? (
-                                <Button
-                                  leftSection={<IconCalendarCheck size={16} />}
-                                  mih={44}
+                                <IconActionButton
+                                  label={bookingCheckInBlocked ? `Check in customer: ${bookingCheckInGuidance}` : "Check in customer"}
+                                  color="teal"
+                                  size={44}
                                   loading={busyAction === `booking-check-in:${booking.id}`}
                                   disabled={Boolean(busyAction) || bookingCheckInBlocked}
-                                  title={bookingCheckInBlocked ? bookingCheckInGuidance : undefined}
                                   onClick={() => void handleCheckInBooking(booking)}
                                 >
-                                  Check in customer
-                                </Button>
+                                  <IconCalendarCheck size={18} />
+                                </IconActionButton>
                               ) : null}
                               {canOperateBookingQueue && checkInState.isEligibleStatus && !booking.checkedInAt && !booking.linkedTicket && bookingCheckInBlocked ? <Text c="dimmed" size="xs">{bookingCheckInGuidance}</Text> : null}
                               {renderStaffNoShowAction(booking)}
@@ -9452,12 +9529,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     const detailPaymentGateActive = Boolean(detailBooking && detailManualPaymentRequired && !detailPaymentVerified);
     const detailBookingExpired = Boolean(detailBooking?.expiredAt);
     const detailCheckInState = detailBooking ? getBookingCheckInState(detailBooking, bookingCheckInNow) : null;
-    let detailCheckInLabel = "Check in customer";
-    if (detailCheckInState?.isTooEarly) {
-      detailCheckInLabel = "Check-in opens 15 minutes before the booking";
-    } else if (detailCheckInState?.isLate) {
-      detailCheckInLabel = "Check in customer late";
-    }
+    const detailCheckInLabel = detailCheckInState?.isLate ? "Check in customer late" : "Check in customer";
     const detailCampaignBundleItems = detailBooking?.groupFundedCampaign?.bundleItems || [];
     const detailBookingBundleItems = detailBooking?.bundleItems || [];
     const detailServiceItems = detailCampaignBundleItems.length
@@ -9780,10 +9852,14 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     Open booking queue
                   </Button>
                   {canOperateBookingQueue && getBookingCheckInState(detailBooking, bookingCheckInNow).isEligibleStatus && !detailBooking.checkedInAt && !detailBooking.linkedTicket ? (
-                    <Stack gap={4}>
+                    <Stack gap={6} className="booking-detail__check-in">
+                      {detailCheckInState?.isTooEarly ? <Text c="dimmed" size="sm">Check-in opens 15 minutes before the booking.</Text> : null}
                       {bookingCheckInBlocked ? <Text c="dimmed" size="sm">{bookingCheckInGuidance}</Text> : null}
                     <Button
-                      leftSection={<IconCalendarCheck size={16} />}
+                      className="neura-primary-button"
+                      radius="xl"
+                      size="sm"
+                      leftSection={<IconCalendarCheck size={18} />}
                       mih={44}
                       disabled={Boolean(busyAction) || bookingCheckInBlocked || getBookingCheckInState(detailBooking, bookingCheckInNow).isTooEarly}
                       title={bookingCheckInBlocked ? bookingCheckInGuidance : undefined}

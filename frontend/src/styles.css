@@ -8031,3 +8031,19 @@ button:hover > .rating-star { transform: scale(1.08); }
   .support-vendor-card { padding: 2rem; }
   .support-contact-action { align-items: flex-start; }
 }
+
+/* Check-in follows the booking footer's full-width mobile action layout. */
+.booking-detail__check-in {
+  width: 100%;
+}
+
+.booking-detail__check-in > .mantine-Button-root {
+  width: 100%;
+}
+
+@media (min-width: 48.0625em) {
+  .booking-detail__check-in {
+    width: auto;
+    max-width: 18rem;
+  }
+}
