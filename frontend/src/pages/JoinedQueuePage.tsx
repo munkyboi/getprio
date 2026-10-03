@@ -959,7 +959,8 @@ export default function JoinedQueuePage() {
                   {isBookingTicket ? (
                     <Stack gap="xs">
                       {linkedBookingReference ? <Text size="sm">Booking reference: <strong>{linkedBookingReference}</strong></Text> : null}
-                      <Text c="dimmed" size="sm">Your vendor checked you in. This ticket now tracks your place in the queue.</Text>
+                      <Text c="dimmed" size="sm">Your arrival has been recorded. This ticket now tracks your place in the queue.</Text>
+                      {snapshot?.focusTicket?.bookingScheduledStartAt ? <Text c="dimmed" size="sm">The vendor can call this ticket at or after {formatJoinedDate(snapshot.focusTicket.bookingScheduledStartAt, snapshot.location?.timezone)}.</Text> : null}
                       <Text size="sm"><strong>Email alerts:</strong> {bookingEmailStatus}</Text>
                       <Text c="dimmed" size="sm">
                         Browser alerts require queue alerts to be enabled in your account, browser permission, and an active browser subscription.

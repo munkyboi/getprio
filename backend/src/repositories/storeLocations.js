@@ -23,6 +23,7 @@ const LOCATION_COLUMNS = `
   payment_qr_image_url,
   payment_qr_active,
   queue_lifecycle_mode,
+  customer_self_check_in_enabled,
   is_primary,
   is_active,
   created_at,
@@ -68,6 +69,7 @@ function mapLocation(row) {
     paymentQrImageUrl: row.payment_qr_image_url || "",
     paymentQrActive: Boolean(row.payment_qr_active),
     queueLifecycleMode: row.queue_lifecycle_mode || "legacy",
+    customerSelfCheckInEnabled: row.customer_self_check_in_enabled === true,
     isPrimary: Boolean(row.is_primary),
     isActive: Boolean(row.is_active),
     createdAt: row.created_at,
@@ -267,10 +269,11 @@ async function createLocation(data, options = {}) {
         payment_account_identifier_display,
         payment_qr_image_url,
         payment_qr_active,
+        customer_self_check_in_enabled,
         is_primary,
         is_active
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
       RETURNING ${LOCATION_COLUMNS}
     `,
     [
@@ -293,6 +296,7 @@ async function createLocation(data, options = {}) {
       data.paymentAccountIdentifierDisplay || null,
       data.paymentQrImageUrl || null,
       Boolean(data.paymentQrActive),
+      data.customerSelfCheckInEnabled === true,
       isPrimary,
       data.isActive ?? true
     ]
@@ -324,6 +328,7 @@ async function updateLocation(locationId, changes, options = {}) {
     paymentAccountIdentifierDisplay: "payment_account_identifier_display",
     paymentQrImageUrl: "payment_qr_image_url",
     paymentQrActive: "payment_qr_active",
+    customerSelfCheckInEnabled: "customer_self_check_in_enabled",
     isPrimary: "is_primary",
     isActive: "is_active"
   };

@@ -117,7 +117,8 @@ async function buildQueueSnapshot(tenant, options = {}, getTenantUsage) {
     carryOverCount: ticket.carryOverCount || 0,
     carriedOverAt: ticket.carriedOverAt || null,
     servicePriorityBand: ticket.servicePriorityBand || "normal",
-    linkedBookingReference: ticket.linkedBookingReference || null
+    linkedBookingReference: ticket.linkedBookingReference || null,
+    bookingScheduledStartAt: ticket.linkedBookingEstimation?.scheduledStartAt || null
   }));
 
   const pendingOverflow = pendingCarryOverTickets.map((ticket) => ({
@@ -239,6 +240,7 @@ async function buildQueueSnapshot(tenant, options = {}, getTenantUsage) {
       carryOverExpiresAt: lookupTicket.carryOverExpiresAt || null,
       currentQueueDayId: lookupTicket.currentQueueDayId || null,
       linkedBookingReference: lookupTicket.linkedBookingReference || null,
+      bookingScheduledStartAt: lookupTicket.linkedBookingEstimation?.scheduledStartAt || null,
       notifyByEmail: Boolean(lookupTicket.notifyByEmail && lookupTicket.customerEmail),
       emailJourneyMode: lookupTicket.emailJourneyMode || "not_eligible",
       position: position || null,

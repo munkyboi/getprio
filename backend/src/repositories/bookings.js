@@ -80,6 +80,7 @@ const BOOKING_COLUMNS = `
   tenants.slug AS tenant_slug,
   store_locations.name AS location_name,
   store_locations.slug AS location_slug,
+  store_locations.customer_self_check_in_enabled AS location_customer_self_check_in_enabled,
   store_locations.address_line1 AS location_address_line1,
   store_locations.address_line2 AS location_address_line2,
   store_locations.city AS location_city,
@@ -210,6 +211,7 @@ function mapBooking(row) {
     locationPaymentAccountIdentifierDisplay: row.location_payment_account_identifier_display || "",
     locationPaymentQrImageUrl: row.location_payment_qr_image_url || "",
     locationPaymentQrActive: Boolean(row.location_payment_qr_active),
+    customerSelfCheckInEnabled: row.location_customer_self_check_in_enabled === true,
     customerUserId: row.customer_user_id ? String(row.customer_user_id) : null,
     customerName: row.customer_name,
     customerEmail: row.customer_email || "",
@@ -791,14 +793,22 @@ async function updateBooking(id, data, options = {}) {
   }
 
   values.push(Number(id));
-  await buildQueryClient(options.client).query(
+  const arrivalGuard = options.requireUnarrived
+    ? "AND queue_ticket_id IS NULL AND checked_in_at IS NULL AND status IN ('pending', 'confirmed', 'rescheduled')"
+    : "";
+  const result = await buildQueryClient(options.client).query(
     `
       UPDATE bookings
       SET ${sets.join(", ")}
-      WHERE id = $${values.length}
+      WHERE id = $${values.length} ${arrivalGuard}
     `,
     values
   );
+  if (options.requireUnarrived && result.rowCount !== 1) {
+    const error = new Error("This booking has changed or has already been checked in. Refresh and manage an arrived customer from the live queue.");
+    error.statusCode = 409;
+    throw error;
+  }
 
   return findBookingById(id, options);
 }

@@ -267,6 +267,7 @@ export interface StoreLocationSummary {
   paymentQrImageUrl: string;
   paymentQrActive: boolean;
   queueLifecycleMode?: "legacy" | "shadow" | "enforced";
+  customerSelfCheckInEnabled?: boolean;
   isPrimary: boolean;
   isActive: boolean;
   joinUrl: string;
@@ -567,6 +568,7 @@ export interface CustomerBookingSummary {
   contactVerificationChannel: BookingContactVerificationChannel | null;
   linkedTicket: LinkedQueueTicketSummary | null;
   checkedInAt: string | Date | null;
+  customerSelfCheckInEnabled?: boolean;
   noShowAt: string | Date | null;
   createdAt: string | Date;
   updatedAt: string | Date;
@@ -1292,6 +1294,7 @@ export interface LocationPaymentQrUploadResponse {
 }
 
 export interface CreateStoreLocationRequest {
+  customerSelfCheckInEnabled?: boolean;
   name: string;
   slug: string;
   addressLine1: string;
@@ -1336,6 +1339,7 @@ export interface QueueCurrentTicket {
   customerConfirmedAt?: string | Date | null;
   servicePriorityBand?: QueuePriorityBand;
   linkedBookingReference?: string | null;
+  bookingScheduledStartAt?: string | Date | null;
 }
 
 export interface QueueListTicket {
@@ -1353,6 +1357,7 @@ export interface QueueListTicket {
   carryOverExpiresAt?: string | Date | null;
   servicePriorityBand?: QueuePriorityBand;
   linkedBookingReference?: string | null;
+  bookingScheduledStartAt?: string | Date | null;
 }
 
 export interface QueueOverflowTicket extends Omit<QueueListTicket, "position"> {
@@ -1387,6 +1392,7 @@ export interface QueueFocusTicket {
   carryOverExpiresAt?: string | Date | null;
   currentQueueDayId?: string | null;
   linkedBookingReference?: string | null;
+  bookingScheduledStartAt?: string | Date | null;
   notifyByEmail?: boolean;
   emailJourneyMode?: "not_eligible" | "metered" | "journey_exhausted";
   position: number | null;

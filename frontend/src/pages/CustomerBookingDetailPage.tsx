@@ -146,6 +146,7 @@ export default function CustomerBookingDetailPage() {
   const [responseStatus, setResponseStatus] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [proofBusy, setProofBusy] = useState(false);
+  const [arrivalBusy, setArrivalBusy] = useState(false);
   const [proofViewBusy, setProofViewBusy] = useState(false);
   const [proofModalOpen, setProofModalOpen] = useState(false);
   const [proofAccessUrl, setProofAccessUrl] = useState("");
@@ -158,6 +159,21 @@ export default function CustomerBookingDetailPage() {
   const [ratingStars, setRatingStars] = useState(0);
   const [ratingComment, setRatingComment] = useState("");
   const [ratingSubmitted, setRatingSubmitted] = useState(false);
+
+  async function markArrival() {
+    if (!booking || !token || arrivalBusy) return;
+    setArrivalBusy(true);
+    try {
+      const data = await apiRequest<CustomerBookingResponse>(`/account/bookings/${booking.id}/arrival`, { method: "POST", token });
+      setBooking(data.booking);
+      notifications.show({ title: "Arrival recorded", message: "Your queue ticket is ready. The vendor can call it at or after your booked time.", color: "teal" });
+    } catch (arrivalError) {
+      showCustomerError(getErrorMessage(arrivalError), "Could not record arrival");
+      await loadBooking();
+    } finally {
+      setArrivalBusy(false);
+    }
+  }
 
   const loadBooking = useCallback(async (options: { showLoading?: boolean } = {}) => {
     if (!token || !bookingId) {
@@ -458,6 +474,10 @@ export default function CustomerBookingDetailPage() {
   const isBeforeCheckInWindow = Number.isFinite(checkInWindowStartsAt) && currentTime < checkInWindowStartsAt;
   const isInsideCheckInWindow = Number.isFinite(checkInWindowStartsAt) && currentTime >= checkInWindowStartsAt && currentTime <= checkInWindowEndsAt;
   const checkInAvailable = Boolean(booking.linkedTicket);
+  const customerArrivalPaymentBlocked = booking.serviceManualPaymentRequired && booking.paymentStatus !== "paid" && !booking.paymentVerifiedAt;
+  const customerArrivalAvailable = booking.customerSelfCheckInEnabled === true &&
+    ["confirmed", "rescheduled"].includes(booking.status) && !hasExpired && !booking.checkedInAt &&
+    !booking.linkedTicket && isInsideCheckInWindow && !customerArrivalPaymentBlocked;
   let checkInActionLabel = "Ask the vendor about check-in";
   if (booking.linkedTicket) {
     checkInActionLabel = "Open live queue status";
@@ -466,7 +486,11 @@ export default function CustomerBookingDetailPage() {
   } else if (isBeforeCheckInWindow) {
     checkInActionLabel = `Check-in available in ${formatCheckInCountdown(checkInWindowStartsAt - currentTime)}`;
   } else if (isInsideCheckInWindow) {
-    checkInActionLabel = "Waiting for vendor check-in";
+    checkInActionLabel = customerArrivalAvailable
+      ? "I’ve arrived"
+      : booking.customerSelfCheckInEnabled && customerArrivalPaymentBlocked
+        ? "Waiting for payment verification"
+        : "Waiting for vendor check-in";
   }
   const totalBookingHoursLabel = formatDurationLabel(bookingStart, bookingEnd);
   const bookingTotalFeeCents = groupFundedCampaign
@@ -483,7 +507,15 @@ export default function CustomerBookingDetailPage() {
       {checkInActionLabel}
     </Button>
   ) : (
-    <Button className="booking-detail-primary-action" disabled leftSection={<IconTicket size={18} />} size="lg" variant="filled">
+    <Button
+      className={customerArrivalAvailable ? "vendor-theme-button booking-detail-primary-action" : "booking-detail-primary-action"}
+      disabled={!customerArrivalAvailable || busy || proofBusy}
+      loading={arrivalBusy}
+      leftSection={<IconTicket size={18} />}
+      size="lg"
+      variant="filled"
+      onClick={() => void markArrival()}
+    >
       {checkInActionLabel}
     </Button>
   );
@@ -565,7 +597,9 @@ export default function CustomerBookingDetailPage() {
 
               {booking.status === "confirmed" || booking.status === "rescheduled" ? (
                 <Alert className="booking-detail-checkin-notice" color="blue" icon={<IconAlertCircle size={18} />} variant="light">
-                  Arrive near your scheduled time. A queue ticket appears here only after vendor check-in.
+                  {booking.customerSelfCheckInEnabled
+                    ? "When you are at the branch, tap I’ve arrived during the check-in window to get your queue ticket. Your booked time is the earliest the vendor can call it."
+                    : "Arrive near your scheduled time and ask staff to check you in. Your booked time is the earliest the vendor can call your queue ticket."}
                 </Alert>
               ) : null}
 

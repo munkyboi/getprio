@@ -119,6 +119,7 @@ async function formatLocation(location, tenant) {
     paymentQrImageUrl: location.paymentQrImageUrl,
     paymentQrActive: location.paymentQrActive,
     queueLifecycleMode: location.queueLifecycleMode || "legacy",
+    customerSelfCheckInEnabled: location.customerSelfCheckInEnabled === true,
     isPrimary: location.isPrimary,
     isActive: location.isActive,
     ...locationLinks,
@@ -134,6 +135,11 @@ async function formatLocation(location, tenant) {
 
 function normalizeLocationPayload(body, existingLocation = null) {
   const next = { ...body };
+  if (Object.prototype.hasOwnProperty.call(next, "customerSelfCheckInEnabled") && typeof next.customerSelfCheckInEnabled !== "boolean") {
+    const error = new Error("Customer arrival setting must be true or false.");
+    error.statusCode = 400;
+    throw error;
+  }
   const textFields = [
     "name",
     "slug",

@@ -48,6 +48,14 @@ const TICKET_COLUMNS = `
   updated_at
 `;
 
+const BOOKING_CALL_NOT_READY = `EXISTS (
+  SELECT 1 FROM bookings
+  WHERE bookings.queue_ticket_id = tickets.id
+    AND bookings.tenant_id = tickets.tenant_id
+    AND bookings.location_id = tickets.location_id
+    AND bookings.scheduled_start_at > NOW()
+)`;
+
 const WAITING_PRIORITY_ORDER = "CASE service_priority_band WHEN 'carry_over' THEN 0 WHEN 'recovery' THEN 1 WHEN 'checked_in_booking' THEN 2 ELSE 3 END ASC, carry_over_count DESC, created_at ASC";
 
 function mapTicket(row) {
@@ -425,7 +433,7 @@ async function listWaitingTickets(tenantId, options = {}) {
     carryOverFilter = "AND carried_over_at IS NULL AND COALESCE(carry_over_count, 0) = 0";
   }
 
-  let query = `SELECT ${withLinkedBookingReferenceSelect()} FROM tickets WHERE tenant_id = $1 ${locationFilter} ${dateFilter} ${carryOverFilter} AND status = 'waiting' ORDER BY ${WAITING_PRIORITY_ORDER}`;
+  let query = `SELECT ${withLinkedBookingReferenceSelect()} FROM tickets WHERE tenant_id = $1 ${locationFilter} ${dateFilter} ${carryOverFilter} AND status = 'waiting' ORDER BY CASE WHEN ${BOOKING_CALL_NOT_READY} THEN 1 ELSE 0 END ASC, ${WAITING_PRIORITY_ORDER}`;
 
   if (options.limit) {
     values.push(Number(options.limit));
@@ -782,6 +790,7 @@ async function callNextWaitingTicket(tenantId, options = {}) {
         SELECT id
         FROM tickets
         WHERE tenant_id = $1 AND location_id = $2 AND date_key = $4 AND status = 'waiting'
+          AND NOT ${BOOKING_CALL_NOT_READY}
         ORDER BY ${WAITING_PRIORITY_ORDER}
         LIMIT 1
         FOR UPDATE SKIP LOCKED

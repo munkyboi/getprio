@@ -1281,7 +1281,7 @@ async function submitCustomerPaymentProof({ user, bookingId, body }) {
     paymentProofContentType: contentType,
     paymentProofSizeBytes: sizeBytes,
     paymentProofUploadedAt: new Date().toISOString()
-  });
+  }, { requireUnarrived: true });
 
   const tenant = await tenantRepository.findTenantBySlug(updated.tenantSlug);
   const location = tenant
@@ -1344,7 +1344,7 @@ async function updateVendorBookingStatus({ tenant, bookingId, status }) {
     throw error;
   }
 
-  const updated = await bookingRepository.updateBooking(booking._id, { status });
+  const updated = await bookingRepository.updateBooking(booking._id, { status }, { requireUnarrived: true });
   pushNotificationService.notifyCustomerBookingUpdate({
     booking: updated,
     action: status
@@ -1441,7 +1441,7 @@ async function rejectVendorBookingPayment({ tenant, bookingId, user, reason }) {
     paymentRejectedAt: new Date().toISOString(),
     paymentRejectedByUserId: user?._id || null,
     paymentRejectionReason
-  });
+  }, { requireUnarrived: true });
 
   const message = `${updated.tenantName}: Payment evidence for booking ${updated.reference} was rejected. ${paymentRejectionReason}`;
   if (updated.customerEmail) {
@@ -1493,7 +1493,7 @@ async function cancelCustomerBooking({ user, bookingId, reason }) {
   const updated = await bookingRepository.updateBooking(booking._id, {
     status: "canceled",
     notes: cancellationReason || booking.notes || ""
-  });
+  }, { requireUnarrived: true });
 
   const message = `${updated.tenantName}: Your booking request ${updated.reference} was cancelled.`;
   if (updated.customerEmail) {
@@ -1591,7 +1591,7 @@ async function rescheduleVendorBooking({ tenant, bookingId, scheduledStartAt: sc
     queueTicketId: null,
     checkedInAt: null,
     checkedInByUserId: null
-  });
+  }, { requireUnarrived: true });
   pushNotificationService.notifyCustomerBookingUpdate({
     booking: updated,
     action: "rescheduled"
@@ -1602,13 +1602,61 @@ async function rescheduleVendorBooking({ tenant, bookingId, scheduledStartAt: sc
   return updated;
 }
 
-async function checkInVendorBooking({ tenant, location, bookingId, user, overrideWindow, overrideReason }) {
+async function checkInCustomerBooking({ bookingId, user }) {
+  const booking = await bookingRepository.findBookingById(bookingId);
+  if (!booking || !user?._id || String(booking.customerUserId) !== String(user._id)) {
+    const error = new Error("Booking not found.");
+    error.statusCode = 404;
+    throw error;
+  }
+  const tenant = await tenantRepository.findTenantById(booking.tenantId);
+  const location = await storeLocationRepository.findLocationById(booking.locationId);
+  if (!tenant?.isActive || !location?.isActive || String(location.tenantId) !== String(tenant._id)) {
+    const error = new Error("This booking location is not available for customer arrival. Contact the vendor.");
+    error.statusCode = 409;
+    throw error;
+  }
+  return checkInBooking({ tenant, location, bookingId, user, customerArrival: true });
+}
+
+async function checkInVendorBooking(options) {
+  return checkInBooking({ ...options, customerArrival: false });
+}
+
+async function checkInBooking({ tenant, location, bookingId, user, overrideWindow, overrideReason, customerArrival = false }) {
   await expirePendingBookingsForTenant(tenant._id);
   const queueService = getQueueService();
-  await queueService.assertQueueIntakeOpen(tenant, location);
   const result = await db.withTransaction(async (client) => {
     const booking = await bookingRepository.findBookingByIdForUpdate(bookingId, { client });
     assertBookingBelongsToTenantLocation(booking, tenant, location);
+    if (customerArrival) {
+      // Recheck ownership under the same lock used by staff check-in.
+      if (!user?._id || String(booking.customerUserId) !== String(user._id)) {
+        const error = new Error("Booking not found.");
+        error.statusCode = 404;
+        throw error;
+      }
+      if (booking.queueTicketId) {
+        // A retry or concurrent staff check-in returns the existing ticket.
+        return { booking, ticket: {
+          _id: booking.queueTicketId,
+          ticketNumber: booking.queueTicketNumber,
+          lookupCode: booking.queueTicketLookupCode,
+          status: booking.queueTicketStatus
+        }, alreadyCheckedIn: true };
+      }
+      const currentLocation = await storeLocationRepository.findLocationById(location._id, { client });
+      if (!currentLocation?.isActive || currentLocation.customerSelfCheckInEnabled !== true) {
+        const error = new Error("This branch requires staff check-in. Ask the vendor to confirm your arrival.");
+        error.statusCode = 409;
+        throw error;
+      }
+      if (booking.serviceManualPaymentRequired && booking.paymentStatus !== "paid" && !booking.paymentVerifiedAt) {
+        const error = new Error("Your payment must be verified before customer check-in. Contact the vendor.");
+        error.statusCode = 409;
+        throw error;
+      }
+    }
 
     if (!["confirmed", "rescheduled"].includes(booking.status)) {
       const error = new Error("Only confirmed or rescheduled bookings can be checked in.");
@@ -1628,8 +1676,10 @@ async function checkInVendorBooking({ tenant, location, bookingId, user, overrid
       error.statusCode = 409;
       throw error;
     }
-    if (windowState.isLate && !overrideWindow) {
-      const error = new Error("This booking is outside the check-in window. Use a late check-in override to continue.");
+    if (windowState.isLate && (customerArrival || !overrideWindow)) {
+      const error = new Error(customerArrival
+        ? "The customer arrival window has closed. Ask the vendor to check you in."
+        : "This booking is outside the check-in window. Use a late check-in override to continue.");
       error.statusCode = 409;
       throw error;
     }
@@ -1644,9 +1694,9 @@ async function checkInVendorBooking({ tenant, location, bookingId, user, overrid
       customerPhone: booking.customerPhone,
       notifyByEmail: booking.notifyByEmail,
       notifyBySms: booking.notifyBySms,
-      joinChannel: "vendor",
+      joinChannel: customerArrival ? "online" : "vendor",
       notes: [
-        `Checked in from booking ${booking.reference}.`,
+        `${customerArrival ? "Customer arrived" : "Staff checked in customer"} from booking ${booking.reference}.`,
         windowState.isLate ? `Late override: ${String(overrideReason || "vendor override").trim()}` : ""
       ].filter(Boolean).join(" "),
       servicePriorityBand: "checked_in_booking"
@@ -1665,6 +1715,9 @@ async function checkInVendorBooking({ tenant, location, bookingId, user, overrid
     return { booking: updatedBooking, ticket };
   });
 
+  if (result.alreadyCheckedIn) {
+    return { booking: result.booking, ticket: buildLinkedQueueTicketSummary(result.ticket) };
+  }
   await queueService.maybeNotifyUpcomingTickets(tenant, { location });
   await queueService.maybeAutoPauseQueueDay(tenant, { location });
   await queueService.publishSnapshot(tenant, {
@@ -1712,7 +1765,7 @@ async function markVendorBookingNoShow({ tenant, location, bookingId, user }) {
     status: "canceled",
     noShowAt: new Date().toISOString(),
     noShowByUserId: user?._id || null
-  });
+  }, { requireUnarrived: true });
 
   const message = `${updated.tenantName}: Your booking request ${updated.reference} was cancelled as a no-show.`;
   if (updated.customerEmail) {
@@ -1749,6 +1802,7 @@ module.exports = {
   assertServiceScheduleAvailability,
   assertComposedBookingPlanAt,
   checkInVendorBooking,
+  checkInCustomerBooking,
   createCustomerBooking,
   createCustomerPaymentProofAccess,
   createCustomerPaymentProofUpload,
