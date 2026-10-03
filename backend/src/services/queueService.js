@@ -572,7 +572,10 @@ async function callNextTicket(tenant, options = {}) {
       dateKey
     });
     if (!nextTicket) {
-      return null;
+      const error = new Error("No waiting ticket is ready to be called yet. Arrived bookings become ready at their scheduled start.");
+      error.statusCode = 409;
+      error.code = "NO_READY_WAITING_TICKET";
+      throw error;
     }
 
     const actor = buildQueueEventActor({

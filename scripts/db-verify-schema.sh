@@ -97,6 +97,13 @@ BEGIN
       WHERE table_schema = 'public' AND table_name = 'bookings' AND column_name = 'pending_expires_at'
     )
     UNION ALL
+    SELECT 'store_locations.customer_self_check_in_enabled'
+    WHERE NOT EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = 'store_locations'
+        AND column_name = 'customer_self_check_in_enabled'
+    )
+    UNION ALL
     SELECT 'store_locations.queue_lifecycle_mode'
     WHERE NOT EXISTS (
       SELECT 1 FROM information_schema.columns

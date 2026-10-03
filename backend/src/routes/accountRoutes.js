@@ -284,6 +284,7 @@ function formatCustomerBooking(booking) {
         }
       : null,
     checkedInAt: booking.checkedInAt,
+    customerSelfCheckInEnabled: booking.customerSelfCheckInEnabled === true,
     noShowAt: booking.noShowAt,
     createdAt: booking.createdAt,
     updatedAt: booking.updatedAt
@@ -661,6 +662,14 @@ router.get(
     }
 
     res.json({ booking: { ...formatCustomerBooking(booking), organizerCampaign: null } });
+  })
+);
+
+router.post(
+  "/bookings/:bookingId/arrival",
+  asyncHandler(async (req, res) => {
+    const result = await bookingService.checkInCustomerBooking({ user: req.user, bookingId: req.params.bookingId });
+    res.json({ booking: formatCustomerBooking(result.booking) });
   })
 );
 

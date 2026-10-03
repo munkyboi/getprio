@@ -81,7 +81,7 @@ function createQueryClient(rows = []) {
   };
 }
 
-test("tickets repository orders waiting tickets by carry-over, recovery, checked-in booking, then normal", async () => {
+test("tickets repository orders ready tickets first, then carry-over, recovery, checked-in booking, and normal", async () => {
   const { calls, client } = createQueryClient();
   const ticketsRepository = requireWithMocks("../src/repositories/tickets.js", {
     "../config/db": { pool: client }
@@ -96,8 +96,8 @@ test("tickets repository orders waiting tickets by carry-over, recovery, checked
 
   assert.equal(calls.length, 1);
   assert.match(
-    calls[0].query,
-    /ORDER BY CASE service_priority_band WHEN 'carry_over' THEN 0 WHEN 'recovery' THEN 1 WHEN 'checked_in_booking' THEN 2 ELSE 3 END ASC, carry_over_count DESC, created_at ASC/
+    calls[0].query.replace(/\s+/g, " "),
+    /ORDER BY CASE WHEN EXISTS \( SELECT 1 FROM bookings WHERE bookings.queue_ticket_id = tickets.id AND bookings.tenant_id = tickets.tenant_id AND bookings.location_id = tickets.location_id AND bookings.scheduled_start_at > NOW\(\) \) THEN 1 ELSE 0 END ASC, CASE service_priority_band WHEN 'carry_over' THEN 0 WHEN 'recovery' THEN 1 WHEN 'checked_in_booking' THEN 2 ELSE 3 END ASC, carry_over_count DESC, created_at ASC/
   );
   assert.deepEqual(calls[0].params, [1, 2, "20260606", 5]);
 });

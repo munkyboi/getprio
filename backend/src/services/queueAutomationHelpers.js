@@ -18,6 +18,9 @@ async function maybeNotifyUpcomingTickets(tenant, options = {}) {
 
   for (let index = 0; index < waitingTickets.length; index += 1) {
     const ticket = waitingTickets[index];
+    if (ticket.linkedBookingEstimation?.scheduledStartAt && new Date(ticket.linkedBookingEstimation.scheduledStartAt).getTime() > Date.now()) {
+      continue;
+    }
     const shouldNotify =
       !ticket.notifiedAlmostThereAt ||
       Date.now() - ticket.notifiedAlmostThereAt.getTime() > cooldownMs;

@@ -382,6 +382,7 @@ const emptyLocationForm = {
   paymentAccountIdentifierDisplay: "",
   paymentQrImageUrl: "",
   paymentQrActive: false,
+  customerSelfCheckInEnabled: false,
   isPrimary: false,
   isActive: true,
   hours: defaultHours
@@ -4515,6 +4516,17 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
           </ModalSection>
 
           <ModalSection
+            title="Booking arrival"
+            description="Choose how customers join the live queue for their scheduled booking."
+          >
+            <Switch
+              checked={locationForm.customerSelfCheckInEnabled}
+              label="Allow customers to mark their arrival"
+              description="Customers can tap I’ve arrived within 15 minutes of their booked start. This accepts their declaration without verifying they are on site. Staff check-in remains available. Booking tickets cannot be called before their scheduled start."
+              onChange={(event) => setLocationForm((current) => ({ ...current, customerSelfCheckInEnabled: event.currentTarget.checked }))}
+            />
+          </ModalSection>
+          <ModalSection
             title="Visibility and access"
             description="These switches control whether the branch is active and whether it is treated as the main location."
           >
@@ -5181,7 +5193,10 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                                   )}
                                 </Text>
                                 {ticket.linkedBookingReference ? (
-                                  <Text c="dimmed" size="xs">Booking {ticket.linkedBookingReference}</Text>
+                                  <Stack gap={2}>
+                                    <Text c="dimmed" size="xs">Booking {ticket.linkedBookingReference}</Text>
+                                    {ticket.bookingScheduledStartAt ? <Text c="dimmed" size="xs">Earliest call: {formatDateTime(ticket.bookingScheduledStartAt)}</Text> : null}
+                                  </Stack>
                                 ) : null}
                               </Table.Td>
                               <Table.Td><Badge variant="light">{ticket.joinChannel}</Badge></Table.Td>
@@ -6032,6 +6047,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         paymentAccountIdentifierDisplay: locationItem.paymentAccountIdentifierDisplay,
         paymentQrImageUrl: locationItem.paymentQrImageUrl,
         paymentQrActive: locationItem.paymentQrActive,
+        customerSelfCheckInEnabled: locationItem.customerSelfCheckInEnabled === true,
         isPrimary: locationItem.isPrimary,
         isActive: locationItem.isActive,
         hours: locationItem.hours.length ? locationItem.hours : defaultHours
@@ -6146,6 +6162,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         paymentAccountIdentifierDisplay: locationForm.paymentAccountIdentifierDisplay,
         paymentQrImageUrl: locationForm.paymentQrImageUrl,
         paymentQrActive: locationForm.paymentQrActive,
+        customerSelfCheckInEnabled: locationForm.customerSelfCheckInEnabled,
         isPrimary: locationForm.isPrimary,
         isActive: locationForm.isActive
       };
@@ -7584,6 +7601,9 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       }
                       const canReviewBookingPayment = canAdminBookings && paymentReviewPending && Boolean(booking.paymentProof);
                       const actionButtons = (() => {
+                        if (booking.checkedInAt || booking.linkedTicket) {
+                          return <Text c="dimmed" size="xs">Manage from the live queue.</Text>;
+                        }
                         if (canReviewBookingPayment) {
                           return (
                             <Group gap="xs" justify="flex-end" wrap="nowrap">
