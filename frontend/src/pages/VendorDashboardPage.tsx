@@ -175,17 +175,21 @@ function IconActionButton({
   color = "gray",
   onClick,
   children,
-  disabled = false
+  disabled = false,
+  loading = false,
+  size
 }: {
   label: string;
   color?: string;
   onClick: () => void;
   children: React.ReactNode;
   disabled?: boolean;
+  loading?: boolean;
+  size?: number;
 }) {
   return (
     <Tooltip label={label} withArrow>
-      <ActionIcon aria-label={label} color={color} disabled={disabled} onClick={onClick} variant="light">
+      <ActionIcon aria-label={label} color={color} disabled={disabled} loading={loading} size={size} onClick={onClick} variant="light">
         {children}
       </ActionIcon>
     </Tooltip>
@@ -7774,18 +7778,16 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                               >
                                 <IconCalendar size={16} />
                               </IconActionButton>
-                              <Tooltip label="Late check-in override: customer is more than 15 minutes past the scheduled start." withArrow>
-                                <ActionIcon
-                                  aria-label="Late check-in"
-                                  color="orange"
-                                  disabled={Boolean(busyAction) || bookingCheckInBlocked}
-                                  title={bookingCheckInBlocked ? bookingCheckInGuidance : undefined}
-                                  onClick={() => handleCheckInBooking(booking, true)}
-                                  variant="light"
-                                >
-                                  <IconCalendarCheck size={16} />
-                                </ActionIcon>
-                              </Tooltip>
+                              <IconActionButton
+                                label={bookingCheckInBlocked ? `Late check-in: ${bookingCheckInGuidance}` : "Late check-in: customer is more than 15 minutes past the scheduled start"}
+                                color="orange"
+                                size={44}
+                                loading={busyAction === `booking-check-in:${booking.id}:override`}
+                                disabled={Boolean(busyAction) || bookingCheckInBlocked}
+                                onClick={() => void handleCheckInBooking(booking, true)}
+                              >
+                                <IconCalendarCheck size={18} />
+                              </IconActionButton>
                               <IconActionButton
                                 label="Mark no-show"
                                 color="red"
@@ -7898,16 +7900,16 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                           <Table.Td>
                             <Group gap="xs" wrap="wrap">
                               {canOperateBookingQueue && checkInState.isEligibleStatus && !checkInState.isTooEarly && !checkInState.isLate && !booking.checkedInAt && !booking.linkedTicket ? (
-                                <Button
-                                  leftSection={<IconCalendarCheck size={16} />}
-                                  mih={44}
+                                <IconActionButton
+                                  label={bookingCheckInBlocked ? `Check in customer: ${bookingCheckInGuidance}` : "Check in customer"}
+                                  color="teal"
+                                  size={44}
                                   loading={busyAction === `booking-check-in:${booking.id}`}
                                   disabled={Boolean(busyAction) || bookingCheckInBlocked}
-                                  title={bookingCheckInBlocked ? bookingCheckInGuidance : undefined}
                                   onClick={() => void handleCheckInBooking(booking)}
                                 >
-                                  Check in customer
-                                </Button>
+                                  <IconCalendarCheck size={18} />
+                                </IconActionButton>
                               ) : null}
                               {canOperateBookingQueue && checkInState.isEligibleStatus && !booking.checkedInAt && !booking.linkedTicket && bookingCheckInBlocked ? <Text c="dimmed" size="xs">{bookingCheckInGuidance}</Text> : null}
                               {renderStaffNoShowAction(booking)}
@@ -9527,12 +9529,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     const detailPaymentGateActive = Boolean(detailBooking && detailManualPaymentRequired && !detailPaymentVerified);
     const detailBookingExpired = Boolean(detailBooking?.expiredAt);
     const detailCheckInState = detailBooking ? getBookingCheckInState(detailBooking, bookingCheckInNow) : null;
-    let detailCheckInLabel = "Check in customer";
-    if (detailCheckInState?.isTooEarly) {
-      detailCheckInLabel = "Check-in opens 15 minutes before the booking";
-    } else if (detailCheckInState?.isLate) {
-      detailCheckInLabel = "Check in customer late";
-    }
+    const detailCheckInLabel = detailCheckInState?.isLate ? "Check in customer late" : "Check in customer";
     const detailCampaignBundleItems = detailBooking?.groupFundedCampaign?.bundleItems || [];
     const detailBookingBundleItems = detailBooking?.bundleItems || [];
     const detailServiceItems = detailCampaignBundleItems.length
@@ -9855,10 +9852,14 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     Open booking queue
                   </Button>
                   {canOperateBookingQueue && getBookingCheckInState(detailBooking, bookingCheckInNow).isEligibleStatus && !detailBooking.checkedInAt && !detailBooking.linkedTicket ? (
-                    <Stack gap={4}>
+                    <Stack gap={6} className="booking-detail__check-in">
+                      {detailCheckInState?.isTooEarly ? <Text c="dimmed" size="sm">Check-in opens 15 minutes before the booking.</Text> : null}
                       {bookingCheckInBlocked ? <Text c="dimmed" size="sm">{bookingCheckInGuidance}</Text> : null}
                     <Button
-                      leftSection={<IconCalendarCheck size={16} />}
+                      className="neura-primary-button"
+                      radius="xl"
+                      size="sm"
+                      leftSection={<IconCalendarCheck size={18} />}
                       mih={44}
                       disabled={Boolean(busyAction) || bookingCheckInBlocked || getBookingCheckInState(detailBooking, bookingCheckInNow).isTooEarly}
                       title={bookingCheckInBlocked ? bookingCheckInGuidance : undefined}
