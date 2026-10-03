@@ -12,7 +12,7 @@
 
 ## Review and release gates
 
-Static frontend/backend type checks, focused lint, whitespace review. No local test suite or database migration was run for this request. Hosted checks and runtime verification remain required.
+Static frontend/backend type checks, focused lint, whitespace review. No local test suite or database migration was run for this request. The existing queue-order assertion was updated after hosted CI identified its old ordering expectation. Hosted checks and runtime verification remain required.
 
 In an isolated environment, verify branch opt-in/off, cross-customer denial, early/late window, paused/closed intake, concurrent staff/customer arrival and retry, schedule-bound calling, and normal walk-in calling. Inspect the new branch switch and customer action on mobile/tablet/desktop. Do not enable the setting or change bookings in production as part of read-only release inspection.
 
