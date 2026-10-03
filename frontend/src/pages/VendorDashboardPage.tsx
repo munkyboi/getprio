@@ -4799,7 +4799,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     return (
       <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="md">
         <MetricCard
-          label="Now serving"
+          label={snapshot?.location?.serviceTimingEnabled ? "Current ticket" : "Now serving"}
           value={snapshot?.current?.ticketNumber || "--"}
           detail={snapshot?.current?.customerName || "No active ticket"}
         />
@@ -5167,7 +5167,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   </Group>
                   <SimpleGrid cols={{ base: 1, sm: intakeState?.autoPauseEnabled ? 3 : 2 }} spacing="md">
                     <Paper withBorder radius="md" p="md">
-                      <Text className="neura-label">Now serving</Text>
+                      <Text className="neura-label">{activeTicket?.serviceStartedAt ? "In service" : snapshot?.location?.serviceTimingEnabled ? "Called ticket" : "Now serving"}</Text>
                       <Group gap="xs">
                         <Title order={3}>{activeTicket?.ticketNumber || "--"}</Title>
                         {activeTicket && isCheckedInBookingTicket(activeTicket) ? (
