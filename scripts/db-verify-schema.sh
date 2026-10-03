@@ -150,6 +150,8 @@ BEGIN
   SELECT array_agg(table_name)
   INTO missing_tables
   FROM (VALUES
+    ('location_resource_pools'),
+    ('service_resource_requirements'),
     ('queue_days'),
     ('queue_day_extensions'),
     ('queue_ticket_segments'),
@@ -245,6 +247,28 @@ BEGIN
       AND pg_get_constraintdef(oid) LIKE '%missed%'
   ) THEN
     RAISE EXCEPTION 'Schema verification failed. Booking outcome status constraint is stale.';
+  END IF;
+END $$;
+
+DO $$
+DECLARE
+  missing_resource_constraints text[];
+BEGIN
+  SELECT array_agg(required.constraint_name) INTO missing_resource_constraints
+  FROM (VALUES
+    ('location_resource_pools', 'resource_pools_tracking_disabled_check'),
+    ('location_resource_pools', 'resource_pools_location_scope_fkey'),
+    ('service_resource_requirements', 'resource_requirements_pool_scope_fkey'),
+    ('service_resource_requirements', 'resource_requirements_service_scope_fkey'),
+    ('service_resource_requirements', 'resource_requirements_location_service_fkey')
+  ) AS required(table_name, constraint_name)
+  WHERE NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conrelid = to_regclass('public.' || required.table_name)
+      AND conname = required.constraint_name AND convalidated
+  );
+  IF missing_resource_constraints IS NOT NULL THEN
+    RAISE EXCEPTION 'Schema verification failed. Missing resource constraints: %', array_to_string(missing_resource_constraints, ', ');
   END IF;
 END $$;
 

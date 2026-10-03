@@ -4,6 +4,8 @@ BEGIN;
 -- Docker only runs this file when the Postgres data directory is empty.
 -- Running it manually against an existing database will remove app data.
 
+DROP TABLE IF EXISTS service_resource_requirements CASCADE;
+DROP TABLE IF EXISTS location_resource_pools CASCADE;
 DROP TABLE IF EXISTS account_deletion_tasks CASCADE;
 DROP TABLE IF EXISTS account_deletion_requests CASCADE;
 DROP TABLE IF EXISTS platform_help_center_state CASCADE;
