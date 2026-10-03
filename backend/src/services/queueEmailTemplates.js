@@ -108,12 +108,16 @@ function queueLifecycleEmail({ tenant, ticket, kind, action, position }) {
       subject: `${ticketNumber} expired`, eyebrow: "Final queue update", title: "The carry-over window ended.",
       message: `${ticketNumber} reached its final expiration after the carry-over opportunity ended without service. This is not a cancellation. Contact ${tenant.name} about the appropriate next step.`
     },
+    service_interrupted: {
+      subject: `${ticketNumber}: service interrupted`, eyebrow: "Service update", title: "Service ended without completion.",
+      message: `${tenant.name} recorded that service for ${ticketNumber} was interrupted. Contact the vendor about the appropriate next step.`
+    },
     unserved: {
       subject: `${ticketNumber} was not served before closing`, eyebrow: "Final queue update", title: "Service was not completed.",
       message: `${tenant.name} closed after ${ticketNumber} was called. The unserved outcome is final and is not a cancellation. Contact the vendor about the appropriate next step.`
     }
   };
-  const copy = messages[kind] || {
+  const copy = (ticket.statusReason === "service_interrupted" ? messages.service_interrupted : messages[kind]) || {
     subject: "Your queue ticket was updated", eyebrow: "Queue update", title: "Your ticket changed.",
     message: `${ticketNumber}: ${String(action || kind || "updated").replaceAll("_", " ")}.`
   };

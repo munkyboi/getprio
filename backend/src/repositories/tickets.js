@@ -28,6 +28,9 @@ const TICKET_COLUMNS = `
   called_at,
   customer_confirmed_at,
   served_at,
+  service_started_at,
+  service_ended_at,
+  service_outcome,
   skipped_at,
   cancelled_at,
   unserved_at,
@@ -91,6 +94,9 @@ function mapTicket(row) {
     calledAt: row.called_at,
     customerConfirmedAt: row.customer_confirmed_at,
     servedAt: row.served_at,
+    serviceStartedAt: row.service_started_at || null,
+    serviceEndedAt: row.service_ended_at || null,
+    serviceOutcome: row.service_outcome || null,
     skippedAt: row.skipped_at,
     cancelledAt: row.cancelled_at,
     unservedAt: row.unserved_at,
@@ -774,7 +780,7 @@ async function findCurrentCalledTicket(tenantId, options = {}) {
       FROM tickets
       WHERE tenant_id = $1 ${locationFilter} ${dateFilter} AND status = 'called'
       ORDER BY called_at ASC NULLS LAST, created_at ASC
-      LIMIT 1
+      LIMIT 1 ${options.forUpdate ? "FOR UPDATE" : ""}
     `,
     values
   );
@@ -832,6 +838,7 @@ async function updateCurrentCalledTicketStatus(tenantId, status, options = {}) {
         SELECT id
         FROM tickets
         WHERE tenant_id = $1 AND location_id = $3 AND date_key = $4 AND status = 'called'
+          AND ($6::bigint IS NULL OR id = $6)
         ORDER BY called_at ASC NULLS LAST, created_at ASC
         LIMIT 1
         FOR UPDATE SKIP LOCKED
@@ -857,7 +864,8 @@ async function updateCurrentCalledTicketStatus(tenantId, status, options = {}) {
       status,
       Number(options.locationId),
       String(options.dateKey),
-      options.rejoinDeadlineAt || null
+      options.rejoinDeadlineAt || null,
+      options.ticketId ? Number(options.ticketId) : null
     ]
   );
 

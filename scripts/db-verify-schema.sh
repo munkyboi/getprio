@@ -97,6 +97,11 @@ BEGIN
       WHERE table_schema = 'public' AND table_name = 'bookings' AND column_name = 'pending_expires_at'
     )
     UNION ALL
+    SELECT 'service timing columns'
+    WHERE (SELECT COUNT(*) FROM information_schema.columns
+      WHERE table_schema = 'public' AND ((table_name = 'store_locations' AND column_name = 'service_timing_enabled')
+        OR (table_name = 'tickets' AND column_name IN ('service_started_at', 'service_ended_at', 'service_outcome', 'service_started_by_user_id', 'service_ended_by_user_id')))) <> 6
+    UNION ALL
     SELECT 'store_locations.customer_self_check_in_enabled'
     WHERE NOT EXISTS (
       SELECT 1 FROM information_schema.columns

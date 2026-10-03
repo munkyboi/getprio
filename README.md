@@ -12,6 +12,7 @@ GetPrio is owned and operated by MNK-Labs Software Development Services.
 - `database/init.sql`: database bootstrap schema for Dockerized PostgreSQL.
 - `scripts/db-apply.sh`: repo-supported SQL bootstrap and migration runner.
 - `scripts/db-verify-schema.sh`: deploy-time schema sanity check for critical tables/columns.
+- `scripts/service-timing-audit.mjs`: scoped read-only report of explicit staff service timing; see `docs/plan/service-timing.md`.
 - `scripts/entitlement-rollout.mjs`: explicit census, dry-run, apply, resume, and verification commands for Free assignment.
 - `scripts/queue-lifecycle-smoke.mjs`: destructive lifecycle verification guarded
   to disposable databases whose name contains `smoke` or `test`.

@@ -99,7 +99,7 @@ export default function PublicQueuePage() {
   const businessName = snapshot?.tenant?.name || tenantSlugValue || "GetPrio";
   const heroTitle = businessName;
   const queueState = getQueueStateSummary(snapshot);
-  const ticketState = getTicketStateSummary(snapshot?.focusTicket?.status);
+  const ticketState = getTicketStateSummary(snapshot?.focusTicket?.status, snapshot?.focusTicket?.statusReason);
   const locationState = getLocationStatusSummary(snapshot);
   const clockLabel = formatClock(clockNow, snapshot?.location?.timezone);
   const calendarDate = formatCalendarDate(clockNow, snapshot?.location?.timezone);

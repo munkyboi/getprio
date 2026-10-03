@@ -4,6 +4,7 @@ const queueDayClosureRepository = require("../repositories/queueDayClosures");
 const queueDayPauseRepository = require("../repositories/queueDayPauses");
 const storeLocationRepository = require("../repositories/storeLocations");
 const ticketRepository = require("../repositories/tickets");
+const serviceTimingRepository = require("../repositories/serviceTiming");
 const waitTimePredictionRepository = require("../repositories/waitTimePredictions");
 const queueFeeService = require("./queueFeeService");
 const storeHoursService = require("./storeHoursService");
@@ -86,6 +87,9 @@ async function buildQueueSnapshot(tenant, options = {}, getTenantUsage) {
     dateKey,
     locationId
   });
+  const unfinishedServiceTiming = options.includeServiceTiming
+    ? await serviceTimingRepository.listUnfinished(tenant._id, locationId)
+    : [];
   const servedToday = await ticketRepository.countServedToday(tenant._id, dateKey, { locationId });
   const usage = await getTenantUsage(tenant._id);
   const queueFee = await queueFeeService.getQueueFeeForTenant(tenant._id);
@@ -284,6 +288,7 @@ async function buildQueueSnapshot(tenant, options = {}, getTenantUsage) {
             postalCode: locationToUse.postalCode,
             country: locationToUse.country,
             timezone: locationToUse.timezone,
+            serviceTimingEnabled: locationToUse.serviceTimingEnabled === true,
             isPrimary: locationToUse.isPrimary,
             isActive: locationToUse.isActive,
             joinUrl: buildJoinUrl(env.appBaseUrl, tenant.slug, locationToUse.slug),
@@ -338,6 +343,7 @@ async function buildQueueSnapshot(tenant, options = {}, getTenantUsage) {
           customerName: current.customerName,
           customerDisplayName: current.customerDisplayName || null,
           calledAt: current.calledAt,
+          serviceStartedAt: current.serviceStartedAt,
           joinChannel: current.joinChannel,
           customerConfirmedAt: current.customerConfirmedAt || null,
           servicePriorityBand: current.servicePriorityBand || "normal",
@@ -368,6 +374,7 @@ async function buildQueueSnapshot(tenant, options = {}, getTenantUsage) {
       rejoinDeadlineAt: ticket.rejoinDeadlineAt || null,
       servicePriorityBand: ticket.servicePriorityBand || "normal"
     })),
+    unfinishedServiceTiming,
     usage,
     focusTicket
   };

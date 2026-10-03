@@ -278,7 +278,8 @@ export default function JoinedQueuePage() {
   );
   const ticketState = getCustomerTicketStateSummary(
     snapshot?.focusTicket?.status,
-    snapshot?.focusTicket?.customerConfirmedAt
+    snapshot?.focusTicket?.customerConfirmedAt,
+    snapshot?.focusTicket?.statusReason
   );
   const ticketDisplayStatus = ticketIsConfirmed
     ? "confirmed"

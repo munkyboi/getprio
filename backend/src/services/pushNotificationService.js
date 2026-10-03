@@ -536,7 +536,9 @@ function getQueueUpdateBody(tenant, ticket, action) {
     case "cancelled":
       return `${tenantName} canceled ${ticketNumber}.`;
     case "unserved":
-      return `${tenantName} closed before serving ${ticketNumber}.`;
+      return ticket.statusReason === "service_interrupted"
+        ? `${tenantName} ended service for ${ticketNumber} without completing it. Contact the vendor about the next step.`
+        : `${tenantName} closed before serving ${ticketNumber}.`;
     case "requeued":
       return `${tenantName} returned ${ticketNumber} to the queue.`;
     case "near_turn":

@@ -921,6 +921,7 @@ CREATE TABLE store_locations (
   payment_account_identifier_display TEXT,
   payment_qr_image_url TEXT,
   payment_qr_active BOOLEAN NOT NULL DEFAULT FALSE,
+  service_timing_enabled BOOLEAN NOT NULL DEFAULT FALSE,
   is_primary BOOLEAN NOT NULL DEFAULT FALSE,
   is_active BOOLEAN NOT NULL DEFAULT TRUE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -1531,6 +1532,17 @@ CREATE TABLE tickets (
   called_at TIMESTAMPTZ,
   customer_confirmed_at TIMESTAMPTZ,
   served_at TIMESTAMPTZ,
+  service_started_at TIMESTAMPTZ,
+  service_ended_at TIMESTAMPTZ,
+  service_outcome TEXT,
+  service_started_by_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+  service_ended_by_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+  CONSTRAINT tickets_service_timing_check CHECK (
+    (service_started_at IS NULL AND service_ended_at IS NULL AND service_outcome IS NULL)
+    OR (service_started_at IS NOT NULL AND service_ended_at IS NULL AND service_outcome IS NULL)
+    OR (service_started_at IS NOT NULL AND service_ended_at IS NOT NULL AND service_ended_at >= service_started_at
+      AND service_outcome IS NOT NULL AND service_outcome IN ('completed', 'interrupted'))
+  ),
   skipped_at TIMESTAMPTZ,
   cancelled_at TIMESTAMPTZ,
   unserved_at TIMESTAMPTZ,
@@ -1545,6 +1557,9 @@ CREATE TABLE tickets (
   ),
   UNIQUE (tenant_id, location_id, date_key, sequence)
 );
+
+CREATE INDEX tickets_unfinished_service_idx ON tickets (tenant_id, location_id, service_started_at)
+  WHERE service_started_at IS NOT NULL AND service_ended_at IS NULL;
 
 CREATE UNIQUE INDEX tickets_developer_external_reference_idx
   ON tickets (developer_project_id, developer_environment, external_reference)
