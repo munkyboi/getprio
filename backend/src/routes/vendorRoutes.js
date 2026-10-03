@@ -270,7 +270,7 @@ router.get(
     if (permissions.getTenantRole(req.user, tenant._id) === "staff") {
       await assertBookingReadAccess(req.user, tenant, location);
     }
-    const snapshot = await getQueueSnapshot(tenant, { location });
+    const snapshot = await getQueueSnapshot(tenant, { location, includeServiceTiming: true });
     res.json(snapshot);
   })
 );
@@ -1136,7 +1136,7 @@ router.post(
     if (!result) {
       res.json({
         message: "No waiting tickets in the queue.",
-        snapshot: await getQueueSnapshot(tenant, { location })
+        snapshot: await getQueueSnapshot(tenant, { location, includeServiceTiming: true })
       });
       return;
     }

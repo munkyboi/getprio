@@ -87,7 +87,9 @@ async function buildQueueSnapshot(tenant, options = {}, getTenantUsage) {
     dateKey,
     locationId
   });
-  const unfinishedServiceTiming = await serviceTimingRepository.listUnfinished(tenant._id, locationId);
+  const unfinishedServiceTiming = options.includeServiceTiming
+    ? await serviceTimingRepository.listUnfinished(tenant._id, locationId)
+    : [];
   const servedToday = await ticketRepository.countServedToday(tenant._id, dateKey, { locationId });
   const usage = await getTenantUsage(tenant._id);
   const queueFee = await queueFeeService.getQueueFeeForTenant(tenant._id);
