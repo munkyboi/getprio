@@ -28,7 +28,8 @@ export function VendorResourceConfiguration(props: Props) {
     queryKey: ["vendor-resource-configuration", props.token, props.tenantSlug, props.locationSlug],
     queryFn: () => apiRequest<Configuration>(path, { token: props.token }),
     // Keep the version displayed when an edit begins; stale saves are rejected by the server.
-    refetchOnWindowFocus: false
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false
   });
   const queryClient = useQueryClient();
   const data = query.data;
