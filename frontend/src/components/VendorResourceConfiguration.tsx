@@ -12,7 +12,7 @@ type Configuration = {
 };
 type Props = { token: string; tenantSlug: string; locationSlug: string; locationName: string };
 
-export function VendorResourceConfiguration(props: Props) {
+export function VendorResourceConfiguration(props: Readonly<Props>) {
   // Parent keys this component by tenant/location so unsaved input cannot move between branches.
   const [poolId, setPoolId] = useState<string | null>(null);
   const [name, setName] = useState("");
