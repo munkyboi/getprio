@@ -5,7 +5,7 @@
   overflow-wrap: anywhere;
 }
 .resource-section-heading,
-.resource-summary {
+.vendor-resource-configuration .resource-summary {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
@@ -33,7 +33,7 @@
 }
 @media (min-width: 48.0625em) {
   .resource-section-heading,
-  .resource-summary {
+  .vendor-resource-configuration .resource-summary {
     flex-direction: row;
     align-items: center;
     justify-content: space-between;
