@@ -1,0 +1,59 @@
+.vendor-resource-configuration section,
+.resource-section-heading > div,
+.resource-summary > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.resource-section-heading,
+.resource-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+.resource-section-heading > button,
+.resource-summary > button {
+  width: 100%;
+}
+.resource-summary__actions,
+.resource-editor__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+.resource-summary__actions > button,
+.resource-editor__actions > button {
+  flex: 1 1 8rem;
+  min-height: 44px;
+}
+.resource-editor {
+  scroll-margin-top: 5rem;
+}
+.resource-confirm-modal .mantine-Button-root {
+  min-height: 44px;
+}
+@media (min-width: 48.0625em) {
+  .resource-section-heading,
+  .resource-summary {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .resource-section-heading > button,
+  .resource-summary > button {
+    flex-shrink: 0;
+    width: auto;
+  }
+  .resource-summary__actions {
+    flex-shrink: 0;
+  }
+  .resource-summary__actions > button,
+  .resource-editor__actions > button {
+    flex: 0 0 auto;
+  }
+  .resource-editor__actions {
+    justify-content: flex-end;
+  }
+  .resource-editor {
+    max-width: 40rem;
+  }
+}

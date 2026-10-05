@@ -1,136 +1,152 @@
 import { useState, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Alert, Badge, Button, Card, Group, NumberInput, Paper, Select, Stack, Text, TextInput, Title } from "@mantine/core";
+import { Alert, Badge, Button, Card, Group, Paper, SimpleGrid, Stack, Text, Title } from "@mantine/core";
 import { apiRequest } from "../api/client";
+import { ConfirmActionModal } from "./ConfirmActionModal";
+import { ResourcePoolForm, ResourceRequirementForm, hasResourceEdits, resourceServiceName, resourceUnits,
+  type ResourceConfiguration, type ResourceEditor, type PoolEditor, type RequirementEditor } from "./VendorResourceConfigurationForms";
+import "./vendor-resource-configuration.css";
 
-type Configuration = {
-  version: string;
-  pools: { id: string; name: string; capacity: number; revision: number; tracking_enabled: boolean }[];
-  requirements: { service_id: string; pool_id: string; units_required: number; revision: number }[];
-  services: { id: string; name: string }[];
-  trackingAvailable: false;
-};
 type Props = { token: string; tenantSlug: string; locationSlug: string; locationName: string };
+type Transition = { type: "edit"; editor: ResourceEditor } | { type: "close" } | { type: "reload" } | { type: "remove"; serviceId: string };
+
+function makePoolEditor(data: ResourceConfiguration, poolId?: string): PoolEditor {
+  const pool = data.pools.find((item) => item.id === poolId);
+  return { kind: "pool", poolId, name: pool?.name || "", capacity: pool?.capacity || 1,
+    initialName: pool?.name || "", initialCapacity: pool?.capacity || 1, version: data.version };
+}
+function makeRequirementEditor(data: ResourceConfiguration, serviceId: string | null): RequirementEditor {
+  const requirement = data.requirements.find((item) => item.service_id === serviceId);
+  const poolId = requirement?.pool_id || (data.pools.length === 1 ? data.pools[0].id : null);
+  return { kind: "requirement", existing: Boolean(requirement), serviceId, poolId, units: requirement?.units_required || 1,
+    initialServiceId: serviceId, initialPoolId: poolId, initialUnits: requirement?.units_required || 1, version: data.version };
+}
 
 export function VendorResourceConfiguration(props: Readonly<Props>) {
-  // Parent keys this component by tenant/location so unsaved input cannot move between branches.
-  const [poolId, setPoolId] = useState<string | null>(null);
-  const [name, setName] = useState("");
-  const [capacity, setCapacity] = useState<number | string>(1);
-  const [serviceId, setServiceId] = useState<string | null>(null);
-  const [requirementPoolId, setRequirementPoolId] = useState<string | null>(null);
-  const [units, setUnits] = useState<number | string>(1);
+  const [editor, setEditor] = useState<ResourceEditor | null>(null);
+  const [pendingTransition, setPendingTransition] = useState<Transition | null>(null);
+  const [removal, setRemoval] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const path = `/vendor/tenant/${encodeURIComponent(props.tenantSlug)}/locations/${encodeURIComponent(props.locationSlug)}/resources`;
-  const query = useQuery({
-    queryKey: ["vendor-resource-configuration", props.token, props.tenantSlug, props.locationSlug],
-    queryFn: () => apiRequest<Configuration>(path, { token: props.token }),
-    // Keep the version displayed when an edit begins; stale saves are rejected by the server.
-    refetchOnWindowFocus: false,
-    refetchOnReconnect: false
-  });
+  const queryKey = ["vendor-resource-configuration", props.token, props.tenantSlug, props.locationSlug];
+  const query = useQuery({ queryKey, queryFn: () => apiRequest<ResourceConfiguration>(path, { token: props.token }),
+    refetchOnWindowFocus: false, refetchOnReconnect: false });
   const queryClient = useQueryClient();
   const data = query.data;
-  async function save(body: Record<string, unknown>) {
-    if (!data || busy) return;
+  const controlsDisabled = busy || query.isFetching;
+
+  function transition(action: Transition) {
+    setPendingTransition(null); setError(null); setNotice(null); setRemoval(null);
+    setEditor(action.type === "edit" ? action.editor : null);
+    if (action.type === "remove") setRemoval(action.serviceId);
+    if (action.type === "reload") void query.refetch();
+  }
+  function requestTransition(action: Transition) {
+    if (controlsDisabled) return;
+    if (hasResourceEdits(editor)) setPendingTransition(action);
+    else transition(action);
+  }
+  async function save(body: Record<string, unknown>, version: string, successMessage: string) {
+    if (!data || controlsDisabled) return;
     setBusy(true); setError(null); setNotice(null);
     try {
-      const updated = await apiRequest<Configuration, Record<string, unknown>>(path, {
-        token: props.token, method: "PUT", body: { ...body, version: data.version }
+      const updated = await apiRequest<ResourceConfiguration, Record<string, unknown>>(path, {
+        token: props.token, method: "PUT", body: { ...body, version }
       });
-      queryClient.setQueryData(["vendor-resource-configuration", props.token, props.tenantSlug, props.locationSlug], updated);
-      if (body.action === "pool" && !body.poolId) { setName(""); setCapacity(1); }
-      setNotice("Resource configuration saved.");
+      queryClient.setQueryData(queryKey, updated);
+      setEditor(null); setRemoval(null); setNotice(successMessage);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Could not save resource configuration.");
+      setRemoval(null);
     } finally { setBusy(false); }
   }
-  function submitPool(event: FormEvent) {
+  function submitEditor(event: FormEvent) {
     event.preventDefault();
-    void save({ action: "pool", ...(poolId ? { poolId } : {}), name, capacity });
+    if (!editor) return;
+    if (editor.kind === "pool") {
+      void save({ action: "pool", ...(editor.poolId ? { poolId: editor.poolId } : {}), name: editor.name, capacity: editor.capacity }, editor.version, "Resource pool saved.");
+    } else {
+      void save({ action: "requirement", serviceId: editor.serviceId, poolId: editor.poolId, unitsRequired: editor.units }, editor.version, "Service requirement saved.");
+    }
   }
-  function submitRequirement(event: FormEvent) {
-    event.preventDefault();
-    void save({ action: "requirement", serviceId, poolId: requirementPoolId, unitsRequired: units });
-  }
-  function selectPool(value: string | null) {
-    setPoolId(value);
-    const pool = data?.pools.find((item) => item.id === value);
-    setName(pool?.name || ""); setCapacity(pool?.capacity || 1);
-  }
-  function selectService(value: string | null) {
-    setServiceId(value);
-    const requirement = data?.requirements.find((item) => item.service_id === value);
-    setRequirementPoolId(requirement?.pool_id || null); setUnits(requirement?.units_required || 1);
-  }
+  const unassigned = data?.services.filter((service) => !data.requirements.some((item) => item.service_id === service.id)) || [];
+  const assigned = (data?.services.length || 0) - unassigned.length;
   return <Card className="neura-card vendor-resource-configuration" padding="lg">
-    <Stack gap="md">
-      <div>
-        <Text className="neura-label">Resources · {props.locationName}</Text>
-        <Title order={3}>Plan service resources</Title>
+    <Stack gap="lg">
+      <div className="resource-section-heading">
+        <div><Text className="neura-label">Resources · {props.locationName}</Text><Title order={3}>Service resources</Title>
+          <Text c="dimmed" size="sm">Set shared capacity and the resources each service needs.</Text></div>
+        <Button variant="subtle" mih={44} disabled={controlsDisabled} onClick={() => requestTransition({ type: "reload" })}>Refresh</Button>
       </div>
-      <Alert color="blue" title="Configuration only">
-        Name shared resources such as courts, chairs, rooms, or staff positions. These settings support reservation audits;
-        they do not allocate resources, prevent booking conflicts, or change customer wait estimates yet.
-      </Alert>
-      {query.isPending ? <Text>Loading resource configuration…</Text> : null}
-      {query.error ? <Alert color="red">Could not load resource configuration. Try reloading.</Alert> : null}
-      {error ? <Alert color="red">{error}</Alert> : null}
-      {notice ? <Alert color="teal">{notice}</Alert> : null}
-      <Button variant="default" mih={44} disabled={busy || query.isFetching} onClick={() => {
-        setPoolId(null); setName(""); setCapacity(1); setServiceId(null); setRequirementPoolId(null); setUnits(1);
-        setError(null); setNotice(null); void query.refetch();
-      }}>Reload configuration and clear forms</Button>
+      <Alert color="blue" title="Planning setup">These settings do not enforce booking availability or change wait estimates yet.</Alert>
+      {query.isPending ? <Text role="status">Loading service resources…</Text> : null}
+      {query.error ? <Alert color="red" title="Could not load resources">Select Refresh to try again.</Alert> : null}
+      {error ? <Alert color="red" title="Could not save changes">{error} Your form is kept here; Refresh loads the latest settings and discards edits.</Alert> : null}
+      {notice ? <Text role="status" c="teal" fw={600}>{notice}</Text> : null}
       {data ? <>
-        <Stack gap="xs">
-          {data.pools.length === 0 ? <Text c="dimmed">No resource pools configured for this location.</Text> : null}
-          {data.pools.map((pool) => <Paper key={pool.id} p="md" withBorder>
-            <Group justify="space-between"><Text fw={700}>{pool.name}</Text><Badge>{pool.capacity} units</Badge></Group>
-          </Paper>)}
-        </Stack>
-        <Paper p="md" withBorder component="form" onSubmit={submitPool}>
-          <Stack gap="sm">
-            <Title order={4}>{poolId ? "Edit resource pool" : "Add resource pool"}</Title>
-            <Select styles={{ input: { minHeight: 44 }, option: { minHeight: 44 } }} label="Resource pool" description="Choose a pool to edit, or leave empty to add one."
-              data={data.pools.map((pool) => ({ value: pool.id, label: pool.name }))}
-              value={poolId} onChange={selectPool} clearable disabled={busy} />
-            <TextInput styles={{ input: { minHeight: 44 } }} label="Resource name" placeholder="e.g. Treatment rooms" value={name} maxLength={120} required
-              disabled={busy} onChange={(event) => setName(event.currentTarget.value)} />
-            <NumberInput styles={{ input: { minHeight: 44 } }} label="Available resource units" description="Physical or staffed units available together, not duration or ticket count."
-              min={1} max={100} allowDecimal={false} value={capacity} onChange={setCapacity} required disabled={busy} />
-            <Button type="submit" mih={44} fullWidth loading={busy} disabled={query.isFetching}>Save resource pool</Button>
+        <section aria-labelledby="resource-pools-heading">
+          <Stack gap="md">
+            <div className="resource-section-heading">
+              <div><Group gap="xs"><Title id="resource-pools-heading" order={4}>Resource pools</Title><Badge variant="light">{data.pools.length}</Badge></Group>
+                <Text c="dimmed" size="sm">Group resources that can be used interchangeably.</Text></div>
+              <Button mih={44} variant="light" disabled={controlsDisabled} onClick={() => requestTransition({ type: "edit", editor: makePoolEditor(data) })}>Add pool</Button>
+            </div>
+            {data.pools.length === 0 ? <Paper className="resource-empty" p="md" withBorder><Text fw={600}>Start with your available resources</Text>
+              <Text size="sm" c="dimmed">Add a pool such as Courts, Treatment rooms, or Service chairs, then enter how many are available at once.</Text></Paper> : null}
+            <SimpleGrid cols={{ base: 1, md: 2 }} spacing="sm">
+              {data.pools.map((pool) => <Paper key={pool.id} className="resource-summary" p="md" withBorder>
+                <div><Text fw={700}>{pool.name}</Text><Text size="sm">{resourceUnits(pool.capacity)} available together</Text>
+                  <Text size="sm" c="dimmed">{data.requirements.filter((item) => item.pool_id === pool.id).length} service requirements</Text></div>
+                <Button variant="default" mih={44} disabled={controlsDisabled} aria-label={`Edit ${pool.name} pool`}
+                  onClick={() => requestTransition({ type: "edit", editor: makePoolEditor(data, pool.id) })}>Edit pool</Button>
+              </Paper>)}
+            </SimpleGrid>
+            {editor?.kind === "pool" ? <ResourcePoolForm editor={editor} busy={controlsDisabled} onChange={setEditor}
+              onSubmit={submitEditor} onCancel={() => requestTransition({ type: "close" })} /> : null}
           </Stack>
-        </Paper>
-        <Paper p="md" withBorder component="form" onSubmit={submitRequirement}>
-          <Stack gap="sm">
-            <Title order={4}>Service resource requirement</Title>
-            <Text size="sm" c="dimmed">Set resource units needed simultaneously for one scheduled service item.
-              Booked quantity may represent time slots; it does not automatically multiply resource units.
-              This draft supports one pool per service at this location.</Text>
-            <Select styles={{ input: { minHeight: 44 }, option: { minHeight: 44 } }} label="Service at this location" data={data.services.map((service) => ({ value: service.id, label: service.name }))}
-              value={serviceId} onChange={selectService} searchable required disabled={busy} />
-            <Select styles={{ input: { minHeight: 44 }, option: { minHeight: 44 } }} label="Required resource pool" data={data.pools.map((pool) => ({ value: pool.id, label: pool.name }))}
-              value={requirementPoolId} onChange={setRequirementPoolId} required disabled={busy} />
-            <NumberInput styles={{ input: { minHeight: 44 } }} label="Units used together" min={1} max={data.pools.find((pool) => pool.id === requirementPoolId)?.capacity || 100}
-              allowDecimal={false} value={units} onChange={setUnits} required disabled={busy} />
-            <Button type="submit" mih={44} fullWidth loading={busy} disabled={!serviceId || !requirementPoolId || query.isFetching}>Save service requirement</Button>
-          </Stack>
-        </Paper>
-        <Stack gap="sm">
-          <Title order={4}>Saved requirements</Title>
-          {data.requirements.length === 0 ? <Text c="dimmed">No service requirements configured.</Text> : null}
-          {data.requirements.map((requirement) => <Paper key={requirement.service_id} p="md" withBorder>
+        </section>
+        <section aria-labelledby="resource-services-heading">
+          <Stack gap="md">
+            <div className="resource-section-heading">
+              <div><Title id="resource-services-heading" order={4}>Service requirements</Title>
+                <Text size="sm" c="dimmed">{assigned} of {data.services.length} active services configured</Text></div>
+              <Button variant="light" mih={44} disabled={controlsDisabled || data.pools.length === 0 || unassigned.length === 0}
+                onClick={() => requestTransition({ type: "edit", editor: makeRequirementEditor(data, null) })}>Assign service</Button>
+            </div>
+            {data.pools.length === 0 ? <Text size="sm" c="dimmed">Add a resource pool first to assign services.</Text> : null}
+            {data.services.length === 0 ? <Text size="sm" c="dimmed">No active services are offered at this location. Add them in Services.</Text> : null}
+            {data.requirements.length === 0 ? <Text size="sm" c="dimmed">No services assigned yet. Each service can use one pool at this location.</Text> : null}
             <Stack gap="xs">
-              <Text fw={700}>{data.services.find((service) => service.id === requirement.service_id)?.name || `Unavailable service ${requirement.service_id}`}</Text>
-              <Text>{requirement.units_required} units · {data.pools.find((pool) => pool.id === requirement.pool_id)?.name || "Unavailable pool"}</Text>
-              <Button variant="default" mih={44} fullWidth disabled={busy || query.isFetching}
-                onClick={() => void save({ action: "removeRequirement", serviceId: requirement.service_id })}>Remove requirement</Button>
+              {data.requirements.map((requirement) => <Paper className="resource-summary" key={requirement.service_id} p="md" withBorder>
+                <div><Text fw={700}>{resourceServiceName(data, requirement.service_id)}</Text>
+                  <Text size="sm" c="dimmed">{resourceUnits(requirement.units_required)} · {data.pools.find((pool) => pool.id === requirement.pool_id)?.name || "Unavailable pool"}</Text></div>
+                <Group className="resource-summary__actions" gap="xs">
+                  <Button variant="default" mih={44} disabled={controlsDisabled || !data.services.some((service) => service.id === requirement.service_id)}
+                    aria-label={`Edit requirement for ${resourceServiceName(data, requirement.service_id)}`}
+                    onClick={() => requestTransition({ type: "edit", editor: makeRequirementEditor(data, requirement.service_id) })}>Edit</Button>
+                  <Button color="red" variant="subtle" mih={44} disabled={controlsDisabled}
+                    aria-label={`Remove requirement for ${resourceServiceName(data, requirement.service_id)}`}
+                    onClick={() => requestTransition({ type: "remove", serviceId: requirement.service_id })}>Remove</Button>
+                </Group>
+              </Paper>)}
             </Stack>
-          </Paper>)}
-        </Stack>
+            {editor?.kind === "requirement" ? <ResourceRequirementForm data={data} editor={editor} busy={controlsDisabled} onChange={setEditor}
+              onSubmit={submitEditor} onCancel={() => requestTransition({ type: "close" })} /> : null}
+          </Stack>
+        </section>
       </> : null}
     </Stack>
+    <ConfirmActionModal className="resource-confirm-modal" opened={Boolean(pendingTransition)} title="Discard unsaved changes?"
+      description="Your resource edits have not been saved. Discard them to continue, or keep editing."
+      confirmLabel="Discard changes" onClose={() => setPendingTransition(null)} onConfirm={() => {
+        if (pendingTransition) transition(pendingTransition);
+      }} />
+    <ConfirmActionModal className="resource-confirm-modal" opened={Boolean(removal)} title="Remove service requirement?" cancelLabel="Keep requirement"
+      description={data && removal ? `${resourceServiceName(data, removal)} will no longer have a resource requirement at ${props.locationName}. You can assign it again later.` : ""}
+      confirmLabel="Remove requirement" loading={busy} onClose={() => { if (!busy) setRemoval(null); }} onConfirm={() => {
+        if (data && removal) void save({ action: "removeRequirement", serviceId: removal }, data.version, "Service requirement removed.");
+      }} />
   </Card>;
 }
