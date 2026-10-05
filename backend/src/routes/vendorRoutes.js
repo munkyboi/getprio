@@ -28,6 +28,7 @@ const publicBoardThemeUploadService = require("../services/publicBoardThemeUploa
 const vendorMediaUploadService = require("../services/vendorMediaUploadService");
 const locationPaymentQrUploadService = require("../services/locationPaymentQrUploadService");
 const bookingService = require("../services/bookingService");
+const resourceConfigurationService = require("../services/resourceConfigurationService");
 const { recordTicketService } = require("../services/ticketServiceTimingService");
 const entitlementAdmissionService = require("../services/entitlementAdmissionService");
 const ratingService = require("../services/ratingService");
@@ -260,6 +261,22 @@ async function getCounterForLocation(location, counterSlug) {
 }
 
 router.use(authenticate);
+
+for (const method of ["get", "put"]) {
+  router[method]("/tenant/:tenantSlug/locations/:locationSlug/resources", asyncHandler(async (req, res) => {
+    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+    assertTenantPermission(req.user, tenant._id, "tenant.location.manage");
+    assertTenantPermission(req.user, tenant._id, "tenant.service.manage");
+    const location = await getLocationForTenant(tenant, req.params.locationSlug);
+    const scope = { tenantId: tenant._id, locationId: location._id };
+    const configuration = method === "get"
+      ? await resourceConfigurationService.getConfiguration(scope)
+      : await resourceConfigurationService.saveConfiguration(scope, req.body);
+    res.json(configuration);
+  }));
+}
+
+
 
 router.get(
   "/tenant/:tenantSlug/dashboard",

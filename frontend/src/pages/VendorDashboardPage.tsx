@@ -1,3 +1,4 @@
+import { VendorResourceConfiguration } from "../components/VendorResourceConfiguration";
 import { VendorRatingsPanel } from "../components/VendorRatingsPanel";
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -6397,6 +6398,13 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
           </Card>
         ))}
         </SimpleGrid>
+        {token && selectedTenantSlug && selectedLocationSlug && (isOwner || isAdmin) ? (
+          <VendorResourceConfiguration
+            key={`${selectedTenantSlug}:${selectedLocationSlug}`}
+            token={token} tenantSlug={selectedTenantSlug} locationSlug={selectedLocationSlug}
+            locationName={locations.find((item) => item.slug === selectedLocationSlug)?.name || selectedLocationSlug}
+          />
+        ) : null}
         <Card className="neura-card" padding="lg">
           <Stack gap="md">
             <Group justify="space-between">

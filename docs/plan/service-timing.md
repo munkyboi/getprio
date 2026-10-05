@@ -40,4 +40,4 @@ Before enabling on a live branch, verify in an isolated environment: opt-in/off,
 
 ## Next
 
-Configure resource pools/requirements and implement transactional allocations before enabling resource tracking. Preserve generic names and simple vendor workflows. Resource tracking remains disabled by its existing database constraint. Customer wait predictions require separate coverage and temporal holdout validation.
+Configure resource pools/requirements through [branch resource configuration](resource-configuration.md), then implement transactional allocations before enabling resource tracking. Preserve generic names and simple vendor workflows. Resource tracking remains disabled by its existing database constraint. Customer wait predictions require separate coverage and temporal holdout validation.
