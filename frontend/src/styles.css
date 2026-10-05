@@ -8047,3 +8047,25 @@ button:hover > .rating-star { transform: scale(1.08); }
     max-width: 18rem;
   }
 }
+
+/* Location setup uses equal-width, touch-friendly tabs at narrow widths. */
+.vendor-location-settings-tabs > .mantine-Tabs-list {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  gap: 0.25rem;
+}
+.vendor-location-settings-tabs > .mantine-Tabs-list > .mantine-Tabs-tab {
+  min-width: 0;
+  min-height: 44px;
+  padding-inline: 0.5rem;
+  white-space: normal;
+}
+@media (min-width: 48.0625em) {
+  .vendor-location-settings-tabs > .mantine-Tabs-list {
+    display: flex;
+  }
+  .vendor-location-settings-tabs > .mantine-Tabs-list > .mantine-Tabs-tab {
+    padding-inline: 1.25rem;
+  }
+}

@@ -1017,6 +1017,7 @@ export default function VendorDashboardPage() {
   const [serviceSlugMessage, setServiceSlugMessage] = useState("");
   const [serviceSlugAvailable, setServiceSlugAvailable] = useState(false);
   const [checkingServiceSlug, setCheckingServiceSlug] = useState(false);
+  const [locationsTab, setLocationsTab] = useState("locations");
   const [servicesTab, setServicesTab] = useState<"catalog" | "weekly" | "exceptions">("catalog");
   const [availabilityBlockDialogOpen, setAvailabilityBlockDialogOpen] = useState(false);
   const [editingAvailabilityBlockId, setEditingAvailabilityBlockId] = useState("");
@@ -6276,7 +6277,19 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
 
   function renderTenantsPage() {
     return (
-      <Stack gap="md">
+      <Tabs
+        className="vendor-location-settings-tabs"
+        keepMounted
+        value={locationsTab === "resources" && !(isOwner || isAdmin) ? "locations" : locationsTab}
+        onChange={(value) => setLocationsTab(value || "locations")}
+      >
+        <Tabs.List aria-label="Location settings">
+          <Tabs.Tab value="locations">Locations</Tabs.Tab>
+          {isOwner || isAdmin ? <Tabs.Tab value="resources">Resources</Tabs.Tab> : null}
+          <Tabs.Tab value="counters">Counters</Tabs.Tab>
+        </Tabs.List>
+        <Tabs.Panel value="locations" pt="lg">
+          <Stack gap="md">
         <Group justify="space-between">
           <div>
             <Text className="neura-label">Locations</Text>
@@ -6398,6 +6411,9 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
           </Card>
         ))}
         </SimpleGrid>
+          </Stack>
+        </Tabs.Panel>
+        <Tabs.Panel value="resources" pt="lg">
         {token && selectedTenantSlug && selectedLocationSlug && (isOwner || isAdmin) ? (
           <VendorResourceConfiguration
             key={`${selectedTenantSlug}:${selectedLocationSlug}`}
@@ -6405,12 +6421,15 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
             locationName={locations.find((item) => item.slug === selectedLocationSlug)?.name || selectedLocationSlug}
           />
         ) : null}
+        </Tabs.Panel>
+        <Tabs.Panel value="counters" pt="lg">
         <Card className="neura-card" padding="lg">
           <Stack gap="md">
             <Group justify="space-between">
               <div>
                 <Text className="neura-label">Counters</Text>
                 <Title order={3}>Service counters</Title>
+                <Text c="dimmed" size="sm">{selectedLocation?.name || "Select a location"}</Text>
               </div>
               <Badge variant="light">{serviceCounters.length}/{counterLimit}</Badge>
             </Group>
@@ -6467,7 +6486,8 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
             </Button>
           </Stack>
         </Card>
-      </Stack>
+        </Tabs.Panel>
+      </Tabs>
     );
   }
 
