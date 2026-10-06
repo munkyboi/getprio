@@ -5134,7 +5134,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     ) : (
                       <Button
                         className="neura-secondary-button"
-                        disabled={!activeTicket}
+                        disabled={!activeTicket || Boolean(busyAction)}
                         leftSection={<IconQrcode size={16} />}
                         onClick={() => {
                           setTicketScannerError("");
