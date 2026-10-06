@@ -1240,6 +1240,27 @@ router.post(
   })
 );
 
+router.get("/tenant/:tenantSlug/queue/waiting-tickets", asyncHandler(async (req, res) => {
+  const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+  assertTenantPermission(req.user, tenant._id, "tenant.ticket.update_state");
+  const location = await getLocationForTenant(tenant, normalizeRequestText(req.query.location));
+  await assertQueueLocationAccess(req.user, tenant, location);
+  const page = Number(req.query.page || 1);
+  if (!Number.isSafeInteger(page) || page < 1 || page > 1000000) {
+    const error = new Error("A valid waiting-ticket page is required.");
+    error.statusCode = 400;
+    throw error;
+  }
+  const tickets = await ticketRepository.listWaitingTickets(tenant._id, {
+    locationId: location._id, limit: 26, offset: (page - 1) * 25
+  });
+  res.json({ page, hasNextPage: tickets.length > 25, tickets: tickets.slice(0, 25).map(ticket => ({
+    id: String(ticket._id), ticketNumber: ticket.ticketNumber, customerName: ticket.customerName,
+    isCarriedOver: Boolean(ticket.carriedOverAt || ticket.carryOverCount > 0),
+    linkedBookingReference: ticket.linkedBookingReference || null
+  })) });
+}));
+
 router.post(
   "/tenant/:tenantSlug/queue/current/confirm",
   asyncHandler(async (req, res) => {

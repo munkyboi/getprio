@@ -456,6 +456,11 @@ async function listWaitingTickets(tenantId, options = {}) {
     query += ` LIMIT $${values.length}`;
   }
 
+  if (options.offset) {
+    values.push(Number(options.offset));
+    query += ` OFFSET $${values.length}`;
+  }
+
   const result = await queryClient.query(query, values);
   return result.rows.map(mapTicket);
 }

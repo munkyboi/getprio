@@ -136,6 +136,7 @@ import * as vendorDashboardBootstrap from "../api/vendorDashboardBootstrap";
 import * as vendorDashboardExport from "../api/vendorDashboardExport";
 import { useAuth } from "../context/AuthContext";
 import { ConfirmActionModal } from "../components/ConfirmActionModal";
+import { VendorWaitingTicketCancellation } from "../components/VendorWaitingTicketCancellation";
 import EmailChangePanel from "../components/EmailChangePanel";
 import PhoneChangePanel from "../components/PhoneChangePanel";
 import {
@@ -5067,6 +5068,19 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   {snapshot.queueDay.outcomeCounts.skipped} skipped recovery ended. Reopening does not
                   reverse these outcomes.
                 </Alert>
+              ) : null}
+              {selectedTenantRole ? (
+                <VendorWaitingTicketCancellation
+                  key={`${selectedTenantSlug}:${selectedLocationSlug}`}
+                  token={token}
+                  tenantSlug={selectedTenantSlug}
+                  locationQuery={locationQuery}
+                  locationName={selectedLocation?.name || "Selected location"}
+                  onCancelled={(nextSnapshot) => {
+                    if (nextSnapshot) setSnapshot(current => selectFreshestQueueSnapshot(current, nextSnapshot));
+                    showSuccessNotification("Ticket cancelled", "The ticket was removed from the waiting queue.");
+                  }}
+                />
               ) : null}
               {queueView === "current" ? (
                 <>
