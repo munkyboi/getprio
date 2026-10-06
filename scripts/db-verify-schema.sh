@@ -97,6 +97,13 @@ BEGIN
       WHERE table_schema = 'public' AND table_name = 'bookings' AND column_name = 'pending_expires_at'
     )
     UNION ALL
+    SELECT 'wait-time shadow sampling columns'
+    WHERE (SELECT COUNT(*) FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = 'wait_time_shadow_samples'
+        AND column_name IN ('baseline_sample_id', 'source', 'namespace', 'deployment_sha',
+          'expected_artifact_sha256', 'validated_artifact_sha256', 'sampling_percent', 'used_fallback',
+          'fallback_reason', 'candidate_wait_minutes', 'inference_latency_ms', 'recorded_at')) <> 12
+    UNION ALL
     SELECT 'service timing columns'
     WHERE (SELECT COUNT(*) FROM information_schema.columns
       WHERE table_schema = 'public' AND ((table_name = 'store_locations' AND column_name = 'service_timing_enabled')

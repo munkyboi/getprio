@@ -6,7 +6,14 @@ function buildQueryClient(client) {
 
 async function recordPrediction(sample, options = {}) {
   if (!options.client) {
-    return db.withTransaction((client) => recordPrediction(sample, { ...options, client }));
+    const inserted = await db.withTransaction((client) => recordPrediction(sample, { ...options, client }));
+    if (inserted && sample.predictorVersion === "baseline-v1") {
+      // Independent work only after COMMIT. Shadow errors must not reject the
+      // existing baseline capture or change the queue snapshot response.
+      try { require("../services/waitTimeShadowCapture").scheduleShadowCapture(sample); }
+      catch { console.warn("Wait-time shadow scheduling failed."); }
+    }
+    return inserted;
   }
 
   const observedAt = new Date(sample.observedAt);

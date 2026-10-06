@@ -1,6 +1,6 @@
 # Private shadow inference foundation
 
-Status: adapter and private CLI only. No running API route, queue sampler, public/mobile response, database write, model promotion, or remote provider uses this adapter. Live estimates remain `baseline-v1`; model rollout remains on hold. Live shadow persistence and its operational controls require a subsequent reviewed integration.
+Status: adapter and private CLI, with [controlled vendor shadow sampling](wait-time-shadow-sampling.md) available as a separate disabled-by-default capture path. No candidate is selected by a public/mobile prediction response. Live estimates remain `baseline-v1`; model rollout remains on hold. Operator activation and runtime sampling verification are separate gates.
 
 ## Backend boundary
 
