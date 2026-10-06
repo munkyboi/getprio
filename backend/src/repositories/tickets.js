@@ -416,6 +416,16 @@ async function findTicketByTenantAndLookupCode(tenantId, lookupCode, options = {
   return mapTicket(result.rows[0]);
 }
 
+async function findVendorTicketForUpdate(tenantId, locationId, ticketId, options = {}) {
+  const result = await buildQueryClient(options.client).query(
+    `SELECT ${TICKET_COLUMNS} FROM tickets
+     WHERE tenant_id = $1 AND location_id = $2 AND id = $3
+     LIMIT 1 FOR UPDATE`,
+    [Number(tenantId), Number(locationId), Number(ticketId)]
+  );
+  return mapTicket(result.rows[0]);
+}
+
 async function listWaitingTickets(tenantId, options = {}) {
   const queryClient = buildQueryClient(options.client);
   const values = [Number(tenantId)];
@@ -444,6 +454,11 @@ async function listWaitingTickets(tenantId, options = {}) {
   if (options.limit) {
     values.push(Number(options.limit));
     query += ` LIMIT $${values.length}`;
+  }
+
+  if (options.offset) {
+    values.push(Number(options.offset));
+    query += ` OFFSET $${values.length}`;
   }
 
   const result = await queryClient.query(query, values);
@@ -914,7 +929,7 @@ async function cancelWaitingTicket(tenantId, lookupCode, options = {}) {
       SET status = 'cancelled',
           status_reason = CASE
             WHEN status = 'pending_carry_over' THEN 'carry_over_declined'
-            ELSE 'customer_cancelled'
+            ELSE $3
           END,
           cancelled_at = NOW(),
           current_queue_day_id = NULL,
@@ -923,7 +938,7 @@ async function cancelWaitingTicket(tenantId, lookupCode, options = {}) {
       WHERE id IN (SELECT id FROM cancellable_ticket)
       RETURNING ${TICKET_COLUMNS}
     `,
-    [Number(tenantId), lookupCode]
+    [Number(tenantId), lookupCode, options.cancelledByVendor ? "vendor_cancelled" : "customer_cancelled"]
   );
 
   return mapTicket(result.rows[0]);
@@ -1162,6 +1177,7 @@ module.exports = {
   findTicketByIdForUpdate,
   findTicketByLookupCode,
   findTicketByTenantAndLookupCode,
+  findVendorTicketForUpdate,
   listWaitingTickets,
   listPendingCarryOverTickets,
   listHistoryTickets,

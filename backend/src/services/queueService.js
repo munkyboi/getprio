@@ -824,28 +824,44 @@ async function confirmCurrentTicket(tenant, lookupCode, options = {}) {
   return { ticket, snapshot };
 }
 
+function getCancellationReason(ticket, options) {
+  if (ticket.status === "pending_carry_over") return "carry_over_declined";
+  return options.vendorTicketId ? "vendor_cancelled" : "customer_cancelled";
+}
+
 async function cancelTicket(tenant, lookupCode, options = {}) {
   const location = options.location || (await resolveLocation(tenant, options));
   const normalizedLookupCode = lookupCode.toUpperCase();
   const ticket = await db.withTransaction(async (client) => {
-    const existingTicket = await ticketRepository.findTicketByTenantAndLookupCode(
-      tenant._id,
-      normalizedLookupCode,
-      { client }
-    );
+    const existingTicket = options.vendorTicketId
+      ? await ticketRepository.findVendorTicketForUpdate(tenant._id, location._id, options.vendorTicketId, { client })
+      : await ticketRepository.findTicketByTenantAndLookupCode(tenant._id, normalizedLookupCode, { client });
     if (!existingTicket) {
       return null;
+    }
+
+    if (options.vendorTicketId && existingTicket.status !== "waiting") {
+      const error = new Error("Only waiting tickets can be cancelled. Refresh the queue and try again.");
+      error.statusCode = 409;
+      throw error;
     }
 
     queueLifecycle.assertValidTransition(existingTicket.status, "cancelled");
     const cancelledTicket = await ticketRepository.cancelWaitingTicket(
       tenant._id,
-      normalizedLookupCode,
-      { client }
+      existingTicket.lookupCode,
+      { client, cancelledByVendor: Boolean(options.vendorTicketId) }
     );
     if (!cancelledTicket) {
       return null;
     }
+
+    await client.query(
+      `UPDATE queue_ticket_segments
+       SET ended_at = $2, segment_outcome = 'cancelled', outcome_reason = $3
+       WHERE ticket_id = $1 AND ended_at IS NULL`,
+      [Number(cancelledTicket._id), cancelledTicket.updatedAt, getCancellationReason(existingTicket, options)]
+    );
 
     const actor = buildQueueEventActor({
       actorUserId: options.actorUserId,
@@ -860,9 +876,7 @@ async function cancelTicket(tenant, lookupCode, options = {}) {
       source: actor.source,
       metadata: {
         lookupCode: cancelledTicket.lookupCode,
-        reason: existingTicket.status === "pending_carry_over"
-          ? "carry_over_declined"
-          : "customer_cancelled"
+        reason: getCancellationReason(existingTicket, options)
       },
       developerWebhook: options.developerWebhook
     });
@@ -880,9 +894,10 @@ async function cancelTicket(tenant, lookupCode, options = {}) {
     return null;
   }
 
-  await maybeAutoResumeQueueDay(tenant, { location });
-  await maybeNotifyUpcomingTickets(tenant, { location });
-  const snapshot = await publishSnapshot(tenant, { location });
+  const queueOptions = { location, queueDateKey: ticket.dateKey };
+  await maybeAutoResumeQueueDay(tenant, queueOptions);
+  await maybeNotifyUpcomingTickets(tenant, queueOptions);
+  const snapshot = await publishSnapshot(tenant, queueOptions);
   pushNotificationService.notifyCustomerQueueUpdate({
     tenant,
     ticket,

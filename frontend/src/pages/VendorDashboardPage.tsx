@@ -136,6 +136,7 @@ import * as vendorDashboardBootstrap from "../api/vendorDashboardBootstrap";
 import * as vendorDashboardExport from "../api/vendorDashboardExport";
 import { useAuth } from "../context/AuthContext";
 import { ConfirmActionModal } from "../components/ConfirmActionModal";
+import { VendorWaitingTicketCancellation } from "../components/VendorWaitingTicketCancellation";
 import EmailChangePanel from "../components/EmailChangePanel";
 import PhoneChangePanel from "../components/PhoneChangePanel";
 import {
@@ -3741,6 +3742,23 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     setConfirmAction(action);
   }
 
+  function openWaitingTicketCancellation(ticket: QueueSnapshot["nextUp"][number]) {
+    openConfirmAction({
+      title: `Cancel ticket ${ticket.ticketNumber}?`,
+      description: ticket.linkedBookingReference
+        ? "Remove this waiting ticket from the queue. This does not cancel the linked booking or issue a refund. The ticket cannot be restored."
+        : "Remove this waiting ticket from the queue. The ticket cannot be restored; issue a new ticket if the customer returns.",
+      confirmLabel: "Cancel ticket",
+      confirmColor: "red",
+      onConfirm: async () => {
+        const success = await runAction(`cancel-ticket:${ticket.id}`, () =>
+          vendorDashboardQueue.cancelWaitingTicket(token, selectedTenantSlug, locationQuery, ticket.id)
+        );
+        if (success) showSuccessNotification("Ticket cancelled", `${ticket.ticketNumber} was removed from the waiting queue.`);
+      }
+    });
+  }
+
   function closeConfirmAction() {
     setConfirmAction(null);
   }
@@ -5068,6 +5086,19 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   reverse these outcomes.
                 </Alert>
               ) : null}
+              {selectedTenantRole ? (
+                <VendorWaitingTicketCancellation
+                  key={`${selectedTenantSlug}:${selectedLocationSlug}`}
+                  token={token}
+                  tenantSlug={selectedTenantSlug}
+                  locationQuery={locationQuery}
+                  locationName={selectedLocation?.name || "Selected location"}
+                  onCancelled={(nextSnapshot) => {
+                    if (nextSnapshot) setSnapshot(current => selectFreshestQueueSnapshot(current, nextSnapshot));
+                    showSuccessNotification("Ticket cancelled", "The ticket was removed from the waiting queue.");
+                  }}
+                />
+              ) : null}
               {queueView === "current" ? (
                 <>
                   <Group justify="space-between" align="flex-end">
@@ -5276,6 +5307,20 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                                     <Text c="dimmed" size="xs">Booking {ticket.linkedBookingReference}</Text>
                                     {ticket.bookingScheduledStartAt ? <Text c="dimmed" size="xs">Earliest call: {formatDateTime(ticket.bookingScheduledStartAt)}</Text> : null}
                                   </Stack>
+                                ) : null}
+                                {selectedTenantRole && ticket.status === "waiting" ? (
+                                  <Button
+                                    variant="light"
+                                    color="red"
+                                    size="xs"
+                                    mt="xs"
+                                    mih={44}
+                                    disabled={Boolean(busyAction)}
+                                    aria-label={`Cancel waiting ticket ${ticket.ticketNumber}`}
+                                    onClick={() => openWaitingTicketCancellation(ticket)}
+                                  >
+                                    Cancel ticket
+                                  </Button>
                                 ) : null}
                               </Table.Td>
                               <Table.Td><Badge variant="light">{ticket.joinChannel}</Badge></Table.Td>

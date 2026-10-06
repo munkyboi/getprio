@@ -47,6 +47,7 @@ const {
   pauseQueueDay,
   resumeQueueDay,
   restoreSkippedTicket,
+  cancelTicket,
   publishSnapshot
 } = require("../services/queueService");
 const { parsePaginationParams, formatPaginationMetadata } = require("../utils/pagination");
@@ -1209,6 +1210,62 @@ router.post(
     });
   })
 );
+
+async function getQueueTicketOperationContext(req) {
+  const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+  assertTenantPermission(req.user, tenant._id, "tenant.ticket.update_state");
+  const location = await getLocationForTenant(tenant, normalizeRequestText(req.query.location));
+  await assertQueueLocationAccess(req.user, tenant, location);
+  return { tenant, location };
+}
+
+function sendQueueTicketMutation(res, result) {
+  res.json({
+    ticket: { id: String(result.ticket._id), ticketNumber: result.ticket.ticketNumber, status: result.ticket.status },
+    snapshot: result.snapshot
+  });
+}
+
+router.post(
+  "/tenant/:tenantSlug/queue/tickets/:ticketId/cancel",
+  asyncHandler(async (req, res) => {
+    const { tenant, location } = await getQueueTicketOperationContext(req);
+    const ticketId = String(req.params.ticketId);
+    if (!/^[1-9]\d*$/.test(ticketId) || !Number.isSafeInteger(Number(ticketId))) {
+      const error = new Error("A valid ticket ID is required.");
+      error.statusCode = 400;
+      throw error;
+    }
+    const result = await cancelTicket(tenant, "", {
+      location, vendorTicketId: ticketId,
+      actorUserId: req.user?._id, actorRole: "vendor", source: "vendor"
+    });
+    if (!result) {
+      const error = new Error("Ticket not found at this location.");
+      error.statusCode = 404;
+      throw error;
+    }
+    sendQueueTicketMutation(res, result);
+  })
+);
+
+router.get("/tenant/:tenantSlug/queue/waiting-tickets", asyncHandler(async (req, res) => {
+  const { tenant, location } = await getQueueTicketOperationContext(req);
+  const page = Number(req.query.page || 1);
+  if (!Number.isSafeInteger(page) || page < 1 || page > 1000000) {
+    const error = new Error("A valid waiting-ticket page is required.");
+    error.statusCode = 400;
+    throw error;
+  }
+  const tickets = await ticketRepository.listWaitingTickets(tenant._id, {
+    locationId: location._id, limit: 26, offset: (page - 1) * 25
+  });
+  res.json({ page, hasNextPage: tickets.length > 25, tickets: tickets.slice(0, 25).map(ticket => ({
+    id: String(ticket._id), ticketNumber: ticket.ticketNumber, customerName: ticket.customerName,
+    isCarriedOver: Boolean(ticket.carriedOverAt || ticket.carryOverCount > 0),
+    linkedBookingReference: ticket.linkedBookingReference || null
+  })) });
+}));
 
 router.post(
   "/tenant/:tenantSlug/queue/current/confirm",

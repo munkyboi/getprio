@@ -28,7 +28,10 @@ export function ConfirmActionModal({
       className={["task-modal", "confirm-action-modal", className].filter(Boolean).join(" ")}
       centered
       opened={opened}
-      onClose={onClose}
+      onClose={() => { if (!loading) onClose(); }}
+      closeOnClickOutside={!loading}
+      closeOnEscape={!loading}
+      withCloseButton={!loading}
       title={title}
       zIndex={1100}
       overlayProps={{ blur: 6, backgroundOpacity: 0.35 }}
@@ -36,7 +39,7 @@ export function ConfirmActionModal({
       <Stack className="task-modal__shell" gap="md">
         <Text className="task-modal__main" c="dimmed">{description}</Text>
         <Group className="task-modal__footer" justify="flex-end">
-          <Button className="task-modal__cancel" variant="default" onClick={onClose}>
+          <Button className="task-modal__cancel" variant="default" disabled={loading} onClick={onClose}>
             {cancelLabel}
           </Button>
           <Button color={confirmColor} loading={loading} onClick={onConfirm}>

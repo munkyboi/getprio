@@ -123,6 +123,25 @@ export function skipCurrentTicket(token: string, tenantSlug: string, locationQue
   );
 }
 
+export function cancelWaitingTicket(token: string, tenantSlug: string, locationQuery: string, ticketId: string) {
+  return apiRequest<VendorDashboardActionResponse>(
+    `/vendor/tenant/${tenantSlug}/queue/tickets/${encodeURIComponent(ticketId)}/cancel${locationQuery}`,
+    { method: "POST", token }
+  );
+}
+
+export type WaitingCancellationTicket = {
+  id: string; ticketNumber: string; customerName: string;
+  isCarriedOver: boolean; linkedBookingReference: string | null;
+};
+
+export function getWaitingTickets(token: string, tenantSlug: string, locationQuery: string, page: number) {
+  const separator = locationQuery ? "&" : "?";
+  return apiRequest<{ page: number; hasNextPage: boolean; tickets: WaitingCancellationTicket[] }>(
+    `/vendor/tenant/${tenantSlug}/queue/waiting-tickets${locationQuery}${separator}page=${page}`, { token }
+  );
+}
+
 export function restoreSkippedTicket(
   token: string,
   tenantSlug: string,
