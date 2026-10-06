@@ -5,10 +5,10 @@ import type { QueueSnapshot } from "@shared";
 import { cancelWaitingTicket, getWaitingTickets, type WaitingCancellationTicket } from "../api/vendorDashboardQueue";
 import { ConfirmActionModal } from "./ConfirmActionModal";
 
-export function VendorWaitingTicketCancellation({ token, tenantSlug, locationQuery, locationName, onCancelled }: {
+export function VendorWaitingTicketCancellation({ token, tenantSlug, locationQuery, locationName, onCancelled }: Readonly<{
   token: string; tenantSlug: string; locationQuery: string; locationName: string;
   onCancelled: (snapshot?: QueueSnapshot) => void;
-}) {
+}>) {
   const [opened, setOpened] = useState(false);
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<WaitingCancellationTicket | null>(null);
@@ -32,8 +32,8 @@ export function VendorWaitingTicketCancellation({ token, tenantSlug, locationQue
       onCancelled(result.snapshot);
       setSelected(null);
       await waiting.refetch();
-    } catch (failure) {
-      setError(failure instanceof Error ? failure.message : "Could not cancel the ticket. Refresh and try again.");
+    } catch (error_) {
+      setError(error_ instanceof Error ? error_.message : "Could not cancel the ticket. Refresh and try again.");
       setSelected(null);
       await waiting.refetch();
     } finally {
