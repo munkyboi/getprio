@@ -43,6 +43,8 @@ For Developer API sandbox diagnostics use `--scope developer-sandbox`. The vendo
 
 ## Remaining gates
 
+The [offline candidate pipeline](offline-wait-time-model.md) adds a separate local export/train/evaluate path with a fixed cutoff and baseline fallback. It does not activate this model in the API or replace this aggregate report.
+
 - Review actual report coverage and label validity after deployment. Syntax/lint and hosted CI are not database execution proof.
 - Establish representative real operating data, ticket provenance, quality targets, and a fixed future evaluation window before training. Backtests must freeze the split rather than letting newly captured outcomes redefine it.
 - Add the candidate model and comparison against the unchanged baseline, including sparse-data fallback and interval calibration. Separate pooling/generalization evaluation from these per-scope diagnostics.

@@ -8,6 +8,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath, URL } from "node:url";
 import { parseTicketContextOptions, readTicketContext } from "./wait-time-ticket-context.mjs";
 import { readWaitTimeEvaluation } from "./wait-time-evaluation.mjs";
+import { exportWaitTimeDataset } from "./wait-time-dataset.mjs";
 
 const require = createRequire(import.meta.url);
 const env = require("../backend/src/config/env");
@@ -18,14 +19,17 @@ function parseOptions(args) {
   const seen = new Set();
   for (let index = 0; index < args.length; index += 1) {
     const name = args[index];
-    if (!["--scope", "--vendor-slug"].includes(name) || seen.has(name)) {
-      throw new Error("Use --scope all|vendors|developer-sandbox and optional --vendor-slug <slug>. Unknown or duplicate option.");
+    if (!["--scope", "--vendor-slug", "--dataset-output", "--from", "--to"].includes(name) || seen.has(name)) {
+      throw new Error("Unknown or duplicate audit option. Use --scope, --vendor-slug, or --dataset-output with --from and --to.");
     }
     seen.add(name);
     const value = args[++index];
     if (!value || value.startsWith("--")) throw new Error(`Missing value for ${name}.`);
     if (name === "--scope") options.scope = value;
-    else options.vendorSlug = value.trim();
+    else if (name === "--vendor-slug") options.vendorSlug = value.trim();
+    else if (name === "--dataset-output") options.datasetOutput = value;
+    else if (name === "--from") options.datasetFrom = value;
+    else options.datasetTo = value;
   }
   if (!["all", "vendors", "developer-sandbox"].includes(options.scope)) {
     throw new Error("Scope must be all, vendors, or developer-sandbox.");
@@ -35,6 +39,16 @@ function parseOptions(args) {
   }
   if (options.vendorSlug && options.scope === "developer-sandbox") {
     throw new Error("--vendor-slug applies only to vendor reports.");
+  }
+  if (options.datasetOutput || options.datasetFrom || options.datasetTo) {
+    if (!options.datasetOutput || !options.datasetFrom || !options.datasetTo || options.scope === "all" ||
+        (options.scope === "vendors" && !options.vendorSlug)) {
+      throw new Error("Dataset export requires --dataset-output, --from, --to, and one scope. Vendor export also requires --vendor-slug.");
+    }
+    if (![options.datasetFrom, options.datasetTo].every((value) => /T.*(?:Z|[+-]\d{2}:\d{2})$/.test(value) && Number.isFinite(Date.parse(value))) ||
+        Date.parse(options.datasetFrom) >= Date.parse(options.datasetTo)) {
+      throw new Error("Dataset window must use timestamps with timezone, with --from before --to.");
+    }
   }
   return options;
 }
@@ -321,6 +335,7 @@ async function runAudit() {
       report.developerApiSandbox = await readDeveloperSandboxReport(client);
     }
     if (ticketContext) report.ticketContext = await readTicketContext(client, vendorId, ticketContext);
+    if (options.datasetOutput) report.datasetExport = await exportWaitTimeDataset(client, options, vendorId);
 
     console.log(JSON.stringify(report, null, 2));
   } finally {

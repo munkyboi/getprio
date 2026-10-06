@@ -1,0 +1,58 @@
+# Offline wait-time candidate
+
+## Scope
+
+This slice supplies a predictor interface with baseline fallback and a local export/train/evaluate pipeline. It does not load a model in the running API, persist shadow predictions, call an inference provider, allocate resources, or change customer estimates. `waitTimePredictor.js` remains the only live predictor. Model rollout remains on hold.
+
+The first candidate, `queue-pace-median-v1`, is a transparent statistical calibration: for each scope, learn the median of historical actual wait divided by queue position, then multiply that pace by a new ticket's position. It is a candidate for comparison, not a resource scheduler, measured service duration, trained neural model, or proven improvement. It forecasts observation-to-call time, not actual service start.
+
+## Dataset export
+
+The existing read-only audit accepts `--dataset-output`, `--from` and `--to` together. Choose one scope. Vendor exports require `--vendor-slug`; Developer API sandbox exports use `--scope developer-sandbox`. Mixing these datasets is unsupported. Timestamps need an explicit timezone, and the lower bound is inclusive while the upper bound is exclusive. The upper bound must be at/before the database transaction timestamp, recorded as `capturedAt`; an unfinished future window is rejected.
+
+The exporter selects the first usable called observation per ticket for `baseline-v1` from the source history, then filters that observation and its call to the requested window. Later observations of an older ticket do not create another independent example. Missing/invalid whitelisted features are counted and excluded rather than filled in. Pending/censored tickets are excluded; this does not remove survivorship bias.
+
+Files include position, vendor average, priority band, pause state, timestamps, actual wait, source, and scope IDs. No names, contact details, booking references, raw ticket IDs or service-context payloads are exported. A random, unrecorded salt hashes ticket IDs, preserving within-export duplicate detection without cross-export correlation. Scope IDs are operational identifiers; treat files as private. Do not combine different exports: salts differ, so repeated tickets cannot be reliably deduplicated across them.
+
+Dataset and experiment files use mode `0600` and exclusive creation; existing files are never overwritten. Parent directory permissions must also be appropriate. Keep them outside the public web roots and Git. No files are uploaded. Exports run under the audit's existing target assertions, repeatable-read read-only transaction and 30-second statement timeout. The 100,000-ticket export limit fails rather than silently truncating; offline input is limited to 64 MiB.
+
+Manual vendor test tickets cannot automatically be separated from real traffic. Export provenance is explicitly unverified. Dataset scope labels and CLI `API_ENVIRONMENT` do not prove vendor database isolation.
+
+## Training and evaluation
+
+Specify a fixed training cutoff and holdout end before comparing models. Historical observations and their outcomes must both precede the training cutoff. Earlier observations with outcomes after cutoff are excluded. Holdout observations must be at/after cutoff and before holdout end, with outcomes also before holdout end. Neither holdout features nor outcomes fit the candidate.
+
+The offline reader rejects duplicate ticket keys, unsupported contracts, invalid features/timestamps, nonfinite or negative labels, and wait labels inconsistent with the timestamp difference (allowing 0.02 minutes for stored rounding). An empty eligible holdout produces null metrics, not an accuracy claim. The comparison recomputes unchanged `baseline-v1` from captured position and average; it does not use current catalog settings or assume every stored prediction equals that recomputation.
+
+Fit separate rates per vendor/location or sandbox project/queue. Only positive-position, normal-priority, unpaused examples train the candidate. Deleted/unknown vendor locations do not train it. It never pools vendors or applies one scope's rate to another. The default minimum of 30 eligible historical tickets is an experimental fallback setting, **not** sufficient coverage or production approval. Changing it is explicit via `--minimum-training-tickets` and recorded in the artifact.
+
+The predictor interface falls back to baseline for missing/incompatible models, invalid parameters, insufficient scope history, observations before the model cutoff, nonpositive positions, paused queues and non-normal priority bands. Booking-priority/recovery/carry-over contexts remain baseline-only. Serving the same artifact to public traffic or remote inference would require a separately reviewed integration, including artifact source/isolation binding, timeout handling, input contracts, and rollout controls.
+
+Report baseline, candidate-with-fallback, and candidate-only errors separately, alongside fallback reasons and trained scopes. A zero-trained-scope result is expected with sparse data; identical baseline/candidate scores do not mean a trained model was evaluated. The artifact always states `rolloutApproved: false` and `customerEstimateChanged: false`.
+
+## Commands
+
+After deployment, run on the droplet or an authorized private environment. The dates below illustrate the already-collected diagnostic window, not a representative production training set. With the current small dataset, the default threshold can produce no trained scopes.
+
+```sh
+cd /var/www/getprio
+DATABASE_HOST=localhost DATABASE_NAME=getprio \
+node scripts/wait-time-prediction-audit.mjs \
+  --scope vendors --vendor-slug pickle-bois-burgadols \
+  --from 2026-09-30T00:00:00Z --to 2026-10-06T10:00:00Z \
+  --dataset-output /root/wait-time-dataset.json
+
+node scripts/wait-time-model.mjs \
+  --dataset /root/wait-time-dataset.json \
+  --cutoff 2026-10-06T06:52:10.199Z \
+  --holdout-end 2026-10-06T10:00:00Z \
+  --output /root/wait-time-experiment.json
+```
+
+Offline training/evaluation needs no database credentials or network connection. Future experiments should preselect a fixed window and keep that evaluation set unchanged; do not repeatedly tune on the same holdout and call the score independent validation.
+
+## Verification and remaining work
+
+Syntax, lint and type checking are authoring checks. Database export and offline execution remain runtime acceptance gates; no database connection, export, model fitting or local tests are run while authoring this slice.
+
+Representative real operations, provenance review, additional scopes/days, confidence interval calibration, richer predictors, shadow capture, and controlled model promotion are still pending. Resource-aware predictions also need complete plans and actual transactional occupancy/reservations. This pipeline does not satisfy those dependencies or authorize inference publication.
