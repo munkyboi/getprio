@@ -828,20 +828,24 @@ async function cancelTicket(tenant, lookupCode, options = {}) {
   const location = options.location || (await resolveLocation(tenant, options));
   const normalizedLookupCode = lookupCode.toUpperCase();
   const ticket = await db.withTransaction(async (client) => {
-    const existingTicket = await ticketRepository.findTicketByTenantAndLookupCode(
-      tenant._id,
-      normalizedLookupCode,
-      { client }
-    );
+    const existingTicket = options.vendorTicketId
+      ? await ticketRepository.findVendorTicketForUpdate(tenant._id, location._id, options.vendorTicketId, { client })
+      : await ticketRepository.findTicketByTenantAndLookupCode(tenant._id, normalizedLookupCode, { client });
     if (!existingTicket) {
       return null;
+    }
+
+    if (options.vendorTicketId && existingTicket.status !== "waiting") {
+      const error = new Error("Only waiting tickets can be cancelled. Refresh the queue and try again.");
+      error.statusCode = 409;
+      throw error;
     }
 
     queueLifecycle.assertValidTransition(existingTicket.status, "cancelled");
     const cancelledTicket = await ticketRepository.cancelWaitingTicket(
       tenant._id,
-      normalizedLookupCode,
-      { client }
+      existingTicket.lookupCode,
+      { client, cancelledByVendor: Boolean(options.vendorTicketId) }
     );
     if (!cancelledTicket) {
       return null;
@@ -862,7 +866,7 @@ async function cancelTicket(tenant, lookupCode, options = {}) {
         lookupCode: cancelledTicket.lookupCode,
         reason: existingTicket.status === "pending_carry_over"
           ? "carry_over_declined"
-          : "customer_cancelled"
+          : options.vendorTicketId ? "vendor_cancelled" : "customer_cancelled"
       },
       developerWebhook: options.developerWebhook
     });

@@ -123,6 +123,13 @@ export function skipCurrentTicket(token: string, tenantSlug: string, locationQue
   );
 }
 
+export function cancelWaitingTicket(token: string, tenantSlug: string, locationQuery: string, ticketId: string) {
+  return apiRequest<VendorDashboardActionResponse>(
+    `/vendor/tenant/${tenantSlug}/queue/tickets/${encodeURIComponent(ticketId)}/cancel${locationQuery}`,
+    { method: "POST", token }
+  );
+}
+
 export function restoreSkippedTicket(
   token: string,
   tenantSlug: string,

@@ -47,6 +47,7 @@ const {
   pauseQueueDay,
   resumeQueueDay,
   restoreSkippedTicket,
+  cancelTicket,
   publishSnapshot
 } = require("../services/queueService");
 const { parsePaginationParams, formatPaginationMetadata } = require("../utils/pagination");
@@ -1205,6 +1206,35 @@ router.post(
         ticketNumber: result.ticket.ticketNumber,
         status: result.ticket.status
       },
+      snapshot: result.snapshot
+    });
+  })
+);
+
+router.post(
+  "/tenant/:tenantSlug/queue/tickets/:ticketId/cancel",
+  asyncHandler(async (req, res) => {
+    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+    assertTenantPermission(req.user, tenant._id, "tenant.ticket.update_state");
+    const location = await getLocationForTenant(tenant, normalizeRequestText(req.query.location));
+    await assertQueueLocationAccess(req.user, tenant, location);
+    const ticketId = String(req.params.ticketId);
+    if (!/^[1-9]\d*$/.test(ticketId) || !Number.isSafeInteger(Number(ticketId))) {
+      const error = new Error("A valid ticket ID is required.");
+      error.statusCode = 400;
+      throw error;
+    }
+    const result = await cancelTicket(tenant, "", {
+      location, vendorTicketId: ticketId,
+      actorUserId: req.user?._id, actorRole: "vendor", source: "vendor"
+    });
+    if (!result) {
+      const error = new Error("Ticket not found at this location.");
+      error.statusCode = 404;
+      throw error;
+    }
+    res.json({
+      ticket: { id: String(result.ticket._id), ticketNumber: result.ticket.ticketNumber, status: result.ticket.status },
       snapshot: result.snapshot
     });
   })
