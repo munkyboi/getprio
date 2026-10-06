@@ -8,6 +8,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath, URL } from "node:url";
 import { parseTicketContextOptions, readTicketContext } from "./wait-time-ticket-context.mjs";
 import { readWaitTimeEvaluation } from "./wait-time-evaluation.mjs";
+import { readWaitTimeShadowReport } from "./wait-time-shadow-report.mjs";
 import { exportWaitTimeDataset } from "./wait-time-dataset.mjs";
 
 const require = createRequire(import.meta.url);
@@ -175,7 +176,8 @@ async function readVendorReport(client, vendorId) {
     summary: summary.rows,
     vendorCoverage: vendorCoverage.rows[0],
     positionCoverage: positionCoverage.rows,
-    evaluation: await readWaitTimeEvaluation(client, "vendors", vendorId)
+    evaluation: await readWaitTimeEvaluation(client, "vendors", vendorId),
+    shadowCapture: await readWaitTimeShadowReport(client, vendorId)
   };
 }
 

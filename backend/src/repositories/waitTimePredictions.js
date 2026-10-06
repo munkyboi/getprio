@@ -4,9 +4,19 @@ function buildQueryClient(client) {
   return client || db.pool;
 }
 
+function scheduleCommittedShadow(sample, inserted) {
+  if (!inserted || sample.predictorVersion !== "baseline-v1") return;
+  // Independent work only after COMMIT. Shadow errors must not reject the
+  // existing baseline capture or change the queue snapshot response.
+  try { require("../services/waitTimeShadowCapture").scheduleShadowCapture(sample); }
+  catch { console.warn("Wait-time shadow scheduling failed."); }
+}
+
 async function recordPrediction(sample, options = {}) {
   if (!options.client) {
-    return db.withTransaction((client) => recordPrediction(sample, { ...options, client }));
+    const inserted = await db.withTransaction((client) => recordPrediction(sample, { ...options, client }));
+    scheduleCommittedShadow(sample, inserted);
+    return inserted;
   }
 
   const observedAt = new Date(sample.observedAt);
