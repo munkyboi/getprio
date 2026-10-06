@@ -194,6 +194,7 @@ export default function BookingRequestPage() {
   const [now, setNow] = useState(() => Date.now());
   const [bookingVerificationToken, setBookingVerificationToken] = useState("");
   const [booking, setBooking] = useState<CustomerBookingResponse["booking"] | null>(null);
+  const submittedBookingMatches = Boolean(bookingId && booking?.id === bookingId && booking.tenantSlug === tenantSlug);
   const [submittedBookingLoading, setSubmittedBookingLoading] = useState(Boolean(bookingId));
   const [paymentReference, setPaymentReference] = useState("");
   const [paymentProofFile, setPaymentProofFile] = useState<File | null>(null);
@@ -212,6 +213,10 @@ export default function BookingRequestPage() {
 
   useEffect(() => {
     if (!bookingId || !token) return;
+    if (submittedBookingMatches) {
+      setSubmittedBookingLoading(false);
+      return;
+    }
     const controller = new AbortController();
     setSubmittedBookingLoading(true);
     setBooking(null);
@@ -232,7 +237,7 @@ export default function BookingRequestPage() {
       if (!controller.signal.aborted) setSubmittedBookingLoading(false);
     });
     return () => controller.abort();
-  }, [bookingId, tenantSlug, token]);
+  }, [bookingId, submittedBookingMatches, tenantSlug, token]);
 
   useEffect(() => {
     if (booking && !bookingId) {
@@ -241,6 +246,10 @@ export default function BookingRequestPage() {
   }, [booking, bookingId, navigate]);
 
   useEffect(() => {
+    if (bookingId) {
+      setLoading(false);
+      return;
+    }
     if (!tenantSlug) {
       setError("Vendor not found.");
       setLoading(false);
@@ -286,7 +295,7 @@ export default function BookingRequestPage() {
     return () => {
       active = false;
     };
-  }, [tenantSlug, selectedLocationFromQuery]);
+  }, [bookingId, tenantSlug, selectedLocationFromQuery]);
 
   useEffect(() => {
     if (!user) {
@@ -299,7 +308,7 @@ export default function BookingRequestPage() {
   }, [user]);
 
   useEffect(() => {
-    if (!vendor || !selectedLocationSlug) {
+    if (bookingId || !vendor || !selectedLocationSlug) {
       setLocationServices([]);
       return;
     }
@@ -328,7 +337,7 @@ export default function BookingRequestPage() {
       });
 
     return () => controller.abort();
-  }, [selectedLocationSlug, vendor]);
+  }, [bookingId, selectedLocationSlug, vendor]);
 
   const selectedService = useMemo(
     () => locationServices.find((service) => service.slug === selectedServiceSlug) || null,
@@ -451,7 +460,7 @@ export default function BookingRequestPage() {
   }, [selectedBundleServices, selectedServiceSlug, shouldSynchronizeTogetherQuantities]);
 
   useEffect(() => {
-    if (!vendor || !selectedLocationSlug || !selectedServiceSlug || !bookingDate || booking) {
+    if (bookingId || !vendor || !selectedLocationSlug || !selectedServiceSlug || !bookingDate || booking) {
       setSlots([]);
       return;
     }
@@ -501,7 +510,7 @@ export default function BookingRequestPage() {
       });
 
     return () => controller.abort();
-  }, [booking, bookingDate, executionMode, getBundleItemQuantity, quantityForRequest, selectedBundleServices, selectedLocationSlug, selectedServiceSlug, vendor]);
+  }, [booking, bookingId, bookingDate, executionMode, getBundleItemQuantity, quantityForRequest, selectedBundleServices, selectedLocationSlug, selectedServiceSlug, vendor]);
 
   const loadSubmittedBooking = useCallback(async () => {
     if (!token || !booking) {
@@ -656,7 +665,7 @@ export default function BookingRequestPage() {
     return <Navigate to={`/login?next=${encodeURIComponent(nextPath)}`} replace />;
   }
 
-  if (bookingId && !booking) {
+  if (bookingId && !submittedBookingMatches) {
     return <Alert color="red" title="Could not load booking">{error || "This booking is unavailable."}</Alert>;
   }
 

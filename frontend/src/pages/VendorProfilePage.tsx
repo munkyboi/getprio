@@ -207,11 +207,12 @@ export default function VendorProfilePage() {
   const { tenantSlug = "" } = useParams<{ tenantSlug: string }>();
   const navigate = useNavigate();
   const location = useLocation();
+  const requestedLocationSlug = useMemo(() => new URLSearchParams(location.search).get("location") || "", [location.search]);
   const isMobile = useMediaQuery("(max-width: 48em)");
   const [contactOpen, setContactOpen] = useState(false);
   const [, setBookingChoiceService] = useState<PublicVendorProfile["services"][number] | null>(null);
   const [imagePreviewService, setImagePreviewService] = useState<PublicVendorProfile["services"][number] | null>(null);
-  const [selectedLocationSlug, setSelectedLocationSlug] = useState("");
+  const [selectedLocationSlug, setSelectedLocationSlug] = useState(requestedLocationSlug);
   const [locationServices, setLocationServices] = useState<Array<PublicVendorProfile["services"][number] & { capacity: number }>>([]);
   const [servicesLoading, setServicesLoading] = useState(false);
 
@@ -386,13 +387,16 @@ export default function VendorProfilePage() {
     }
 
     setSelectedLocationSlug((current) => {
+      if (requestedLocationSlug && vendor.locations.some((branch) => branch.slug === requestedLocationSlug)) {
+        return requestedLocationSlug;
+      }
       if (current && vendor.locations.some((location) => location.slug === current)) {
         return current;
       }
 
       return vendor.locations.find((location) => location.isPrimary)?.slug || vendor.locations[0].slug;
     });
-  }, [vendor]);
+  }, [requestedLocationSlug, vendor]);
 
   useEffect(() => {
     if (!vendor?.capabilities.booking || !selectedLocationSlug) {
