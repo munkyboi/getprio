@@ -1063,6 +1063,9 @@ export default function VendorDashboardPage() {
   const browserNotificationsSecure = typeof window !== "undefined" ? window.isSecureContext : false;
   const [walkInForm, setWalkInForm] = useState<CreateWalkInTicketRequest>(emptyWalkIn);
   const [walkInDialogOpen, setWalkInDialogOpen] = useState(false);
+  useEffect(() => {
+    setWalkInForm((current) => ({ ...current, serviceId: "" }));
+  }, [selectedTenantSlug, selectedLocationSlug]);
   const [billing, setBilling] = useState<BillingOverviewResponse | null>(null);
   const [history, setHistory] = useState<VendorHistoryResponse | null>(null);
   const [clients, setClients] = useState<VendorClientsResponse | null>(null);
@@ -5604,11 +5607,11 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
           </div>
         }
       >
-        <form onSubmit={handleCreateWalkIn}>
-          <Stack gap="md">
-            <Text c="dimmed" size="sm">
-              Create a same-day queue ticket for a customer who is already at this location.
-            </Text>
+        <form className="task-modal-form" onSubmit={handleCreateWalkIn}>
+          <Text className="walk-in-modal__guidance" c="dimmed" size="sm">
+            Create a same-day queue ticket for a customer who is already at this location.
+          </Text>
+          <Stack className="task-modal-form__main" gap="md">
             {intakeUnavailable ? (
               <Alert color="orange" icon={<IconInfoCircle size={18} />}>
                 {queueDayClosed ? "Open the queue before adding a walk-in customer." : "Resume intake before adding a walk-in customer."}
@@ -5679,17 +5682,17 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                 setWalkInForm((current) => ({ ...current, notifyByEmail: event.target.checked }))
               }
             />
-            <Group className="customer-modal-actions" justify="flex-end">
-              <Button
-                className="neura-primary-button"
-                disabled={intakeUnavailable}
-                loading={busyAction === "walk-in"}
-                type="submit"
-              >
-                Issue ticket
-              </Button>
-            </Group>
           </Stack>
+          <Group className="customer-modal-actions walk-in-modal__footer" justify="flex-end">
+            <Button
+              className="neura-primary-button"
+              disabled={intakeUnavailable}
+              loading={busyAction === "walk-in"}
+              type="submit"
+            >
+              Issue ticket
+            </Button>
+          </Group>
         </form>
       </Modal>
     );
