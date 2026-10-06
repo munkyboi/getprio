@@ -7,6 +7,7 @@ import { hostname } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, URL } from "node:url";
 import { parseTicketContextOptions, readTicketContext } from "./wait-time-ticket-context.mjs";
+import { readWaitTimeEvaluation } from "./wait-time-evaluation.mjs";
 
 const require = createRequire(import.meta.url);
 const env = require("../backend/src/config/env");
@@ -159,7 +160,8 @@ async function readVendorReport(client, vendorId) {
     tableAvailable: true,
     summary: summary.rows,
     vendorCoverage: vendorCoverage.rows[0],
-    positionCoverage: positionCoverage.rows
+    positionCoverage: positionCoverage.rows,
+    evaluation: await readWaitTimeEvaluation(client, "vendors", vendorId)
   };
 }
 
@@ -258,6 +260,7 @@ async function readDeveloperSandboxReport(client) {
       summary: developerApiSummary.rows,
       queueCoverage: developerApiQueueCoverage.rows[0],
       positionCoverage: developerApiPositionCoverage.rows,
+      evaluation: await readWaitTimeEvaluation(client, "developer-sandbox"),
       note: "Sandbox Developer API results are separate from merchant queue samples. Review queue coverage and temporal holdout performance before model rollout."
     };
   }
