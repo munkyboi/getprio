@@ -28,7 +28,7 @@ import { DatePickerInput } from "@mantine/dates";
 import { useMediaQuery } from "@mantine/hooks";
 import { IconAlertTriangle, IconArrowLeft, IconBuildingBank, IconCalendar, IconMapPin, IconUpload } from "@tabler/icons-react";
 import { addDays, format } from "date-fns";
-import { Link, Navigate, useLocation,  useParams } from "react-router-dom";
+import { Link, Navigate, useLocation, useNavigate, useParams } from "react-router-dom";
 
 import type {
   BookingOtpResponse,
@@ -161,11 +161,13 @@ interface PendingBookingPayload extends CreateCustomerBookingRequest {
 }
 
 export default function BookingRequestPage() {
-  const { tenantSlug = "", serviceSlug = "" } = useParams<{
+  const { tenantSlug = "", serviceSlug = "", bookingId = "" } = useParams<{
     tenantSlug: string;
     serviceSlug?: string;
+    bookingId?: string;
   }>();
   const location = useLocation();
+  const navigate = useNavigate();
 
   const selectedLocationFromQuery = useMemo(() => new URLSearchParams(location.search).get("location") || "", [location.search]);
 
@@ -192,6 +194,7 @@ export default function BookingRequestPage() {
   const [now, setNow] = useState(() => Date.now());
   const [bookingVerificationToken, setBookingVerificationToken] = useState("");
   const [booking, setBooking] = useState<CustomerBookingResponse["booking"] | null>(null);
+  const [submittedBookingLoading, setSubmittedBookingLoading] = useState(Boolean(bookingId));
   const [paymentReference, setPaymentReference] = useState("");
   const [paymentProofFile, setPaymentProofFile] = useState<File | null>(null);
 
@@ -206,6 +209,36 @@ export default function BookingRequestPage() {
       showCustomerError(error, "Could not continue booking");
     }
   }, [error]);
+
+  useEffect(() => {
+    if (!bookingId || !token) return;
+    const controller = new AbortController();
+    setSubmittedBookingLoading(true);
+    setBooking(null);
+    setError("");
+    apiRequest<CustomerBookingDetailResponse>(`/account/bookings/${encodeURIComponent(bookingId)}`, {
+      token, signal: controller.signal
+    }).then((data) => {
+      if (controller.signal.aborted) return;
+      if (data.booking.tenantSlug !== tenantSlug) throw new Error("Booking not found for this vendor.");
+      setBooking(data.booking);
+      setSelectedLocationSlug(data.booking.locationSlug);
+    }).catch((loadError) => {
+      if (!controller.signal.aborted) {
+        setBooking(null);
+        setError(getErrorMessage(loadError));
+      }
+    }).finally(() => {
+      if (!controller.signal.aborted) setSubmittedBookingLoading(false);
+    });
+    return () => controller.abort();
+  }, [bookingId, tenantSlug, token]);
+
+  useEffect(() => {
+    if (booking && !bookingId) {
+      navigate(`/vendors/${encodeURIComponent(booking.tenantSlug)}/bookings/${encodeURIComponent(booking.id)}`, { replace: true });
+    }
+  }, [booking, bookingId, navigate]);
 
   useEffect(() => {
     if (!tenantSlug) {
@@ -540,10 +573,9 @@ export default function BookingRequestPage() {
       return groups;
     }, []);
   }, [isMobileViewport, slots]);
-  const requiresPaymentProof = (Boolean(
-    booking?.serviceManualPaymentRequired ||
-    selectedService?.manualPaymentRequired
-  ));
+  const requiresPaymentProof = Boolean(booking
+    ? booking.serviceManualPaymentRequired
+    : selectedService?.manualPaymentRequired);
   const vendorDecision = getVendorDecision(booking);
   const currentFlowStep = getBookingFlowStep(booking, otp, requiresPaymentProof, Boolean(vendorDecision));
   const manualPaymentDestination = booking?.manualPaymentDestination || null;
@@ -607,7 +639,7 @@ export default function BookingRequestPage() {
     showCustomerSuccess("Booking request created", "Your booking request is ready for the next step.");
   }, [token]);
 
-  if (authLoading || loading) {
+  if (authLoading || loading || (user && bookingId && submittedBookingLoading)) {
     return <Card className="finazze-auth-card">Loading booking flow...</Card>;
   }
 
@@ -617,11 +649,15 @@ export default function BookingRequestPage() {
       params.set("location", selectedLocationSlug);
     }
 
-    const nextPath = `${serviceSlug ? `/vendors/${tenantSlug}/book/${serviceSlug}` : `/vendors/${tenantSlug}/book`}${
+    const nextPath = bookingId ? location.pathname : `${serviceSlug ? `/vendors/${tenantSlug}/book/${serviceSlug}` : `/vendors/${tenantSlug}/book`}${
       params.toString() ? `?${params.toString()}` : ""
     }`;
 
     return <Navigate to={`/login?next=${encodeURIComponent(nextPath)}`} replace />;
+  }
+
+  if (bookingId && !booking) {
+    return <Alert color="red" title="Could not load booking">{error || "This booking is unavailable."}</Alert>;
   }
 
   async function continueAfterVerification(verificationToken: string) {
@@ -769,7 +805,7 @@ export default function BookingRequestPage() {
 
   return (
     <Stack className="customer-account-page" gap="lg">
-      <Button component={Link} leftSection={<IconArrowLeft size={16} />} to={`/vendors/${booking?.tenantSlug || tenantSlug}`} variant="subtle" w="fit-content">
+      <Button component={Link} leftSection={<IconArrowLeft size={16} />} to={`/vendors/${booking?.tenantSlug || tenantSlug}${booking?.locationSlug || selectedLocationSlug ? `?location=${encodeURIComponent(booking?.locationSlug || selectedLocationSlug)}` : ""}`} variant="subtle" w="fit-content">
         Back to vendor
       </Button>
 
@@ -777,6 +813,13 @@ export default function BookingRequestPage() {
         <Stack gap="sm">
           <Text className="finazze-section-label">{"Booking request"}</Text>
           <Title order={1}>{booking?.reference || vendor?.name || ("Start a booking")}</Title>
+          {booking ? (
+            <Group gap="xs" wrap="wrap">
+              <IconMapPin aria-hidden="true" size={18} />
+              <Text fw={700}>Booked branch: {booking.locationName}</Text>
+              <Text c="dimmed">· {booking.tenantName}</Text>
+            </Group>
+          ) : null}
           <Text c="dimmed">
             {booking
               ? "Continue the booking request on this page."
@@ -1268,7 +1311,7 @@ export default function BookingRequestPage() {
                         </Badge>
                       </Stack>
                     </Group>
-                    <Button component={Link} to={`/vendors/${booking.tenantSlug}`} variant="light" w="fit-content">
+                    <Button component={Link} to={`/vendors/${booking.tenantSlug}?location=${encodeURIComponent(booking.locationSlug)}`} variant="light" w="fit-content">
                       Back to vendor profile
                     </Button>
                   </Stack>

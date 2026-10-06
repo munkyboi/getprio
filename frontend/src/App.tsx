@@ -373,6 +373,7 @@ export default function App() {
         <Route path="/vendors" element={<AppShell><VendorDiscoveryPage /></AppShell>} />
         <Route path="/vendors/:tenantSlug/book" element={<AppShell><BookingRequestPage /></AppShell>} />
         <Route path="/vendors/:tenantSlug/book/:serviceSlug" element={<AppShell><BookingRequestPage /></AppShell>} />
+        <Route path="/vendors/:tenantSlug/bookings/:bookingId" element={<AppShell><BookingRequestPage /></AppShell>} />
 
         <Route path="/vendors/:tenantSlug" element={<AppShell><VendorProfilePage /></AppShell>} />
         <Route path="/dashboard" element={<DashboardRedirect />} />
