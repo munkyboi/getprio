@@ -32,6 +32,16 @@ The predictor interface falls back to baseline for missing/incompatible models, 
 
 Report baseline, candidate-with-fallback, and candidate-only errors separately, alongside fallback reasons and trained scopes. A zero-trained-scope result is expected with sparse data; identical baseline/candidate scores do not mean a trained model was evaluated. The artifact always states `rolloutApproved: false` and `customerEstimateChanged: false`.
 
+### Training coverage
+
+The console output and saved experiment include `trainingCoverage` (`wait-time-training-coverage-v1`). This reports each dataset scope, including scopes with only holdout observations. It shares selection logic with the fitter and counts only eligible historical labels strictly before the fixed cutoff. Holdout observations never count toward the training threshold or eligible observation days.
+
+For each scope, the report shows completed historical tickets, overlapping tickets whose calls were not available at cutoff, eligible training tickets, excluded historical tickets, additional eligible tickets needed to reach the configured threshold, and eligible observation days/timestamps in UTC. Exclusion reasons are mutually exclusive, in this order: unknown location, unsupported priority band, paused queue, nonpositive position, invalid queue pace. Their counts sum to excluded historical tickets; overlapping tickets are reported separately. These exclusions describe candidate applicability, not invalid tickets or reasons to remove operational queue data.
+
+`trainingSampleThresholdMet` answers only whether fitting can produce a rate under the configured sample-count rule. It is not readiness for live estimates. Coverage cannot identify manual test tickets, verify representative operations, assess uncertainty, or establish accuracy. Collect representative history across operating days and freeze a new future evaluation window; the reported gap must not be closed by moving holdout tickets into training and reusing the same evaluation score as independent evidence.
+
+After deployment, rerun the offline command against the existing private dataset with a new output filename, such as `/root/wait-time-experiment-coverage.json`. No new database export is required to inspect this fixed dataset's coverage. The original experiment remains intact.
+
 ## Commands
 
 After deployment, run on the droplet or an authorized private environment. The dates below illustrate the already-collected diagnostic window, not a representative production training set. With the current small dataset, the default threshold can produce no trained scopes.

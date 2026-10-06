@@ -5,7 +5,7 @@ import process from "node:process";
 import console from "node:console";
 
 const require = createRequire(import.meta.url);
-const { fitWaitTimeCandidate, predictWaitTimeWithFallback } = require("../backend/src/services/waitTimeCandidate");
+const { fitWaitTimeCandidate, describeTrainingCoverage, predictWaitTimeWithFallback } = require("../backend/src/services/waitTimeCandidate");
 const { predictWaitTime } = require("../backend/src/services/waitTimePredictor");
 
 function timestamp(value) {
@@ -79,6 +79,7 @@ async function run() {
   const cutoff = timestamp(options.cutoff);
   const end = timestamp(options.end);
   const model = fitWaitTimeCandidate(dataset.samples, options.cutoff, options.minimum);
+  const trainingCoverage = describeTrainingCoverage(dataset.samples, options.cutoff, options.minimum);
   const perScope = new Map();
   let excludedOverlappingTickets = 0;
   for (const sample of dataset.samples) {
@@ -99,14 +100,14 @@ async function run() {
     else scope.modelOnly.push(sample.actualWaitMinutes - candidate.prediction.estimatedWaitMinutes);
   }
   const artifact = { artifactVersion: "wait-time-experiment-v1", source: dataset.source,
-    provenance: dataset.provenance, model, evaluation: { trainingCutoff: model.trainingCutoff,
+    provenance: dataset.provenance, model, trainingCoverage, evaluation: { trainingCutoff: model.trainingCutoff,
       holdoutEnd: new Date(end).toISOString(), excludedOverlappingTickets,
       scopes: [...perScope].map(([scopeKey, scope]) => ({ scopeKey, baseline: metrics(scope.baseline),
         candidateWithFallback: metrics(scope.candidate), candidateOnly: metrics(scope.modelOnly), fallbackReasons: scope.fallbackReasons })) },
     customerEstimateChanged: false, rolloutApproved: false,
     note: "Offline statistical experiment only. Manual tests do not establish production accuracy. No model is loaded by the API." };
   await writeFile(options.output, JSON.stringify(artifact, null, 2), { flag: "wx", mode: 0o600 });
-  console.log(JSON.stringify({ output: options.output, trainedScopes: model.scopeRates.length, evaluation: artifact.evaluation,
+  console.log(JSON.stringify({ output: options.output, trainedScopes: model.scopeRates.length, trainingCoverage, evaluation: artifact.evaluation,
     customerEstimateChanged: false, rolloutApproved: false }, null, 2));
 }
 

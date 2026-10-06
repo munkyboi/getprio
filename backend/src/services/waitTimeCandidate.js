@@ -11,31 +11,86 @@ function median(values) {
 }
 
 function supportsCandidate(features) {
-  return features.priorityBand === "normal" && !features.queuePaused && features.position > 0;
+  return candidateContextExclusion(features) === null;
 }
 
-// Inputs are validated by the offline dataset reader. Fit only labels available
-// strictly before the fixed cutoff; later outcomes cannot influence this model.
-function fitWaitTimeCandidate(samples, trainingCutoff, minimumTrainingTickets = 30) {
+function candidateContextExclusion(features) {
+  if (features.priorityBand !== "normal") return "unsupported_priority_band";
+  if (features.queuePaused) return "queue_paused";
+  if (!(features.position > 0)) return "nonpositive_position";
+  return null;
+}
+
+// The fitter and coverage report use the same selection. Inputs are validated
+// by the offline dataset reader; holdout labels never enter training statistics.
+function collectTrainingScopes(samples, trainingCutoff, minimumTrainingTickets) {
   const cutoff = new Date(trainingCutoff).getTime();
   if (!Number.isFinite(cutoff) || !Number.isSafeInteger(minimumTrainingTickets) || minimumTrainingTickets < 1) {
     throw new Error("Invalid training cutoff or minimum ticket count.");
   }
   const scopes = new Map();
   for (const sample of samples) {
-    if (sample.scopeKey.endsWith(":unknown") || Date.parse(sample.sampledAt) >= cutoff || Date.parse(sample.calledAt) >= cutoff || !supportsCandidate(sample.features)) continue;
+    if (!scopes.has(sample.scopeKey)) scopes.set(sample.scopeKey, {
+      rates: [], observationDays: new Set(), historicalTickets: 0, overlappingTickets: 0,
+      exclusionReasons: {}, firstEligibleObservation: null, latestEligibleObservation: null
+    });
+    const scope = scopes.get(sample.scopeKey);
+    const observed = Date.parse(sample.sampledAt);
+    if (observed >= cutoff) continue;
+    if (Date.parse(sample.calledAt) >= cutoff) {
+      scope.overlappingTickets += 1;
+      continue;
+    }
+    scope.historicalTickets += 1;
     const rate = sample.actualWaitMinutes / sample.features.position;
-    if (!Number.isFinite(rate) || rate < 0) continue;
-    if (!scopes.has(sample.scopeKey)) scopes.set(sample.scopeKey, []);
-    scopes.get(sample.scopeKey).push(rate);
+    const reason = sample.scopeKey.endsWith(":unknown") ? "unknown_location"
+      : candidateContextExclusion(sample.features) || ((!Number.isFinite(rate) || rate < 0) ? "invalid_queue_pace" : null);
+    if (reason) {
+      scope.exclusionReasons[reason] = (scope.exclusionReasons[reason] || 0) + 1;
+      continue;
+    }
+    scope.rates.push(rate);
+    scope.observationDays.add(new Date(observed).toISOString().slice(0, 10));
+    scope.firstEligibleObservation = scope.firstEligibleObservation === null ? observed : Math.min(scope.firstEligibleObservation, observed);
+    scope.latestEligibleObservation = scope.latestEligibleObservation === null ? observed : Math.max(scope.latestEligibleObservation, observed);
   }
+  return scopes;
+}
+
+function describeTrainingCoverage(samples, trainingCutoff, minimumTrainingTickets = 30) {
+  const scopes = collectTrainingScopes(samples, trainingCutoff, minimumTrainingTickets);
+  return {
+    reportVersion: "wait-time-training-coverage-v1",
+    trainingCutoff: new Date(trainingCutoff).toISOString(),
+    minimumTrainingTickets,
+    scopes: [...scopes].map(([scopeKey, scope]) => ({
+      scopeKey,
+      historicalTickets: scope.historicalTickets,
+      excludedOverlappingTickets: scope.overlappingTickets,
+      eligibleTrainingTickets: scope.rates.length,
+      excludedHistoricalTickets: scope.historicalTickets - scope.rates.length,
+      exclusionReasons: scope.exclusionReasons,
+      additionalEligibleTicketsToThreshold: Math.max(0, minimumTrainingTickets - scope.rates.length),
+      trainingSampleThresholdMet: scope.rates.length >= minimumTrainingTickets,
+      eligibleObservationDaysUtc: scope.observationDays.size,
+      firstEligibleObservationAt: scope.firstEligibleObservation === null ? null : new Date(scope.firstEligibleObservation).toISOString(),
+      latestEligibleObservationAt: scope.latestEligibleObservation === null ? null : new Date(scope.latestEligibleObservation).toISOString()
+    })),
+    rolloutApproved: false,
+    note: "Training sample coverage only. Counts and days use eligible history strictly before the fixed cutoff. Threshold attainment does not establish representative operations, accuracy, uncertainty calibration, or rollout approval."
+  };
+}
+
+// Fit only labels available strictly before the fixed cutoff.
+function fitWaitTimeCandidate(samples, trainingCutoff, minimumTrainingTickets = 30) {
+  const scopes = collectTrainingScopes(samples, trainingCutoff, minimumTrainingTickets);
   return {
     predictorVersion: CANDIDATE_VERSION,
     target: TARGET,
-    trainingCutoff: new Date(cutoff).toISOString(),
+    trainingCutoff: new Date(trainingCutoff).toISOString(),
     minimumTrainingTickets,
-    scopeRates: [...scopes].filter(([, rates]) => rates.length >= minimumTrainingTickets)
-      .map(([scopeKey, rates]) => ({ scopeKey, minutesPerPosition: median(rates), trainingTickets: rates.length }))
+    scopeRates: [...scopes].filter(([, scope]) => scope.rates.length >= minimumTrainingTickets)
+      .map(([scopeKey, scope]) => ({ scopeKey, minutesPerPosition: median(scope.rates), trainingTickets: scope.rates.length }))
   };
 }
 
@@ -71,4 +126,4 @@ function predictWaitTimeWithFallback(input, model, scopeKey) {
   };
 }
 
-module.exports = { CANDIDATE_VERSION, TARGET, fitWaitTimeCandidate, predictWaitTimeWithFallback };
+module.exports = { CANDIDATE_VERSION, TARGET, fitWaitTimeCandidate, describeTrainingCoverage, predictWaitTimeWithFallback };
