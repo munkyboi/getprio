@@ -162,6 +162,7 @@ BEGIN
   SELECT array_agg(table_name)
   INTO missing_tables
   FROM (VALUES
+    ('ticket_service_plans'),
     ('location_resource_pools'),
     ('service_resource_requirements'),
     ('queue_days'),
@@ -268,6 +269,8 @@ DECLARE
 BEGIN
   SELECT array_agg(required.constraint_name) INTO missing_resource_constraints
   FROM (VALUES
+    ('ticket_service_plans', 'ticket_service_plan_ticket_scope_fkey'),
+    ('ticket_service_plans', 'ticket_service_plan_booking_scope_fkey'),
     ('location_resource_pools', 'resource_pools_tracking_disabled_check'),
     ('location_resource_pools', 'resource_pools_location_scope_fkey'),
     ('service_resource_requirements', 'resource_requirements_pool_scope_fkey'),

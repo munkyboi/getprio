@@ -1717,6 +1717,7 @@ export interface QueueJoinPaymentSyncResponse {
 }
 
 export interface CreateWalkInTicketRequest {
+  serviceId?: string;
   customerName: string;
   customerEmail: string;
   customerPhone: string;

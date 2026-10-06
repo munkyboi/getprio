@@ -26,7 +26,7 @@ Unknown fields, including `tracking_enabled`, are rejected. Database tracking re
 
 This configuration feeds the existing read-only reservation projection audit. It does not allocate resources, block conflicting bookings, gate Call next or Start service, derive walk-in resource needs, change availability, or alter customer wait estimates. Staff service timing remains an independent observation. Service timing does not prove resource occupancy.
 
-Next: design ticket service plans, transactional allocation and release, and reservation concurrency controls before lifting the tracking constraint. Multi-service bundles, overlapping resource demand, unlinked walk-ins, interruptions, closure recovery, and pooled versus individually identified resources need explicit handling. Customer prediction rollout remains on hold.
+Next: capture [ticket service plans](ticket-service-plans.md), then implement transactional allocation and release and reservation concurrency controls before lifting the tracking constraint. Multi-service bundles, overlapping resource demand, unlinked walk-ins, interruptions, closure recovery, and pooled versus individually identified resources need explicit handling. Customer prediction rollout remains on hold.
 
 ## Verification
 

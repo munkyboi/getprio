@@ -1332,6 +1332,11 @@ export default function VendorDashboardPage() {
       canAccessVendorSection("services", effectiveEntitlements)
     )
   });
+  const ticketServiceOptionsQuery = useQuery({
+    queryKey: ["vendor-ticket-service-options", token, selectedTenantSlug, selectedLocationSlug],
+    queryFn: () => vendorDashboardQueue.getServiceOptions(token!, selectedTenantSlug, locationQuery),
+    enabled: Boolean(canLoadProtectedDashboard && walkInDialogOpen && token && selectedTenantSlug && selectedLocationSlug)
+  });
   const locationServicesQuery = useQuery({
     queryKey: ["vendor-dashboard-location-services", token, selectedTenantSlug, isOwner, isAdmin],
     queryFn: async () => {
@@ -5652,6 +5657,19 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                 value={walkInForm.notes}
               />
             </SimpleGrid>
+            {ticketServiceOptionsQuery.isError ? <Alert color="orange">Service choices could not be loaded. Retry opening this form, or issue a ticket without a service.</Alert> : null}
+            <Select
+              label="Service (optional)"
+              description="Record the service and its configured resource needs. This does not change the wait estimate yet."
+              placeholder="No service specified"
+              clearable
+              disabled={intakeUnavailable || busyAction === "walk-in" || ticketServiceOptionsQuery.isFetching}
+              styles={{ input: { minHeight: 44 }, option: { minHeight: 44 } }}
+              data={(ticketServiceOptionsQuery.data?.services || [])
+                .map((service) => ({ value: service.id, label: `${service.name} · ${service.durationMinutes} min` }))}
+              value={walkInForm.serviceId || null}
+              onChange={(serviceId) => setWalkInForm((current) => ({ ...current, serviceId: serviceId || "" }))}
+            />
             <Checkbox
               checked={walkInForm.notifyByEmail}
               disabled={intakeUnavailable}

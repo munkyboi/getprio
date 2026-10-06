@@ -1,3 +1,4 @@
+const ticketServicePlanService = require("./ticketServicePlanService");
 const db = require("../config/db");
 const env = require("../config/env");
 const billingRepository = require("../repositories/billing");
@@ -322,7 +323,8 @@ async function createTicket({
   otpChainId,
   allowanceReservationKey,
   developerWebhook,
-  developerMobileLink
+  developerMobileLink,
+  serviceId
 }) {
   const resolvedLocation = await resolveLocation(tenant, { location });
   await assertQueueIntakeOpen(tenant, resolvedLocation);
@@ -345,6 +347,11 @@ async function createTicket({
       otpChainId,
       allowanceReservationKey
     });
+    if (serviceId !== undefined && serviceId !== "") {
+      await ticketServicePlanService.captureStaffPlan(client, {
+        tenant, location: resolvedLocation, ticket: createdTicket, serviceId, actorUserId
+      });
+    }
     const mobileLink = developerMobileLink
       ? await mobileTicketLinkService.issuePrivateLink({
         ticketId: createdTicket._id,
