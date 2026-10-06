@@ -68,3 +68,5 @@ Offline training/evaluation needs no database credentials or network connection.
 Syntax, lint and type checking are authoring checks. Database export and offline execution remain runtime acceptance gates; no database connection, export, model fitting or local tests are run while authoring this slice.
 
 Representative real operations, provenance review, additional scopes/days, confidence interval calibration, richer predictors, shadow capture, and controlled model promotion are still pending. Resource-aware predictions also need complete plans and actual transactional occupancy/reservations. This pipeline does not satisfy those dependencies or authorize inference publication.
+
+The [private shadow inference foundation](wait-time-shadow-inference.md) adds artifact validation, a disabled-by-default backend adapter, and a local diagnostic CLI. It does not connect this experiment to live API estimates or capture.
