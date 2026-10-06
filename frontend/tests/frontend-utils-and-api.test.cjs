@@ -1771,7 +1771,7 @@ test("vendor queue adds walk-in customers from the self-service card modal", () 
   assert.match(source, /Open board[\s\S]*?Add walk-in/);
   assert.match(source, /className="customer-modal walk-in-modal"/);
   assert.match(source, /opened=\{walkInDialogOpen\}/);
-  assert.match(source, /<form onSubmit=\{handleCreateWalkIn\}>/);
+  assert.match(source, /<form className="task-modal-form" onSubmit=\{handleCreateWalkIn\}>/);
   assert.match(source, /autoFocus[\s\S]*?name="walkInCustomerName"/);
   assert.match(source, /setWalkInDialogOpen\(false\)[\s\S]*?showSuccessNotification\("Ticket issued"/);
   assert.doesNotMatch(source, /<Card className="neura-card" padding="lg">\s*<form onSubmit=\{handleCreateWalkIn\}>/);
