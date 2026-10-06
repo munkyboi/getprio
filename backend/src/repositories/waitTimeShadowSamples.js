@@ -22,12 +22,13 @@ async function recordComparison(baselineId, comparison, configuration, latencyMs
     const result = await client.query(`INSERT INTO wait_time_shadow_samples
       (baseline_sample_id, source, namespace, deployment_sha, expected_artifact_sha256,
        validated_artifact_sha256, sampling_percent, used_fallback, fallback_reason,
-       candidate_wait_minutes, inference_latency_ms)
-      VALUES ($1, 'vendors', $2, $3, $4, $5, $6, $7, $8, $9, $10)
+       candidate_wait_minutes, candidate_predictor_version, inference_latency_ms)
+      VALUES ($1, 'vendors', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
       ON CONFLICT (baseline_sample_id) DO NOTHING`,
     [baselineId, configuration.namespace, configuration.deploymentSha, configuration.artifactSha256,
       comparison.artifactSha256, configuration.samplingPercent, comparison.usedFallback,
       comparison.fallbackReason, comparison.usedFallback ? null : comparison.estimatedWaitMinutes,
+      comparison.usedFallback ? null : comparison.predictorVersion,
       Math.round(latencyMs * 100) / 100]);
     return result.rowCount > 0;
   });

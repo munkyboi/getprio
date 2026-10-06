@@ -3,6 +3,7 @@ export async function readWaitTimeShadowReport(client, vendorId) {
   if (!table.rows[0]?.table_name) return { tableAvailable: false, summary: [], fallbackReasons: [] };
   const summary = await client.query(`SELECT shadow.namespace, shadow.deployment_sha,
       shadow.expected_artifact_sha256, base.tenant_id::text AS vendor_id, base.location_id::text AS location_id,
+      MAX(shadow.candidate_predictor_version) AS candidate_predictor_version,
       COUNT(*)::int AS recorded_observations,
       COUNT(*) FILTER (WHERE NOT shadow.used_fallback)::int AS candidate_observations,
       COUNT(*) FILTER (WHERE shadow.used_fallback)::int AS fallback_observations,

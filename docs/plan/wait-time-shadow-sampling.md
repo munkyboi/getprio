@@ -43,7 +43,7 @@ Configuration is captured on the first baseline scheduling attempt. Successful a
 
 ## Storage and read-only audit
 
-The new migration creates a separate comparison table and recorded-time index. Its schema stores source/namespace, deployment and expected/validated artifact digests, sampling percent, fallback/candidate result, and inference latency. It adds no contact details, customer names, booking references, feature/context payloads, or separate mutable call timestamps.
+The new migration creates a separate comparison table and recorded-time index. Its schema stores source/namespace, deployment and expected/validated artifact digests, sampling percent, fallback/candidate result, successful candidate predictor version, and inference latency. It adds no contact details, customer names, booking references, feature/context payloads, or separate mutable call timestamps.
 
 Comparison retention follows baseline observation lifetime through cascading deletion; the 30-day audit window is **not physical deletion**. Broader pilot activation must establish an operational retention/cleanup schedule, artifact ownership/reload procedure, rate allocation across API workers, and process monitoring. No standalone retention scheduler is added by this slice. Keep pilot artifacts outside Git and public web roots.
 
