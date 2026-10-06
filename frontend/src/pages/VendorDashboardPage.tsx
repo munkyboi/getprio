@@ -5660,7 +5660,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
             {ticketServiceOptionsQuery.isError ? <Alert color="orange">Service choices could not be loaded. Retry opening this form, or issue a ticket without a service.</Alert> : null}
             <Select
               label="Service (optional)"
-              description="Record the service and its configured resource needs. This does not change the wait estimate yet."
+              description="Select the service this customer needs."
               placeholder="No service specified"
               clearable
               disabled={intakeUnavailable || busyAction === "walk-in" || ticketServiceOptionsQuery.isFetching}
