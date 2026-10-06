@@ -1211,13 +1211,25 @@ router.post(
   })
 );
 
+async function getQueueTicketOperationContext(req) {
+  const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+  assertTenantPermission(req.user, tenant._id, "tenant.ticket.update_state");
+  const location = await getLocationForTenant(tenant, normalizeRequestText(req.query.location));
+  await assertQueueLocationAccess(req.user, tenant, location);
+  return { tenant, location };
+}
+
+function sendQueueTicketMutation(res, result) {
+  res.json({
+    ticket: { id: String(result.ticket._id), ticketNumber: result.ticket.ticketNumber, status: result.ticket.status },
+    snapshot: result.snapshot
+  });
+}
+
 router.post(
   "/tenant/:tenantSlug/queue/tickets/:ticketId/cancel",
   asyncHandler(async (req, res) => {
-    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
-    assertTenantPermission(req.user, tenant._id, "tenant.ticket.update_state");
-    const location = await getLocationForTenant(tenant, normalizeRequestText(req.query.location));
-    await assertQueueLocationAccess(req.user, tenant, location);
+    const { tenant, location } = await getQueueTicketOperationContext(req);
     const ticketId = String(req.params.ticketId);
     if (!/^[1-9]\d*$/.test(ticketId) || !Number.isSafeInteger(Number(ticketId))) {
       const error = new Error("A valid ticket ID is required.");
@@ -1233,18 +1245,12 @@ router.post(
       error.statusCode = 404;
       throw error;
     }
-    res.json({
-      ticket: { id: String(result.ticket._id), ticketNumber: result.ticket.ticketNumber, status: result.ticket.status },
-      snapshot: result.snapshot
-    });
+    sendQueueTicketMutation(res, result);
   })
 );
 
 router.get("/tenant/:tenantSlug/queue/waiting-tickets", asyncHandler(async (req, res) => {
-  const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
-  assertTenantPermission(req.user, tenant._id, "tenant.ticket.update_state");
-  const location = await getLocationForTenant(tenant, normalizeRequestText(req.query.location));
-  await assertQueueLocationAccess(req.user, tenant, location);
+  const { tenant, location } = await getQueueTicketOperationContext(req);
   const page = Number(req.query.page || 1);
   if (!Number.isSafeInteger(page) || page < 1 || page > 1000000) {
     const error = new Error("A valid waiting-ticket page is required.");
