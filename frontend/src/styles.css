@@ -6710,9 +6710,16 @@ h2 {
   border: 0;
 }
 
-.neura-secondary-button:hover {
+.neura-secondary-button:hover:not(:disabled):not([data-disabled]) {
   background: #dbe3ed;
   color: #171b22;
+}
+
+.neura-secondary-button:disabled,
+.neura-secondary-button[data-disabled] {
+  background: var(--mantine-color-gray-2);
+  color: var(--mantine-color-gray-5);
+  cursor: not-allowed;
 }
 
 .neura-plan-card {
