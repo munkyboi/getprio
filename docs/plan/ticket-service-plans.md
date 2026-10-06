@@ -25,6 +25,8 @@ Both require `tenant.queue.operate` and the existing staff branch-access checks.
 - Transactional resource allocation/release and shared reservation locking.
 - Shadow estimates and temporal holdout evaluation before customer publication; AI inference remains off.
 
+The prediction audit now includes [distinct-ticket temporal evaluation diagnostics](wait-time-evaluation.md). These measure stored time-to-call predictions; they neither consume service plans as occupancy nor evaluate a trained model.
+
 ## Verification and release
 
 Static lint/type checks and hosted CI are separate from runtime proof. Do not apply the migration to a local or live database as part of authoring. Use the normal migration/deployment pipeline. Required runtime checks: booking bundles retain interval durations and independent resource units; retry check-in does not duplicate a plan; invalid/cross-branch service selection creates neither ticket nor plan; staff choices respect branch access; print-only tickets capture selected plans without scanning; unmapped services remain unknown; existing unselected tickets remain usable.
