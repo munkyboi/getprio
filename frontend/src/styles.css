@@ -1367,6 +1367,22 @@ body {
   min-width: 0;
 }
 
+.walk-in-modal__guidance {
+  flex: 0 0 auto;
+  padding-bottom: 1rem;
+  overflow-wrap: anywhere;
+}
+
+.walk-in-modal .task-modal-form__main {
+  padding-right: 0.5rem;
+  padding-bottom: 1rem;
+  overflow-wrap: anywhere;
+}
+
+.walk-in-modal .walk-in-modal__footer {
+  position: static;
+}
+
 .theme-editor-modal__editor {
   min-width: 0;
   padding-right: 0.5rem;

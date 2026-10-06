@@ -39,6 +39,7 @@ async function handleCreateTicket({
     notifyBySms,
     joinChannel: "vendor",
     notes,
+    serviceId: req.body.serviceId,
     actorUserId: req.user?._id,
     actorRole: "vendor"
   });

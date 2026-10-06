@@ -135,3 +135,8 @@ export function restoreSkippedTicket(
     { method: "POST", token, body: { lookupCode } }
   );
 }
+
+export function getServiceOptions(token: string, tenantSlug: string, locationQuery: string) {
+  return apiRequest<{ services: { id: string; name: string; durationMinutes: number }[] }>(
+    `/vendor/tenant/${tenantSlug}/queue/service-options${locationQuery}`, { token });
+}

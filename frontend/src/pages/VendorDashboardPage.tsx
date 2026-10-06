@@ -1063,6 +1063,9 @@ export default function VendorDashboardPage() {
   const browserNotificationsSecure = typeof window !== "undefined" ? window.isSecureContext : false;
   const [walkInForm, setWalkInForm] = useState<CreateWalkInTicketRequest>(emptyWalkIn);
   const [walkInDialogOpen, setWalkInDialogOpen] = useState(false);
+  useEffect(() => {
+    setWalkInForm((current) => ({ ...current, serviceId: "" }));
+  }, [selectedTenantSlug, selectedLocationSlug]);
   const [billing, setBilling] = useState<BillingOverviewResponse | null>(null);
   const [history, setHistory] = useState<VendorHistoryResponse | null>(null);
   const [clients, setClients] = useState<VendorClientsResponse | null>(null);
@@ -1331,6 +1334,11 @@ export default function VendorDashboardPage() {
       (isOwner || isAdmin) &&
       canAccessVendorSection("services", effectiveEntitlements)
     )
+  });
+  const ticketServiceOptionsQuery = useQuery({
+    queryKey: ["vendor-ticket-service-options", token, selectedTenantSlug, selectedLocationSlug],
+    queryFn: () => vendorDashboardQueue.getServiceOptions(token!, selectedTenantSlug, locationQuery),
+    enabled: Boolean(canLoadProtectedDashboard && walkInDialogOpen && token && selectedTenantSlug && selectedLocationSlug)
   });
   const locationServicesQuery = useQuery({
     queryKey: ["vendor-dashboard-location-services", token, selectedTenantSlug, isOwner, isAdmin],
@@ -5599,11 +5607,11 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
           </div>
         }
       >
-        <form onSubmit={handleCreateWalkIn}>
-          <Stack gap="md">
-            <Text c="dimmed" size="sm">
-              Create a same-day queue ticket for a customer who is already at this location.
-            </Text>
+        <form className="task-modal-form" onSubmit={handleCreateWalkIn}>
+          <Text className="walk-in-modal__guidance" c="dimmed" size="sm">
+            Create a same-day queue ticket for a customer who is already at this location.
+          </Text>
+          <Stack className="task-modal-form__main" gap="md">
             {intakeUnavailable ? (
               <Alert color="orange" icon={<IconInfoCircle size={18} />}>
                 {queueDayClosed ? "Open the queue before adding a walk-in customer." : "Resume intake before adding a walk-in customer."}
@@ -5652,6 +5660,19 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                 value={walkInForm.notes}
               />
             </SimpleGrid>
+            {ticketServiceOptionsQuery.isError ? <Alert color="orange">Service choices could not be loaded. Retry opening this form, or issue a ticket without a service.</Alert> : null}
+            <Select
+              label="Service (optional)"
+              description="Select the service this customer needs."
+              placeholder="No service specified"
+              clearable
+              disabled={intakeUnavailable || busyAction === "walk-in" || ticketServiceOptionsQuery.isFetching}
+              styles={{ input: { minHeight: 44 }, option: { minHeight: 44 } }}
+              data={(ticketServiceOptionsQuery.data?.services || [])
+                .map((service) => ({ value: service.id, label: `${service.name} · ${service.durationMinutes} min` }))}
+              value={walkInForm.serviceId || null}
+              onChange={(serviceId) => setWalkInForm((current) => ({ ...current, serviceId: serviceId || "" }))}
+            />
             <Checkbox
               checked={walkInForm.notifyByEmail}
               disabled={intakeUnavailable}
@@ -5661,17 +5682,17 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                 setWalkInForm((current) => ({ ...current, notifyByEmail: event.target.checked }))
               }
             />
-            <Group className="customer-modal-actions" justify="flex-end">
-              <Button
-                className="neura-primary-button"
-                disabled={intakeUnavailable}
-                loading={busyAction === "walk-in"}
-                type="submit"
-              >
-                Issue ticket
-              </Button>
-            </Group>
           </Stack>
+          <Group className="customer-modal-actions walk-in-modal__footer" justify="flex-end">
+            <Button
+              className="neura-primary-button"
+              disabled={intakeUnavailable}
+              loading={busyAction === "walk-in"}
+              type="submit"
+            >
+              Issue ticket
+            </Button>
+          </Group>
         </form>
       </Modal>
     );

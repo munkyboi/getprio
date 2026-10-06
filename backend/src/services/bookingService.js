@@ -1,3 +1,4 @@
+const ticketServicePlanService = require("./ticketServicePlanService");
 const bookingRepository = require("../repositories/bookings");
 const db = require("../config/db");
 const tenantRepository = require("../repositories/tenants");
@@ -1700,6 +1701,10 @@ async function checkInBooking({ tenant, location, bookingId, user, overrideWindo
         windowState.isLate ? `Late override: ${String(overrideReason || "vendor override").trim()}` : ""
       ].filter(Boolean).join(" "),
       servicePriorityBand: "checked_in_booking"
+    });
+
+    await ticketServicePlanService.captureBookingPlan(client, {
+      tenant, location, ticket, booking, actorUserId: user?._id
     });
 
     const updatedBooking = await bookingRepository.updateBooking(

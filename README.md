@@ -191,6 +191,9 @@ paths.
 
 1. Confirm the values in the root `.env` file.
 2. Start the full stack with `docker compose up --build`.
+   A fresh PostgreSQL volume loads `database/init.sql`, then applies the ordered
+   `database/migrations` through the migration ledger before becoming healthy.
+   Existing volumes are preserved and still require `npm run db:migrate` for upgrades.
 3. Open the frontend at the URL configured by `APP_BASE_URL`.
 
 ## Database updates

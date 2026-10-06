@@ -1,3 +1,4 @@
+const ticketServicePlanService = require("../services/ticketServicePlanService");
 const { projectOperationalBooking } = require("./vendorBookingReadModel");
 const permissions = require("../services/permissions");
 const staffAccessEmailService = require("../services/staffAccessEmailService");
@@ -1247,6 +1248,23 @@ router.post(
     });
   })
 );
+
+router.get("/tenant/:tenantSlug/queue/service-options", asyncHandler(async (req, res) => {
+  const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+  assertTenantPermission(req.user, tenant._id, "tenant.queue.operate");
+  const location = await getLocationForTenant(tenant, normalizeRequestText(req.query.location));
+  await assertQueueLocationAccess(req.user, tenant, location);
+  const services = await ticketServicePlanService.listServiceOptions({ tenantId: tenant._id, locationId: location._id });
+  res.json({ services });
+}));
+
+router.get("/tenant/:tenantSlug/queue/tickets/:ticketId/service-plan", asyncHandler(async (req, res) => {
+  const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+  assertTenantPermission(req.user, tenant._id, "tenant.queue.operate");
+  const location = await getLocationForTenant(tenant, normalizeRequestText(req.query.location));
+  await assertQueueLocationAccess(req.user, tenant, location);
+  res.json(await ticketServicePlanService.getTicketPlan({ tenantId: tenant._id, locationId: location._id }, req.params.ticketId));
+}));
 
 // Ticket IDs make stale tabs and retries target the same service, never the next customer.
 for (const action of ["start", "complete", "interrupt"]) {
