@@ -18,6 +18,7 @@ function statementFor(source) {
     case 'public.queue_events.actor_user_id':
     case 'public.tickets.service_started_by_user_id':
     case 'public.tickets.service_ended_by_user_id':
+    case 'public.ticket_service_plans.created_by_user_id':
     case 'public.organizer_campaign_contributions.accepted_by_user_id':
     case 'public.organizer_campaign_events.actor_user_id':
       return ({ table, foreignKey }) => `UPDATE ${table} SET ${quoteIdentifier(foreignKey)}=NULL`;
