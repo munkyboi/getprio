@@ -1,5 +1,5 @@
-const { createHash } = require("crypto");
-const { performance } = require("perf_hooks");
+const { createHash } = require("node:crypto");
+const { performance } = require("node:perf_hooks");
 const env = require("../config/env");
 const repository = require("../repositories/waitTimeShadowSamples");
 const { createFileShadowArtifactProvider, validShadowScope } = require("./waitTimeShadowArtifact");
