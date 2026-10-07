@@ -84,7 +84,10 @@ function describeScope(scope) {
 
 function evaluate(dataset, options, aggregate) {
   const model = fitWaitTimeCandidate(dataset.samples, options.cutoff, 30);
-  const scopeErrors = new Map();
+  const scopeErrors = new Map(dataset.simulation.scenarios.map(({ scopeKey }) => [scopeKey, emptyErrors(scopeKey)]));
+  for (const scopeKey of scopeErrors.keys()) {
+    if (!aggregate.has(scopeKey)) aggregate.set(scopeKey, emptyErrors(scopeKey));
+  }
   const cutoff = timestamp(options.cutoff);
   const end = timestamp(options.holdoutEnd);
   let overlappingTickets = 0;
@@ -99,8 +102,6 @@ function evaluate(dataset, options, aggregate) {
     const input = { ...sample.features, observedAt: new Date(sample.sampledAt) };
     const baseline = predictWaitTime(input);
     const candidate = predictWaitTimeWithFallback(input, model, sample.scopeKey);
-    if (!scopeErrors.has(sample.scopeKey)) scopeErrors.set(sample.scopeKey, emptyErrors(sample.scopeKey));
-    if (!aggregate.has(sample.scopeKey)) aggregate.set(sample.scopeKey, emptyErrors(sample.scopeKey));
     for (const errors of [scopeErrors.get(sample.scopeKey), aggregate.get(sample.scopeKey)]) {
       appendPrediction(errors, sample.actualWaitMinutes, candidate, sample.resourceReference, baseline);
     }
