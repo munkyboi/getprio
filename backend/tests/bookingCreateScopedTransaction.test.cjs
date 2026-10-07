@@ -233,7 +233,7 @@ test('customer booking creation under real scoped PostgreSQL transaction', { ski
       let cancellation;
       try {
         await blocker.query('BEGIN'); await blocker.query('SELECT id FROM store_locations WHERE id=10 FOR UPDATE');
-        cancellation = bookingService.cancelCustomerBooking({user,bookingId:created._id});
+        cancellation = bookingService.cancelCustomerBooking({user,bookingId:created._id}).then(() => null, error => error);
         // Wait for this production transaction to contend before arriving the booking.
         for (let attempts=0; attempts<100; attempts++) {
           const waiting = await pool.query(`SELECT COUNT(*)::int AS count FROM pg_stat_activity
@@ -246,7 +246,9 @@ test('customer booking creation under real scoped PostgreSQL transaction', { ski
         await blocker.query('UPDATE bookings SET checked_in_at=clock_timestamp() WHERE id=$1',[created._id]);
         await blocker.query('COMMIT');
       } finally { await blocker.query('ROLLBACK'); blocker.release(); }
-      await assert.rejects(cancellation,/checked in/);
+      const conflict = await cancellation;
+      assert.equal(conflict?.statusCode,409);
+      assert.match(conflict.message,/checked in/);
       assert.equal((await readBooking(created._id)).status,'pending'); assert.equal(cancelled,0);
     });
     await t.test('two simultaneous creates contend for the last slot, with one persisted allowance and revision', async () => {
