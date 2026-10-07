@@ -1,0 +1,427 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Proposed internal resource operational snapshot v1",
+  "description": "Proposal only. No runtime producer exists. Ready means authoritative inventory, not forecast approval. Initial scope is single-item resource-only location queues.",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "contractVersion": {
+          "const": "resource-operational-snapshot-v1"
+        },
+        "scope": {
+          "$ref": "#/$defs/scope"
+        },
+        "readiness": {
+          "const": "not_ready"
+        },
+        "reasons": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "ledger_unavailable",
+              "tracking_disabled",
+              "writer_coverage_incomplete",
+              "inventory_incomplete",
+              "unknown_plan",
+              "stale_plan",
+              "unsupported_composition",
+              "scope_unsupported",
+              "reservation_conflict",
+              "snapshot_inconsistent"
+            ]
+          }
+        },
+        "snapshot": {
+          "type": "null"
+        }
+      },
+      "required": [
+        "contractVersion",
+        "scope",
+        "readiness",
+        "reasons",
+        "snapshot"
+      ]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "contractVersion": {
+          "const": "resource-operational-snapshot-v1"
+        },
+        "scope": {
+          "$ref": "#/$defs/scope"
+        },
+        "readiness": {
+          "const": "ready"
+        },
+        "reasons": {
+          "type": "array",
+          "maxItems": 0
+        },
+        "snapshot": {
+          "$ref": "#/$defs/snapshot"
+        }
+      },
+      "required": [
+        "contractVersion",
+        "scope",
+        "readiness",
+        "reasons",
+        "snapshot"
+      ]
+    }
+  ],
+  "$defs": {
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "tenantId": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]*$"
+        },
+        "locationId": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]*$"
+        },
+        "queueKind": {
+          "const": "location"
+        },
+        "sourceBinding": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        }
+      },
+      "required": [
+        "tenantId",
+        "locationId",
+        "queueKind",
+        "sourceBinding"
+      ]
+    },
+    "pool": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "poolId": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]*$"
+        },
+        "capacity": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        },
+        "revision": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]*$"
+        }
+      },
+      "required": [
+        "poolId",
+        "capacity",
+        "revision"
+      ]
+    },
+    "allocation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "allocationRef": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "sessionRef": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "workRef": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "poolId": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]*$"
+        },
+        "units": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        },
+        "startedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "expectedEndAt": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reservationRef": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 160
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "state": {
+          "enum": [
+            "active",
+            "unresolved"
+          ]
+        }
+      },
+      "required": [
+        "allocationRef",
+        "sessionRef",
+        "workRef",
+        "poolId",
+        "units",
+        "startedAt",
+        "expectedEndAt",
+        "reservationRef",
+        "state"
+      ]
+    },
+    "reservation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "reservationRef": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "bookingItemRef": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "poolId": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]*$"
+        },
+        "units": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        },
+        "startsAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "endsAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "state": {
+          "const": "protected"
+        }
+      },
+      "required": [
+        "reservationRef",
+        "bookingItemRef",
+        "poolId",
+        "units",
+        "startsAt",
+        "endsAt",
+        "state"
+      ]
+    },
+    "work": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "workRef": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "state": {
+          "enum": [
+            "waiting",
+            "called",
+            "in_service"
+          ]
+        },
+        "orderKey": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "priorityBand": {
+          "enum": [
+            "normal",
+            "checked_in_booking",
+            "recovery",
+            "carry_over"
+          ]
+        },
+        "stationArrivedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "earliestCallAt": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "planRevision": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]*$"
+        },
+        "executionMode": {
+          "const": "single"
+        },
+        "poolId": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]*$"
+        },
+        "units": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        },
+        "durationMinutes": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "reservationRef": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 160
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "workRef",
+        "state",
+        "orderKey",
+        "priorityBand",
+        "stationArrivedAt",
+        "earliestCallAt",
+        "planRevision",
+        "executionMode",
+        "poolId",
+        "units",
+        "durationMinutes",
+        "reservationRef"
+      ]
+    },
+    "snapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "observedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "ledgerRevision": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]*$"
+        },
+        "configurationRevision": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]*$"
+        },
+        "window": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "from": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "to": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          "required": [
+            "from",
+            "to"
+          ]
+        },
+        "writerCoverageComplete": {
+          "const": true
+        },
+        "inventoryComplete": {
+          "const": true
+        },
+        "intakePaused": {
+          "type": "boolean"
+        },
+        "pools": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/pool"
+          }
+        },
+        "allocations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/allocation"
+          }
+        },
+        "reservations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/reservation"
+          }
+        },
+        "work": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/work"
+          }
+        }
+      },
+      "required": [
+        "observedAt",
+        "ledgerRevision",
+        "configurationRevision",
+        "window",
+        "writerCoverageComplete",
+        "inventoryComplete",
+        "intakePaused",
+        "pools",
+        "allocations",
+        "reservations",
+        "work"
+      ]
+    }
+  }
+}

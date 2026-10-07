@@ -40,3 +40,5 @@ The AI workstream owns snapshot validation, a separate reservation-aware shadow 
 ## Verification status
 
 Authoring checks: Node syntax, focused ESLint and whitespace validation. No local tests or database audit were run in this slice. Hosted checks and execution against the operator's database are separate gates. The user should run the existing capacity audit after deployment and review `shadowReadiness` before any runtime shadow integration is enabled.
+
+The next internal consumer boundary is documented in [Resource snapshot consumer](resource-snapshot-consumer.md). It has no live producer or inference hook.
