@@ -53,7 +53,7 @@ function validateDatasetKind(dataset, kind) {
 }
 
 export function validateDataset(dataset, options = null, kind = "operational") {
-  if (!dataset || dataset.baselineVersion !== "baseline-v1" || !Array.isArray(dataset.samples) || dataset.samples.length > 100000) {
+  if (dataset?.baselineVersion !== "baseline-v1" || !Array.isArray(dataset.samples) || dataset.samples.length > 100000) {
     throw new Error("Unsupported dataset contract or size.");
   }
   validateDatasetKind(dataset, kind);

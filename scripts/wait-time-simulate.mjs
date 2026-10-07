@@ -39,4 +39,9 @@ async function run() {
     customerEstimateChanged: false, rolloutApproved: false }, null, 2));
 }
 
-run().catch((error) => { console.error("Offline queue simulation failed:", error.message); process.exitCode = 1; });
+try {
+  await run();
+} catch (error) {
+  console.error("Offline queue simulation failed:", error.message);
+  process.exitCode = 1;
+}

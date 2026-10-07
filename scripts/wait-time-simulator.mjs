@@ -91,7 +91,6 @@ function nextTime(tickets, pauses, now) {
       if (Number.isFinite(ticket.cancelAt) && ticket.cancelAt > now) future.push(ticket.cancelAt);
     }
   }
-  if (!future.length) return null;
   return future.reduce((minimum, minute) => Math.min(minimum, minute), Infinity);
 }
 
@@ -102,7 +101,8 @@ function simulateScenario(name, count, seed) {
   const events = [];
   let now = 0;
   let steps = 0;
-  while (now !== null) {
+  // No remaining event yields Infinity, keeping the simulation clock numeric.
+  while (Number.isFinite(now)) {
     if (++steps > count * 6 + 20) throw new Error("Simulation event limit exceeded.");
     releaseAndCancel(tickets, tickets.filter((ticket) => ticket.state === "active"), events, now);
     const paused = pauses.some(([from, to]) => now >= from && now < to);
