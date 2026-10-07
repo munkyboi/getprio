@@ -1135,6 +1135,12 @@ test("customer booking detail hides manual payment destination when service does
   }
 });
 
+async function scopedBookingFixture(options, work) {
+  const client = { query: async () => ({ rows: [{ id: options.actorUserId }] }) };
+  assert.equal(await options.authorize(client, options), true);
+  return work(client, {});
+}
+
 test("customer bookings can be created only inside vendor availability", async () => {
   const bookings = [];
   const initialScheduledStartAt = buildFutureManilaSlot(1, 1, 10, 0);
@@ -1180,13 +1186,7 @@ test("customer bookings can be created only inside vendor availability", async (
       }
     },
     "../services/bookingService": requireWithMocks("../src/services/bookingService.js", {
-      "../repositories/resourceLedger": {
-        withScopeTransaction: async (options, work) => {
-          const client = { query: async () => ({ rows: [{ id: options.actorUserId }] }) };
-          assert.equal(await options.authorize(client, options), true);
-          return work(client, {});
-        }
-      },
+      "../repositories/resourceLedger": { withScopeTransaction: scopedBookingFixture },
       "../config/db": {
         withTransaction: async (work) => work(null)
       },
@@ -1466,13 +1466,7 @@ test("customer bookings use store hours when no booking availability is configur
       }
     },
     "../services/bookingService": requireWithMocks("../src/services/bookingService.js", {
-      "../repositories/resourceLedger": {
-        withScopeTransaction: async (options, work) => {
-          const client = { query: async () => ({ rows: [{ id: options.actorUserId }] }) };
-          assert.equal(await options.authorize(client, options), true);
-          return work(client, {});
-        }
-      },
+      "../repositories/resourceLedger": { withScopeTransaction: scopedBookingFixture },
       "../config/db": {
         withTransaction: async (work) => work(null)
       },

@@ -643,24 +643,35 @@ function normalizeComposedPlanItems(itemsValue) {
   });
 }
 
+function completedPlanLookups(results) {
+  const failed = results.find(result => result.status === "rejected");
+  if (failed) throw failed.reason;
+  return results.map(result => result.value);
+}
+
 async function loadComposedBookingPlan({ tenant, location, items: itemValues, executionMode: executionModeValue, client }) {
   const executionMode = normalizeExecutionMode(executionModeValue);
   const requestedItems = normalizeComposedPlanItems(itemValues);
+  // Drain all bounded read requests before propagating failure, especially when
+  // one transaction client is shared with the enclosing booking writer.
+  const services = completedPlanLookups(await Promise.allSettled(requestedItems.map(item =>
+    vendorServiceRepository.findServiceByTenantAndSlug(tenant._id, item.serviceSlug, { client }))));
+  if (services.some(service => !service?.isActive)) {
+    const error = new Error("A selected service was not found.");
+    error.statusCode = 404;
+    throw error;
+  }
+  const locationServices = completedPlanLookups(await Promise.allSettled(services.map(service =>
+    getLocationServiceForBooking(tenant._id, location._id, service, { client }))));
+  if (locationServices.some(service => !service?.isActive)) {
+    const error = new Error("A selected service is not available at this location.");
+    error.statusCode = 404;
+    throw error;
+  }
   const items = [];
-
-  for (const requestedItem of requestedItems) {
-    const service = await vendorServiceRepository.findServiceByTenantAndSlug(tenant._id, requestedItem.serviceSlug, { client });
-    if (!service || !service.isActive) {
-      const error = new Error("A selected service was not found.");
-      error.statusCode = 404;
-      throw error;
-    }
-    const locationService = await getLocationServiceForBooking(tenant._id, location._id, service, { client });
-    if (!locationService || !locationService.isActive) {
-      const error = new Error("A selected service is not available at this location.");
-      error.statusCode = 404;
-      throw error;
-    }
+  for (const [index, requestedItem] of requestedItems.entries()) {
+    const service = services[index];
+    const locationService = locationServices[index];
 
     const bookingQuantity = normalizeServiceBookingQuantity(service, requestedItem.bookingQuantity);
     assertManualPaymentDestinationAvailable({ service, location });
