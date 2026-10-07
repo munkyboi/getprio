@@ -6,7 +6,7 @@
 
 Version: `resource-service-start-shadow-v1`. Target: `time_to_actual_service_start`. This is a deterministic private forecast, not trained AI. Existing `baseline-v1` predicts time to call and is not an interchangeable score/label. A future integration keeps public baseline behavior and separately records unavailable resource diagnostics; this module does not relabel a baseline time-to-call value as service-start wait.
 
-Current main has the internal ledger and domain transaction foundations from PRs #317/#318. Booking/service writers remain unintegrated, tracking/writer coverage remain disabled and no authoritative snapshot producer exists as verified at `032477cf`. The owning runtime workstream must implement that producer and the covered booking/session writers. Do not create a ready snapshot from audit output, timing records or synthetic data.
+Current main has the internal ledger/domain transaction foundations from PRs #317/#318, a producer that always returns not_ready from PR #323, and the first customer booking creation writer from PR #324. Tracking/writer coverage remain disabled; ready authoritative inventory and reservation/session/configuration lifecycle coverage are still required. Do not create a ready snapshot from audit output, timing records or synthetic data. See [the private async inference boundary](resource-shadow-inference.md) for provider deadlines and final freshness checks; it has no live hook.
 
 ## Supported inputs and ordering
 
