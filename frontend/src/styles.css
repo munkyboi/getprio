@@ -6654,6 +6654,39 @@ h2 {
   color: #171b22;
 }
 
+.vendor-queue-action-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: center;
+  gap: 1rem;
+}
+
+.vendor-queue-primary-actions {
+  min-width: 0;
+}
+
+.vendor-queue-action-layout .mantine-Button-root {
+  min-height: 44px;
+}
+
+.vendor-queue-management-action .mantine-Button-root {
+  width: 100%;
+}
+
+@media (min-width: 48.0625em) {
+  .vendor-queue-action-layout {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .vendor-queue-management-action {
+    justify-self: end;
+  }
+
+  .vendor-queue-management-action .mantine-Button-root {
+    width: auto;
+  }
+}
+
 .neura-primary-button {
   background: #171b22;
   color: #fff;
