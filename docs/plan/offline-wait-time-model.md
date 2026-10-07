@@ -20,6 +20,8 @@ Dataset and experiment files use mode `0600` and exclusive creation; existing fi
 
 Manual vendor test tickets cannot automatically be separated from real traffic. Export provenance is explicitly unverified. Dataset scope labels and CLI `API_ENVIRONMENT` do not prove vendor database isolation.
 
+The [offline curation command](wait-time-dataset-curation.md) can exclude operator-declared test or data-quality windows from a preserved original export. It records declarations and counts without upgrading provenance. Experiments record `datasetSha256` for the exact input bytes; this is input lineage, not verification that the observations represent genuine operations.
+
 ## Training and evaluation
 
 Specify a fixed training cutoff and holdout end before comparing models. Historical observations and their outcomes must both precede the training cutoff. Earlier observations with outcomes after cutoff are excluded. Holdout observations must be at/after cutoff and before holdout end, with outcomes also before holdout end. Neither holdout features nor outcomes fit the candidate.
