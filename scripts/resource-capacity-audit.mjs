@@ -5,6 +5,8 @@ import { URL } from "node:url";
 import process from "node:process";
 import console from "node:console";
 
+import { readResourceShadowReadiness } from "./resource-shadow-readiness.mjs";
+
 const require = createRequire(import.meta.url);
 const env = require("../backend/src/config/env");
 const db = require("../backend/src/config/db");
@@ -112,6 +114,7 @@ async function readReport(client, options, target) {
     return { ...base, tableAvailable: false, message: "Apply 20261003_add_resource_capacity_foundation.sql before auditing resource capacity." };
   }
   const configuration = await repository.listDraftConfiguration(scope, { client });
+  const shadowReadiness = await readResourceShadowReadiness(client, scope, configuration);
   const window = { ...options, observedAt: identity.rows[0].observed_at };
   const reservations = await repository.readReservationLedger(scope, window, { client });
   const missingBookingItems = await repository.countMissingBookingItems(scope, window, { client });
@@ -121,7 +124,7 @@ async function readReport(client, options, target) {
     SELECT COUNT(*)::int AS count FROM tickets WHERE tenant_id = $1 AND location_id = $2 AND status = 'waiting'
       AND date_key = to_char($3::timestamptz AT TIME ZONE $4, 'YYYYMMDD')
   `, [scope.tenantId, scope.locationId, options.from, row.timezone]);
-  return formatProjectionReport({ base, configuration, reservations, missingBookingItems, candidate, projection, waitingCount: waiting.rows[0].count, averageServiceMinutes: Number(row.average_service_minutes) });
+  return { ...formatProjectionReport({ base, configuration, reservations, missingBookingItems, candidate, projection, waitingCount: waiting.rows[0].count, averageServiceMinutes: Number(row.average_service_minutes) }), shadowReadiness };
 }
 
 function candidateReason(incomplete, pool) {
