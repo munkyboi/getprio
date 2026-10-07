@@ -3,6 +3,7 @@ import { createRequire } from "node:module";
 import { writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { timestamp, validateDataset, readBoundedJson } from "./wait-time-dataset-contract.mjs";
+import { metrics } from "./wait-time-metrics.mjs";
 import process from "node:process";
 import console from "node:console";
 
@@ -30,14 +31,6 @@ function optionsFrom(args) {
   return options;
 }
 
-function metrics(errors) {
-  if (!errors.length) return { tickets: 0, maeMinutes: null, meanSignedErrorMinutes: null, withinFiveMinutesPercent: null };
-  const round = (value) => Math.round(value * 100) / 100;
-  return { tickets: errors.length,
-    maeMinutes: round(errors.reduce((sum, error) => sum + Math.abs(error), 0) / errors.length),
-    meanSignedErrorMinutes: round(errors.reduce((sum, error) => sum + error, 0) / errors.length),
-    withinFiveMinutesPercent: round(100 * errors.filter((error) => Math.abs(error) <= 5).length / errors.length) };
-}
 
 async function run() {
   const options = optionsFrom(process.argv.slice(2));

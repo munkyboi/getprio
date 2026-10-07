@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
+import { resourceSnapshot, predictResourceReference } from "./wait-time-resource-reference.mjs";
 
 export const SIMULATOR_VERSION = "synthetic-queue-v1";
+export const REFERENCE_SIMULATOR_VERSION = "synthetic-queue-reference-v1";
 export const SCENARIOS = Object.freeze({
   sequential: { capacity: [1, 1], arrivalGap: 8, duration: 10 },
   parallel: { capacity: [3, 3], arrivalGap: 4, duration: 15 },
@@ -49,7 +51,7 @@ function releaseAndCancel(tickets, active, events, now) {
   }
 }
 
-function arrive(tickets, events, now, settings, paused) {
+function arrive(tickets, events, now, settings, paused, includeReference) {
   for (const ticket of tickets) {
     if (ticket.arrival !== now) continue;
     const waiting = tickets.filter((other) => other.state === "waiting").length;
@@ -58,6 +60,7 @@ function arrive(tickets, events, now, settings, paused) {
     ticket.state = "waiting";
     record(events, ticket, "issued", now, { channel: ticket.channel, requirements: ticket.needs,
       earliestCallMinute: ticket.ready, configuredDurationMinutes: settings.duration });
+    if (includeReference) ticket.resourceReference = predictResourceReference(resourceSnapshot(tickets, events, now, settings, paused, ticket.id));
   }
 }
 
@@ -94,7 +97,7 @@ function nextTime(tickets, pauses, now) {
   return future.reduce((minimum, minute) => Math.min(minimum, minute), Infinity);
 }
 
-function simulateScenario(name, count, seed) {
+function simulateScenario(name, count, seed, includeReference) {
   const settings = SCENARIOS[name];
   const tickets = generateTickets(settings, count, randomGenerator(seed));
   const pauses = settings.disruptions ? [[60, 90], [180, 200]] : [];
@@ -106,7 +109,7 @@ function simulateScenario(name, count, seed) {
     if (++steps > count * 6 + 20) throw new Error("Simulation event limit exceeded.");
     releaseAndCancel(tickets, tickets.filter((ticket) => ticket.state === "active"), events, now);
     const paused = pauses.some(([from, to]) => now >= from && now < to);
-    arrive(tickets, events, now, settings, paused);
+    arrive(tickets, events, now, settings, paused, includeReference);
     if (!paused) dispatch(tickets, events, now, settings.capacity);
     now = nextTime(tickets, pauses, now);
   }
@@ -115,19 +118,20 @@ function simulateScenario(name, count, seed) {
   return { tickets, events, settings, pauses };
 }
 
-export function generateSyntheticDataset({ seed, ticketsPerScenario, start }) {
+export function generateSyntheticDataset({ seed, ticketsPerScenario, start, includeResourceReference = false }) {
   const origin = Date.parse(start);
   const iso = (minute) => new Date(origin + minute * 60000).toISOString();
   const samples = [];
   const scenarios = [];
   let lastMinute = 0;
+  const simulatorVersion = includeResourceReference ? REFERENCE_SIMULATOR_VERSION : SIMULATOR_VERSION;
   for (const [index, name] of Object.keys(SCENARIOS).entries()) {
-    const result = simulateScenario(name, ticketsPerScenario, (seed + index) >>> 0);
+    const result = simulateScenario(name, ticketsPerScenario, (seed + index) >>> 0, includeResourceReference);
     const scopeKey = `synthetic:${name}`;
     for (const ticket of result.tickets.filter((entry) => entry.state === "completed")) {
-      samples.push({ scopeKey, ticketKey: createHash("sha256").update(`${SIMULATOR_VERSION}:${seed}:${scopeKey}:${ticket.id}`).digest("hex"),
+      samples.push({ scopeKey, ticketKey: createHash("sha256").update(`${simulatorVersion}:${seed}:${scopeKey}:${ticket.id}`).digest("hex"),
         sampledAt: iso(ticket.arrival), calledAt: iso(ticket.called), actualWaitMinutes: ticket.called - ticket.arrival,
-        features: ticket.features });
+        features: ticket.features, ...(includeResourceReference ? { resourceReference: ticket.resourceReference } : {}) });
     }
     lastMinute = Math.max(lastMinute, ...result.tickets.map((ticket) => ticket.finish || ticket.cancelAt));
     scenarios.push({ name, scopeKey, settings: result.settings, pauses: result.pauses,
@@ -137,7 +141,7 @@ export function generateSyntheticDataset({ seed, ticketsPerScenario, start }) {
   const to = iso(lastMinute + 1);
   return { datasetVersion: "wait-time-synthetic-dataset-v1", source: "synthetic", baselineVersion: "baseline-v1",
     provenance: "synthetic-simulation", from: iso(0), to, capturedAt: to, excludedFeatureRows: 0, samples,
-    simulation: { simulatorVersion: SIMULATOR_VERSION, seed, ticketsPerScenario, start: iso(0), scenarios,
+    simulation: { simulatorVersion, seed, ticketsPerScenario, start: iso(0), scenarios,
       clock: "Virtual time; capturedAt is the simulated window end, not an operational capture timestamp.",
       policy: "Atomic resource allocation; FIFO among eligible tickets. Calls coincide with service starts. Pauses block dispatch only. Interruptions retain resources.",
       productionPerformanceEstablished: false }, customerEstimateChanged: false, rolloutApproved: false };

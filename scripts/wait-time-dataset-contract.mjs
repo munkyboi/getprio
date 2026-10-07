@@ -41,7 +41,8 @@ function validateSample(sample, source, from, to) {
 function validateDatasetKind(dataset, kind) {
   if (kind === "synthetic") {
     if (dataset.datasetVersion !== "wait-time-synthetic-dataset-v1" || dataset.source !== "synthetic" ||
-        dataset.provenance !== "synthetic-simulation" || dataset.simulation?.simulatorVersion !== "synthetic-queue-v1") {
+        dataset.provenance !== "synthetic-simulation" ||
+        !["synthetic-queue-v1", "synthetic-queue-reference-v1"].includes(dataset.simulation?.simulatorVersion)) {
       throw new Error("Explicit synthetic mode requires a labeled simulator dataset.");
     }
     return;
