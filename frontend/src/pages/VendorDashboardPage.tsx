@@ -4908,6 +4908,19 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
   function renderQueuePage() {
     const activeCounters = serviceCounters.filter((counter) => counter.isActive);
     const activeTicket = snapshot?.current || null;
+    const waitingTicketManagement = selectedTenantRole ? (
+      <VendorWaitingTicketCancellation
+        key={`${selectedTenantSlug}:${selectedLocationSlug}`}
+        token={token}
+        tenantSlug={selectedTenantSlug}
+        locationQuery={locationQuery}
+        locationName={selectedLocation?.name || "Selected location"}
+        onCancelled={(nextSnapshot) => {
+          if (nextSnapshot) setSnapshot(current => selectFreshestQueueSnapshot(current, nextSnapshot));
+          showSuccessNotification("Ticket cancelled", "The ticket was removed from the waiting queue.");
+        }}
+      />
+    ) : null;
 
     return (
       <Stack gap="md">
@@ -5086,19 +5099,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   reverse these outcomes.
                 </Alert>
               ) : null}
-              {selectedTenantRole ? (
-                <VendorWaitingTicketCancellation
-                  key={`${selectedTenantSlug}:${selectedLocationSlug}`}
-                  token={token}
-                  tenantSlug={selectedTenantSlug}
-                  locationQuery={locationQuery}
-                  locationName={selectedLocation?.name || "Selected location"}
-                  onCancelled={(nextSnapshot) => {
-                    if (nextSnapshot) setSnapshot(current => selectFreshestQueueSnapshot(current, nextSnapshot));
-                    showSuccessNotification("Ticket cancelled", "The ticket was removed from the waiting queue.");
-                  }}
-                />
-              ) : null}
+              {queueView !== "current" ? waitingTicketManagement : null}
               {queueView === "current" ? (
                 <>
                   <Group justify="space-between" align="flex-end">
@@ -5118,94 +5119,97 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       </Text>
                     ) : null}
                   </Group>
-                  <Group>
-                    <Button
-                      className="neura-primary-button"
-                      disabled={
-                        busyAction === "call-next" ||
-                        !selectedCounterSlug ||
-                        queueDayClosed ||
-                        Boolean(activeTicket)
-                      }
-                      onClick={async () => {
-                        const success = await runAction("call-next", () =>
-                          vendorDashboardQueue.callNextTicket(token, selectedTenantSlug, locationQuery, selectedCounterSlug)
-                        );
-                        if (success) {
-                          showSuccessNotification("Customer called", "The next customer has been called to the counter.");
-                        }
-                      }}
-                    >
-                      {busyAction === "call-next" ? "Calling..." : "Call next"}
-                    </Button>
-                    {activeTicket && (activeTicket.customerConfirmedAt || activeTicket.joinChannel === "vendor") ? (
+                  <div className="vendor-queue-action-layout">
+                    <Group className="vendor-queue-primary-actions">
                       <Button
-                        className="neura-secondary-button"
-                        disabled={Boolean(busyAction)}
-                        leftSection={<IconCheck size={16} />}
-                        loading={["serve-current", "service-start", "service-complete"].includes(busyAction || "")}
+                        className="neura-primary-button"
+                        disabled={
+                          busyAction === "call-next" ||
+                          !selectedCounterSlug ||
+                          queueDayClosed ||
+                          Boolean(activeTicket)
+                        }
                         onClick={async () => {
-                          const tracking = snapshot?.location?.serviceTimingEnabled || Boolean(activeTicket.serviceStartedAt);
-                          const action = activeTicket.serviceStartedAt ? "complete" : "start";
-                          const success = await runAction(tracking ? `service-${action}` : "serve-current", () =>
-                            tracking
-                              ? vendorDashboardQueue.recordTicketService(token, selectedTenantSlug, locationQuery, activeTicket.id, action)
-                              : vendorDashboardQueue.serveCurrentTicket(token, selectedTenantSlug, locationQuery)
+                          const success = await runAction("call-next", () =>
+                            vendorDashboardQueue.callNextTicket(token, selectedTenantSlug, locationQuery, selectedCounterSlug)
                           );
                           if (success) {
-                            showSuccessNotification(
-                              tracking && action === "start" ? "Service started" : "Customer served",
-                              tracking && action === "start" ? "The actual service start has been recorded." : "The ticket was marked as served."
+                            showSuccessNotification("Customer called", "The next customer has been called to the counter.");
+                          }
+                        }}
+                      >
+                        {busyAction === "call-next" ? "Calling..." : "Call next"}
+                      </Button>
+                      {activeTicket && (activeTicket.customerConfirmedAt || activeTicket.joinChannel === "vendor") ? (
+                        <Button
+                          className="neura-secondary-button"
+                          disabled={Boolean(busyAction)}
+                          leftSection={<IconCheck size={16} />}
+                          loading={["serve-current", "service-start", "service-complete"].includes(busyAction || "")}
+                          onClick={async () => {
+                            const tracking = snapshot?.location?.serviceTimingEnabled || Boolean(activeTicket.serviceStartedAt);
+                            const action = activeTicket.serviceStartedAt ? "complete" : "start";
+                            const success = await runAction(tracking ? `service-${action}` : "serve-current", () =>
+                              tracking
+                                ? vendorDashboardQueue.recordTicketService(token, selectedTenantSlug, locationQuery, activeTicket.id, action)
+                                : vendorDashboardQueue.serveCurrentTicket(token, selectedTenantSlug, locationQuery)
                             );
-                          }
-                        }}
-                      >
-                        {activeTicket.serviceStartedAt ? "Complete service" : snapshot?.location?.serviceTimingEnabled ? "Start service" : "Serve customer"}
-                      </Button>
-                    ) : (
+                            if (success) {
+                              showSuccessNotification(
+                                tracking && action === "start" ? "Service started" : "Customer served",
+                                tracking && action === "start" ? "The actual service start has been recorded." : "The ticket was marked as served."
+                              );
+                            }
+                          }}
+                        >
+                          {activeTicket.serviceStartedAt ? "Complete service" : snapshot?.location?.serviceTimingEnabled ? "Start service" : "Serve customer"}
+                        </Button>
+                      ) : (
+                        <Button
+                          className="neura-secondary-button"
+                          disabled={!activeTicket || Boolean(busyAction)}
+                          leftSection={<IconQrcode size={16} />}
+                          onClick={() => {
+                            setTicketScannerError("");
+                            setTicketScannerOpen(true);
+                          }}
+                        >
+                          Confirm ticket
+                        </Button>
+                      )}
                       <Button
-                        className="neura-secondary-button"
-                        disabled={!activeTicket || Boolean(busyAction)}
-                        leftSection={<IconQrcode size={16} />}
-                        onClick={() => {
-                          setTicketScannerError("");
-                          setTicketScannerOpen(true);
+                        variant="default"
+                        disabled={Boolean(busyAction) || !activeTicket || Boolean(activeTicket.serviceStartedAt)}
+                        onClick={async () => {
+                          const success = await runAction("skip-current", () =>
+                            vendorDashboardQueue.skipCurrentTicket(token, selectedTenantSlug, locationQuery)
+                          );
+                          if (success) {
+                            showSuccessNotification("Ticket skipped", "The current ticket was skipped.");
+                            setQueueView("current");
+                          }
                         }}
                       >
-                        Confirm ticket
+                        Skip current
                       </Button>
-                    )}
-                    <Button
-                      variant="default"
-                      disabled={Boolean(busyAction) || !activeTicket || Boolean(activeTicket.serviceStartedAt)}
-                      onClick={async () => {
-                        const success = await runAction("skip-current", () =>
-                          vendorDashboardQueue.skipCurrentTicket(token, selectedTenantSlug, locationQuery)
-                        );
-                        if (success) {
-                          showSuccessNotification("Ticket skipped", "The current ticket was skipped.");
-                          setQueueView("current");
-                        }
-                      }}
-                    >
-                      Skip current
-                    </Button>
-                    {activeTicket?.serviceStartedAt ? (
-                      <Button variant="outline" color="orange" mih={44} disabled={Boolean(busyAction)}
-                        onClick={() => setConfirmAction({
-                          title: "Interrupt service?",
-                          description: "Record that service ended without completion and mark the called ticket unserved. This is excluded from completed service duration samples.",
-                          confirmLabel: "Record interruption", confirmColor: "orange",
-                          onConfirm: async () => {
-                            await runAction("service-interrupt", () => vendorDashboardQueue.recordTicketService(
-                              token, selectedTenantSlug, locationQuery, activeTicket.id, "interrupt"
-                            ));
-                          }
-                        })}>
-                        Interrupt service
-                      </Button>
-                    ) : null}
-                  </Group>
+                      {activeTicket?.serviceStartedAt ? (
+                        <Button variant="outline" color="orange" mih={44} disabled={Boolean(busyAction)}
+                          onClick={() => setConfirmAction({
+                            title: "Interrupt service?",
+                            description: "Record that service ended without completion and mark the called ticket unserved. This is excluded from completed service duration samples.",
+                            confirmLabel: "Record interruption", confirmColor: "orange",
+                            onConfirm: async () => {
+                              await runAction("service-interrupt", () => vendorDashboardQueue.recordTicketService(
+                                token, selectedTenantSlug, locationQuery, activeTicket.id, "interrupt"
+                              ));
+                            }
+                          })}>
+                          Interrupt service
+                        </Button>
+                      ) : null}
+                    </Group>
+                  {waitingTicketManagement ? <div className="vendor-queue-management-action">{waitingTicketManagement}</div> : null}
+                  </div>
                   <SimpleGrid cols={{ base: 1, sm: intakeState?.autoPauseEnabled ? 3 : 2 }} spacing="md">
                     <Paper withBorder radius="md" p="md">
                       <Text className="neura-label">{activeTicket?.serviceStartedAt ? "In service" : snapshot?.location?.serviceTimingEnabled ? "Called ticket" : "Now serving"}</Text>
@@ -5278,7 +5282,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       />
                     ) : null}
                   </SimpleGrid>
-                  <Table.ScrollContainer minWidth={420}>
+                  <Table.ScrollContainer minWidth={640}>
                     <Table verticalSpacing="sm">
                       <Table.Thead>
                         <Table.Tr>
@@ -5287,6 +5291,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                           <Table.Th>Channel</Table.Th>
                           <Table.Th>Source</Table.Th>
                           <Table.Th>Joined</Table.Th>
+                          <Table.Th>Actions</Table.Th>
                         </Table.Tr>
                       </Table.Thead>
                       <Table.Tbody>
@@ -5308,20 +5313,6 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                                     {ticket.bookingScheduledStartAt ? <Text c="dimmed" size="xs">Earliest call: {formatDateTime(ticket.bookingScheduledStartAt)}</Text> : null}
                                   </Stack>
                                 ) : null}
-                                {selectedTenantRole && ticket.status === "waiting" ? (
-                                  <Button
-                                    variant="light"
-                                    color="red"
-                                    size="xs"
-                                    mt="xs"
-                                    mih={44}
-                                    disabled={Boolean(busyAction)}
-                                    aria-label={`Cancel waiting ticket ${ticket.ticketNumber}`}
-                                    onClick={() => openWaitingTicketCancellation(ticket)}
-                                  >
-                                    Cancel ticket
-                                  </Button>
-                                ) : null}
                               </Table.Td>
                               <Table.Td><Badge variant="light">{ticket.joinChannel}</Badge></Table.Td>
                               <Table.Td>
@@ -5335,11 +5326,26 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                                 </Group>
                               </Table.Td>
                               <Table.Td>{formatDateTime(ticket.createdAt)}</Table.Td>
+                              <Table.Td>
+                                {selectedTenantRole && ticket.status === "waiting" ? (
+                                  <Button
+                                    variant="light"
+                                    color="red"
+                                    size="xs"
+                                    mih={44}
+                                    disabled={Boolean(busyAction)}
+                                    aria-label={`Cancel waiting ticket ${ticket.ticketNumber}`}
+                                    onClick={() => openWaitingTicketCancellation(ticket)}
+                                  >
+                                    Cancel ticket
+                                  </Button>
+                                ) : null}
+                              </Table.Td>
                             </Table.Tr>
                           ))
                         ) : (
                           <Table.Tr>
-                            <Table.Td colSpan={5}>
+                            <Table.Td colSpan={6}>
                               <DashboardEmptyState
                                 title="No one is waiting right now."
                                 text="Fresh same-day joins will appear here once the carry-over backlog is cleared."
