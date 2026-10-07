@@ -13,7 +13,7 @@ const { predictWaitTime } = require("../backend/src/services/waitTimePredictor")
 function optionsFrom(args) {
   const options = {};
   const keys = new Map([["--dataset", "dataset"], ["--cutoff", "cutoff"], ["--holdout-end", "end"],
-    ["--output", "output"], ["--minimum-training-tickets", "minimum"]]);
+    ["--output", "output"], ["--minimum-training-tickets", "minimum"], ["--dataset-kind", "kind"]]);
   for (let i = 0; i < args.length; i += 2) {
     const key = keys.get(args[i]);
     if (!key || Object.hasOwn(options, key) || !args[i + 1] || args[i + 1].startsWith("--")) throw new Error("Unknown, duplicate, or missing model option.");
@@ -23,6 +23,8 @@ function optionsFrom(args) {
     throw new Error("Use --dataset <file> --cutoff <timestamp> --holdout-end <timestamp> --output <new-file>.");
   }
   options.minimum = options.minimum === undefined ? 30 : Number(options.minimum);
+  options.kind = options.kind ?? "operational";
+  if (!["operational", "synthetic"].includes(options.kind)) throw new Error("Dataset kind must be operational or synthetic.");
   if (!Number.isSafeInteger(options.minimum) || options.minimum < 1) throw new Error("Minimum training tickets must be a positive integer.");
   if (timestamp(options.cutoff) >= timestamp(options.end)) throw new Error("Training cutoff must precede holdout end.");
   return options;
@@ -42,7 +44,7 @@ async function run() {
   const input = await readBoundedJson(options.dataset, 64 * 1024 * 1024);
   const dataset = input.value;
   const datasetSha256 = createHash("sha256").update(input.bytes).digest("hex");
-  validateDataset(dataset, options);
+  validateDataset(dataset, options, options.kind);
   const cutoff = timestamp(options.cutoff);
   const end = timestamp(options.end);
   const model = fitWaitTimeCandidate(dataset.samples, options.cutoff, options.minimum);
@@ -66,16 +68,19 @@ async function run() {
     if (candidate.usedFallback) scope.fallbackReasons[candidate.fallbackReason] = (scope.fallbackReasons[candidate.fallbackReason] || 0) + 1;
     else scope.modelOnly.push(sample.actualWaitMinutes - candidate.prediction.estimatedWaitMinutes);
   }
-  const artifact = { artifactVersion: "wait-time-experiment-v1", source: dataset.source,
+  const synthetic = options.kind === "synthetic";
+  const artifact = { artifactVersion: synthetic ? "wait-time-synthetic-experiment-v1" : "wait-time-experiment-v1", source: dataset.source,
     provenance: dataset.provenance, datasetSha256, model, trainingCoverage, evaluation: { trainingCutoff: model.trainingCutoff,
       holdoutEnd: new Date(end).toISOString(), excludedOverlappingTickets,
       scopes: [...perScope].map(([scopeKey, scope]) => ({ scopeKey, baseline: metrics(scope.baseline),
         candidateWithFallback: metrics(scope.candidate), candidateOnly: metrics(scope.modelOnly), fallbackReasons: scope.fallbackReasons })) },
-    customerEstimateChanged: false, rolloutApproved: false,
-    note: "Offline statistical experiment only. Manual tests do not establish production accuracy. No model is loaded by the API." };
+    customerEstimateChanged: false, rolloutApproved: false, productionPerformanceEstablished: false,
+    note: synthetic ? "Synthetic-only experiment. Scores measure simulator assumptions, not vendor accuracy. Not accepted by production shadow inference."
+      : "Offline statistical experiment only. Manual tests do not establish production accuracy. No model is loaded by the API." };
   await writeFile(options.output, JSON.stringify(artifact, null, 2), { flag: "wx", mode: 0o600 });
-  console.log(JSON.stringify({ output: options.output, trainedScopes: model.scopeRates.length, trainingCoverage, evaluation: artifact.evaluation,
-    customerEstimateChanged: false, rolloutApproved: false }, null, 2));
+  console.log(JSON.stringify({ output: options.output, source: artifact.source, provenance: artifact.provenance,
+    artifactVersion: artifact.artifactVersion, trainedScopes: model.scopeRates.length, trainingCoverage, evaluation: artifact.evaluation,
+    customerEstimateChanged: false, rolloutApproved: false, productionPerformanceEstablished: false }, null, 2));
 }
 
 run().catch((error) => { console.error("Offline wait-time experiment failed:", error.message); process.exitCode = 1; });
