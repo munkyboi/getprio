@@ -102,7 +102,7 @@ async function allocationPlan(client, scope, ticketId) {
   }
   const item = row.items?.[0];
   if (row.items?.length !== 1 || !item?.resource?.known
-    || !Number.isFinite(item.durationMinutes) || item.durationMinutes <= 0 || item.durationMinutes > 10080) {
+    || !Number.isInteger(item.durationMinutes) || item.durationMinutes < 5 || item.durationMinutes > 480) {
     fail("A single-item known executable service plan is required.");
   }
   if (item.scheduledStartAt && new Date(item.scheduledStartAt) > row.observed_at) fail("Booked service is not ready yet.");

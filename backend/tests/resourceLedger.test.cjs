@@ -56,8 +56,8 @@ test('PostgreSQL resource ledger interface', { skip: !databaseUrl }, async (t) =
       INSERT INTO location_resource_pools VALUES(100,1,10,${capacity},1),(200,2,20,4,1);
       INSERT INTO service_resource_requirements VALUES(1,10,1000,100,1,1)`);
   }
-  async function ticket(ticketId, { units = 1, source = 'staff_selection', itemId, interval } = {}) {
-    const item = { serviceId: '1000', durationMinutes: 60, resource: { known: true,
+  async function ticket(ticketId, { units = 1, durationMinutes = 60, source = 'staff_selection', itemId, interval } = {}) {
+    const item = { serviceId: '1000', durationMinutes, resource: { known: true,
       poolId: '100', poolRevision: 1, requirementRevision: 1, unitsRequired: units } };
     if (itemId) Object.assign(item, { bookingItemId: itemId,
       scheduledStartAt: interval.starts_at.toISOString(), scheduledEndAt: interval.ends_at.toISOString() });
@@ -123,6 +123,21 @@ test('PostgreSQL resource ledger interface', { skip: !databaseUrl }, async (t) =
       const result = await Promise.allSettled([command('reserve', { bookingItemId: '1' }), command('allocate', { ticketId: '1' })]);
       assert.equal(result.filter(r => r.status === 'fulfilled').length, 1);
       assert.equal(result.filter(r => r.status === 'rejected').length, 1);
+    });
+    await t.test('single-item v1 accepts integer duration boundaries and rejects fractional/overflow plans', async () => {
+      await reset();
+      for (const [index, durationMinutes] of [4, 481, 5.5, 10080].entries()) {
+        const ticketId = String(index + 1);
+        await ticket(ticketId, { durationMinutes });
+        await assert.rejects(command('allocate', { ticketId }), /single-item/);
+      }
+      assert.equal((await pool.query('SELECT COUNT(*)::int AS count FROM resource_allocations')).rows[0].count, 0);
+      for (const [ticketId, durationMinutes] of [['5', 5], ['6', 480]]) {
+        await ticket(ticketId, { durationMinutes });
+        const started = await command('allocate', { ticketId });
+        const result = await pool.query('SELECT EXTRACT(EPOCH FROM expected_end_at-started_at)/60 AS minutes FROM resource_allocations WHERE id=$1', [started.allocationId]);
+        assert.equal(Number(result.rows[0].minutes), durationMinutes);
+      }
     });
     await t.test('scope, stale plan and unknown demand fail without writes', async () => {
       await reset(); await ticket('1');
