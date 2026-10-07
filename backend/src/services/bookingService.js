@@ -656,8 +656,10 @@ async function loadComposedBookingPlan({ tenant, location, items: itemValues, ex
   const requestedItems = normalizeComposedPlanItems(itemValues);
   // Drain all bounded read requests before propagating failure, especially when
   // one transaction client is shared with the enclosing booking writer.
-  const services = completedPlanLookups(await Promise.allSettled(requestedItems.map(item =>
-    vendorServiceRepository.findServiceByTenantAndSlug(tenant._id, item.serviceSlug, { client }))));
+  const services = completedPlanLookups(await Promise.allSettled(requestedItems.map((item, index) =>
+    existingBooking ? vendorServiceRepository.findServiceByTenantAndId(tenant._id,
+      existingBooking.bundleItems?.[index]?.serviceId || existingBooking.serviceId, { client })
+      : vendorServiceRepository.findServiceByTenantAndSlug(tenant._id, item.serviceSlug, { client }))));
   if (services.some(service => !service?.isActive)) {
     const error = new Error("A selected service was not found.");
     error.statusCode = 404;

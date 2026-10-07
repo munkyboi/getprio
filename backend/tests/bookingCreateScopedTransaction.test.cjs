@@ -39,6 +39,7 @@ test('customer booking creation under real scoped PostgreSQL transaction', { ski
   const user = { _id:'1', name:'Customer One', email:'customer@example.com', phone:'09171234567' };
   const body = { tenantSlug:'demo', locationSlug:'main', serviceSlug:'consultation', scheduledStartAt, bookingVerificationToken:'verified-token' };
   let ordinaryCapacity = 1;
+  let catalogSlugRenamed = false;
   let changedLockedOwner = false;
   let allowanceFails = false;
   let lockedCatalogChanged = false;
@@ -107,7 +108,8 @@ test('customer booking creation under real scoped PostgreSQL transaction', { ski
       '../repositories/storeLocations': { findLocationByTenantAndSlug: async (_tenant,_slug,options={}) => ({...location,isActive:!(options.client && lockedLocationRevoked)}),
         listHoursByLocationId: async () => [{ weekday: new Date(scheduledStartAt).getUTCDay(),opensAt:'00:00',closesAt:'23:59',isClosed:false }] },
       '../repositories/vendorServices': { normalizeServiceSlug: value => value,
-        findServiceByTenantAndSlug: async (_tenant,_slug,options={}) => ({ ...catalog, _id:_slug === "consultation" ? "100" : "101", slug:_slug, priceAmountCents: options.client && lockedCatalogChanged ? 2000 : 1000 }) },
+        findServiceByTenantAndId: async (_tenant,id) => ['100','101'].includes(String(id)) ? ({...catalog,_id:String(id),slug:catalogSlugRenamed ? `renamed-${id}` : String(id) === '100' ? 'consultation' : 'other'}) : null,
+        findServiceByTenantAndSlug: async (_tenant,_slug,options={}) => catalogSlugRenamed ? null : ({ ...catalog, _id:_slug === "consultation" ? "100" : "101", slug:_slug, priceAmountCents: options.client && lockedCatalogChanged ? 2000 : 1000 }) },
       '../repositories/locationServices': { findLocationServiceByLocationAndServiceId: async () => ({ isActive:true,capacity:ordinaryCapacity }) },
       '../repositories/vendorAvailability': { listAvailabilityByLocation: async (_tenant,_location,options={}) => ({
         blocks: [], exceptions: options.client && lockedAvailabilityChanged ? [{ exceptionDate: scheduledStartAt.slice(0,10),isAvailable:false }] : []
@@ -130,7 +132,7 @@ test('customer booking creation under real scoped PostgreSQL transaction', { ski
       notified = cancelled = 0;
       savedBookings.clear();
       await pool.query("UPDATE tenant_memberships SET role='owner',is_active=TRUE; UPDATE users SET platform_access_suspended_at=NULL");
-      ordinaryCapacity = 1; changedLockedOwner = false;
+      ordinaryCapacity = 1; changedLockedOwner = false; catalogSlugRenamed = false;
       body.scheduledStartAt = scheduledStartAt; delete body.executionMode; delete body.bookingQuantity; delete body.bundleItems; catalog.allowBookingQuantity = false; catalog.durationMinutes = 60;
     }
     async function configureResources(enabled = true, units = 1, capacity = 1) {
@@ -281,6 +283,16 @@ test('customer booking creation under real scoped PostgreSQL transaction', { ski
       const slot = slots.find(slot => slot.startAt === movedStart);
       assert.equal(slot.endAt,moved.scheduledEndAt);
       assert.equal(await count('resource_ledger_reservations'),0);
+    });
+    await t.test('renamed service slug preserves ID-based reschedule and slot access', async () => {
+      await reset(); await configureResources(false); const created = await bookingService.createCustomerBooking({user,body});
+      const original = await readBooking(created._id); catalogSlugRenamed = true;
+      const slots = await bookingService.listVendorBookingRescheduleSlots({tenant,bookingId:created._id,date:movedStart.slice(0,10)});
+      assert.ok(slots.some(slot => slot.startAt === movedStart));
+      await move(created._id);
+      const moved = await readBooking(created._id);
+      assert.equal(moved.bundleItems[0].serviceId,original.bundleItems[0].serviceId);
+      assert.equal(moved.bundleItems[0].serviceSlug,'consultation'); assert.equal(moved.scheduledStartAt,movedStart);
     });
     await t.test('resource reschedule replaces immutable binding even after tracking disable and can move back', async () => {
       await reset(); await configureResources(); const created = await bookingService.createCustomerBooking({user,body});

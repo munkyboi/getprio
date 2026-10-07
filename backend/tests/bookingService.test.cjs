@@ -211,6 +211,8 @@ function buildBookingService({
     },
     "../repositories/vendorServices": {
       normalizeServiceSlug: (value) => String(value || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, ""),
+      findServiceByTenantAndId: async (_tenantId, id) =>
+        [{ ...service, ...serviceOverride }, ...Object.values(servicesBySlug)].find(item => item._id === id) || null,
       findServiceByTenantAndSlug: async (_tenantId, slug) => {
         if (servicesBySlug[slug]) return servicesBySlug[slug];
         return slug === "consultation" ? { ...service, ...serviceOverride } : null;
@@ -1363,6 +1365,7 @@ test("vendor reschedule clears linked ticket and check-in state", async () => {
       tenantId: "tenant-1",
       locationId: "location-1",
       locationSlug: "main",
+      serviceId: "service-1",
       serviceSlug: "consultation",
       bookingQuantity: 1,
       status: "confirmed",
@@ -1410,6 +1413,7 @@ test("vendor reschedule slots exclude the current booking from capacity", async 
       _id: "booking-1",
       tenantId: "tenant-1",
       locationSlug: "main",
+      serviceId: "service-1",
       serviceSlug: "consultation",
       bookingQuantity: 1,
       status: "confirmed",
