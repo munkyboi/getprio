@@ -1,4 +1,5 @@
 // Internal consumer contract only. No producer, DB access or live inference hook.
+const { TextDecoder } = require("node:util");
 const CONTRACT_VERSION = "resource-operational-snapshot-v1";
 const MAX_SNAPSHOT_BYTES = 2 * 1024 * 1024;
 const NOT_READY_REASONS = new Set(["ledger_unavailable", "tracking_disabled", "writer_coverage_incomplete",
@@ -61,15 +62,17 @@ function allocation(entry, pools, observedAt) {
   const end = optionalTimestamp(entry.expectedEndAt);
   if (start > observedAt || (end !== null && end <= start) || !["active", "unresolved"].includes(entry.state)) invalid();
 }
+function duration(value) {
+  if (!Number.isInteger(value) || value < 5 || value > 480) invalid();
+}
 function work(entry, pools, observedAt) {
   shape(entry, ["workRef", "state", "orderKey", "priorityBand", "stationArrivedAt", "earliestCallAt", "planRevision",
     "executionMode", "poolId", "units", "durationMinutes", "reservationRef"]);
   ref(entry.workRef); ref(entry.orderKey); id(entry.planRevision); optionalRef(entry.reservationRef);
-  demand(entry, pools); optionalTimestamp(entry.earliestCallAt);
+  demand(entry, pools); optionalTimestamp(entry.earliestCallAt); duration(entry.durationMinutes);
   if (!["waiting", "called", "in_service"].includes(entry.state) || entry.executionMode !== "single"
       || !["normal", "checked_in_booking", "recovery", "carry_over"].includes(entry.priorityBand)
-      || timestamp(entry.stationArrivedAt) > observedAt
-      || !Number.isFinite(entry.durationMinutes) || entry.durationMinutes <= 0) invalid();
+      || timestamp(entry.stationArrivedAt) > observedAt) invalid();
 }
 function unique(entries, field) {
   const values = entries.map(entry => entry[field]);
@@ -175,7 +178,7 @@ function validateResourceOperationalSnapshot(bytes, suppliedOptions) {
   const options = configuration(suppliedOptions);
   if (!Buffer.isBuffer(bytes) || bytes.length > MAX_SNAPSHOT_BYTES) invalid();
   let envelope;
-  try { envelope = JSON.parse(bytes.toString("utf8")); } catch { invalid(); }
+  try { envelope = JSON.parse(new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes)); } catch { invalid(); }
   shape(envelope, ["contractVersion", "scope", "readiness", "reasons", "snapshot"]);
   if (envelope.contractVersion !== CONTRACT_VERSION) throw new Error("unsupported_resource_contract");
   validateScope(envelope.scope);

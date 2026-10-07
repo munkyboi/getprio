@@ -310,8 +310,9 @@
           "maximum": 100
         },
         "durationMinutes": {
-          "type": "number",
-          "exclusiveMinimum": 0
+          "type": "integer",
+          "minimum": 5,
+          "maximum": 480
         },
         "reservationRef": {
           "anyOf": [
