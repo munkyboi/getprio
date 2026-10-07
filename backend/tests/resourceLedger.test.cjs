@@ -25,7 +25,7 @@ test('ledger validates scope and command before connecting', async () => {
 test('PostgreSQL resource ledger interface', { skip: !databaseUrl }, async (t) => {
   const url = new URL(databaseUrl);
   assert.equal(url.hostname, '127.0.0.1');
-  assert.equal(url.pathname, '/getprio_ledger_test');
+  assert.ok(['/getprio_ledger_test', '/getprio_test'].includes(url.pathname), 'Only explicit isolated/CI test databases are allowed');
   const { Pool } = require('pg');
   pool = new Pool({ connectionString: databaseUrl, options: `-c search_path=${fixtureSchema}`, max: 8 });
   const setup = await pool.connect();
