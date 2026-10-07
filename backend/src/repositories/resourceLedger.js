@@ -217,7 +217,8 @@ async function withScopeTransaction({ pool, tenantId, locationId, actorUserId, a
       fail("Ledger commands must be awaited before the domain callback returns.");
     }
     if (commandError) throw commandError;
-    await client.query("COMMIT");
+    const completion = await client.query("COMMIT");
+    if (completion.command !== "COMMIT") fail("Resource domain transaction did not commit.");
     return result;
   } catch (error) {
     open = false;

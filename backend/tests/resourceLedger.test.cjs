@@ -329,6 +329,21 @@ test('PostgreSQL resource ledger interface', { skip: !databaseUrl }, async (t) =
       assert.equal((await pool.query('SELECT status FROM bookings')).rows[0].status, 'rescheduled');
       assert.equal((await pool.query('SELECT COUNT(*)::int AS count FROM resource_allocations')).rows[0].count, 0);
     });
+    await t.test('caught domain SQL failure cannot report success when COMMIT rolls back', async () => {
+      await reset(); await ticket('1');
+      await assert.rejects(domainTransaction(async (client, ledger) => {
+        await ledger.executeCommand({ command: 'allocate', payload: { ticketId: '1' }, operationKey: 'sql-error-start' });
+        // This error comes from the domain client after its last ledger command,
+        // so the ledger's own command-error tracking cannot detect it.
+        await assert.rejects(client.query('INSERT INTO users VALUES(1)'), { code: '23505' });
+        return { acknowledged: true };
+      }), /did not commit/);
+      assert.equal((await pool.query('SELECT COUNT(*)::int AS count FROM resource_allocations')).rows[0].count, 0);
+      assert.equal((await pool.query('SELECT COUNT(*)::int AS count FROM resource_ledger_commands')).rows[0].count, 0);
+      assert.equal((await pool.query('SELECT COUNT(*)::int AS count FROM resource_ledger_scopes')).rows[0].count, 0);
+      // The released connection remains usable for the next legitimate command.
+      await command('allocate', { ticketId: '1' }, 'sql-error-start');
+    });
     await t.test('database scope/release constraints and disabled coverage are enforced', async () => {
       await reset(); await ticket('1'); const active = await command('allocate', { ticketId: '1' });
       await assert.rejects(pool.query('UPDATE resource_ledger_scopes SET writer_coverage_complete=TRUE'), { code: '23514' });
