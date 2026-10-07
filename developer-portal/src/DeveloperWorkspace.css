@@ -135,6 +135,9 @@
 .developer-workspace-platform-intro p:not(.developer-workspace-eyebrow) { margin: 0; }
 .developer-workspace-platform-action { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; margin: 1.25rem 0; padding-bottom: 1.25rem; border-bottom: 1px solid var(--dp-border); }
 .developer-workspace-platform-action > span { color: var(--dp-muted); font-size: .78rem; }
+.developer-workspace-platform-action .developer-workspace-apk-release { display: grid; gap: .15rem; }
+.developer-workspace-apk-release strong { color: var(--dp-ink); font-size: .8rem; font-weight: 650; }
+.developer-workspace-apk-release small { color: var(--dp-muted); font-size: .72rem; }
 .developer-workspace-platform-steps { margin-top: 1.15rem; }
 .developer-workspace-platform-steps ol { margin: .75rem 0 0 !important; padding-left: 1.5rem; }
 .developer-workspace-platform-steps li { margin-bottom: .6rem; line-height: 1.5 !important; }
