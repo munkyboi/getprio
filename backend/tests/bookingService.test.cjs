@@ -98,6 +98,7 @@ const service = {
 
 function buildBookingService({
   sendEmail = async () => {},
+  scopedTransaction,
   serviceOverride = {},
   servicesBySlug = {},
   locationOverride = {},
@@ -156,6 +157,17 @@ function buildBookingService({
     publishSnapshot
   };
   const bookingService = requireWithMocks("../src/services/bookingService.js", {
+    "../repositories/resourceLedger": {
+      withScopeTransaction: scopedTransaction || (async (options, callback) => {
+        const client = { query: async () => ({ rows: [{ id: options.actorUserId }] }) };
+        if (await options.authorize(client, options) !== true) {
+          const error = new Error("Resource operation is not authorized.");
+          error.statusCode = 403;
+          throw error;
+        }
+        return callback(client, {});
+      })
+    },
     "../config/db": {
       withTransaction: async (callback) => callback({ query: async () => ({ rows: [] }) })
     },
@@ -2019,4 +2031,24 @@ test("booking outcome sends retain bundle details and event context in HTML and 
       assert.ok(!body.includes('proof.jpg'));
     }
   }
+});
+
+test("composed catalog loading drains sibling reads before propagating a database failure", async () => {
+  let finishSibling;
+  const sibling = new Promise(resolve => { finishSibling = resolve; });
+  let siblingRequested = false;
+  const servicesBySlug = {};
+  const failedQuery = Promise.reject(new Error("Catalog query failed"));
+  Object.defineProperty(servicesBySlug, "consultation", { get: () => failedQuery });
+  Object.defineProperty(servicesBySlug, "other", { get: () => { siblingRequested = true; return sibling; } });
+  const bookingService = buildBookingService({ servicesBySlug, availability: { blocks: [], exceptions: [] } });
+  let completed = false;
+  const result = bookingService.createComposedBookingPlan({ tenant, location,
+    items: [{ serviceSlug: "consultation" }, { serviceSlug: "other" }], executionMode: "parallel"
+  }).then(() => { completed = true; }, error => { completed = true; return error; });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(siblingRequested, true);
+  assert.equal(completed, false, "the transaction owner must not regain control while a sibling query is pending");
+  finishSibling({ ...service, _id: "other", slug: "other" });
+  assert.match((await result).message, /Catalog query failed/);
 });
