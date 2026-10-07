@@ -1,6 +1,7 @@
 const ticketServicePlanService = require("./ticketServicePlanService");
 const bookingRepository = require("../repositories/bookings");
 const db = require("../config/db");
+const resourceLedger = require("../repositories/resourceLedger");
 const tenantRepository = require("../repositories/tenants");
 const storeLocationRepository = require("../repositories/storeLocations");
 const vendorServiceRepository = require("../repositories/vendorServices");
@@ -79,11 +80,12 @@ function resolveEffectiveCapacity(serviceCapacity, availabilityCapacity) {
   return Math.max(Number(serviceCapacity || 1), Number(availabilityCapacity || 1));
 }
 
-async function getLocationServiceForBooking(tenantId, locationId, service) {
+async function getLocationServiceForBooking(tenantId, locationId, service, options = {}) {
   return locationServiceRepository.findLocationServiceByLocationAndServiceId(
     tenantId,
     locationId,
-    service._id
+    service._id,
+    options
   );
 }
 
@@ -472,7 +474,7 @@ async function assertServiceScheduleAvailability({ tenant, location, service, sc
   return assertAvailabilityAllowsBooking({ availability, location, service, scheduledStartAt, scheduledEndAt });
 }
 
-async function getBookingAvailabilityDecision({ availability, location, service, scheduledStartAt, scheduledEndAt }) {
+async function getBookingAvailabilityDecision({ availability, location, service, scheduledStartAt, scheduledEndAt, client }) {
   const dateKey = getLocalDateKey(scheduledStartAt);
   const startMinutes = getLocalTimeMinutes(scheduledStartAt);
   const endMinutes = getLocalTimeMinutes(scheduledEndAt);
@@ -512,7 +514,7 @@ async function getBookingAvailabilityDecision({ availability, location, service,
   );
 
   if (!activeBlocks.length) {
-    const hours = await storeLocationRepository.listHoursByLocationId(location._id);
+    const hours = await storeLocationRepository.listHoursByLocationId(location._id, { client });
     if (storeHoursAllowBooking({ hours, scheduledStartAt, startMinutes, endMinutes })) {
       return {
         allowed: true,
@@ -641,19 +643,19 @@ function normalizeComposedPlanItems(itemsValue) {
   });
 }
 
-async function loadComposedBookingPlan({ tenant, location, items: itemValues, executionMode: executionModeValue }) {
+async function loadComposedBookingPlan({ tenant, location, items: itemValues, executionMode: executionModeValue, client }) {
   const executionMode = normalizeExecutionMode(executionModeValue);
   const requestedItems = normalizeComposedPlanItems(itemValues);
   const items = [];
 
   for (const requestedItem of requestedItems) {
-    const service = await vendorServiceRepository.findServiceByTenantAndSlug(tenant._id, requestedItem.serviceSlug);
+    const service = await vendorServiceRepository.findServiceByTenantAndSlug(tenant._id, requestedItem.serviceSlug, { client });
     if (!service || !service.isActive) {
       const error = new Error("A selected service was not found.");
       error.statusCode = 404;
       throw error;
     }
-    const locationService = await getLocationServiceForBooking(tenant._id, location._id, service);
+    const locationService = await getLocationServiceForBooking(tenant._id, location._id, service, { client });
     if (!locationService || !locationService.isActive) {
       const error = new Error("A selected service is not available at this location.");
       error.statusCode = 404;
@@ -698,7 +700,21 @@ function materializeComposedPlanAt({ plan, scheduledStartAt }) {
   return { ...plan, items, scheduledStartAt: new Date(scheduledStartAt), scheduledEndAt };
 }
 
-async function evaluateComposedPlanAvailability({ tenant, location, availability, plan, excludeBookingId }) {
+function snapshotBookingBundleItems(plan) {
+  return plan.items.map((item) => ({
+    serviceId: item.service._id,
+    serviceName: item.service.name,
+    serviceSlug: item.service.slug,
+    bookingQuantity: item.bookingQuantity,
+    priceAmountCents: Number(item.service.priceAmountCents || 0) * item.bookingQuantity,
+    currency: item.service.currency || "PHP",
+    scheduledStartAt: item.scheduledStartAt.toISOString(),
+    scheduledEndAt: item.scheduledEndAt.toISOString(),
+    sortOrder: item.sortOrder
+  }));
+}
+
+async function evaluateComposedPlanAvailability({ tenant, location, availability, plan, excludeBookingId, client }) {
   const allocations = [];
   let remainingCapacity = Number.POSITIVE_INFINITY;
   for (const item of plan.items) {
@@ -707,7 +723,8 @@ async function evaluateComposedPlanAvailability({ tenant, location, availability
       location,
       service: item.service,
       scheduledStartAt: item.scheduledStartAt,
-      scheduledEndAt: item.scheduledEndAt
+      scheduledEndAt: item.scheduledEndAt,
+      client
     });
     if (!decision.allowed) {
       return { available: false, reason: "outside_availability", message: decision.message };
@@ -721,7 +738,8 @@ async function evaluateComposedPlanAvailability({ tenant, location, availability
       serviceId,
       startsAt: item.scheduledStartAt.toISOString(),
       endsAt: item.scheduledEndAt.toISOString(),
-      excludeBookingId
+      excludeBookingId,
+      client
     });
     const activeHoldCount = 0;
     const plannedCount = allocations.filter((allocation) =>
@@ -1118,17 +1136,7 @@ async function createCustomerBooking({ user, body }) {
     error.statusCode = 409;
     throw error;
   }
-  const bookingBundleItems = composedPlan.items.map((item) => ({
-    serviceId: item.service._id,
-    serviceName: item.service.name,
-    serviceSlug: item.service.slug,
-    bookingQuantity: item.bookingQuantity,
-    priceAmountCents: Number(item.service.priceAmountCents || 0) * item.bookingQuantity,
-    currency: item.service.currency || "PHP",
-    scheduledStartAt: item.scheduledStartAt.toISOString(),
-    scheduledEndAt: item.scheduledEndAt.toISOString(),
-    sortOrder: item.sortOrder
-  }));
+  const bookingBundleItems = snapshotBookingBundleItems(composedPlan);
 
   const smsFee = await bookingSmsAlertPaymentService.getBookingSmsFeeForTenant(tenant._id);
   let smsAlertFeePaymentId = null;
@@ -1141,7 +1149,50 @@ async function createCustomerBooking({ user, body }) {
     });
   }
 
-  const booking = await db.withTransaction(async (client) => {
+  let lockedTenant;
+  let lockedLocation;
+  const booking = await resourceLedger.withScopeTransaction({
+    pool: db.pool,
+    tenantId: String(tenant._id),
+    locationId: String(location._id),
+    actorUserId: String(user._id),
+    authorize: async (client, scope) => {
+      const actor = await client.query("SELECT id FROM users WHERE id=$1 AND deletion_requested_at IS NULL", [scope.actorUserId]);
+      if (!actor.rows.length) return false;
+      lockedTenant = await tenantRepository.findTenantBySlug(tenant.slug, { activeOnly: true, client });
+      lockedLocation = await storeLocationRepository.findLocationByTenantAndSlug(scope.tenantId, location.slug, { client });
+      if (!lockedTenant || String(lockedTenant._id) !== scope.tenantId || !lockedTenant.publicProfileEnabled
+        || lockedTenant.vendorApprovalStatus !== "approved" || !lockedLocation?.isActive
+        || String(lockedLocation._id) !== scope.locationId || String(lockedLocation.tenantId) !== scope.tenantId) return false;
+      return true;
+    }
+  }, async (client) => {
+    const lockedPlan = materializeComposedPlanAt({
+      plan: await loadComposedBookingPlan({ tenant: lockedTenant, location: lockedLocation,
+        items: requestedBundleItems, executionMode, client }), scheduledStartAt
+    });
+    const lockedItems = snapshotBookingBundleItems(lockedPlan);
+    if (JSON.stringify(lockedItems) !== JSON.stringify(bookingBundleItems)
+      || lockedPlan.items.some((item, index) => Boolean(item.service.manualPaymentRequired) !== Boolean(composedPlan.items[index].service.manualPaymentRequired))) {
+      const error = new Error("The selected services changed. Refresh the booking and choose your slot again.");
+      error.statusCode = 409;
+      throw error;
+    }
+    if (scheduledStartAt.getTime() <= Date.now()) {
+      const error = new Error("scheduledStartAt must be a future date and time.");
+      error.statusCode = 400;
+      throw error;
+    }
+    const lockedAvailability = await vendorAvailabilityRepository.listAvailabilityByLocation(lockedTenant._id, lockedLocation._id, { client });
+    const lockedDecision = await evaluateComposedPlanAvailability({ tenant: lockedTenant, location: lockedLocation,
+      availability: lockedAvailability, plan: lockedPlan, client });
+    if (!lockedDecision.available) {
+      const error = new Error(lockedDecision.reason === "capacity_full"
+        ? "This slot is no longer available. Please choose another time."
+        : lockedDecision.message || "The selected time is outside the vendor's availability.");
+      error.statusCode = 409;
+      throw error;
+    }
     const createdBooking = await bookingRepository.createBooking({
       tenantId: tenant._id,
       locationId: location._id,
@@ -1175,6 +1226,8 @@ async function createCustomerBooking({ user, body }) {
       actorUserId: user._id,
       reason: "Service Booking created"
     }, { client });
+    await client.query(`UPDATE resource_ledger_scopes SET revision=revision+1
+      WHERE tenant_id=$1 AND location_id=$2`, [tenant._id, location._id]);
     return createdBooking;
   });
 

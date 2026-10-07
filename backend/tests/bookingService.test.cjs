@@ -98,6 +98,7 @@ const service = {
 
 function buildBookingService({
   sendEmail = async () => {},
+  scopedTransaction,
   serviceOverride = {},
   servicesBySlug = {},
   locationOverride = {},
@@ -156,6 +157,17 @@ function buildBookingService({
     publishSnapshot
   };
   const bookingService = requireWithMocks("../src/services/bookingService.js", {
+    "../repositories/resourceLedger": {
+      withScopeTransaction: scopedTransaction || (async (options, callback) => {
+        const client = { query: async () => ({ rows: [{ id: options.actorUserId }] }) };
+        if (await options.authorize(client, options) !== true) {
+          const error = new Error("Resource operation is not authorized.");
+          error.statusCode = 403;
+          throw error;
+        }
+        return callback(client, {});
+      })
+    },
     "../config/db": {
       withTransaction: async (callback) => callback({ query: async () => ({ rows: [] }) })
     },
