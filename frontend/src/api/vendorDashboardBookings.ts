@@ -27,9 +27,12 @@ export function getBookings(
   page: number,
   search: string,
   status: string,
-  dateRange: [string | null, string | null]
+  dateRange: [string | null, string | null],
+  hideCompleted = false
 ) {
-  const statusQuery = status !== "all" ? `&status=${encodeURIComponent(status)}` : "";
+  const statusQuery = status !== "all"
+    ? `&status=${encodeURIComponent(status)}`
+    : hideCompleted ? "&hideCompleted=true" : "";
   const [dateFrom, dateTo] = dateRange;
   const dateQuery = [
     dateFrom ? `scheduledDateFrom=${encodeURIComponent(dateFrom)}` : "",

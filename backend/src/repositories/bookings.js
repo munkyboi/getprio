@@ -644,6 +644,10 @@ async function listBookingsForTenant(tenantId, options = {}) {
     filters.push(`bookings.status = $${params.length}`);
   }
 
+  if (!options.status && options.hideCompleted === true) {
+    filters.push("bookings.status <> 'completed'");
+  }
+
   if (options.scheduledDateFrom && options.scheduledDateTo) {
     params.push(String(options.scheduledDateFrom));
     params.push(String(options.scheduledDateTo));

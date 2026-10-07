@@ -314,6 +314,7 @@ async function handleListBookings({ req, res, getAuthorizedTenant, assertTenantP
     pageSize,
     locationId: location?._id,
     status: status || null,
+    hideCompleted: !status && req.query.hideCompleted === "true",
     scheduledDateFrom: scheduledDateFrom || null,
     scheduledDateTo: scheduledDateTo || null,
     search: search || null
