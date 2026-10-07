@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { randomUUID } = require('node:crypto');
-const { executeCommand } = require('../src/repositories/resourceLedger');
+const { executeCommand, withScopeTransaction } = require('../src/repositories/resourceLedger');
 
 const databaseUrl = process.env.RESOURCE_LEDGER_TEST_DATABASE_URL;
 const fixtureSchema = `ledger_test_${randomUUID().replaceAll('-', '')}`;
@@ -20,6 +20,8 @@ test('ledger validates scope and command before connecting', async () => {
   await assert.rejects(executeCommand({ pool: forbiddenPool, ...scope, tenantId: '9223372036854775808', command: 'allocate', payload: { ticketId: '1' }, operationKey: 'invalid' }), /identifier/);
   await assert.rejects(executeCommand({ pool: forbiddenPool, ...scope, command: 'release', payload: { allocationId: '1', outcome: 'terminated' }, operationKey: 'invalid' }), /reason/);
   await assert.rejects(executeCommand({ pool: forbiddenPool, ...scope, command: 'allocate', payload: { ticketId: '1', units: 0 }, operationKey: 'invalid' }), /Unsupported/);
+  await assert.rejects(withScopeTransaction({ pool: forbiddenPool, ...scope }, async () => {}), /authorization/);
+  await assert.rejects(withScopeTransaction({ pool: forbiddenPool, ...scope, authorize: async () => true }, null), /callback/);
 });
 
 test('PostgreSQL resource ledger interface', { skip: !databaseUrl }, async (t) => {
@@ -177,6 +179,155 @@ test('PostgreSQL resource ledger interface', { skip: !databaseUrl }, async (t) =
       await assert.rejects(command('allocate', { ticketId: '1' }), /Booking cannot/);
       await command('cancelReservation', { reservationId: held.reservationId });
       await command('allocate', { ticketId: '2' });
+    });
+    function domainTransaction(callback, authorize = async () => true) {
+      return withScopeTransaction({ pool, ...scope, authorize }, callback);
+    }
+    await t.test('domain authorization runs under the location lock, including receipt replay', async () => {
+      await reset(); await ticket('1');
+      const original = await command('allocate', { ticketId: '1' }, 'authorized-start');
+      let domainCalled = false;
+      let checkedScope;
+      await assert.rejects(domainTransaction(async () => { domainCalled = true; }, async (client, lockedScope) => {
+        checkedScope = lockedScope;
+        // A competing connection cannot acquire the location lock while the
+        // domain authorizer is checking its server-owned actor/scope.
+        const contender = await pool.connect();
+        try {
+          await contender.query('BEGIN');
+          await assert.rejects(contender.query('SELECT id FROM store_locations WHERE id=10 FOR UPDATE NOWAIT'), { code: '55P03' });
+          await contender.query('ROLLBACK');
+        } finally { contender.release(); }
+        assert.equal((await client.query('SELECT revision::text FROM resource_ledger_scopes')).rows[0].revision, original.revision);
+        return false;
+      }), { statusCode: 403 });
+      assert.equal(domainCalled, false);
+      assert.deepEqual(checkedScope, scope);
+      await assert.rejects(domainTransaction(async (_client, ledger) => ledger.executeCommand({
+        command: 'allocate', payload: { ticketId: '1' }, operationKey: 'authorized-start'
+      }), async () => false), { statusCode: 403 });
+      assert.equal((await pool.query('SELECT COUNT(*)::int AS count FROM resource_allocations')).rows[0].count, 1);
+    });
+    await t.test('booking cancellation and binding cancellation commit together', async () => {
+      await reset(1); await bookingItem('1');
+      const held = await command('reserve', { bookingItemId: '1' });
+      const result = await domainTransaction(async (client, ledger) => {
+        await client.query("UPDATE bookings SET status='canceled' WHERE id=1");
+        return ledger.executeCommand({ command: 'cancelReservation',
+          payload: { reservationId: held.reservationId }, operationKey: 'cancel-booking' });
+      });
+      assert.equal(result.reservationId, held.reservationId);
+      assert.equal((await pool.query('SELECT status FROM bookings WHERE id=1')).rows[0].status, 'canceled');
+      assert.equal((await pool.query('SELECT state FROM resource_ledger_reservations')).rows[0].state, 'cancelled');
+    });
+    await t.test('failed reservation replacement rolls back schedule, cancelled binding and receipt', async () => {
+      await reset(1); await bookingItem('1');
+      const held = await command('reserve', { bookingItemId: '1' });
+      const before = (await pool.query('SELECT scheduled_start_at FROM booking_bundle_items WHERE id=1')).rows[0];
+      await assert.rejects(domainTransaction(async (client, ledger) => {
+        await ledger.executeCommand({ command: 'cancelReservation', payload: { reservationId: held.reservationId }, operationKey: 'replace-cancel' });
+        await client.query("UPDATE booking_bundle_items SET scheduled_start_at=scheduled_start_at+interval '1 hour', scheduled_end_at=scheduled_end_at+interval '1 hour' WHERE id=1");
+        // Unknown demand makes the replacement invalid. Catching the error must
+        // still abort the whole domain transaction, including the cancellation.
+        await client.query('DELETE FROM service_resource_requirements');
+        await assert.rejects(ledger.executeCommand({ command: 'reserve', payload: { bookingItemId: '1' }, operationKey: 'replace-reserve' }), /unknown/);
+      }), /unknown/);
+      assert.deepEqual((await pool.query('SELECT scheduled_start_at FROM booking_bundle_items WHERE id=1')).rows[0], before);
+      assert.equal((await pool.query('SELECT state FROM resource_ledger_reservations')).rows[0].state, 'protected');
+      assert.equal((await pool.query('SELECT COUNT(*)::int AS count FROM resource_ledger_commands')).rows[0].count, 1);
+      assert.equal((await pool.query('SELECT revision::text FROM resource_ledger_scopes')).rows[0].revision, held.revision);
+    });
+    await t.test('domain failure after conversion restores protected reservation and called ticket', async () => {
+      await reset(1); const interval = await bookingItem('1');
+      await ticket('1', { source: 'booking', itemId: '1', interval });
+      const held = await command('reserve', { bookingItemId: '1' });
+      await assert.rejects(domainTransaction(async (client, ledger) => {
+        await ledger.executeCommand({ command: 'allocate', payload: { ticketId: '1' }, operationKey: 'start-domain' });
+        await client.query("UPDATE tickets SET status='served' WHERE id=1");
+        throw new Error('Timing writer failed');
+      }), /Timing writer failed/);
+      assert.equal((await pool.query('SELECT status FROM tickets')).rows[0].status, 'called');
+      assert.equal((await pool.query('SELECT state FROM resource_ledger_reservations')).rows[0].state, 'protected');
+      assert.equal((await pool.query('SELECT COUNT(*)::int AS count FROM resource_allocations')).rows[0].count, 0);
+      assert.equal((await pool.query('SELECT revision::text FROM resource_ledger_scopes')).rows[0].revision, held.revision);
+    });
+    await t.test('completion and release commit together; domain failure preserves occupancy', async () => {
+      await reset(); await ticket('1');
+      const active = await command('allocate', { ticketId: '1' });
+      const complete = async (client, ledger) => {
+        await client.query("UPDATE tickets SET status='served' WHERE id=1");
+        await ledger.executeCommand({ command: 'release', payload: { allocationId: active.allocationId, outcome: 'completed' }, operationKey: 'complete-domain' });
+      };
+      await assert.rejects(domainTransaction(async (client, ledger) => {
+        await complete(client, ledger);
+        throw new Error('Booking outcome failed');
+      }), /Booking outcome failed/);
+      assert.equal((await pool.query('SELECT released_at FROM resource_allocations')).rows[0].released_at, null);
+      assert.equal((await pool.query('SELECT status FROM tickets')).rows[0].status, 'called');
+      await domainTransaction(complete);
+      assert.ok((await pool.query('SELECT released_at FROM resource_allocations')).rows[0].released_at);
+      assert.equal((await pool.query('SELECT status FROM tickets')).rows[0].status, 'served');
+    });
+    await t.test('escaped transaction capability cannot write after commit', async () => {
+      await reset(); await ticket('1'); let escaped;
+      await domainTransaction(async (_client, ledger) => { escaped = ledger; });
+      await assert.rejects(escaped.executeCommand({ command: 'allocate', payload: { ticketId: '1' }, operationKey: 'escaped' }), /closed/);
+      assert.equal((await pool.query('SELECT COUNT(*)::int AS count FROM resource_allocations')).rows[0].count, 0);
+    });
+    await t.test('unawaited command is drained and rolls back before connection release', async () => {
+      await reset(); await ticket('1');
+      await assert.rejects(domainTransaction(async (_client, ledger) => {
+        void ledger.executeCommand({ command: 'allocate', payload: { ticketId: '1' }, operationKey: 'unawaited' });
+      }), /awaited/);
+      assert.equal((await pool.query('SELECT COUNT(*)::int AS count FROM resource_allocations')).rows[0].count, 0);
+      assert.equal((await pool.query('SELECT COUNT(*)::int AS count FROM resource_ledger_scopes')).rows[0].count, 0);
+    });
+    await t.test('unawaited failing command is drained without committing domain writes', async () => {
+      await reset();
+      await assert.rejects(domainTransaction(async (client, ledger) => {
+        await client.query("INSERT INTO bookings VALUES(1,1,10,'confirmed',NULL,NULL)");
+        void ledger.executeCommand({ command: 'allocate', payload: { ticketId: '999' }, operationKey: 'unawaited-failure' });
+      }), /awaited|Ticket not found/);
+      assert.equal((await pool.query('SELECT COUNT(*)::int AS count FROM bookings')).rows[0].count, 0);
+    });
+    await t.test('concurrent commands poison the domain transaction even when the caller catches the conflict', async () => {
+      await reset(); await ticket('1'); await ticket('2');
+      await assert.rejects(domainTransaction(async (_client, ledger) => {
+        const first = ledger.executeCommand({ command: 'allocate', payload: { ticketId: '1' }, operationKey: 'concurrent-1' });
+        await assert.rejects(ledger.executeCommand({ command: 'allocate', payload: { ticketId: '2' }, operationKey: 'concurrent-2' }), /sequentially/);
+        await first;
+      }), /sequentially/);
+      assert.equal((await pool.query('SELECT COUNT(*)::int AS count FROM resource_allocations')).rows[0].count, 0);
+      assert.equal((await pool.query('SELECT COUNT(*)::int AS count FROM resource_ledger_commands')).rows[0].count, 0);
+    });
+    await t.test('competing start waits for the composed booking transaction to commit', async () => {
+      await reset(1); await bookingItem('1'); await ticket('1');
+      let unlockDomain;
+      const domainGate = new Promise(resolve => { unlockDomain = resolve; });
+      let bound;
+      const bindingCreated = new Promise(resolve => { bound = resolve; });
+      const bookingWrite = domainTransaction(async (client, ledger) => {
+        await client.query("UPDATE bookings SET status='rescheduled' WHERE id=1");
+        await ledger.executeCommand({ command: 'reserve', payload: { bookingItemId: '1' }, operationKey: 'composed-reserve' });
+        bound();
+        await domainGate;
+      });
+      await bindingCreated;
+      const contender = command('allocate', { ticketId: '1' });
+      // Make a separate NOWAIT probe instead of relying on a timing/sleep check.
+      const probe = await pool.connect();
+      try {
+        await probe.query('BEGIN');
+        await assert.rejects(probe.query('SELECT id FROM store_locations WHERE id=10 FOR UPDATE NOWAIT'), { code: '55P03' });
+        await probe.query('ROLLBACK');
+      } finally {
+        probe.release();
+        unlockDomain();
+      }
+      await bookingWrite;
+      await assert.rejects(contender, /capacity/);
+      assert.equal((await pool.query('SELECT status FROM bookings')).rows[0].status, 'rescheduled');
+      assert.equal((await pool.query('SELECT COUNT(*)::int AS count FROM resource_allocations')).rows[0].count, 0);
     });
     await t.test('database scope/release constraints and disabled coverage are enforced', async () => {
       await reset(); await ticket('1'); const active = await command('allocate', { ticketId: '1' });
