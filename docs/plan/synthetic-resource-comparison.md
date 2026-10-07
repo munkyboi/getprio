@@ -49,6 +49,19 @@ The runner accepts up to five non-overlapping seed blocks and 1–200 tickets pe
 
 ## Acceptance and remaining work
 
-Authoring checks are syntax, focused lint and diff validation. No local simulation, fitting or tests are executed during implementation. Operator execution and inspection of the generated comparison remain runtime gates. No result sets rollout approval or production performance to true.
+Authoring checks are syntax, focused lint and diff validation. The requested offline statistical comparison was also executed locally with the fixed default seeds/window; no local test suite or database was used. Deployment and execution in the operator's environment remain separate acceptance gates. No result sets rollout approval or production performance to true.
+
+### First fixed comparison
+
+Mean absolute error in minutes across seeds 42, 314 and 2718 (ticket-weighted):
+
+| Scenario | Called holdout tickets | Baseline | Candidate with fallback | Resource reference with fallback |
+| --- | ---: | ---: | ---: | ---: |
+| Sequential | 169 | 6.40 | 26.50 | 4.75 |
+| Parallel | 127 | 78.55 | 4.99 | 3.57 |
+| Competing | 194 | 107.73 | 11.68 | 6.03 |
+| Disrupted | 79 | 161.99 | 161.99 | 60.71 |
+
+Each run trained three candidate scopes; disrupted service remained candidate-fallback-only. The resource reference fell back for 13 actively interrupted observations; its 66 supported disrupted observations still had MAE 41.26 minutes and 0% within five minutes. Positive mean signed error on that supported subset indicates underestimation. Thus resource knowledge helps under the chosen assumptions but does not resolve disruption uncertainty. Pooled winners are not uniform: the learned candidate narrowly outperformed the resource reference for seed 42 parallel service and seed 2718 competing service. Preserve these outcomes rather than choosing only favorable seeds or changing the frozen window to improve the score.
 
 Changed scheduling assumptions, cross-seed model-transfer evaluation, richer learned features, uncertainty calibration and real vendor operations remain future work. Production resource-aware estimation separately requires complete service plans, reservations, authoritative occupancy snapshots, access controls, transactions, concurrent allocation safety and rollout controls. This offline reference does not satisfy those live dependencies.

@@ -31,7 +31,6 @@ function optionsFrom(args) {
   return options;
 }
 
-
 async function run() {
   const options = optionsFrom(process.argv.slice(2));
   const input = await readBoundedJson(options.dataset, 64 * 1024 * 1024);
