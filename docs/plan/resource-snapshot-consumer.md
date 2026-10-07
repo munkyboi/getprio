@@ -42,3 +42,5 @@ Protected reservations here are the unconverted ledger bindings overlapping the 
 ## Verification
 
 Node syntax, focused ESLint and git diff whitespace checks passed. No local tests, database operations or schema-validator execution were run. Hosted checks and future producer/concurrency/runtime acceptance remain separate. The operator's PR #315 audit succeeded on 7 October 2026 with one disabled Courts pool, four mappings and zero current inventory; this verifies the audit path, not occupancy readiness.
+
+The separate pure forecast is described in [Reservation-aware resource shadow projection](resource-shadow-projection.md). It adds no live provider or capture hook.
