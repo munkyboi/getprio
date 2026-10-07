@@ -156,45 +156,113 @@ async function release(client, scope, payload) {
 }
 const handlers = { reserve, cancelReservation, allocate, release };
 
-// No application caller or route is wired to this internal foundation. The
-// explicit pool owns the transaction; callers cannot bypass the location lock
-// by passing an arbitrary prelocked client. Authorization belongs to the future
-// domain adapter, which must repeat membership/state checks under this lock.
-async function executeCommand({ pool, tenantId, locationId, actorUserId, operationKey, command, payload }) {
+// Only this entry point acquires the connection and starts the transaction.
+// Domain adapters must enter here before taking booking/ticket/pool locks.
+// The authorize callback rechecks server-owned scope and actor permissions under
+// the location lock, including retries; returning anything except true denies.
+async function withScopeTransaction({ pool, tenantId, locationId, actorUserId, authorize }, callback) {
   const scope = [id(tenantId), id(locationId)];
   const actorId = id(actorUserId);
-  if (typeof operationKey !== "string" || !operationKey.trim() || operationKey.length > 120) fail("Invalid operation key.", 400);
-  const data = normalizedCommand(command, payload);
-  const fingerprint = createHash("sha256").update(JSON.stringify({ actorId, command, data })).digest("hex");
+  if (typeof authorize !== "function" || typeof callback !== "function") {
+    fail("Scoped transactions require authorization and a domain callback.", 400);
+  }
   const client = await pool.connect();
+  let open = false;
+  let pending = null;
+  let commandError = null;
+  const ledger = Object.freeze({
+    executeCommand: (options) => {
+      const tracked = (async () => {
+        if (!open) fail("Resource transaction is closed.");
+        if (pending) {
+          commandError = new Error("Ledger commands must be awaited sequentially.");
+          commandError.statusCode = 409;
+          throw commandError;
+        }
+        // Poison the enclosing transaction even when a domain callback catches a
+        // semantic conflict: it must not commit a partial reservation replacement.
+        const operation = executeLockedCommand(client, scope, actorId, options);
+        pending = operation;
+        try {
+          return await operation;
+        } catch (error) {
+          commandError = error;
+          throw error;
+        } finally {
+          pending = null;
+        }
+      })();
+      // A forgotten await must abort the transaction, not surface as an
+      // unhandled rejection after the connection has been returned to the pool.
+      tracked.catch(() => {});
+      return tracked;
+    }
+  });
   try {
     await client.query("BEGIN");
     const branch = await client.query("SELECT id FROM store_locations WHERE tenant_id=$1 AND id=$2 FOR UPDATE", scope);
     if (!branch.rows.length) fail("Location not found.", 404);
+    if (await authorize(client, Object.freeze({ tenantId: scope[0], locationId: scope[1], actorUserId: actorId })) !== true) {
+      fail("Resource operation is not authorized.", 403);
+    }
     await client.query(`INSERT INTO resource_ledger_scopes (tenant_id,location_id) VALUES ($1,$2)
       ON CONFLICT DO NOTHING`, scope);
-    const prior = await client.query(`SELECT payload_hash,result FROM resource_ledger_commands
-      WHERE tenant_id=$1 AND location_id=$2 AND operation_key=$3`, [...scope, operationKey]);
-    let result;
-    if (prior.rows[0]) {
-      if (prior.rows[0].payload_hash !== fingerprint) fail("Operation key was reused with a different command.");
-      result = prior.rows[0].result;
-    } else {
-      result = await handlers[command](client, scope, data);
-      const revision = await client.query(`UPDATE resource_ledger_scopes SET revision=revision+1
-        WHERE tenant_id=$1 AND location_id=$2 RETURNING revision::text`, scope);
-      result.revision = revision.rows[0].revision;
-      await client.query(`INSERT INTO resource_ledger_commands
-        (tenant_id,location_id,operation_key,command,payload_hash,actor_user_id,result)
-        VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb)`, [...scope, operationKey, command, fingerprint, actorId, JSON.stringify(result)]);
+    open = true;
+    const result = await callback(client, ledger);
+    open = false;
+    if (pending) {
+      // Drain before rollback/releasing the client; do not leave queued work on
+      // a connection that another transaction can borrow.
+      await pending.catch(() => {});
+      fail("Ledger commands must be awaited before the domain callback returns.");
     }
-    await client.query("COMMIT");
+    if (commandError) throw commandError;
+    const completion = await client.query("COMMIT");
+    if (completion.command !== "COMMIT") fail("Resource domain transaction did not commit.");
     return result;
   } catch (error) {
+    open = false;
+    if (pending) await pending.catch(() => {});
     await client.query("ROLLBACK");
     throw error;
   } finally {
+    open = false;
     client.release();
   }
 }
-module.exports = { executeCommand };
+
+async function executeLockedCommand(client, scope, actorId, { operationKey, command, payload }) {
+  if (typeof operationKey !== "string" || !operationKey.trim() || operationKey.length > 120) fail("Invalid operation key.", 400);
+  const data = normalizedCommand(command, payload);
+  const fingerprint = createHash("sha256").update(JSON.stringify({ actorId, command, data })).digest("hex");
+  const prior = await client.query(`SELECT payload_hash,result FROM resource_ledger_commands
+    WHERE tenant_id=$1 AND location_id=$2 AND operation_key=$3`, [...scope, operationKey]);
+  if (prior.rows[0]) {
+    if (prior.rows[0].payload_hash !== fingerprint) fail("Operation key was reused with a different command.");
+    return prior.rows[0].result;
+  }
+  const result = await handlers[command](client, scope, data);
+  const revision = await client.query(`UPDATE resource_ledger_scopes SET revision=revision+1
+    WHERE tenant_id=$1 AND location_id=$2 RETURNING revision::text`, scope);
+  result.revision = revision.rows[0].revision;
+  await client.query(`INSERT INTO resource_ledger_commands
+    (tenant_id,location_id,operation_key,command,payload_hash,actor_user_id,result)
+    VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb)`, [...scope, operationKey, command, fingerprint, actorId, JSON.stringify(result)]);
+  return result;
+}
+
+// Retained for the isolated foundation interface. This is not an authorization
+// boundary or a public route; application adapters use withScopeTransaction with
+// their own authorization checks and domain writes in the same transaction.
+async function executeCommand(options) {
+  id(options.tenantId);
+  id(options.locationId);
+  id(options.actorUserId);
+  normalizedCommand(options.command, options.payload);
+  if (typeof options.operationKey !== "string" || !options.operationKey.trim() || options.operationKey.length > 120) {
+    fail("Invalid operation key.", 400);
+  }
+  return withScopeTransaction({ ...options, authorize: async () => true },
+    async (_client, ledger) => ledger.executeCommand(options));
+}
+module.exports = { executeCommand, withScopeTransaction };
