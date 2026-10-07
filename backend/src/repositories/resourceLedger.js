@@ -114,8 +114,12 @@ async function allocationPlan(client, scope, ticketId) {
   return { row, item, pool };
 }
 async function allocate(client, scope, payload) {
+  const prior = await client.query(`SELECT id FROM resource_allocations
+    WHERE tenant_id=$1 AND location_id=$2 AND ticket_id=$3`, [...scope, payload.ticketId]);
+  if (prior.rows.length) fail("Ticket already has a resource allocation.");
   const { row, item, pool } = await allocationPlan(client, scope, payload.ticketId);
   let reservationId = null;
+  let endsAt = new Date(row.observed_at.getTime() + item.durationMinutes * 60000);
   if (row.source === "booking") {
     const booking = await client.query(`SELECT status FROM bookings
       WHERE tenant_id=$1 AND location_id=$2 AND id=$3 FOR UPDATE`, [...scope, row.booking_id]);
@@ -130,8 +134,10 @@ async function allocate(client, scope, payload) {
       || r.ends_at.getTime() !== new Date(item.scheduledEndAt).getTime()
       || r.starts_at > row.observed_at || r.ends_at <= row.observed_at) fail("Booking reservation binding is unavailable or stale.");
     reservationId = String(r.id);
+    // Late bookings retain their protected end; extensions require a separately
+    // authorized command that checks subsequent reservations.
+    endsAt = r.ends_at;
   }
-  const endsAt = new Date(row.observed_at.getTime() + item.durationMinutes * 60000);
   await assertCapacity(client, scope, pool, row.observed_at, endsAt, reservationId);
   const result = await client.query(`INSERT INTO resource_allocations
     (tenant_id,location_id,ticket_id,pool_id,pool_revision,units,reservation_id,started_at,expected_end_at)

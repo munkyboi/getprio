@@ -100,6 +100,27 @@ test('PostgreSQL resource ledger interface', { skip: !databaseUrl }, async (t) =
       await assert.rejects(command('cancelReservation', { reservationId: held.reservationId }), /protected/);
       await assert.rejects(command('allocate', { ticketId: '2' }), /capacity/);
     });
+    await t.test('late booking allocation retains its protected end without implicit extension', async () => {
+      await reset(); const interval = await bookingItem('1', -30, 30);
+      await ticket('1', { source: 'booking', itemId: '1', interval, durationMinutes: 60 });
+      await command('reserve', { bookingItemId: '1' });
+      const started = await command('allocate', { ticketId: '1' });
+      const allocation = (await pool.query('SELECT started_at,expected_end_at FROM resource_allocations WHERE id=$1', [started.allocationId])).rows[0];
+      assert.equal(allocation.expected_end_at.toISOString(), interval.ends_at.toISOString());
+      assert.ok(allocation.expected_end_at-allocation.started_at < 60*60000);
+    });
+    await t.test('new-key repeated allocation conflicts consistently before capacity or SQL uniqueness', async () => {
+      for (const capacity of [1, 4]) {
+        await reset(capacity); await ticket('1');
+        const started = await command('allocate', { ticketId: '1' }, 'original');
+        await assert.rejects(command('allocate', { ticketId: '1' }, 'different-key'), error =>
+          error.statusCode === 409 && error.message === 'Ticket already has a resource allocation.');
+        await command('release', { allocationId: started.allocationId, outcome: 'completed' });
+        await assert.rejects(command('allocate', { ticketId: '1' }, 'after-release'), error =>
+          error.statusCode === 409 && error.message === 'Ticket already has a resource allocation.');
+        assert.equal((await pool.query('SELECT COUNT(*)::int AS count FROM resource_allocations')).rows[0].count, 1);
+      }
+    });
     await t.test('overdue occupancy remains until explicit termination with reason', async () => {
       await reset(1); await ticket('1'); await ticket('2');
       const active = await command('allocate', { ticketId: '1' });
