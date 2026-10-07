@@ -7,6 +7,7 @@ const BEST_EFFORT_ANONYMIZATION_SOURCES = new Set([
   'public.tickets.service_started_by_user_id',
   'public.tickets.service_ended_by_user_id',
   'public.ticket_service_plans.created_by_user_id',
+  'public.resource_ledger_commands.actor_user_id',
   'public.account_email_change_challenges.user_id',
   'public.idempotency_records.actor_user_id',
   'public.organizer_campaign_contributions.accepted_by_user_id',

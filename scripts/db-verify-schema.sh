@@ -169,6 +169,10 @@ BEGIN
   SELECT array_agg(table_name)
   INTO missing_tables
   FROM (VALUES
+    ('resource_ledger_scopes'),
+    ('resource_ledger_reservations'),
+    ('resource_allocations'),
+    ('resource_ledger_commands'),
     ('ticket_service_plans'),
     ('location_resource_pools'),
     ('service_resource_requirements'),
@@ -276,6 +280,14 @@ DECLARE
 BEGIN
   SELECT array_agg(required.constraint_name) INTO missing_resource_constraints
   FROM (VALUES
+    ('resource_ledger_scopes', 'resource_ledger_coverage_disabled_check'),
+    ('resource_ledger_scopes', 'resource_ledger_location_scope_fkey'),
+    ('resource_ledger_reservations', 'resource_reservation_item_scope_fkey'),
+    ('resource_ledger_reservations', 'resource_reservation_pool_scope_fkey'),
+    ('resource_allocations', 'resource_allocation_ticket_scope_fkey'),
+    ('resource_allocations', 'resource_allocation_pool_scope_fkey'),
+    ('resource_allocations', 'resource_allocation_reservation_scope_fkey'),
+    ('resource_ledger_commands', 'resource_command_scope_fkey'),
     ('ticket_service_plans', 'ticket_service_plan_ticket_scope_fkey'),
     ('ticket_service_plans', 'ticket_service_plan_booking_scope_fkey'),
     ('location_resource_pools', 'resource_pools_tracking_disabled_check'),

@@ -89,3 +89,17 @@ test('all known personal-reference columns have explicit row-level best-effort p
   assert.ok(calls.some((sql) => sql.includes('rater_user_id=NULL,moderation_status=\'hidden\',private_note=NULL')));
   assert.ok(calls.some((sql) => sql.includes('subject_user_id=NULL,moderation_status=\'hidden\',private_note=NULL')));
 });
+
+
+test('resource ledger receipt actor is anonymized without deleting the command', async () => {
+  const source = 'public.resource_ledger_commands.actor_user_id';
+  const queries = [];
+  const result = await applyBestEffortAnonymization({ query: async (sql, params) => {
+    queries.push({ sql, params }); return { rowCount: 1 };
+  } }, { sources: [{ source, recordCount: 1, itemsComplete: true, items: [{
+    id: 'ledger-actor', rowKey: [1, 10, 'start-1'], rowKeyColumns: ['tenant_id', 'location_id', 'operation_key']
+  }] }] }, 7, { [source]: ['ledger-actor'] });
+  assert.match(queries[0].sql, /UPDATE.*resource_ledger_commands.*actor_user_id.*=NULL/);
+  assert.deepEqual(queries[0].params, [1, 10, 'start-1', 7]);
+  assert.deepEqual(result.anonymized, [{ source, count: 1 }]);
+});

@@ -5,6 +5,10 @@ BEGIN;
 -- Running it manually against an existing database will remove app data.
 
 DROP TABLE IF EXISTS service_resource_requirements CASCADE;
+DROP TABLE IF EXISTS resource_ledger_commands CASCADE;
+DROP TABLE IF EXISTS resource_allocations CASCADE;
+DROP TABLE IF EXISTS resource_ledger_reservations CASCADE;
+DROP TABLE IF EXISTS resource_ledger_scopes CASCADE;
 DROP TABLE IF EXISTS ticket_service_plans CASCADE;
 DROP TABLE IF EXISTS location_resource_pools CASCADE;
 DROP TABLE IF EXISTS account_deletion_tasks CASCADE;
