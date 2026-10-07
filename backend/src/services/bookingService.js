@@ -3,6 +3,7 @@ const bookingRepository = require("../repositories/bookings");
 const db = require("../config/db");
 const resourceLedger = require("../repositories/resourceLedger");
 const bookingResourceReservationService = require("./bookingResourceReservationService");
+const permissions = require("./permissions");
 const tenantRepository = require("../repositories/tenants");
 const storeLocationRepository = require("../repositories/storeLocations");
 const vendorServiceRepository = require("../repositories/vendorServices");
@@ -650,7 +651,7 @@ function completedPlanLookups(results) {
   return results.map(result => result.value);
 }
 
-async function loadComposedBookingPlan({ tenant, location, items: itemValues, executionMode: executionModeValue, client }) {
+async function loadComposedBookingPlan({ tenant, location, items: itemValues, executionMode: executionModeValue, client, existingBooking }) {
   const executionMode = normalizeExecutionMode(executionModeValue);
   const requestedItems = normalizeComposedPlanItems(itemValues);
   // Drain all bounded read requests before propagating failure, especially when
@@ -673,25 +674,49 @@ async function loadComposedBookingPlan({ tenant, location, items: itemValues, ex
   for (const [index, requestedItem] of requestedItems.entries()) {
     const service = services[index];
     const locationService = locationServices[index];
+    const frozenServiceId = existingBooking?.bundleItems?.[index]?.serviceId || existingBooking?.serviceId;
+    if (frozenServiceId && String(frozenServiceId) !== String(service._id)) {
+      const error = new Error("The selected booking service changed. Refresh the booking.");
+      error.statusCode = 409;
+      throw error;
+    }
 
-    const bookingQuantity = normalizeServiceBookingQuantity(service, requestedItem.bookingQuantity);
-    assertManualPaymentDestinationAvailable({ service, location });
+    const bookingQuantity = existingBooking ? normalizeBookingQuantity(requestedItem.bookingQuantity)
+      : normalizeServiceBookingQuantity(service, requestedItem.bookingQuantity);
+    if (!existingBooking) assertManualPaymentDestinationAvailable({ service, location });
     items.push({
       service,
       locationService,
       bookingQuantity,
-      durationMinutes: getBookingDurationMinutes(service, bookingQuantity),
+      durationMinutes: existingBooking ? frozenBookingDuration(existingBooking, index) : getBookingDurationMinutes(service, bookingQuantity),
       sortOrder: requestedItem.sortOrder
     });
   }
 
-  if (new Set(items.map((item) => Boolean(item.service.manualPaymentRequired))).size > 1) {
+  if (!existingBooking && new Set(items.map((item) => Boolean(item.service.manualPaymentRequired))).size > 1) {
     const error = new Error("Selected services must use the same payment requirement.");
     error.statusCode = 400;
     throw error;
   }
 
   return { executionMode, items };
+}
+
+function frozenBookingDuration(booking, index) {
+  const frozen = booking.bundleItems?.[index] || booking;
+  const duration = (new Date(frozen.scheduledEndAt) - new Date(frozen.scheduledStartAt)) / 60000;
+  if (!Number.isFinite(duration) || duration <= 0) {
+    const error = new Error("Booking item interval is unavailable. Refresh the booking.");
+    error.statusCode = 409;
+    throw error;
+  }
+  return duration;
+}
+
+function selectedBookingItems(booking) {
+  return booking.bundleItems?.length ? booking.bundleItems.map((item, sortOrder) => ({
+    serviceSlug: item.serviceSlug, bookingQuantity: item.bookingQuantity, sortOrder
+  })) : [{ serviceSlug: booking.serviceSlug, bookingQuantity: booking.bookingQuantity, sortOrder: 0 }];
 }
 
 function materializeComposedPlanAt({ plan, scheduledStartAt }) {
@@ -782,7 +807,8 @@ async function evaluateComposedBookingSlots({
   includeUnavailableSlots = false,
   excludeBookingId,
   slotIntervalMinutes: slotIntervalMinutesValue,
-  requirePublicVendor = true
+  requirePublicVendor = true,
+  existingBooking
 }) {
   const tenantSlug = String(tenantSlugValue || "").trim().toLowerCase();
   const locationSlug = String(locationSlugValue || "").trim().toLowerCase();
@@ -809,7 +835,7 @@ async function evaluateComposedBookingSlots({
     throw error;
   }
 
-  const plan = await loadComposedBookingPlan({ tenant, location, items, executionMode });
+  const plan = await loadComposedBookingPlan({ tenant, location, items, executionMode, existingBooking });
   const slotIntervalMinutes = Number(slotIntervalMinutesValue || (plan.items.length === 1 ? plan.items[0].durationMinutes : 30));
   if (!Number.isInteger(slotIntervalMinutes) || slotIntervalMinutes < 15 || slotIntervalMinutes > 24 * 60) {
     const error = new Error("slotIntervalMinutes must be between 15 and 1440 minutes.");
@@ -1015,33 +1041,12 @@ async function listVendorBookingRescheduleSlots({ tenant, bookingId, date }) {
     throw error;
   }
 
-  return listBookingSlots({
-    tenantSlug: tenant.slug,
-    locationSlug: booking.locationSlug,
-    serviceSlug: booking.serviceSlug,
-    date,
-    bookingQuantity: booking.bookingQuantity,
-    excludeBookingId: booking._id,
-    requirePublicVendor: false
+  const result = await evaluateComposedBookingSlots({
+    tenantSlug: tenant.slug, locationSlug: booking.locationSlug, date,
+    items: selectedBookingItems(booking), executionMode: booking.executionMode || "parallel",
+    existingBooking: booking, excludeBookingId: booking._id, includeUnavailableSlots: true, requirePublicVendor: false
   });
-}
-
-async function assertSlotCapacityAvailable({ tenant, location, service, scheduledStartAt, scheduledEndAt, capacity, capacityScope = "service", excludeBookingId }) {
-  await expirePendingBookingsForTenant(tenant._id);
-
-  const activeCount = await bookingRepository.countOverlappingActiveBookings(tenant._id, {
-    locationId: location._id,
-    serviceId: getBookingCapacityServiceId(service, capacityScope),
-    startsAt: scheduledStartAt.toISOString(),
-    endsAt: scheduledEndAt.toISOString(),
-    excludeBookingId
-  });
-
-  if (activeCount >= capacity) {
-    const error = new Error("This slot is no longer available. Please choose another time.");
-    error.statusCode = 409;
-    throw error;
-  }
+  return result.slots.map(({ executionMode: _executionMode, items: _items, ...slot }) => slot);
 }
 
 async function createCustomerBooking({ user, body }) {
@@ -1382,9 +1387,44 @@ async function createVendorPaymentProofAccess({ tenant, bookingId }) {
   return paymentProofStorageService.createViewAccess({ booking });
 }
 
-async function updateVendorBookingStatus({ tenant, bookingId, status }) {
-  await expirePendingBookingsForTenant(tenant._id);
+async function withVendorBookingTransaction({ tenant, bookingId, user }, callback) {
+  const initial = await bookingRepository.findBookingById(bookingId);
+  assertBookingBelongsToTenantLocation(initial, tenant);
+  return resourceLedger.withScopeTransaction({
+    pool: db.pool, tenantId: String(tenant._id), locationId: String(initial.locationId), actorUserId: String(user?._id),
+    authorize: async (client, scope) => {
+      const result = await client.query(`SELECT u.roles,m.role FROM users u
+        JOIN tenant_memberships m ON m.user_id=u.id AND m.tenant_id=$2 AND m.is_active=TRUE
+        WHERE u.id=$1 AND u.deletion_requested_at IS NULL AND u.platform_access_suspended_at IS NULL`,
+      [scope.actorUserId, scope.tenantId]);
+      const actor = result.rows[0];
+      return Boolean(actor && permissions.userHasPermission({ roles: actor.roles,
+        tenantMemberships: [{ tenantId: scope.tenantId, role: actor.role, isActive: true }] },
+      "tenant.booking.manage", { tenantId: scope.tenantId }));
+    }
+  }, async (client, ledger) => {
+    const current = await bookingRepository.findBookingByIdForUpdate(initial._id, { client });
+    assertBookingBelongsToTenantLocation(current, tenant, { _id: initial.locationId });
+    assertCustomerBookingCancellable(current);
+    return callback({ client, ledger, booking: current });
+  });
+}
 
+function assertPendingBookingNotExpired(booking) {
+  if (booking.status === "pending" && !booking.paymentProofObjectKey && booking.pendingExpiresAt
+    && new Date(booking.pendingExpiresAt).getTime() <= Date.now()) {
+    const error = new Error("The pending booking window has expired. Refresh the booking.");
+    error.statusCode = 409;
+    throw error;
+  }
+}
+
+async function advanceBookingScope(client, booking) {
+  await client.query(`UPDATE resource_ledger_scopes SET revision=revision+1
+    WHERE tenant_id=$1 AND location_id=$2`, [booking.tenantId, booking.locationId]);
+}
+
+async function updateVendorBookingStatus({ tenant, bookingId, status, user }) {
   const allowedStatuses = new Set(["confirmed", "canceled"]);
   if (!allowedStatuses.has(status)) {
     const error = new Error("status must be confirmed or canceled.");
@@ -1392,26 +1432,22 @@ async function updateVendorBookingStatus({ tenant, bookingId, status }) {
     throw error;
   }
 
-  const booking = await bookingRepository.findBookingById(bookingId);
-  if (!booking || String(booking.tenantId) !== String(tenant._id)) {
-    const error = new Error("Booking not found.");
-    error.statusCode = 404;
-    throw error;
-  }
-
-  if (["completed", "reviewed", "disputed"].includes(booking.status)) {
-    const error = new Error("This booking can no longer be changed.");
-    error.statusCode = 409;
-    throw error;
-  }
-
-  if (status === "confirmed" && booking.paymentStatus === "pending") {
-    const error = new Error("Payment evidence must be verified before this booking can be confirmed.");
-    error.statusCode = 409;
-    throw error;
-  }
-
-  const updated = await bookingRepository.updateBooking(booking._id, { status }, { requireUnarrived: true });
+  const updated = await withVendorBookingTransaction({ tenant, bookingId, user }, async ({ client, ledger, booking }) => {
+    if (status === "confirmed") assertPendingBookingNotExpired(booking);
+    if (status === "confirmed" && booking.paymentStatus === "pending") {
+      const error = new Error("Payment evidence must be verified before this booking can be confirmed.");
+      error.statusCode = 409;
+      throw error;
+    }
+    const result = await bookingRepository.updateBooking(booking._id, { status }, { client, requireUnarrived: true });
+    if (status === "canceled") {
+      await bookingResourceReservationService.cancelBookingReservations({ client, ledger, booking });
+    } else {
+      await bookingResourceReservationService.assertBookingReservationCurrent({ client, booking });
+    }
+    await advanceBookingScope(client, booking);
+    return result;
+  });
   pushNotificationService.notifyCustomerBookingUpdate({
     booking: updated,
     action: status
@@ -1626,75 +1662,49 @@ async function notifyCustomerBookingCancellation(updated) {
   }
 }
 
-async function rescheduleVendorBooking({ tenant, bookingId, scheduledStartAt: scheduledStartAtValue }) {
-  await expirePendingBookingsForTenant(tenant._id);
-  const booking = await bookingRepository.findBookingById(bookingId);
-  if (!booking || String(booking.tenantId) !== String(tenant._id)) {
-    const error = new Error("Booking not found.");
-    error.statusCode = 404;
-    throw error;
-  }
-
-  if (["completed", "reviewed", "disputed", "canceled"].includes(booking.status)) {
-    const error = new Error("This booking can no longer be rescheduled.");
-    error.statusCode = 409;
-    throw error;
-  }
-
+async function rescheduleVendorBooking({ tenant, bookingId, user, scheduledStartAt: scheduledStartAtValue }) {
   const scheduledStartAt = normalizeDateTime(scheduledStartAtValue);
   if (!scheduledStartAt || scheduledStartAt.getTime() <= Date.now()) {
     const error = new Error("scheduledStartAt must be a future date and time.");
     error.statusCode = 400;
     throw error;
   }
-
-  const location = await storeLocationRepository.findLocationByTenantAndSlug(
-    tenant._id,
-    booking.locationSlug
-  );
-  const service = await vendorServiceRepository.findServiceByTenantAndSlug(
-    tenant._id,
-    booking.serviceSlug
-  );
-  if (!location || !service) {
-    const error = new Error("Booking location or service is no longer available.");
-    error.statusCode = 409;
-    throw error;
-  }
-
-  const bookingQuantity = normalizeBookingQuantity(booking.bookingQuantity);
-  const scheduledEndAt = new Date(scheduledStartAt.getTime() + getBookingDurationMinutes(service, bookingQuantity) * 60 * 1000);
-  const availability = await vendorAvailabilityRepository.listAvailabilityByLocation(
-    tenant._id,
-    location._id
-  );
-  const decision = await assertAvailabilityAllowsBooking({ availability, location, service, scheduledStartAt, scheduledEndAt });
-  await assertSlotCapacityAvailable({
-    tenant,
-    location,
-    service,
-    scheduledStartAt,
-    scheduledEndAt,
-    capacity: decision.capacity || 1,
-    capacityScope: decision.capacityScope || "service",
-    excludeBookingId: booking._id
+  const updated = await withVendorBookingTransaction({ tenant, bookingId, user }, async ({ client, ledger, booking }) => {
+    assertPendingBookingNotExpired(booking);
+    const location = await storeLocationRepository.findLocationByTenantAndSlug(tenant._id, booking.locationSlug, { client });
+    if (!location || String(location._id) !== String(booking.locationId) || String(location.tenantId) !== String(tenant._id)) {
+      const error = new Error("Booking location is no longer available.");
+      error.statusCode = 409;
+      throw error;
+    }
+    const frozenItems = booking.bundleItems || [];
+    const selectedPlan = await loadComposedBookingPlan({ tenant, location, items: selectedBookingItems(booking),
+      executionMode: booking.executionMode || "parallel", client, existingBooking: booking });
+    const plan = materializeComposedPlanAt({ plan: selectedPlan, scheduledStartAt });
+    const availability = await vendorAvailabilityRepository.listAvailabilityByLocation(tenant._id, location._id, { client });
+    const decision = await evaluateComposedPlanAvailability({ tenant, location, availability, plan, excludeBookingId: booking._id, client });
+    if (!decision.available || scheduledStartAt.getTime() <= Date.now()) {
+      const error = new Error("This slot is no longer available. Please choose another time.");
+      error.statusCode = 409;
+      throw error;
+    }
+    const replacement = await bookingResourceReservationService.prepareBookingReservationReplacement({ client, booking });
+    if (frozenItems.length) await bookingRepository.updateBookingBundleItemIntervals(booking._id, {
+      tenantId: booking.tenantId, locationId: booking.locationId,
+      items: plan.items.map((item, index) => ({ id: frozenItems[index].id,
+        startsAt: item.scheduledStartAt.toISOString(), endsAt: item.scheduledEndAt.toISOString() }))
+    }, { client });
+    const result = await bookingRepository.updateBooking(booking._id, {
+      scheduledStartAt: plan.scheduledStartAt.toISOString(), scheduledEndAt: plan.scheduledEndAt.toISOString(),
+      status: "rescheduled", queueTicketId: null, checkedInAt: null, checkedInByUserId: null
+    }, { client, requireUnarrived: true });
+    await bookingResourceReservationService.replaceBookingReservation({ ledger, booking, replacement });
+    await advanceBookingScope(client, booking);
+    return result;
   });
-
-  const updated = await bookingRepository.updateBooking(booking._id, {
-    scheduledStartAt: scheduledStartAt.toISOString(),
-    scheduledEndAt: scheduledEndAt.toISOString(),
-    status: "rescheduled",
-    queueTicketId: null,
-    checkedInAt: null,
-    checkedInByUserId: null
-  }, { requireUnarrived: true });
-  pushNotificationService.notifyCustomerBookingUpdate({
-    booking: updated,
-    action: "rescheduled"
-  }).catch((error) => {
+  pushNotificationService.notifyCustomerBookingUpdate({ booking: updated, action: "rescheduled" }).catch((error) => {
     console.warn("[web-push-customer-booking-reschedule-skipped]", error.message);
   });
-
   return updated;
 }
 

@@ -50,12 +50,19 @@ test('customer booking creation under real scoped PostgreSQL transaction', { ski
   const savedBookings = new Map();
   async function readBooking(id, options = {}) {
     const row = (await (options.client || pool).query(`SELECT * FROM bookings WHERE id=$1 ${options.client ? "FOR UPDATE" : ""}`, [id])).rows[0];
-    return row ? { ...savedBookings.get(String(id)), _id:String(row.id), tenantId:String(row.tenant_id),locationId:String(row.location_id),customerUserId:options.client && changedLockedOwner ? "2" : String(row.customer_user_id),status:row.status,checkedInAt:row.checked_in_at,queueTicketId:row.queue_ticket_id } : null;
+    if (!row) return null;
+    const data = savedBookings.get(String(id));
+    const items = (await (options.client || pool).query('SELECT * FROM booking_bundle_items WHERE booking_id=$1 ORDER BY sort_order,id',[id])).rows;
+    return { ...data, locationSlug:location.slug, serviceSlug:data.bundleItems[0].serviceSlug, _id:String(row.id), tenantId:String(row.tenant_id),locationId:String(row.location_id),
+      customerUserId:options.client && changedLockedOwner ? "2" : String(row.customer_user_id),status:row.status,
+      checkedInAt:row.checked_in_at,queueTicketId:row.queue_ticket_id,pendingExpiresAt:row.pending_expires_at?.toISOString(),paymentProofObjectKey:row.payment_proof_object_key,scheduledStartAt:row.starts_at.toISOString(),scheduledEndAt:row.ends_at.toISOString(),
+      bundleItems:items.map((item,index) => ({...data.bundleItems[index],id:String(item.id),scheduledStartAt:item.scheduled_start_at.toISOString(),scheduledEndAt:item.scheduled_end_at.toISOString()})) };
   }
   const noop = async () => {};
   try {
     await pool.query(`CREATE SCHEMA ${schema};
-      CREATE TABLE users(id BIGINT PRIMARY KEY,deletion_requested_at TIMESTAMPTZ);
+      CREATE TABLE users(id BIGINT PRIMARY KEY,deletion_requested_at TIMESTAMPTZ,platform_access_suspended_at TIMESTAMPTZ,roles TEXT[] DEFAULT ARRAY[]::TEXT[]);
+      CREATE TABLE tenant_memberships(user_id BIGINT,tenant_id BIGINT,role TEXT,is_active BOOLEAN DEFAULT TRUE);
       CREATE TABLE store_locations(id BIGINT PRIMARY KEY,tenant_id BIGINT,UNIQUE(id,tenant_id));
       CREATE TABLE bookings(id BIGSERIAL PRIMARY KEY,tenant_id BIGINT,location_id BIGINT,
         starts_at TIMESTAMPTZ,ends_at TIMESTAMPTZ,status TEXT,customer_user_id BIGINT,
@@ -69,20 +76,21 @@ test('customer booking creation under real scoped PostgreSQL transaction', { ski
         pool_id BIGINT,units_required INTEGER,revision INTEGER);
       CREATE TABLE tickets(id BIGINT PRIMARY KEY,tenant_id BIGINT,location_id BIGINT,UNIQUE(id,tenant_id,location_id));
       CREATE TABLE allowances(booking_id BIGINT);
-      INSERT INTO users VALUES(1,NULL); INSERT INTO store_locations VALUES(10,1)`);
+      INSERT INTO users(id) VALUES(1),(2); INSERT INTO tenant_memberships VALUES(2,1,'owner',TRUE); INSERT INTO store_locations VALUES(10,1)`);
     await pool.query(fs.readFileSync(path.resolve(__dirname, '../../database/migrations/20261007_add_resource_ledger_foundation.sql'), 'utf8'));
     const bookingService = loadService({
       '../config/db': { pool },
       '../repositories/bookings': {
         expirePendingBookings: async () => [],
         countOverlappingActiveBookings: async (_tenant, options) => {
-          const result = await (options.client || pool).query("SELECT COUNT(*)::int AS count FROM bookings WHERE status IN ('pending','confirmed','rescheduled') AND tenant_id=$1 AND location_id=$2 AND starts_at<$4 AND ends_at>$3", [_tenant, options.locationId,options.startsAt,options.endsAt]);
+          const result = await (options.client || pool).query("SELECT COUNT(*)::int AS count FROM bookings WHERE status IN ('pending','confirmed','rescheduled') AND tenant_id=$1 AND location_id=$2 AND starts_at<$4 AND ends_at>$3 AND ($5::bigint IS NULL OR id<>$5)", [_tenant, options.locationId,options.startsAt,options.endsAt,options.excludeBookingId || null]);
           return result.rows[0].count;
         },
+        updateBookingBundleItemIntervals: require('../src/repositories/bookings').updateBookingBundleItemIntervals,
         findBookingById: readBooking,
         findBookingByIdForUpdate: readBooking,
         updateBooking: async (id, data, { client }) => {
-          await client.query('UPDATE bookings SET status=$2 WHERE id=$1', [id,data.status]);
+          await client.query('UPDATE bookings SET status=COALESCE($2,status),starts_at=COALESCE($3,starts_at),ends_at=COALESCE($4,ends_at) WHERE id=$1', [id,data.status,data.scheduledStartAt,data.scheduledEndAt]);
           return { ...await readBooking(id,{client}), ...data };
         },
         createBooking: async (data, { client }) => {
@@ -121,8 +129,9 @@ test('customer booking creation under real scoped PostgreSQL transaction', { ski
       allowanceFails = lockedCatalogChanged = lockedAvailabilityChanged = lockedTenantRevoked = lockedLocationRevoked = false;
       notified = cancelled = 0;
       savedBookings.clear();
+      await pool.query("UPDATE tenant_memberships SET role='owner',is_active=TRUE; UPDATE users SET platform_access_suspended_at=NULL");
       ordinaryCapacity = 1; changedLockedOwner = false;
-      delete body.bookingQuantity; delete body.bundleItems; catalog.allowBookingQuantity = false; catalog.durationMinutes = 60;
+      body.scheduledStartAt = scheduledStartAt; delete body.executionMode; delete body.bookingQuantity; delete body.bundleItems; catalog.allowBookingQuantity = false; catalog.durationMinutes = 60;
     }
     async function configureResources(enabled = true, units = 1, capacity = 1) {
       ordinaryCapacity = 10;
@@ -249,6 +258,96 @@ test('customer booking creation under real scoped PostgreSQL transaction', { ski
       const conflict = await cancellation;
       assert.equal(conflict?.statusCode,409);
       assert.match(conflict.message,/checked in/);
+      assert.equal((await readBooking(created._id)).status,'pending'); assert.equal(cancelled,0);
+    });
+    const vendor = { _id:'2' };
+    const movedStart = new Date(new Date(scheduledStartAt).getTime()+2*3600000).toISOString();
+    const move = (bookingId, start = movedStart) => bookingService.rescheduleVendorBooking({tenant,user:vendor,bookingId,scheduledStartAt:start});
+    const status = (bookingId, value) => bookingService.updateVendorBookingStatus({tenant,user:vendor,bookingId,status:value});
+    await t.test('vendor reschedule preserves composed durations, quantity, prices and item identities', async () => {
+      await reset(); await configureResources(false); catalog.allowBookingQuantity = true;
+      body.bundleItems = [{serviceSlug:'consultation',bookingQuantity:2},{serviceSlug:'other',bookingQuantity:1}]; body.executionMode = 'sequential';
+      const created = await bookingService.createCustomerBooking({user,body});
+      const original = await readBooking(created._id); catalog.durationMinutes = 90; catalog.allowBookingQuantity = false;
+      await move(created._id);
+      const moved = await readBooking(created._id);
+      assert.equal(moved.status,'rescheduled'); assert.equal(moved.scheduledStartAt,movedStart);
+      assert.equal(new Date(moved.scheduledEndAt)-new Date(movedStart),3*3600000);
+      assert.deepEqual(moved.bundleItems.map(item => [item.id,item.bookingQuantity,item.priceAmountCents]),original.bundleItems.map(item => [item.id,item.bookingQuantity,item.priceAmountCents]));
+      assert.equal(new Date(moved.bundleItems[0].scheduledEndAt)-new Date(moved.bundleItems[0].scheduledStartAt),2*3600000);
+      assert.equal(moved.bundleItems[1].scheduledStartAt,moved.bundleItems[0].scheduledEndAt);
+      assert.equal(moved.bundleItems[1].scheduledEndAt,moved.scheduledEndAt);
+      const slots = await bookingService.listVendorBookingRescheduleSlots({tenant,bookingId:created._id,date:movedStart.slice(0,10)});
+      const slot = slots.find(slot => slot.startAt === movedStart);
+      assert.equal(slot.endAt,moved.scheduledEndAt);
+      assert.equal(await count('resource_ledger_reservations'),0);
+    });
+    await t.test('resource reschedule replaces immutable binding even after tracking disable and can move back', async () => {
+      await reset(); await configureResources(); const created = await bookingService.createCustomerBooking({user,body});
+      await pool.query('UPDATE location_resource_pools SET tracking_enabled=FALSE'); catalog.durationMinutes = 90;
+      await move(created._id); await move(created._id,scheduledStartAt);
+      const bindings = (await pool.query('SELECT units,pool_revision,starts_at,ends_at,state FROM resource_ledger_reservations ORDER BY id')).rows;
+      assert.deepEqual(bindings.map(item => item.state),['cancelled','cancelled','protected']);
+      assert.equal(bindings[2].starts_at.toISOString(),scheduledStartAt); assert.equal(bindings[2].ends_at-bindings[2].starts_at,3600000);
+      assert.equal(bindings[2].units,1); assert.equal(bindings[2].pool_revision,1);
+      assert.equal(await count('resource_ledger_commands'),5);
+    });
+    await t.test('replacement capacity conflict rolls back booking, items, old binding and receipts', async () => {
+      await reset(); await configureResources(); const created = await bookingService.createCustomerBooking({user,body});
+      const before = await readBooking(created._id); body.scheduledStartAt = movedStart;
+      await bookingService.createCustomerBooking({user,body});
+      const revision = (await pool.query('SELECT revision FROM resource_ledger_scopes')).rows[0].revision;
+      await assert.rejects(move(created._id),/resource capacity/);
+      assert.deepEqual(await readBooking(created._id),before);
+      assert.equal((await pool.query("SELECT COUNT(*)::int AS count FROM resource_ledger_reservations WHERE state='protected'")).rows[0].count,2);
+      assert.equal(await count('resource_ledger_commands'),2); assert.equal(cancelled,0);
+      assert.equal((await pool.query('SELECT revision FROM resource_ledger_scopes')).rows[0].revision,revision);
+    });
+    await t.test('simultaneous reschedule and create cannot exceed one protected unit at the destination', async () => {
+      await reset(); await configureResources(); const created = await bookingService.createCustomerBooking({user,body}); body.scheduledStartAt = movedStart;
+      const outcomes = await Promise.allSettled([move(created._id),bookingService.createCustomerBooking({user,body})]);
+      assert.equal(outcomes.filter(value => value.status === 'fulfilled').length,1);
+      assert.equal(outcomes.find(value => value.status === 'rejected').reason.statusCode,409);
+      assert.equal((await pool.query("SELECT SUM(units)::int AS units FROM resource_ledger_reservations WHERE state='protected' AND starts_at=$1",[movedStart])).rows[0].units,1);
+    });
+    await t.test('resource draft revision changes reject rescheduling without rewriting frozen demand', async () => {
+      await reset(); await configureResources(); const created = await bookingService.createCustomerBooking({user,body}); const before = await readBooking(created._id);
+      await pool.query('UPDATE service_resource_requirements SET units_required=4,revision=2');
+      await assert.rejects(move(created._id),/configuration is stale/);
+      assert.deepEqual(await readBooking(created._id),before); assert.equal(await count('resource_ledger_commands'),1);
+    });
+    await t.test('vendor confirmation preserves protection and cancellation uses bindings after draft edits', async () => {
+      await reset(); await configureResources(); const created = await bookingService.createCustomerBooking({user,body});
+      await status(created._id,'confirmed'); assert.equal(await count('resource_ledger_commands'),1);
+      await pool.query('UPDATE service_resource_requirements SET units_required=4,revision=2; UPDATE location_resource_pools SET tracking_enabled=FALSE');
+      await status(created._id,'canceled');
+      assert.equal((await readBooking(created._id)).status,'canceled');
+      assert.deepEqual((await pool.query('SELECT units,state FROM resource_ledger_reservations')).rows[0],{units:1,state:'cancelled'});
+      await assert.rejects(status(created._id,'confirmed'),{statusCode:409});
+    });
+    await t.test('vendor permission and suspended actor are rechecked inside scoped transaction', async () => {
+      await reset(); const created = await bookingService.createCustomerBooking({user,body});
+      await pool.query("UPDATE tenant_memberships SET role='staff'");
+      await assert.rejects(move(created._id),{statusCode:403});
+      await pool.query("UPDATE tenant_memberships SET role='owner',is_active=FALSE");
+      await assert.rejects(status(created._id,'canceled'),{statusCode:403});
+      await pool.query('UPDATE tenant_memberships SET is_active=TRUE; UPDATE users SET platform_access_suspended_at=clock_timestamp() WHERE id=2');
+      await assert.rejects(status(created._id,'confirmed'),{statusCode:403});
+      assert.equal((await readBooking(created._id)).status,'pending'); assert.equal(cancelled,0);
+    });
+    await t.test('missing resource binding and expired pending booking cannot be promoted by vendor', async () => {
+      await reset(); await configureResources(); const created = await bookingService.createCustomerBooking({user,body});
+      await pool.query('DELETE FROM resource_ledger_reservations');
+      await assert.rejects(move(created._id),/Reconciliation/);
+      await assert.rejects(status(created._id,'confirmed'),/Reconciliation/);
+      await pool.query("UPDATE bookings SET pending_expires_at=clock_timestamp()-interval '1 second'");
+      await assert.rejects(status(created._id,'confirmed'),/window has expired/);
+      assert.equal((await readBooking(created._id)).status,'pending'); assert.equal(cancelled,0);
+    });
+    await t.test('converted resource booking cannot be rescheduled or changed through vendor status', async () => {
+      await reset(); await configureResources(); const created = await bookingService.createCustomerBooking({user,body});
+      await pool.query("UPDATE resource_ledger_reservations SET state='converted'");
+      for (const action of [() => move(created._id),() => status(created._id,'confirmed'),() => status(created._id,'canceled')]) await assert.rejects(action(),/started service/);
       assert.equal((await readBooking(created._id)).status,'pending'); assert.equal(cancelled,0);
     });
     await t.test('two simultaneous creates contend for the last slot, with one persisted allowance and revision', async () => {

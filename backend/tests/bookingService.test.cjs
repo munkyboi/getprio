@@ -159,7 +159,7 @@ function buildBookingService({
   const bookingService = requireWithMocks("../src/services/bookingService.js", {
     "../repositories/resourceLedger": {
       withScopeTransaction: scopedTransaction || (async (options, callback) => {
-        const client = { query: async (sql) => ({ rows: sql.includes("FROM users") ? [{ id: options.actorUserId }] : [] }) };
+        const client = { query: async (sql) => ({ rows: sql.includes("FROM users") ? [{ id: options.actorUserId, role: "owner", roles: [] }] : [] }) };
         if (await options.authorize(client, options) !== true) {
           const error = new Error("Resource operation is not authorized.");
           error.statusCode = 403;
@@ -1361,11 +1361,13 @@ test("vendor reschedule clears linked ticket and check-in state", async () => {
     findBookingById: async () => ({
       _id: "booking-1",
       tenantId: "tenant-1",
+      locationId: "location-1",
       locationSlug: "main",
       serviceSlug: "consultation",
       bookingQuantity: 1,
       status: "confirmed",
-      scheduledStartAt: "2026-07-06T01:00:00.000Z"
+      scheduledStartAt: "2026-07-06T01:00:00.000Z",
+      scheduledEndAt: "2026-07-06T02:00:00.000Z"
     }),
     updateBooking: async (_id, data) => {
       updates.push(data);
@@ -1389,6 +1391,7 @@ test("vendor reschedule clears linked ticket and check-in state", async () => {
 
   await bookingService.rescheduleVendorBooking({
     tenant,
+    user: { _id: "vendor-1" },
     bookingId: "booking-1",
     scheduledStartAt: "2026-07-06T03:00:00.000Z"
   });
@@ -1410,7 +1413,8 @@ test("vendor reschedule slots exclude the current booking from capacity", async 
       serviceSlug: "consultation",
       bookingQuantity: 1,
       status: "confirmed",
-      scheduledStartAt: "2026-07-06T01:00:00.000Z"
+      scheduledStartAt: "2026-07-06T01:00:00.000Z",
+      scheduledEndAt: "2026-07-06T02:00:00.000Z"
     }),
     availability: {
       blocks: [
@@ -1863,6 +1867,7 @@ test("vendor cannot confirm booking while submitted payment proof is awaiting ve
     () =>
       bookingService.updateVendorBookingStatus({
         tenant,
+        user: { _id: "vendor-1" },
         bookingId: "booking-1",
         status: "confirmed"
       }),

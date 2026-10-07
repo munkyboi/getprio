@@ -817,6 +817,21 @@ async function updateBooking(id, data, options = {}) {
   return findBookingById(id, options);
 }
 
+async function updateBookingBundleItemIntervals(bookingId, data, options = {}) {
+  const result = await buildQueryClient(options.client).query(`UPDATE booking_bundle_items i
+    SET scheduled_start_at=plan.starts_at,scheduled_end_at=plan.ends_at
+    FROM jsonb_to_recordset($4::jsonb) AS plan(id BIGINT,starts_at TIMESTAMPTZ,ends_at TIMESTAMPTZ)
+    WHERE i.tenant_id=$1 AND i.location_id=$2 AND i.booking_id=$3 AND i.id=plan.id RETURNING i.id`,
+  [data.tenantId,data.locationId,bookingId,JSON.stringify(data.items.map(item => ({
+    id: item.id, starts_at: item.startsAt, ends_at: item.endsAt
+  })))]);
+  if (result.rowCount !== data.items.length) {
+    const error = new Error("Booking items changed. Refresh the booking.");
+    error.statusCode = 409;
+    throw error;
+  }
+}
+
 async function listBookingsForCheckInReminder(options = {}) {
   const queryClient = buildQueryClient(options.client);
   const now = options.now || new Date().toISOString();
@@ -956,5 +971,6 @@ module.exports = {
   listBookingsForCheckInReminder,
   markBookingCheckInReminderSent,
   updateBooking,
+  updateBookingBundleItemIntervals,
   updateBookingByQueueTicketId
 };
