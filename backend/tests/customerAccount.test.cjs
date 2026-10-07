@@ -1136,7 +1136,7 @@ test("customer booking detail hides manual payment destination when service does
 });
 
 async function scopedBookingFixture(options, work) {
-  const client = { query: async () => ({ rows: [{ id: options.actorUserId }] }) };
+  const client = { query: async (sql) => ({ rows: sql.includes("FROM users") ? [{ id: options.actorUserId }] : [] }) };
   assert.equal(await options.authorize(client, options), true);
   return work(client, {});
 }
@@ -1677,6 +1677,7 @@ test("customer can view and cancel own pending booking before check-in", async (
     "../repositories/bookings": {
       listBookingsForCustomer: async () => [...bookings.values()],
       findBookingById: async (bookingId) => bookings.get(String(bookingId)) || null,
+        findBookingByIdForUpdate: async (bookingId) => bookings.get(String(bookingId)) || null,
       updateBooking: async (bookingId, data) => {
         const current = bookings.get(String(bookingId));
         const updated = { ...current, ...data, updatedAt: "2026-07-06T00:40:00.000Z" };
@@ -1685,8 +1686,10 @@ test("customer can view and cancel own pending booking before check-in", async (
       }
     },
     "../services/bookingService": requireWithMocks("../src/services/bookingService.js", {
+      "../repositories/resourceLedger": { withScopeTransaction: scopedBookingFixture },
       "../repositories/bookings": {
         findBookingById: async (bookingId) => bookings.get(String(bookingId)) || null,
+        findBookingByIdForUpdate: async (bookingId) => bookings.get(String(bookingId)) || null,
         updateBooking: async (bookingId, data) => {
           const current = bookings.get(String(bookingId));
           const updated = { ...current, ...data, updatedAt: "2026-07-06T00:40:00.000Z" };

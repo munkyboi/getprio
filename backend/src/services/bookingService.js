@@ -2,6 +2,7 @@ const ticketServicePlanService = require("./ticketServicePlanService");
 const bookingRepository = require("../repositories/bookings");
 const db = require("../config/db");
 const resourceLedger = require("../repositories/resourceLedger");
+const bookingResourceReservationService = require("./bookingResourceReservationService");
 const tenantRepository = require("../repositories/tenants");
 const storeLocationRepository = require("../repositories/storeLocations");
 const vendorServiceRepository = require("../repositories/vendorServices");
@@ -1177,7 +1178,7 @@ async function createCustomerBooking({ user, body }) {
         || String(lockedLocation._id) !== scope.locationId || String(lockedLocation.tenantId) !== scope.tenantId) return false;
       return true;
     }
-  }, async (client) => {
+  }, async (client, ledger) => {
     const lockedPlan = materializeComposedPlanAt({
       plan: await loadComposedBookingPlan({ tenant: lockedTenant, location: lockedLocation,
         items: requestedBundleItems, executionMode, client }), scheduledStartAt
@@ -1237,6 +1238,7 @@ async function createCustomerBooking({ user, body }) {
       actorUserId: user._id,
       reason: "Service Booking created"
     }, { client });
+    await bookingResourceReservationService.reserveCreatedBooking({ client, ledger, booking: createdBooking });
     await client.query(`UPDATE resource_ledger_scopes SET revision=revision+1
       WHERE tenant_id=$1 AND location_id=$2`, [tenant._id, location._id]);
     return createdBooking;
@@ -1542,6 +1544,41 @@ async function cancelCustomerBooking({ user, bookingId, reason }) {
     throw error;
   }
 
+  assertCustomerBookingCancellable(booking);
+
+  const updated = await resourceLedger.withScopeTransaction({
+    pool: db.pool,
+    tenantId: String(booking.tenantId),
+    locationId: String(booking.locationId),
+    actorUserId: String(user._id),
+    authorize: async (client, scope) => {
+      const actor = await client.query("SELECT id FROM users WHERE id=$1 AND deletion_requested_at IS NULL", [scope.actorUserId]);
+      return actor.rows.length === 1;
+    }
+  }, async (client, ledger) => {
+    const current = await bookingRepository.findBookingByIdForUpdate(booking._id, { client });
+    if (!current || String(current.customerUserId) !== String(user._id)
+      || String(current.tenantId) !== String(booking.tenantId) || String(current.locationId) !== String(booking.locationId)) {
+      const error = new Error("Booking not found.");
+      error.statusCode = 404;
+      throw error;
+    }
+    assertCustomerBookingCancellable(current);
+    const result = await bookingRepository.updateBooking(current._id, {
+      status: "canceled",
+      notes: String(reason || "").trim() || current.notes || ""
+    }, { client, requireUnarrived: true });
+    await bookingResourceReservationService.cancelBookingReservations({ client, ledger, booking: current });
+    await client.query(`UPDATE resource_ledger_scopes SET revision=revision+1
+      WHERE tenant_id=$1 AND location_id=$2`, [current.tenantId, current.locationId]);
+    return result;
+  });
+
+  await notifyCustomerBookingCancellation(updated);
+  return updated;
+}
+
+function assertCustomerBookingCancellable(booking) {
   if (booking.checkedInAt || booking.queueTicketId) {
     const error = new Error("This booking has already been checked in and can no longer be cancelled here.");
     error.statusCode = 409;
@@ -1553,13 +1590,9 @@ async function cancelCustomerBooking({ user, bookingId, reason }) {
     error.statusCode = 409;
     throw error;
   }
+}
 
-  const cancellationReason = String(reason || "").trim();
-  const updated = await bookingRepository.updateBooking(booking._id, {
-    status: "canceled",
-    notes: cancellationReason || booking.notes || ""
-  }, { requireUnarrived: true });
-
+async function notifyCustomerBookingCancellation(updated) {
   const message = `${updated.tenantName}: Your booking request ${updated.reference} was cancelled.`;
   if (updated.customerEmail) {
     await notificationService.sendEmail({
@@ -1591,8 +1624,6 @@ async function cancelCustomerBooking({ user, bookingId, reason }) {
   if (tenant && location) {
     await publishBookingSnapshot(tenant, location);
   }
-
-  return updated;
 }
 
 async function rescheduleVendorBooking({ tenant, bookingId, scheduledStartAt: scheduledStartAtValue }) {
