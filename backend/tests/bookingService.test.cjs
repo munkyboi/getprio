@@ -110,7 +110,7 @@ function buildBookingService({
   expirePendingBookings = async () => [],
   createBooking = async () => ({ _id: "booking-1", reference: "BKG-TEST", customerEmail: "customer@example.com", notifyBySms: false }),
   findBookingById = async () => null,
-  findBookingByIdForUpdate = async () => null,
+  findBookingByIdForUpdate = findBookingById,
   listBookingsForCheckInReminder,
   markBookingCheckInReminderSent,
   updateBooking = async () => null,
@@ -159,7 +159,7 @@ function buildBookingService({
   const bookingService = requireWithMocks("../src/services/bookingService.js", {
     "../repositories/resourceLedger": {
       withScopeTransaction: scopedTransaction || (async (options, callback) => {
-        const client = { query: async () => ({ rows: [{ id: options.actorUserId }] }) };
+        const client = { query: async (sql) => ({ rows: sql.includes("FROM users") ? [{ id: options.actorUserId }] : [] }) };
         if (await options.authorize(client, options) !== true) {
           const error = new Error("Resource operation is not authorized.");
           error.statusCode = 403;
