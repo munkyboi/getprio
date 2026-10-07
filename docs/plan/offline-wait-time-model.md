@@ -22,6 +22,8 @@ Manual vendor test tickets cannot automatically be separated from real traffic. 
 
 The [offline curation command](wait-time-dataset-curation.md) can exclude operator-declared test or data-quality windows from a preserved original export. It records declarations and counts without upgrading provenance. Experiments record `datasetSha256` for the exact input bytes; this is input lineage, not verification that the observations represent genuine operations.
 
+The [offline simulator](synthetic-queue-simulator.md) produces a separate synthetic contract and namespace. Training it requires `--dataset-kind synthetic`; the resulting synthetic experiment is rejected by production shadow inference. Operational mode remains the default and rejects synthetic datasets. Simulation scores do not establish vendor accuracy.
+
 ## Training and evaluation
 
 Specify a fixed training cutoff and holdout end before comparing models. Historical observations and their outcomes must both precede the training cutoff. Earlier observations with outcomes after cutoff are excluded. Holdout observations must be at/after cutoff and before holdout end, with outcomes also before holdout end. Neither holdout features nor outcomes fit the candidate.

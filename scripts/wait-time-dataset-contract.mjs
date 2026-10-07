@@ -4,6 +4,7 @@ import { Buffer } from "node:buffer";
 
 function validDatasetScope(source, scopeKey) {
   if (typeof scopeKey !== "string") return false;
+  if (source === "synthetic") return /^synthetic:[a-z][a-z0-9-]{0,39}$/.test(scopeKey);
   if (source === "vendors") return /^vendors:[1-9]\d{0,19}:(?:[1-9]\d{0,19}|unknown)$/.test(scopeKey);
   const uuid = "[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}";
   return source === "developer-sandbox" && new RegExp(`^developer-sandbox:${uuid}:${uuid}$`).test(scopeKey);
@@ -37,11 +38,25 @@ function validateSample(sample, source, from, to) {
   }
 }
 
-export function validateDataset(dataset, options = null) {
-  if (!dataset || dataset.datasetVersion !== "wait-time-dataset-v1" || dataset.baselineVersion !== "baseline-v1" ||
-      !["vendors", "developer-sandbox"].includes(dataset.source) || !Array.isArray(dataset.samples) || dataset.samples.length > 100000) {
+function validateDatasetKind(dataset, kind) {
+  if (kind === "synthetic") {
+    if (dataset.datasetVersion !== "wait-time-synthetic-dataset-v1" || dataset.source !== "synthetic" ||
+        dataset.provenance !== "synthetic-simulation" || dataset.simulation?.simulatorVersion !== "synthetic-queue-v1") {
+      throw new Error("Explicit synthetic mode requires a labeled simulator dataset.");
+    }
+    return;
+  }
+  if (kind !== "operational" || dataset.datasetVersion !== "wait-time-dataset-v1" ||
+      !["vendors", "developer-sandbox"].includes(dataset.source) || dataset.provenance !== "unverified-operational-data") {
+    throw new Error("Operational mode requires an unverified operational export; synthetic inputs require explicit synthetic mode.");
+  }
+}
+
+export function validateDataset(dataset, options = null, kind = "operational") {
+  if (dataset?.baselineVersion !== "baseline-v1" || !Array.isArray(dataset.samples) || dataset.samples.length > 100000) {
     throw new Error("Unsupported dataset contract or size.");
   }
+  validateDatasetKind(dataset, kind);
   const from = timestamp(dataset.from);
   const to = timestamp(dataset.to);
   if (from >= to || to > timestamp(dataset.capturedAt)) throw new Error("Dataset must have a closed exported window.");
