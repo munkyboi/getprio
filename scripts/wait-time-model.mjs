@@ -1,19 +1,14 @@
 #!/usr/bin/env node
 import { createRequire } from "node:module";
-import { readFile, writeFile, stat } from "node:fs/promises";
+import { writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { timestamp, validateDataset, readBoundedJson } from "./wait-time-dataset-contract.mjs";
 import process from "node:process";
 import console from "node:console";
 
 const require = createRequire(import.meta.url);
 const { fitWaitTimeCandidate, describeTrainingCoverage, predictWaitTimeWithFallback } = require("../backend/src/services/waitTimeCandidate");
 const { predictWaitTime } = require("../backend/src/services/waitTimePredictor");
-
-function timestamp(value) {
-  if (typeof value !== "string" || !/T.*(?:Z|[+-]\d{2}:\d{2})$/.test(value) || !Number.isFinite(Date.parse(value))) {
-    throw new Error("Use valid timestamps with explicit timezone.");
-  }
-  return Date.parse(value);
-}
 
 function optionsFrom(args) {
   const options = {};
@@ -33,35 +28,6 @@ function optionsFrom(args) {
   return options;
 }
 
-function validateDataset(dataset, options) {
-  if (dataset.datasetVersion !== "wait-time-dataset-v1" || dataset.baselineVersion !== "baseline-v1" ||
-      !["vendors", "developer-sandbox"].includes(dataset.source) || !Array.isArray(dataset.samples) || dataset.samples.length > 100000) {
-    throw new Error("Unsupported dataset contract or size.");
-  }
-  const from = timestamp(dataset.from);
-  const to = timestamp(dataset.to);
-  if (from >= to || to > timestamp(dataset.capturedAt) || timestamp(options.cutoff) <= from || timestamp(options.end) > to) throw new Error("Evaluation window must fit inside a closed exported dataset window.");
-  const seen = new Set();
-  for (const sample of dataset.samples) {
-    const observed = timestamp(sample.sampledAt);
-    const called = timestamp(sample.calledAt);
-    const features = sample.features;
-    if (typeof sample.scopeKey !== "string" || !sample.scopeKey.startsWith(`${dataset.source}:`) || sample.scopeKey.length > 200 ||
-        typeof sample.ticketKey !== "string" || !/^[a-f0-9]{64}$/.test(sample.ticketKey) ||
-        observed < from || observed >= to || called < observed || called >= to ||
-        typeof sample.actualWaitMinutes !== "number" || !Number.isFinite(sample.actualWaitMinutes) || sample.actualWaitMinutes < 0 ||
-        Math.abs(sample.actualWaitMinutes - (called - observed) / 60000) > 0.02 ||
-        !features || !Number.isSafeInteger(features.position) || features.position < 0 ||
-        typeof features.averageServiceMinutes !== "number" || !Number.isFinite(features.averageServiceMinutes) || features.averageServiceMinutes < 0 ||
-        typeof features.queuePaused !== "boolean" || !["normal", "checked_in_booking", "recovery", "carry_over"].includes(features.priorityBand)) {
-      throw new Error("Dataset contains an invalid scope, feature, timestamp, or label.");
-    }
-    const key = `${sample.scopeKey}:${sample.ticketKey}`;
-    if (seen.has(key)) throw new Error("Dataset contains duplicate tickets; re-export distinct observations.");
-    seen.add(key);
-  }
-}
-
 function metrics(errors) {
   if (!errors.length) return { tickets: 0, maeMinutes: null, meanSignedErrorMinutes: null, withinFiveMinutesPercent: null };
   const round = (value) => Math.round(value * 100) / 100;
@@ -73,8 +39,9 @@ function metrics(errors) {
 
 async function run() {
   const options = optionsFrom(process.argv.slice(2));
-  if ((await stat(options.dataset)).size > 64 * 1024 * 1024) throw new Error("Dataset exceeds 64 MiB; select a smaller export window.");
-  const dataset = JSON.parse(await readFile(options.dataset, "utf8"));
+  const input = await readBoundedJson(options.dataset, 64 * 1024 * 1024);
+  const dataset = input.value;
+  const datasetSha256 = createHash("sha256").update(input.bytes).digest("hex");
   validateDataset(dataset, options);
   const cutoff = timestamp(options.cutoff);
   const end = timestamp(options.end);
@@ -100,7 +67,7 @@ async function run() {
     else scope.modelOnly.push(sample.actualWaitMinutes - candidate.prediction.estimatedWaitMinutes);
   }
   const artifact = { artifactVersion: "wait-time-experiment-v1", source: dataset.source,
-    provenance: dataset.provenance, model, trainingCoverage, evaluation: { trainingCutoff: model.trainingCutoff,
+    provenance: dataset.provenance, datasetSha256, model, trainingCoverage, evaluation: { trainingCutoff: model.trainingCutoff,
       holdoutEnd: new Date(end).toISOString(), excludedOverlappingTickets,
       scopes: [...perScope].map(([scopeKey, scope]) => ({ scopeKey, baseline: metrics(scope.baseline),
         candidateWithFallback: metrics(scope.candidate), candidateOnly: metrics(scope.modelOnly), fallbackReasons: scope.fallbackReasons })) },
