@@ -4,6 +4,7 @@ const db = require("../config/db");
 const resourceLedger = require("../repositories/resourceLedger");
 const bookingResourceReservationService = require("./bookingResourceReservationService");
 const permissions = require("./permissions");
+const tenantMembershipLocationRepository = require("../repositories/tenantMembershipLocations");
 const tenantRepository = require("../repositories/tenants");
 const storeLocationRepository = require("../repositories/storeLocations");
 const vendorServiceRepository = require("../repositories/vendorServices");
@@ -1393,9 +1394,9 @@ async function createVendorPaymentProofAccess({ tenant, bookingId }) {
   return paymentProofStorageService.createViewAccess({ booking });
 }
 
-async function withVendorBookingTransaction({ tenant, bookingId, user }, callback) {
+async function withVendorBookingTransaction({ tenant, location, bookingId, user, permission = "tenant.booking.manage" }, callback) {
   const initial = await bookingRepository.findBookingById(bookingId);
-  assertBookingBelongsToTenantLocation(initial, tenant);
+  assertBookingBelongsToTenantLocation(initial, tenant, location);
   return resourceLedger.withScopeTransaction({
     pool: db.pool, tenantId: String(tenant._id), locationId: String(initial.locationId), actorUserId: String(user?._id),
     authorize: async (client, scope) => {
@@ -1404,9 +1405,15 @@ async function withVendorBookingTransaction({ tenant, bookingId, user }, callbac
         WHERE u.id=$1 AND u.deletion_requested_at IS NULL AND u.platform_access_suspended_at IS NULL`,
       [scope.actorUserId, scope.tenantId]);
       const actor = result.rows[0];
-      return Boolean(actor && permissions.userHasPermission({ roles: actor.roles,
-        tenantMemberships: [{ tenantId: scope.tenantId, role: actor.role, isActive: true }] },
-      "tenant.booking.manage", { tenantId: scope.tenantId }));
+      if (!actor) return false;
+      const currentUser = { roles: actor.roles,
+        tenantMemberships: [{ tenantId: scope.tenantId, role: actor.role, isActive: true }] };
+      if (!permissions.userHasPermission(currentUser, permission, { tenantId: scope.tenantId })) return false;
+      if (permission === "tenant.queue.operate"
+        && !permissions.userHasPermission(currentUser, "tenant.booking.manage", { tenantId: scope.tenantId })) {
+        return tenantMembershipLocationRepository.userHasLocationAssignment(scope.actorUserId, scope.tenantId, scope.locationId, { client });
+      }
+      return true;
     }
   }, async (client, ledger) => {
     const current = await bookingRepository.findBookingByIdForUpdate(initial._id, { client });
@@ -1871,34 +1878,29 @@ async function checkInBooking({ tenant, location, bookingId, user, overrideWindo
 }
 
 async function markVendorBookingNoShow({ tenant, location, bookingId, user }) {
-  await expirePendingBookingsForTenant(tenant._id);
-  const booking = await bookingRepository.findBookingById(bookingId);
-  assertBookingBelongsToTenantLocation(booking, tenant, location);
+  const updated = await withVendorBookingTransaction({ tenant, location, bookingId, user, permission: "tenant.queue.operate" }, async ({ client, ledger, booking }) => {
+    if (!["confirmed", "rescheduled"].includes(booking.status)) {
+      const error = new Error("Only confirmed or rescheduled bookings can be marked as no-show.");
+      error.statusCode = 409;
+      throw error;
+    }
 
-  if (booking.queueTicketId || booking.checkedInAt) {
-    const error = new Error("Checked-in bookings must be managed from the live queue.");
-    error.statusCode = 409;
-    throw error;
-  }
+    const windowState = getCheckInWindowState(booking);
+    if (!windowState.isLate) {
+      const error = new Error("This booking is not late enough to mark as no-show.");
+      error.statusCode = 409;
+      throw error;
+    }
 
-  if (!["confirmed", "rescheduled"].includes(booking.status)) {
-    const error = new Error("Only confirmed or rescheduled bookings can be marked as no-show.");
-    error.statusCode = 409;
-    throw error;
-  }
-
-  const windowState = getCheckInWindowState(booking);
-  if (!windowState.isLate) {
-    const error = new Error("This booking is not late enough to mark as no-show.");
-    error.statusCode = 409;
-    throw error;
-  }
-
-  const updated = await bookingRepository.updateBooking(booking._id, {
-    status: "canceled",
-    noShowAt: new Date().toISOString(),
-    noShowByUserId: user?._id || null
-  }, { requireUnarrived: true });
+    const updated = await bookingRepository.updateBooking(booking._id, {
+      status: "canceled",
+      noShowAt: new Date().toISOString(),
+      noShowByUserId: user?._id || null
+    }, { client, requireUnarrived: true });
+    await bookingResourceReservationService.cancelBookingReservations({ client, ledger, booking });
+    await advanceBookingScope(client, booking);
+    return updated;
+  });
 
   const message = `${updated.tenantName}: Your booking request ${updated.reference} was cancelled as a no-show.`;
   if (updated.customerEmail) {
