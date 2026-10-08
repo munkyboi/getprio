@@ -32,7 +32,7 @@ async function reserveCreatedBooking({ client, ledger, booking }) {
     command: "reserve", payload: { bookingItemId: item.id } });
 }
 
-async function cancelBookingReservations({ client, ledger, booking }) {
+async function cancelBookingReservations({ client, ledger, booking, operation = "cancel" }) {
   // Existing immutable bindings survive configuration edits or tracking changes.
   const bindings = await client.query(`SELECT id::text,state FROM resource_ledger_reservations
     WHERE tenant_id=$1 AND location_id=$2 AND booking_id=$3 AND state IN ('protected','converted')
@@ -41,7 +41,7 @@ async function cancelBookingReservations({ client, ledger, booking }) {
     conflict("This booking has started service and cannot be cancelled here.");
   }
   for (const binding of bindings.rows) {
-    await ledger.executeCommand({ operationKey: `booking:${booking._id}:reservation:${binding.id}:cancel`,
+    await ledger.executeCommand({ operationKey: `booking:${booking._id}:reservation:${binding.id}:${operation}`,
       command: "cancelReservation", payload: { reservationId: binding.id } });
   }
 }

@@ -20,6 +20,7 @@ test('ledger validates scope and command before connecting', async () => {
   await assert.rejects(executeCommand({ pool: forbiddenPool, ...scope, tenantId: '9223372036854775808', command: 'allocate', payload: { ticketId: '1' }, operationKey: 'invalid' }), /identifier/);
   await assert.rejects(executeCommand({ pool: forbiddenPool, ...scope, command: 'release', payload: { allocationId: '1', outcome: 'terminated' }, operationKey: 'invalid' }), /reason/);
   await assert.rejects(executeCommand({ pool: forbiddenPool, ...scope, command: 'allocate', payload: { ticketId: '1', units: 0 }, operationKey: 'invalid' }), /Unsupported/);
+  await assert.rejects(withScopeTransaction({ pool: forbiddenPool, ...scope, actorUserId:null, authorize:async () => true },async () => {}), /identifier/);
   await assert.rejects(withScopeTransaction({ pool: forbiddenPool, ...scope }, async () => {}), /authorization/);
   await assert.rejects(withScopeTransaction({ pool: forbiddenPool, ...scope, authorize: async () => true }, null), /callback/);
 });

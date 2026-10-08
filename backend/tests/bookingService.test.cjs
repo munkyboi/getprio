@@ -108,6 +108,7 @@ function buildBookingService({
   countOverlappingActiveBookings = async () => 0,
   countOverlappingActiveCapacityHolds = async () => 0,
   expirePendingBookings = async () => [],
+  listPendingBookingExpiryScopes = async () => [],
   createBooking = async () => ({ _id: "booking-1", reference: "BKG-TEST", customerEmail: "customer@example.com", notifyBySms: false }),
   findBookingById = async () => null,
   findBookingByIdForUpdate = findBookingById,
@@ -158,6 +159,7 @@ function buildBookingService({
   };
   const bookingService = requireWithMocks("../src/services/bookingService.js", {
     "../repositories/resourceLedger": {
+      withSystemExpiryTransaction: async (_options, callback) => callback({query:async () => ({rows:[]})},{}),
       withScopeTransaction: scopedTransaction || (async (options, callback) => {
         const client = { query: async (sql) => ({ rows: sql.includes("FROM users") ? [{ id: options.actorUserId, role: "owner", roles: [] }] : [] }) };
         if (await options.authorize(client, options) !== true) {
@@ -175,6 +177,7 @@ function buildBookingService({
       createBooking,
       countOverlappingActiveBookings,
       expirePendingBookings,
+      listPendingBookingExpiryScopes,
       findBookingById,
       findBookingByIdForUpdate,
       ...(listBookingsForCheckInReminder ? { listBookingsForCheckInReminder } : {}),
@@ -1717,6 +1720,7 @@ test("pending booking expiration sends customer push notifications", async () =>
   const bookingService = buildBookingService({
     availability: { blocks: [], exceptions: [] },
     expirePendingBookings: async () => ["booking-1"],
+    listPendingBookingExpiryScopes: async () => [{tenantId:expiredBooking.tenantId,locationId:expiredBooking.locationId}],
     findBookingById: async () => expiredBooking,
     pushNotificationService: {
       notifyVendorBookingIntake: async () => ({}),
