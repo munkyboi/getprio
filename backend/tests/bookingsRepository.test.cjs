@@ -678,3 +678,15 @@ test("booking reads retain validated decimal BIGINT identity without rounding", 
   await assert.rejects(repository.findBookingById('9223372036854775808'),{statusCode:400});
   assert.equal(calls.length,2);
 });
+
+
+test("check-in business and branch rereads retain BIGINT scope parameters", async () => {
+  const id='9007199254740993';
+  const calls=[];
+  const client={query:async (_sql,params) => {calls.push(params); return {rows:[]};}};
+  const tenantRepository=requireWithMocks("../src/repositories/tenants.js", {"../config/db":{pool:client}});
+  const locationRepository=requireWithMocks("../src/repositories/storeLocations.js", {"../config/db":{pool:client}});
+  await tenantRepository.findTenantById(id,{client});
+  await locationRepository.findLocationById(id,{client});
+  assert.deepEqual(calls,[[id],[id]]);
+});

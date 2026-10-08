@@ -32,8 +32,8 @@ test('customer booking creation under real scoped PostgreSQL transaction', { ski
   const { Pool } = require('pg');
   const schema = `booking_writer_${randomUUID().replaceAll('-', '')}`;
   const pool = new Pool({ connectionString: databaseUrl, options: `-c search_path=${schema}`, application_name:schema, max: 8 });
-  const tenant = { _id:'1', slug:'demo', name:'Demo', publicProfileEnabled:true, vendorApprovalStatus:'approved' };
-  const location = { _id:'10', tenantId:'1', slug:'main', name:'Main', isActive:true, timezone:'Asia/Manila' };
+  const tenant = { _id:'1', slug:'demo', name:'Demo', isActive:true, publicProfileEnabled:true, vendorApprovalStatus:'approved' };
+  const location = { _id:'10', tenantId:'1', slug:'main', name:'Main', isActive:true, customerSelfCheckInEnabled:true, timezone:'Asia/Manila' };
   const catalog = { _id:'100', slug:'consultation', name:'Consultation', isActive:true, durationMinutes:60, priceAmountCents:1000 };
   const scheduledStartAt = `${new Date(Date.now()+86400000).toISOString().slice(0,10)}T01:00:00.000Z`;
   const user = { _id:'1', name:'Customer One', email:'customer@example.com', phone:'09171234567' };
@@ -49,6 +49,8 @@ test('customer booking creation under real scoped PostgreSQL transaction', { ski
   let notified = 0;
   let cancelled = 0;
   let proofNotified = 0;
+  let planFails = false;
+  let intakeClosed = false;
   const savedBookings = new Map();
   async function readBooking(id, options = {}) {
     const row = (await (options.client || pool).query(`SELECT * FROM bookings WHERE id=$1 ${options.client ? "FOR UPDATE" : ""}`, [id])).rows[0];
@@ -76,10 +78,12 @@ test('customer booking creation under real scoped PostgreSQL transaction', { ski
         tenant_id BIGINT,location_id BIGINT,service_id BIGINT,booking_quantity INTEGER,
         scheduled_start_at TIMESTAMPTZ,scheduled_end_at TIMESTAMPTZ,sort_order INTEGER);
       CREATE TABLE location_resource_pools(id BIGINT PRIMARY KEY,tenant_id BIGINT,location_id BIGINT,
-        capacity INTEGER,revision INTEGER,tracking_enabled BOOLEAN DEFAULT FALSE,UNIQUE(id,tenant_id,location_id));
+        capacity INTEGER,revision INTEGER,tracking_enabled BOOLEAN DEFAULT FALSE,name TEXT DEFAULT 'Pool',UNIQUE(id,tenant_id,location_id));
       CREATE TABLE service_resource_requirements(tenant_id BIGINT,location_id BIGINT,service_id BIGINT,
         pool_id BIGINT,units_required INTEGER,revision INTEGER);
-      CREATE TABLE tickets(id BIGINT PRIMARY KEY,tenant_id BIGINT,location_id BIGINT,UNIQUE(id,tenant_id,location_id));
+      CREATE TABLE tickets(id BIGSERIAL PRIMARY KEY,tenant_id BIGINT,location_id BIGINT,UNIQUE(id,tenant_id,location_id));
+      CREATE TABLE ticket_service_plans(ticket_id BIGINT PRIMARY KEY,tenant_id BIGINT,location_id BIGINT,
+        source TEXT,booking_id BIGINT,execution_mode TEXT,items JSONB,created_by_user_id BIGINT);
       CREATE TABLE allowances(booking_id BIGINT);
       INSERT INTO users(id) VALUES(1),(2); INSERT INTO tenant_memberships(user_id,tenant_id,role,is_active) VALUES(2,1,'owner',TRUE); INSERT INTO store_locations VALUES(10,1)`);
     await pool.query(fs.readFileSync(path.resolve(__dirname, '../../database/migrations/20261007_add_resource_ledger_foundation.sql'), 'utf8'));
@@ -97,7 +101,7 @@ test('customer booking creation under real scoped PostgreSQL transaction', { ski
         findBookingById: readBooking,
         findBookingByIdForUpdate: readBooking,
         updateBooking: async (id, data, { client }) => {
-          await client.query('UPDATE bookings SET status=COALESCE($2,status),starts_at=COALESCE($3,starts_at),ends_at=COALESCE($4,ends_at),payment_proof_object_key=COALESCE($5,payment_proof_object_key),payment_data=payment_data || $6::jsonb WHERE id=$1', [id,data.status,data.scheduledStartAt,data.scheduledEndAt,data.paymentProofObjectKey,JSON.stringify(data)]);
+          await client.query('UPDATE bookings SET status=COALESCE($2,status),starts_at=COALESCE($3,starts_at),ends_at=COALESCE($4,ends_at),payment_proof_object_key=COALESCE($5,payment_proof_object_key),payment_data=payment_data || $6::jsonb,checked_in_at=COALESCE($7,checked_in_at),queue_ticket_id=COALESCE($8,queue_ticket_id) WHERE id=$1', [id,data.status,data.scheduledStartAt,data.scheduledEndAt,data.paymentProofObjectKey,JSON.stringify(data),data.checkedInAt,data.queueTicketId]);
           return { ...await readBooking(id,{client}), ...data };
         },
         createBooking: async (data, { client }) => {
@@ -110,8 +114,8 @@ test('customer booking creation under real scoped PostgreSQL transaction', { ski
           return { ...data, _id:id, reference:`BKG-${id}`, notifyByEmail:false };
         }
       },
-      '../repositories/tenants': { findTenantBySlug: async (_slug,options={}) => ({...tenant,publicProfileEnabled:!(options.client && lockedTenantRevoked)}) },
-      '../repositories/storeLocations': { findLocationByTenantAndSlug: async (_tenant,_slug,options={}) => ({...location,isActive:!(options.client && lockedLocationRevoked)}),
+      '../repositories/tenants': { findTenantById:async (_id,options={}) => ({...tenant,isActive:!(options.client && lockedTenantRevoked)}), findTenantBySlug: async (_slug,options={}) => ({...tenant,publicProfileEnabled:!(options.client && lockedTenantRevoked)}) },
+      '../repositories/storeLocations': { findLocationById:async (_id,options={}) => ({...location,isActive:!(options.client && lockedLocationRevoked)}), findLocationByTenantAndSlug: async (_tenant,_slug,options={}) => ({...location,isActive:!(options.client && lockedLocationRevoked)}),
         listHoursByLocationId: async () => [{ weekday: new Date(scheduledStartAt).getUTCDay(),opensAt:'00:00',closesAt:'23:59',isClosed:false }] },
       '../repositories/vendorServices': { normalizeServiceSlug: value => value,
         findServiceByTenantAndId: async (_tenant,id) => ['100','101'].includes(String(id)) ? ({...catalog,_id:String(id),slug:catalogSlugRenamed ? `renamed-${id}` : String(id) === '100' ? 'consultation' : 'other'}) : null,
@@ -127,16 +131,26 @@ test('customer booking creation under real scoped PostgreSQL transaction', { ski
         await client.query('INSERT INTO allowances VALUES($1)',[data.subjectId]);
         if (allowanceFails) throw new Error('Allowance failed');
       } },
+      './ticketServicePlanService': {captureBookingPlan:async (client,data) => {
+        await require('../src/services/ticketServicePlanService').captureBookingPlan(client,data);
+        if (planFails) throw new Error('Forced service plan failure');
+      }},
       './paymentProofStorageService': { assertUploadMetadata:() => {}, assertObjectKeyBelongsToBooking:(_booking,key) => key },
       './notificationService': { sendEmail:noop,sendSms:noop },
       './pushNotificationService': { notifyVendorPaymentProofReview:async () => { proofNotified++; }, notifyVendorBookingIntake:async () => { notified++; }, notifyCustomerBookingUpdate:async () => { cancelled++; } }
     });
-    bookingService._setQueueServiceForTest({ publishSnapshot:noop });
+    bookingService._setQueueServiceForTest({ publishSnapshot:noop,maybeNotifyUpcomingTickets:noop,maybeAutoPauseQueueDay:noop,
+      assertQueueIntakeOpen:async () => { if (intakeClosed) { const error=new Error('Queue closed'); error.statusCode=409; throw error; } },
+      createTicketForTenantInTransaction:async client => {
+        const row=(await client.query('INSERT INTO tickets(tenant_id,location_id) VALUES(1,10) RETURNING id::text')).rows[0];
+        await client.query('INSERT INTO allowances VALUES($1)',[row.id]);
+        return {_id:row.id,ticketNumber:'D001',lookupCode:'LOOKUP1',status:'waiting'};
+      } });
     async function reset() {
-      await pool.query('TRUNCATE bookings,booking_bundle_items,allowances,resource_ledger_scopes,resource_ledger_commands,resource_ledger_reservations,resource_allocations,service_resource_requirements,location_resource_pools RESTART IDENTITY CASCADE');
+      await pool.query('TRUNCATE tickets,ticket_service_plans,bookings,booking_bundle_items,allowances,resource_ledger_scopes,resource_ledger_commands,resource_ledger_reservations,resource_allocations,service_resource_requirements,location_resource_pools RESTART IDENTITY CASCADE');
       await pool.query('UPDATE users SET deletion_requested_at=NULL; TRUNCATE tenant_membership_locations,service_counters,service_counter_assignments');
       allowanceFails = lockedCatalogChanged = lockedAvailabilityChanged = lockedTenantRevoked = lockedLocationRevoked = false;
-      notified = cancelled = proofNotified = 0;
+      notified = cancelled = proofNotified = 0; planFails = intakeClosed = false; location.customerSelfCheckInEnabled = true;
       savedBookings.clear();
       await pool.query("UPDATE tenant_memberships SET role='owner',is_active=TRUE; UPDATE users SET platform_access_suspended_at=NULL");
       ordinaryCapacity = 1; changedLockedOwner = false; catalogSlugRenamed = false;
@@ -144,7 +158,7 @@ test('customer booking creation under real scoped PostgreSQL transaction', { ski
     }
     async function configureResources(enabled = true, units = 1, capacity = 1) {
       ordinaryCapacity = 10;
-      await pool.query('INSERT INTO location_resource_pools VALUES(1000,1,10,$1,1,$2)', [capacity,enabled]);
+      await pool.query('INSERT INTO location_resource_pools(id,tenant_id,location_id,capacity,revision,tracking_enabled) VALUES(1000,1,10,$1,1,$2)', [capacity,enabled]);
       await pool.query('INSERT INTO service_resource_requirements VALUES(1,10,100,1000,$1,1)', [units]);
     }
     async function count(table) {
@@ -447,6 +461,84 @@ test('customer booking creation under real scoped PostgreSQL transaction', { ski
         }),{statusCode:403});
         assert.equal(await count('allowances'),1); assert.equal(await count('resource_ledger_commands'),1);
       }
+    });
+    async function arrivalBooking(enabled = true) {
+      const booking = await proofBooking(enabled);
+      const start = new Date().toISOString(); const end = new Date(Date.now()+3600000).toISOString();
+      await pool.query("UPDATE bookings SET status='confirmed',starts_at=$1,ends_at=$2",[start,end]);
+      await pool.query('UPDATE booking_bundle_items SET scheduled_start_at=$1,scheduled_end_at=$2',[start,end]);
+      await pool.query('UPDATE resource_ledger_reservations SET starts_at=$1,ends_at=$2',[start,end]);
+      savedBookings.get(booking._id).serviceManualPaymentRequired = false;
+      return booking;
+    }
+    const arriveStaff = booking => bookingService.checkInVendorBooking({tenant,location,bookingId:booking._id,user:{_id:'2'}});
+    const arriveCustomer = booking => bookingService.checkInCustomerBooking({bookingId:booking._id,user});
+    await t.test('check-in captures a booking service plan and retains protection without allocating', async () => {
+      const booking = await arrivalBooking();
+      const before = (await pool.query('SELECT * FROM resource_ledger_reservations')).rows[0];
+      const result = await arriveStaff(booking);
+      assert.ok(result.booking.checkedInAt); assert.equal(result.booking.queueTicketId,result.ticket.id);
+      assert.equal(await count('tickets'),1); assert.equal(await count('ticket_service_plans'),1); assert.equal(await count('resource_allocations'),0);
+      assert.deepEqual((await pool.query('SELECT * FROM resource_ledger_reservations')).rows[0],before);
+      const plan=(await pool.query('SELECT source,booking_id::text,items FROM ticket_service_plans')).rows[0];
+      assert.equal(plan.source,'booking'); assert.equal(plan.booking_id,booking._id); assert.equal(plan.items[0].bookingItemId,'1');
+      assert.equal(plan.items[0].durationMinutes,60); assert.equal(plan.items[0].resource.unitsRequired,1);
+      assert.equal(await revision(),'4'); assert.equal(cancelled,1);
+    });
+    await t.test('customer retry returns existing ticket and simultaneous staff/customer arrival creates once', async () => {
+      const booking = await arrivalBooking();
+      const results = await Promise.allSettled([arriveStaff(booking),arriveCustomer(booking)]);
+      assert.ok(results.some(value => value.status === 'fulfilled'));
+      const existing = await arriveCustomer(booking);
+      assert.equal(existing.ticket.id,String((await readBooking(booking._id)).queueTicketId));
+      assert.equal(await count('tickets'),1); assert.equal(await count('ticket_service_plans'),1); assert.equal(cancelled,1);
+      await assert.rejects(arriveStaff(booking),{statusCode:409});
+    });
+    await t.test('no-show and late staff check-in contend with one committed outcome', async () => {
+      const booking = await lateBooking();
+      const outcomes = await Promise.allSettled([noShow(booking),bookingService.checkInVendorBooking({tenant,location,bookingId:booking._id,user:{_id:'2'},overrideWindow:true})]);
+      assert.equal(outcomes.filter(value => value.status === 'fulfilled').length,1);
+      assert.equal(outcomes.find(value => value.status === 'rejected').reason.statusCode,409);
+      const current=await readBooking(booking._id);
+      const arrived=Boolean(current.checkedInAt);
+      assert.equal(await count('tickets'),arrived ? 1 : 0);
+      assert.equal((await pool.query('SELECT state FROM resource_ledger_reservations')).rows[0].state,arrived ? 'protected' : 'cancelled');
+      assert.equal(cancelled,1); assert.equal(await count('resource_allocations'),0);
+    });
+    await t.test('plan capture failure rolls back arrival, ticket, allowance and revision', async () => {
+      const booking = await arrivalBooking(); const before = await revision(); planFails=true;
+      await assert.rejects(arriveStaff(booking),/Forced service plan failure/);
+      assert.equal((await readBooking(booking._id)).checkedInAt,null); assert.equal((await readBooking(booking._id)).queueTicketId,null);
+      assert.equal(await count('tickets'),0); assert.equal(await count('ticket_service_plans'),0); assert.equal(await count('allowances'),1);
+      assert.equal(await revision(),before); assert.equal(cancelled,0);
+    });
+    await t.test('arrival rechecks staff assignment, customer ownership and actor suspension', async () => {
+      let booking = await arrivalBooking(); await pool.query("UPDATE tenant_memberships SET role='staff'");
+      await assert.rejects(arriveStaff(booking),{statusCode:403}); await pool.query('INSERT INTO tenant_membership_locations VALUES(2,10)');
+      await arriveStaff(booking); assert.equal(cancelled,1);
+      booking = await arrivalBooking(); changedLockedOwner=true; await assert.rejects(arriveCustomer(booking),{statusCode:404});
+      changedLockedOwner=false; await pool.query('UPDATE users SET platform_access_suspended_at=clock_timestamp() WHERE id=1');
+      await assert.rejects(arriveCustomer(booking),{statusCode:403}); assert.equal(await count('tickets'),0);
+    });
+    await t.test('arrival rejects disabled branch, business, self check-in, unpaid proof and closed intake', async () => {
+      for (const scenario of ['branch','business','self','payment','queue']) {
+        const booking = await arrivalBooking();
+        if (scenario === 'branch') lockedLocationRevoked=true;
+        if (scenario === 'business') lockedTenantRevoked=true;
+        if (scenario === 'self') location.customerSelfCheckInEnabled=false;
+        if (scenario === 'payment') savedBookings.get(booking._id).serviceManualPaymentRequired=true;
+        if (scenario === 'queue') intakeClosed=true;
+        await assert.rejects(arriveCustomer(booking),{statusCode:409});
+        assert.equal(await count('tickets'),0); assert.equal(cancelled,0);
+      }
+    });
+    await t.test('arrival rejects missing or converted protection and preserves ordinary disabled behavior', async () => {
+      for (const state of ['cancelled','converted']) {
+        const booking = await arrivalBooking(); await pool.query('UPDATE resource_ledger_reservations SET state=$1',[state]);
+        await assert.rejects(arriveStaff(booking),{statusCode:409}); assert.equal(await count('tickets'),0); assert.equal(cancelled,0);
+      }
+      const booking = await arrivalBooking(false); await arriveStaff(booking);
+      assert.equal(await count('tickets'),1); assert.equal(await count('resource_ledger_reservations'),0); assert.equal(await count('resource_allocations'),0);
     });
     await t.test('disabled draft pool preserves quantity bookings and creates no binding or receipt', async () => {
       await reset(); await configureResources(false); catalog.allowBookingQuantity = true; body.bookingQuantity = 2;
