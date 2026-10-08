@@ -48,13 +48,14 @@ test('customer booking creation under real scoped PostgreSQL transaction', { ski
   let lockedLocationRevoked = false;
   let notified = 0;
   let cancelled = 0;
+  let proofNotified = 0;
   const savedBookings = new Map();
   async function readBooking(id, options = {}) {
     const row = (await (options.client || pool).query(`SELECT * FROM bookings WHERE id=$1 ${options.client ? "FOR UPDATE" : ""}`, [id])).rows[0];
     if (!row) return null;
     const data = savedBookings.get(String(id));
     const items = (await (options.client || pool).query('SELECT * FROM booking_bundle_items WHERE booking_id=$1 ORDER BY sort_order,id',[id])).rows;
-    return { ...data, locationSlug:location.slug, serviceSlug:data.bundleItems[0].serviceSlug, _id:String(row.id), tenantId:String(row.tenant_id),locationId:String(row.location_id),
+    return { ...data, ...row.payment_data, locationSlug:location.slug, serviceSlug:data.bundleItems[0].serviceSlug, _id:String(row.id), tenantId:String(row.tenant_id),locationId:String(row.location_id),
       customerUserId:options.client && changedLockedOwner ? "2" : String(row.customer_user_id),status:row.status,
       checkedInAt:row.checked_in_at,queueTicketId:row.queue_ticket_id,pendingExpiresAt:row.pending_expires_at?.toISOString(),paymentProofObjectKey:row.payment_proof_object_key,scheduledStartAt:row.starts_at.toISOString(),scheduledEndAt:row.ends_at.toISOString(),
       bundleItems:items.map((item,index) => ({...data.bundleItems[index],id:String(item.id),scheduledStartAt:item.scheduled_start_at.toISOString(),scheduledEndAt:item.scheduled_end_at.toISOString()})) };
@@ -67,7 +68,7 @@ test('customer booking creation under real scoped PostgreSQL transaction', { ski
       CREATE TABLE store_locations(id BIGINT PRIMARY KEY,tenant_id BIGINT,UNIQUE(id,tenant_id));
       CREATE TABLE bookings(id BIGSERIAL PRIMARY KEY,tenant_id BIGINT,location_id BIGINT,
         starts_at TIMESTAMPTZ,ends_at TIMESTAMPTZ,status TEXT,customer_user_id BIGINT,
-        checked_in_at TIMESTAMPTZ,queue_ticket_id BIGINT,pending_expires_at TIMESTAMPTZ,payment_proof_object_key TEXT);
+        checked_in_at TIMESTAMPTZ,queue_ticket_id BIGINT,pending_expires_at TIMESTAMPTZ,payment_proof_object_key TEXT,payment_data JSONB NOT NULL DEFAULT '{}');
       CREATE TABLE booking_bundle_items(id BIGSERIAL PRIMARY KEY,booking_id BIGINT,price INTEGER,
         tenant_id BIGINT,location_id BIGINT,service_id BIGINT,booking_quantity INTEGER,
         scheduled_start_at TIMESTAMPTZ,scheduled_end_at TIMESTAMPTZ,sort_order INTEGER);
@@ -91,7 +92,7 @@ test('customer booking creation under real scoped PostgreSQL transaction', { ski
         findBookingById: readBooking,
         findBookingByIdForUpdate: readBooking,
         updateBooking: async (id, data, { client }) => {
-          await client.query('UPDATE bookings SET status=COALESCE($2,status),starts_at=COALESCE($3,starts_at),ends_at=COALESCE($4,ends_at) WHERE id=$1', [id,data.status,data.scheduledStartAt,data.scheduledEndAt]);
+          await client.query('UPDATE bookings SET status=COALESCE($2,status),starts_at=COALESCE($3,starts_at),ends_at=COALESCE($4,ends_at),payment_proof_object_key=COALESCE($5,payment_proof_object_key),payment_data=payment_data || $6::jsonb WHERE id=$1', [id,data.status,data.scheduledStartAt,data.scheduledEndAt,data.paymentProofObjectKey,JSON.stringify(data)]);
           return { ...await readBooking(id,{client}), ...data };
         },
         createBooking: async (data, { client }) => {
@@ -121,15 +122,16 @@ test('customer booking creation under real scoped PostgreSQL transaction', { ski
         await client.query('INSERT INTO allowances VALUES($1)',[data.subjectId]);
         if (allowanceFails) throw new Error('Allowance failed');
       } },
+      './paymentProofStorageService': { assertUploadMetadata:() => {}, assertObjectKeyBelongsToBooking:(_booking,key) => key },
       './notificationService': { sendEmail:noop,sendSms:noop },
-      './pushNotificationService': { notifyVendorBookingIntake:async () => { notified++; }, notifyCustomerBookingUpdate:async () => { cancelled++; } }
+      './pushNotificationService': { notifyVendorPaymentProofReview:async () => { proofNotified++; }, notifyVendorBookingIntake:async () => { notified++; }, notifyCustomerBookingUpdate:async () => { cancelled++; } }
     });
     bookingService._setQueueServiceForTest({ publishSnapshot:noop });
     async function reset() {
       await pool.query('TRUNCATE bookings,booking_bundle_items,allowances,resource_ledger_scopes,resource_ledger_commands,resource_ledger_reservations,resource_allocations,service_resource_requirements,location_resource_pools RESTART IDENTITY CASCADE');
       await pool.query('UPDATE users SET deletion_requested_at=NULL');
       allowanceFails = lockedCatalogChanged = lockedAvailabilityChanged = lockedTenantRevoked = lockedLocationRevoked = false;
-      notified = cancelled = 0;
+      notified = cancelled = proofNotified = 0;
       savedBookings.clear();
       await pool.query("UPDATE tenant_memberships SET role='owner',is_active=TRUE; UPDATE users SET platform_access_suspended_at=NULL");
       ordinaryCapacity = 1; changedLockedOwner = false; catalogSlugRenamed = false;
@@ -143,6 +145,102 @@ test('customer booking creation under real scoped PostgreSQL transaction', { ski
     async function count(table) {
       return (await pool.query(`SELECT COUNT(*)::int AS count FROM ${table}`)).rows[0].count;
     }
+    const proofBody = { paymentReference:'PAY-1',objectKey:'proof-1',contentType:'image/png',sizeBytes:100,fileName:'proof.png' };
+    async function proofBooking(enabled = true) {
+      await reset(); await configureResources(enabled);
+      const booking = await bookingService.createCustomerBooking({user,body});
+      savedBookings.get(booking._id).serviceManualPaymentRequired = true;
+      return booking;
+    }
+    const submitProof = booking => bookingService.submitCustomerPaymentProof({user,bookingId:booking._id,body:proofBody});
+    const verifyProof = booking => bookingService.verifyVendorBookingPayment({tenant,bookingId:booking._id,user:{_id:'2'}});
+    const rejectProof = booking => bookingService.rejectVendorBookingPayment({tenant,bookingId:booking._id,user:{_id:'2'},reason:'Unclear receipt'});
+    const revision = async () => (await pool.query('SELECT revision::text FROM resource_ledger_scopes')).rows[0].revision;
+    await t.test('concurrent proof submissions commit once and preserve frozen protection', async () => {
+      const booking = await proofBooking();
+      const binding = (await pool.query('SELECT * FROM resource_ledger_reservations')).rows[0];
+      const outcomes = await Promise.allSettled([submitProof(booking),submitProof(booking)]);
+      assert.equal(outcomes.filter(value => value.status === 'fulfilled').length,1);
+      assert.equal(outcomes.find(value => value.status === 'rejected').reason.statusCode,409);
+      assert.deepEqual((await pool.query('SELECT * FROM resource_ledger_reservations')).rows[0],binding);
+      assert.equal((await readBooking(booking._id)).paymentStatus,'pending');
+      assert.equal(await revision(),'4'); assert.equal(proofNotified,1);
+    });
+    await t.test('proof submission rechecks expiry, ownership, arrival and suspension without notifying', async () => {
+      for (const scenario of ['expired','owner','arrival','suspended']) {
+        const booking = await proofBooking();
+        if (scenario === 'expired') await pool.query("UPDATE bookings SET pending_expires_at=clock_timestamp()-interval '1 second'");
+        if (scenario === 'owner') changedLockedOwner = true;
+        if (scenario === 'arrival') await pool.query('UPDATE bookings SET checked_in_at=clock_timestamp()');
+        if (scenario === 'suspended') await pool.query('UPDATE users SET platform_access_suspended_at=clock_timestamp() WHERE id=1');
+        await assert.rejects(submitProof(booking),{statusCode:scenario === 'owner' ? 404 : scenario === 'suspended' ? 403 : 409});
+        assert.equal((await readBooking(booking._id)).paymentProofObjectKey,null);
+        assert.equal(await revision(),'3'); assert.equal(proofNotified,0);
+      }
+    });
+    await t.test('verification preserves pending booking and immutable demand after configuration edits', async () => {
+      const booking = await proofBooking(); await submitProof(booking);
+      await pool.query('UPDATE service_resource_requirements SET units_required=4,revision=2; UPDATE location_resource_pools SET revision=2,tracking_enabled=FALSE');
+      const verified = await verifyProof(booking);
+      assert.equal(verified.status,'pending'); assert.equal(verified.paymentStatus,'paid'); assert.equal(verified.paymentVerifiedByUserId,'2');
+      assert.deepEqual((await pool.query('SELECT state,units,pool_revision FROM resource_ledger_reservations')).rows[0],{state:'protected',units:1,pool_revision:1});
+      await assert.rejects(rejectProof(booking),{statusCode:409});
+      assert.equal(await revision(),'5'); assert.equal(cancelled,1);
+    });
+    await t.test('verification and rejection serialize with only one terminal payment decision', async () => {
+      const booking = await proofBooking(); await submitProof(booking);
+      const outcomes = await Promise.allSettled([verifyProof(booking),rejectProof(booking)]);
+      assert.equal(outcomes.filter(value => value.status === 'fulfilled').length,1);
+      assert.equal(outcomes.find(value => value.status === 'rejected').reason.statusCode,409);
+      const current = await readBooking(booking._id);
+      const binding = (await pool.query('SELECT state FROM resource_ledger_reservations')).rows[0];
+      assert.equal(binding.state,current.paymentStatus === 'paid' ? 'protected' : 'cancelled');
+      assert.equal(cancelled,1);
+    });
+    await t.test('rejection atomically cancels protection even when tracking was disabled', async () => {
+      const booking = await proofBooking(); await submitProof(booking);
+      await pool.query('UPDATE location_resource_pools SET tracking_enabled=FALSE');
+      await rejectProof(booking);
+      const current = await readBooking(booking._id);
+      assert.equal(current.status,'canceled'); assert.equal(current.paymentStatus,'failed'); assert.equal(current.paymentRejectionReason,'Unclear receipt');
+      assert.equal((await pool.query('SELECT state FROM resource_ledger_reservations')).rows[0].state,'cancelled');
+      assert.equal(cancelled,1);
+    });
+    await t.test('ledger failure rolls back rejection, payment audit, receipt and notification', async () => {
+      const booking = await proofBooking(); await submitProof(booking);
+      const before = await revision();
+      await pool.query(`CREATE FUNCTION reject_payment_cancel() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'forced proof cancel failure'; END $$;
+        CREATE TRIGGER reject_payment_cancel BEFORE UPDATE ON resource_ledger_reservations FOR EACH ROW EXECUTE FUNCTION reject_payment_cancel()`);
+      try {
+        await assert.rejects(rejectProof(booking),/forced proof cancel failure/);
+        const current = await readBooking(booking._id);
+        assert.equal(current.status,'pending'); assert.equal(current.paymentStatus,'pending'); assert.equal(current.paymentRejectedAt,undefined);
+        assert.equal(await revision(),before); assert.equal(await count('resource_ledger_commands'),1); assert.equal(cancelled,0);
+      } finally { await pool.query('DROP TRIGGER reject_payment_cancel ON resource_ledger_reservations; DROP FUNCTION reject_payment_cancel()'); }
+    });
+    await t.test('payment review fails closed for revoked vendor and converted protection', async () => {
+      for (const scenario of ['revoked','converted']) {
+        const booking = await proofBooking(); await submitProof(booking);
+        if (scenario === 'revoked') await pool.query('UPDATE tenant_memberships SET is_active=FALSE');
+        else await pool.query("UPDATE resource_ledger_reservations SET state='converted'");
+        for (const action of [verifyProof,rejectProof]) await assert.rejects(action(booking),{statusCode:scenario === 'revoked' ? 403 : 409});
+        assert.equal((await readBooking(booking._id)).paymentStatus,'pending'); assert.equal(cancelled,0);
+      }
+    });
+    await t.test('missing or converted protection rolls back proof fields and revision', async () => {
+      for (const state of ['cancelled','converted']) {
+        const booking = await proofBooking(); const before = await revision();
+        await pool.query('UPDATE resource_ledger_reservations SET state=$1',[state]);
+        await assert.rejects(submitProof(booking),{statusCode:409});
+        assert.equal((await readBooking(booking._id)).paymentProofObjectKey,null);
+        assert.equal(await revision(),before); assert.equal(proofNotified,0);
+      }
+    });
+    await t.test('ordinary booking proof and verification create no reservation', async () => {
+      const booking = await proofBooking(false); await submitProof(booking); await verifyProof(booking);
+      assert.equal(await count('resource_ledger_reservations'),0); assert.equal(await count('resource_ledger_commands'),0);
+      assert.equal((await readBooking(booking._id)).paymentStatus,'paid');
+    });
     await t.test('disabled draft pool preserves quantity bookings and creates no binding or receipt', async () => {
       await reset(); await configureResources(false); catalog.allowBookingQuantity = true; body.bookingQuantity = 2;
       const created = await bookingService.createCustomerBooking({user,body});
