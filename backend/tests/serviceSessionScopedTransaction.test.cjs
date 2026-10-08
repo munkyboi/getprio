@@ -33,7 +33,7 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
   const {Pool}=require('pg');
   const pool=new Pool({connectionString:databaseUrl,options:`-c search_path=${schema}`,application_name:schema,max:8});
   const tenant={_id:'1'}; const location={_id:'10'};
-  let failEvent=false; let failBooking=false; let failWebhook=false; let failReconciliation=false; let snapshots=0; let pushes=0; let failAllowance=false;
+  let failEvent=false; let failBooking=false; let failWebhook=false; let failReconciliation=false; let snapshots=0; let pushes=0; let failAllowance=false; let dueRead=0; let dayReads=0;
   const noop=async () => {};
   async function readTicket(id,{client=pool}={}) {
     const r=(await client.query('SELECT * FROM tickets WHERE id=$1',[id])).rows[0];
@@ -133,7 +133,7 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
         INSERT INTO vendor_services VALUES(1000,1,'Court play',60,TRUE); INSERT INTO location_services VALUES(1000,1,10,TRUE);
         INSERT INTO store_hours(location_id,weekday,opens_at,closes_at,is_closed) SELECT 10,n,'00:00','00:00',FALSE FROM generate_series(0,6) n`);
       await pool.query('INSERT INTO location_resource_pools(id,tenant_id,location_id,capacity,revision,tracking_enabled) VALUES(100,1,10,$1,1,$2)',[capacity,enabled]);
-      failEvent=false; failBooking=false; failWebhook=false; failReconciliation=false; snapshots=0; pushes=0; failAllowance=false; queueClosed=false;
+      failEvent=false; failBooking=false; failWebhook=false; failReconciliation=false; snapshots=0; pushes=0; failAllowance=false; dueRead=0; dayReads=0; queueClosed=false;
       delete location.queueLifecycleMode;
     }
     async function ticket(id,{plan=true,booking=false,channel='vendor'}={}) {
@@ -186,7 +186,9 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
         getAuthoritativeQueueDay:async (_tenant,_location,{client}) => {
           assert.ok(client);
           const row=(await client.query('SELECT * FROM queue_day_state')).rows[0];
-          return row.state==='open' ? {_id:'999',businessDate:'2026-10-08',currentClosesAt:row.closes_at,intakeMode:row.intake_mode,state:row.state} : null;
+          dayReads++;
+          const closesAt=dueRead && dayReads<dueRead ? new Date(Date.now()+60000) : row.closes_at;
+          return row.state==='open' ? {_id:'999',businessDate:'2026-10-08',currentClosesAt:closesAt,intakeMode:row.intake_mode,state:row.state} : null;
         },
         closeLockedQueueDay:async client => {
           await client.query("UPDATE queue_day_state SET state='closed'; UPDATE tickets SET status='unserved'; UPDATE bookings SET status='unfulfilled'");
@@ -887,6 +889,40 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
       assert.equal(await count('lifecycle_notifications'),1); assert.equal(await count('tickets'),0);
       await assert.rejects(walkin(),{code:'QUEUE_DAY_UNOPENED'});
       assert.equal(await count('lifecycle_notifications'),1);
+    });
+    await t.test('expiry between initial open-day and later intake checks commits closure after discarding the requested action',async () => {
+      for(const read of [2,3]) {
+        await reset(); dueRead=read;
+        await ticket('1',{booking:true}); await record('1','start');
+        await pool.query("UPDATE store_locations SET queue_lifecycle_mode='enforced' WHERE id=10");
+        const revision=(await pool.query('SELECT revision::text FROM resource_ledger_scopes')).rows[0].revision;
+        // Controlled Queue Day lookup models the deadline passing between reads.
+        // On the third-read case, a transactional fixture writes during admission;
+        // savepoint rollback must remove it before closure can commit.
+        const raced=loadService({...queueMocks,
+          '../repositories/tickets':{...queueMocks['../repositories/tickets'],createTicket:realTickets.createTicket,listWaitingTickets:realTickets.listWaitingTickets},
+          './storeHoursService':{assertLocationOpenForCustomerJoin:async (selected,options) => {
+            await hours.assertLocationOpenForCustomerJoin(selected,options);
+            await options.client.query("INSERT INTO allowance_audit VALUES(99999,'admission-fixture')");
+          }}
+        },'queueService');
+        await assert.rejects(raced.createTicket({tenant,location,actorUserId:'1',joinChannel:'vendor',customerName:'Walk in',serviceId:'1000'}),{code:'QUEUE_DAY_OVERDUE'});
+        assert.equal((await pool.query('SELECT state FROM queue_day_state')).rows[0].state,'closed');
+        assert.equal(await count('tickets'),1); assert.equal((await readTicket('1')).status,'unserved');
+        assert.equal(await count('lifecycle_notifications'),1); assert.equal(await count('allowance_audit'),0); assert.equal(await count('counters'),0);
+        assert.equal((await pool.query("SELECT count(*)::int AS n FROM events WHERE event_type='ticket_created'")).rows[0].n,0);
+        assert.equal((await pool.query('SELECT revision::text FROM resource_ledger_scopes')).rows[0].revision,String(BigInt(revision)+1n));
+        assert.equal((await pool.query('SELECT released_at FROM resource_allocations')).rows[0].released_at,null);
+        const after=(await pool.query('SELECT revision::text FROM resource_ledger_scopes')).rows[0].revision;
+        await assert.rejects(walkin(),{code:'QUEUE_DAY_UNOPENED'});
+        assert.equal(await count('lifecycle_notifications'),1);
+        assert.equal((await pool.query('SELECT revision::text FROM resource_ledger_scopes')).rows[0].revision,after);
+      }
+      await reset(); dueRead=2; failReconciliation=true;
+      await pool.query("UPDATE store_locations SET queue_lifecycle_mode='enforced' WHERE id=10");
+      await assert.rejects(walkin(),/closure failed/);
+      assert.equal((await pool.query('SELECT state FROM queue_day_state')).rows[0].state,'open');
+      for(const table of ['tickets','events','lifecycle_notifications','allowance_audit','resource_ledger_scopes']) assert.equal(await count(table),0,table);
     });
   } finally {await pool.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`); await pool.end();}
 });

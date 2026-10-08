@@ -566,6 +566,35 @@ async function createTicketForTenantInTransaction(client, {
   return ticket;
 }
 
+async function reconcileOverdueVendorQueue(client, tenant, location, queueDateKey) {
+  try {
+    await assertQueueDayOpen(tenant, location, { client, queueDateKey });
+    return null;
+  } catch (error) {
+    if (error.code !== "QUEUE_DAY_OVERDUE") throw error;
+    await client.query("UPDATE resource_ledger_scopes SET revision=revision+1 WHERE tenant_id=$1 AND location_id=$2", [tenant._id, location._id]);
+    return error;
+  }
+}
+
+async function executeOpenVendorQueueAction(client, tenant, scope, callback) {
+  await client.query("SAVEPOINT vendor_queue_action");
+  let outcome;
+  try {
+    outcome = await callback(client, scope);
+  } catch (error) {
+    if (error.code !== "QUEUE_DAY_OVERDUE") throw error;
+    // Discard the requested action before committing lifecycle reconciliation.
+    await client.query("ROLLBACK TO SAVEPOINT vendor_queue_action");
+    await client.query("RELEASE SAVEPOINT vendor_queue_action");
+    const overdueError = await reconcileOverdueVendorQueue(client, tenant, scope.location, scope.requestedDateKey);
+    if (!overdueError) throw error;
+    return { overdueError };
+  }
+  await client.query("RELEASE SAVEPOINT vendor_queue_action");
+  return { outcome };
+}
+
 async function withOpenVendorQueueTransaction(tenant, location, options, permission, callback) {
   let overdueError;
   const result = await withVendorQueueTransaction({ pool: db.pool, tenant, location, actorUserId: options.actorUserId, permission }, async (client) => {
@@ -587,7 +616,12 @@ async function withOpenVendorQueueTransaction(tenant, location, options, permiss
     }
     const dateKey = options.queueDateKey || (queueDay?.businessDate
       ? String(queueDay.businessDate).replaceAll("-", "") : requestedDateKey);
-    const outcome = await callback(client, { location: currentLocation, dateKey, queueDay });
+    const action = await executeOpenVendorQueueAction(client, tenant, { location: currentLocation, dateKey, queueDay, requestedDateKey }, callback);
+    if (action.overdueError) {
+      overdueError = action.overdueError;
+      return null;
+    }
+    const outcome = action.outcome;
     if (outcome?.changed) await client.query("UPDATE resource_ledger_scopes SET revision=revision+1 WHERE tenant_id=$1 AND location_id=$2", [tenant._id, location._id]);
     return outcome;
   });
