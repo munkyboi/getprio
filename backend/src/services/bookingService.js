@@ -1329,9 +1329,6 @@ async function uploadCustomerPaymentProofDirect({ user, bookingId, body, fileBuf
 }
 
 async function submitCustomerPaymentProof({ user, bookingId, body }) {
-  const booking = await getCustomerOwnedBooking({ user, bookingId });
-  assertBookingCanAcceptPaymentProof(booking);
-
   const paymentReference = String(body.paymentReference || "").trim();
   if (!paymentReference) {
     const error = new Error("paymentReference is required.");
@@ -1342,20 +1339,27 @@ async function submitCustomerPaymentProof({ user, bookingId, body }) {
   const contentType = String(body.contentType || "").toLowerCase();
   const sizeBytes = Number(body.sizeBytes || 0);
   paymentProofStorageService.assertUploadMetadata({ contentType, sizeBytes });
-  const objectKey = paymentProofStorageService.assertObjectKeyBelongsToBooking(
-    booking,
-    body.objectKey
-  );
+  const updated = await withCustomerBookingTransaction({ user, bookingId }, async ({ client, booking }) => {
+    assertBookingCanAcceptPaymentProof(booking);
+    assertPendingBookingNotExpired(booking);
+    const objectKey = paymentProofStorageService.assertObjectKeyBelongsToBooking(
+      booking,
+      body.objectKey
+    );
 
-  const updated = await bookingRepository.updateBooking(booking._id, {
-    paymentReference,
-    paymentStatus: "pending",
-    paymentProofObjectKey: objectKey,
-    paymentProofFileName: String(body.fileName || "payment-proof").trim().slice(0, 160),
-    paymentProofContentType: contentType,
-    paymentProofSizeBytes: sizeBytes,
-    paymentProofUploadedAt: new Date().toISOString()
-  }, { requireUnarrived: true });
+    const updated = await bookingRepository.updateBooking(booking._id, {
+      paymentReference,
+      paymentStatus: "pending",
+      paymentProofObjectKey: objectKey,
+      paymentProofFileName: String(body.fileName || "payment-proof").trim().slice(0, 160),
+      paymentProofContentType: contentType,
+      paymentProofSizeBytes: sizeBytes,
+      paymentProofUploadedAt: new Date().toISOString()
+    }, { client, requireUnarrived: true });
+    await bookingResourceReservationService.assertBookingReservationCurrent({ client, booking });
+    await advanceBookingScope(client, booking);
+    return updated;
+  });
 
   const tenant = await tenantRepository.findTenantBySlug(updated.tenantSlug);
   const location = tenant
@@ -1487,29 +1491,32 @@ function assertVendorCanReviewBookingPayment(booking, tenant) {
 }
 
 async function verifyVendorBookingPayment({ tenant, bookingId, user }) {
-  await expirePendingBookingsForTenant(tenant._id);
-  const booking = await bookingRepository.findBookingById(bookingId);
-  assertVendorCanReviewBookingPayment(booking, tenant);
+  const updated = await withVendorBookingTransaction({ tenant, bookingId, user }, async ({ client, booking }) => {
+    assertVendorCanReviewBookingPayment(booking, tenant);
 
-  if (booking.paymentStatus === "paid" || booking.paymentVerifiedAt) {
-    const error = new Error("Payment evidence has already been verified.");
-    error.statusCode = 409;
-    throw error;
-  }
+    if (booking.paymentStatus === "paid" || booking.paymentVerifiedAt) {
+      const error = new Error("Payment evidence has already been verified.");
+      error.statusCode = 409;
+      throw error;
+    }
 
-  if (booking.paymentStatus !== "pending") {
-    const error = new Error("Only pending payment evidence can be verified.");
-    error.statusCode = 409;
-    throw error;
-  }
+    if (booking.paymentStatus !== "pending") {
+      const error = new Error("Only pending payment evidence can be verified.");
+      error.statusCode = 409;
+      throw error;
+    }
 
-  const updated = await bookingRepository.updateBooking(booking._id, {
-    paymentStatus: "paid",
-    paymentVerifiedAt: new Date().toISOString(),
-    paymentVerifiedByUserId: user?._id || null,
-    paymentRejectedAt: null,
-    paymentRejectedByUserId: null,
-    paymentRejectionReason: ""
+    const updated = await bookingRepository.updateBooking(booking._id, {
+      paymentStatus: "paid",
+      paymentVerifiedAt: new Date().toISOString(),
+      paymentVerifiedByUserId: user?._id || null,
+      paymentRejectedAt: null,
+      paymentRejectedByUserId: null,
+      paymentRejectionReason: ""
+    }, { client, requireUnarrived: true });
+    await bookingResourceReservationService.assertBookingReservationCurrent({ client, booking });
+    await advanceBookingScope(client, booking);
+    return updated;
   });
 
   pushNotificationService.notifyCustomerBookingUpdate({
@@ -1523,16 +1530,6 @@ async function verifyVendorBookingPayment({ tenant, bookingId, user }) {
 }
 
 async function rejectVendorBookingPayment({ tenant, bookingId, user, reason }) {
-  await expirePendingBookingsForTenant(tenant._id);
-  const booking = await bookingRepository.findBookingById(bookingId);
-  assertVendorCanReviewBookingPayment(booking, tenant);
-
-  if (booking.paymentRejectedAt || booking.paymentStatus === "failed") {
-    const error = new Error("Payment evidence has already been rejected.");
-    error.statusCode = 409;
-    throw error;
-  }
-
   const paymentRejectionReason = String(reason || "").trim();
   if (!paymentRejectionReason) {
     const error = new Error("A customer-visible rejection reason is required.");
@@ -1540,13 +1537,31 @@ async function rejectVendorBookingPayment({ tenant, bookingId, user, reason }) {
     throw error;
   }
 
-  const updated = await bookingRepository.updateBooking(booking._id, {
-    status: "canceled",
-    paymentStatus: "failed",
-    paymentRejectedAt: new Date().toISOString(),
-    paymentRejectedByUserId: user?._id || null,
-    paymentRejectionReason
-  }, { requireUnarrived: true });
+  const updated = await withVendorBookingTransaction({ tenant, bookingId, user }, async ({ client, ledger, booking }) => {
+    assertVendorCanReviewBookingPayment(booking, tenant);
+
+    if (booking.paymentRejectedAt || booking.paymentStatus === "failed") {
+      const error = new Error("Payment evidence has already been rejected.");
+      error.statusCode = 409;
+      throw error;
+    }
+
+    if (booking.paymentStatus !== "pending" || booking.paymentVerifiedAt) {
+      const error = new Error("Only pending payment evidence can be rejected.");
+      error.statusCode = 409;
+      throw error;
+    }
+    const updated = await bookingRepository.updateBooking(booking._id, {
+      status: "canceled",
+      paymentStatus: "failed",
+      paymentRejectedAt: new Date().toISOString(),
+      paymentRejectedByUserId: user?._id || null,
+      paymentRejectionReason
+    }, { client, requireUnarrived: true });
+    await bookingResourceReservationService.cancelBookingReservations({ client, ledger, booking });
+    await advanceBookingScope(client, booking);
+    return updated;
+  });
 
   const message = `${updated.tenantName}: Payment evidence for booking ${updated.reference} was rejected. ${paymentRejectionReason}`;
   if (updated.customerEmail) {
@@ -1574,7 +1589,7 @@ async function rejectVendorBookingPayment({ tenant, bookingId, user, reason }) {
   return updated;
 }
 
-async function cancelCustomerBooking({ user, bookingId, reason }) {
+async function withCustomerBookingTransaction({ user, bookingId }, callback) {
   const booking = await bookingRepository.findBookingById(bookingId);
   if (!booking || String(booking.customerUserId) !== String(user._id)) {
     const error = new Error("Booking not found.");
@@ -1584,13 +1599,13 @@ async function cancelCustomerBooking({ user, bookingId, reason }) {
 
   assertCustomerBookingCancellable(booking);
 
-  const updated = await resourceLedger.withScopeTransaction({
+  return resourceLedger.withScopeTransaction({
     pool: db.pool,
     tenantId: String(booking.tenantId),
     locationId: String(booking.locationId),
     actorUserId: String(user._id),
     authorize: async (client, scope) => {
-      const actor = await client.query("SELECT id FROM users WHERE id=$1 AND deletion_requested_at IS NULL", [scope.actorUserId]);
+      const actor = await client.query("SELECT id FROM users WHERE id=$1 AND deletion_requested_at IS NULL AND platform_access_suspended_at IS NULL", [scope.actorUserId]);
       return actor.rows.length === 1;
     }
   }, async (client, ledger) => {
@@ -1601,6 +1616,12 @@ async function cancelCustomerBooking({ user, bookingId, reason }) {
       error.statusCode = 404;
       throw error;
     }
+    return callback({ client, ledger, booking: current });
+  });
+}
+
+async function cancelCustomerBooking({ user, bookingId, reason }) {
+  const updated = await withCustomerBookingTransaction({ user, bookingId }, async ({ client, ledger, booking: current }) => {
     assertCustomerBookingCancellable(current);
     const result = await bookingRepository.updateBooking(current._id, {
       status: "canceled",
