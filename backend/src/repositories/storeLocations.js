@@ -186,7 +186,7 @@ async function findLocationById(id, options = {}) {
   const queryClient = buildQueryClient(options.client);
   const result = await queryClient.query(
     `SELECT ${LOCATION_COLUMNS} FROM store_locations WHERE id = $1 LIMIT 1`,
-    [Number(id)]
+    [id]
   );
 
   return mapLocation(result.rows[0]);

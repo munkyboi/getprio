@@ -1518,7 +1518,7 @@ test("vendor check-in creates a checked-in booking queue ticket and links it onc
     const booking = buildVendorBooking();
     const bookingService = buildBookingService({
       availability: { blocks: [], exceptions: [] },
-      findBookingByIdForUpdate: async () => booking,
+      findBookingById: async () => booking,
       updateBooking: async (_bookingId, data) => {
         calls.updatedBooking = data;
         return {
@@ -1574,7 +1574,7 @@ test("vendor check-in creates a checked-in booking queue ticket and links it onc
 test("vendor check-in rejects duplicate linked bookings", async () => {
   const bookingService = buildBookingService({
     availability: { blocks: [], exceptions: [] },
-    findBookingByIdForUpdate: async () => buildVendorBooking({
+    findBookingById: async () => buildVendorBooking({
       queueTicketId: "ticket-1",
       checkedInAt: new Date().toISOString()
     })
@@ -1595,7 +1595,7 @@ test("vendor check-in rejects duplicate linked bookings", async () => {
 test("vendor check-in requires late override outside the check-in window", async () => {
   const bookingService = buildBookingService({
     availability: { blocks: [], exceptions: [] },
-    findBookingByIdForUpdate: async () => buildVendorBooking({
+    findBookingById: async () => buildVendorBooking({
       scheduledStartAt: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
       scheduledEndAt: new Date(Date.now() + 30 * 60 * 1000).toISOString()
     })

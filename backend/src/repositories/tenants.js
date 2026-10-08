@@ -138,7 +138,7 @@ async function findTenantById(id, options = {}) {
   const queryClient = buildQueryClient(options.client);
   const result = await queryClient.query(
     `SELECT ${TENANT_COLUMNS} FROM tenants WHERE id = $1 LIMIT 1`,
-    [Number(id)]
+    [id]
   );
 
   return mapTenant(result.rows[0]);

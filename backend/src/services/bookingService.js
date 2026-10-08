@@ -1407,7 +1407,7 @@ async function createVendorPaymentProofAccess({ tenant, bookingId }) {
   return paymentProofStorageService.createViewAccess({ booking });
 }
 
-async function withVendorBookingTransaction({ tenant, location, bookingId, user, permission = "tenant.booking.manage" }, callback) {
+async function withVendorBookingTransaction({ tenant, location, bookingId, user, permission = "tenant.booking.manage", validateUnarrived = true }, callback) {
   const initial = await bookingRepository.findBookingById(bookingId);
   assertBookingBelongsToTenantLocation(initial, tenant, location);
   return resourceLedger.withScopeTransaction({
@@ -1431,7 +1431,7 @@ async function withVendorBookingTransaction({ tenant, location, bookingId, user,
   }, async (client, ledger) => {
     const current = await bookingRepository.findBookingByIdForUpdate(initial._id, { client });
     assertBookingBelongsToTenantLocation(current, tenant, { _id: initial.locationId });
-    assertCustomerBookingCancellable(current);
+    if (validateUnarrived) assertCustomerBookingCancellable(current);
     return callback({ client, ledger, booking: current });
   });
 }
@@ -1609,7 +1609,7 @@ async function rejectVendorBookingPayment({ tenant, bookingId, user, reason }) {
   return updated;
 }
 
-async function withCustomerBookingTransaction({ user, bookingId }, callback) {
+async function withCustomerBookingTransaction({ user, bookingId, validateUnarrived = true }, callback) {
   const booking = await bookingRepository.findBookingById(bookingId);
   if (!booking || String(booking.customerUserId) !== String(user._id)) {
     const error = new Error("Booking not found.");
@@ -1617,7 +1617,7 @@ async function withCustomerBookingTransaction({ user, bookingId }, callback) {
     throw error;
   }
 
-  assertCustomerBookingCancellable(booking);
+  if (validateUnarrived) assertCustomerBookingCancellable(booking);
 
   return resourceLedger.withScopeTransaction({
     pool: db.pool,
@@ -1773,11 +1773,18 @@ async function checkInVendorBooking(options) {
 }
 
 async function checkInBooking({ tenant, location, bookingId, user, overrideWindow, overrideReason, customerArrival = false }) {
-  await expirePendingBookingsForTenant(tenant._id);
   const queueService = getQueueService();
-  const result = await db.withTransaction(async (client) => {
-    const booking = await bookingRepository.findBookingByIdForUpdate(bookingId, { client });
+  const checkIn = async ({ client, booking }) => {
     assertBookingBelongsToTenantLocation(booking, tenant, location);
+    const currentTenant = await tenantRepository.findTenantById(booking.tenantId, { client });
+    const currentLocation = await storeLocationRepository.findLocationById(booking.locationId, { client });
+    if (!currentTenant || currentTenant.isActive === false || !currentLocation?.isActive
+      || String(currentTenant._id) !== String(booking.tenantId) || String(currentLocation._id) !== String(booking.locationId)
+      || String(currentLocation.tenantId) !== String(booking.tenantId)) {
+      const error = new Error("This booking location is no longer available for check-in."); error.statusCode = 409; throw error;
+    }
+    tenant = currentTenant;
+    location = currentLocation;
     if (customerArrival) {
       // Recheck ownership under the same lock used by staff check-in.
       if (!user?._id || String(booking.customerUserId) !== String(user._id)) {
@@ -1794,7 +1801,6 @@ async function checkInBooking({ tenant, location, bookingId, user, overrideWindo
           status: booking.queueTicketStatus
         }, alreadyCheckedIn: true };
       }
-      const currentLocation = await storeLocationRepository.findLocationById(location._id, { client });
       if (!currentLocation?.isActive || currentLocation.customerSelfCheckInEnabled !== true) {
         const error = new Error("This branch requires staff check-in. Ask the vendor to confirm your arrival.");
         error.statusCode = 409;
@@ -1833,6 +1839,7 @@ async function checkInBooking({ tenant, location, bookingId, user, overrideWindo
       throw error;
     }
 
+    await bookingResourceReservationService.assertBookingReservationCurrent({ client, booking });
     await queueService.assertQueueIntakeOpen(tenant, location, { client });
     const ticket = await queueService.createTicketForTenantInTransaction(client, {
       tenant,
@@ -1862,11 +1869,15 @@ async function checkInBooking({ tenant, location, bookingId, user, overrideWindo
         checkedInAt: new Date().toISOString(),
         checkedInByUserId: user?._id || null
       },
-      { client }
+      { client, requireUnarrived: true }
     );
-
+    await advanceBookingScope(client, booking);
     return { booking: updatedBooking, ticket };
-  });
+  };
+  const result = customerArrival
+    ? await withCustomerBookingTransaction({ user, bookingId, validateUnarrived: false }, checkIn)
+    : await withVendorBookingTransaction({ tenant, location, bookingId, user,
+      permission: "tenant.queue.operate", validateUnarrived: false }, checkIn);
 
   if (result.alreadyCheckedIn) {
     return { booking: result.booking, ticket: buildLinkedQueueTicketSummary(result.ticket) };
