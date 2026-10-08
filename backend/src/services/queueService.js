@@ -545,16 +545,53 @@ async function createTicketForTenantInTransaction(client, {
   return ticket;
 }
 
+async function withOpenVendorQueueTransaction(tenant, location, options, permission, callback) {
+  let overdueError;
+  const result = await withVendorQueueTransaction({ pool: db.pool, tenant, location, actorUserId: options.actorUserId, permission }, async (client) => {
+    const branch = (await client.query(`SELECT l.is_active,l.queue_lifecycle_mode,l.timezone,t.is_active AS tenant_active
+      FROM store_locations l JOIN tenants t ON t.id=l.tenant_id WHERE l.id=$1 AND l.tenant_id=$2`, [location._id, tenant._id])).rows[0];
+    if (!branch?.is_active || !branch.tenant_active) {
+      throw Object.assign(new Error("This business or location is inactive."), { statusCode: 409 });
+    }
+    const currentLocation = { ...location, queueLifecycleMode: branch.queue_lifecycle_mode || "legacy", timezone: branch.timezone || "Asia/Manila" };
+    const requestedDateKey = options.queueDateKey || getDateKey(new Date(), currentLocation.timezone);
+    let queueDay;
+    try {
+      queueDay = await assertQueueDayOpen(tenant, currentLocation, { client, queueDateKey: requestedDateKey });
+    } catch (error) {
+      if (error.code !== "QUEUE_DAY_OVERDUE") throw error;
+      overdueError = error;
+      await client.query("UPDATE resource_ledger_scopes SET revision=revision+1 WHERE tenant_id=$1 AND location_id=$2", [tenant._id, location._id]);
+      return null;
+    }
+    const dateKey = options.queueDateKey || (queueDay?.businessDate
+      ? String(queueDay.businessDate).replaceAll("-", "") : requestedDateKey);
+    const outcome = await callback(client, { location: currentLocation, dateKey });
+    if (outcome?.changed) await client.query("UPDATE resource_ledger_scopes SET revision=revision+1 WHERE tenant_id=$1 AND location_id=$2", [tenant._id, location._id]);
+    return outcome;
+  });
+  if (overdueError) throw overdueError;
+  return result;
+}
+
 async function callNextTicket(tenant, options = {}) {
-  const location = await resolveLocation(tenant, options);
-  const activeQueueDay = await assertQueueDayOpen(tenant, location);
-  const dateKey = options.queueDateKey
-    || (activeQueueDay?.businessDate
-      ? String(activeQueueDay.businessDate).replaceAll("-", "")
-      : getDateKey(new Date(), location.timezone));
-  const ticket = await db.withTransaction(async (client) => {
+  let location = await resolveLocation(tenant, options);
+  let dateKey;
+  const result = await withOpenVendorQueueTransaction(tenant, location, options, "tenant.queue.operate", async (client, scope) => {
+    location = scope.location;
+    dateKey = scope.dateKey;
+    if (options.serviceCounter) {
+      const id = String(options.serviceCounter._id);
+      if (!/^[1-9]\d*$/u.test(id) || !Number.isSafeInteger(Number(id))) {
+        throw Object.assign(new Error("Counter not found."), { statusCode: 404 });
+      }
+      const counter = await client.query(`SELECT id FROM service_counters
+        WHERE id=$1 AND tenant_id=$2 AND location_id=$3 AND is_active=TRUE FOR SHARE`, [id, tenant._id, location._id]);
+      if (!counter.rows.length) throw Object.assign(new Error("Counter not found."), { statusCode: 404 });
+    }
     const activeTicket = await ticketRepository.findCurrentCalledTicket(tenant._id, {
       client,
+      forUpdate: true,
       locationId: location?._id,
       dateKey
     });
@@ -611,9 +648,9 @@ async function callNextTicket(tenant, options = {}) {
       });
     }
 
-    return nextTicket;
+    return { ticket: nextTicket, changed: true };
   });
-
+  const ticket = result?.ticket;
   if (!ticket) {
     return null;
   }
@@ -769,17 +806,15 @@ async function updateCurrentTicketStatus(tenant, status, options = {}) {
 }
 
 async function confirmCurrentTicket(tenant, lookupCode, options = {}) {
-  const location = await resolveLocation(tenant, options);
-  const activeQueueDay = await assertQueueDayOpen(tenant, location);
-  const dateKey = options.queueDateKey
-    || (activeQueueDay?.businessDate
-      ? String(activeQueueDay.businessDate).replaceAll("-", "")
-      : getDateKey(new Date(), location.timezone));
+  let location = await resolveLocation(tenant, options);
   const normalizedLookupCode = String(lookupCode || "").toUpperCase();
 
-  const ticket = await db.withTransaction(async (client) => {
+  const result = await withOpenVendorQueueTransaction(tenant, location, options, "tenant.ticket.update_state", async (client, scope) => {
+    location = scope.location;
+    const dateKey = scope.dateKey;
     const currentTicket = await ticketRepository.findCurrentCalledTicket(tenant._id, {
       client,
+      forUpdate: true,
       locationId: location?._id,
       dateKey
     });
@@ -794,7 +829,7 @@ async function confirmCurrentTicket(tenant, lookupCode, options = {}) {
     }
 
     if (currentTicket.customerConfirmedAt) {
-      return currentTicket;
+      return { ticket: currentTicket, changed: false };
     }
 
     const confirmedTicket = await ticketRepository.confirmCurrentCalledTicket(
@@ -824,15 +859,15 @@ async function confirmCurrentTicket(tenant, lookupCode, options = {}) {
       metadata: { confirmationMethod: "barcode" }
     });
 
-    return confirmedTicket;
+    return { ticket: confirmedTicket, changed: true };
   });
-
+  const ticket = result?.ticket;
   if (!ticket) {
     return null;
   }
 
   const snapshot = await publishSnapshot(tenant, { location });
-  pushNotificationService.notifyCustomerQueueUpdate({
+  if (result.changed) pushNotificationService.notifyCustomerQueueUpdate({
     tenant,
     ticket,
     action: "confirmed"

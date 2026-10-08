@@ -97,7 +97,7 @@ test("tickets repository orders ready tickets first, then carry-over, recovery, 
   assert.equal(calls.length, 1);
   assert.match(
     calls[0].query.replace(/\s+/g, " "),
-    /ORDER BY CASE WHEN EXISTS \( SELECT 1 FROM bookings WHERE bookings.queue_ticket_id = tickets.id AND bookings.tenant_id = tickets.tenant_id AND bookings.location_id = tickets.location_id AND bookings.scheduled_start_at > NOW\(\) \) THEN 1 ELSE 0 END ASC, CASE service_priority_band WHEN 'carry_over' THEN 0 WHEN 'recovery' THEN 1 WHEN 'checked_in_booking' THEN 2 ELSE 3 END ASC, carry_over_count DESC, created_at ASC/
+    /ORDER BY CASE WHEN EXISTS \( SELECT 1 FROM bookings WHERE bookings.queue_ticket_id = tickets.id AND bookings.tenant_id = tickets.tenant_id AND bookings.location_id = tickets.location_id AND bookings.scheduled_start_at > clock_timestamp\(\) \) THEN 1 ELSE 0 END ASC, CASE service_priority_band WHEN 'carry_over' THEN 0 WHEN 'recovery' THEN 1 WHEN 'checked_in_booking' THEN 2 ELSE 3 END ASC, carry_over_count DESC, created_at ASC/
   );
   assert.deepEqual(calls[0].params, [1, 2, "20260606", 5]);
 });
@@ -365,7 +365,7 @@ test("tickets repository records customer confirmation without changing called s
     dateKey: "20260809"
   });
 
-  assert.match(calls[0].query, /customer_confirmed_at = COALESCE\(customer_confirmed_at, NOW\(\)\)/);
+  assert.match(calls[0].query, /customer_confirmed_at = COALESCE\(customer_confirmed_at, clock_timestamp\(\)\)/);
   assert.match(calls[0].query, /AND status = 'called'/);
   assert.doesNotMatch(calls[0].query, /SET status =/);
   assert.deepEqual(calls[0].params, [7, 1, 2, "20260809"]);

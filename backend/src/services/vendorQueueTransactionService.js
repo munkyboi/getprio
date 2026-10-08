@@ -2,7 +2,7 @@ const resourceLedger = require("../repositories/resourceLedger");
 const permissions = require("./permissions");
 const assignments = require("../repositories/tenantMembershipLocations");
 
-async function withVendorQueueTransaction({ pool, tenant, location, actorUserId }, callback) {
+async function withVendorQueueTransaction({ pool, tenant, location, actorUserId, permission = "tenant.ticket.update_state" }, callback) {
   let actorContext;
   return resourceLedger.withScopeTransaction({
     pool, tenantId: String(tenant._id), locationId: String(location._id), actorUserId: String(actorUserId),
@@ -14,7 +14,7 @@ async function withVendorQueueTransaction({ pool, tenant, location, actorUserId 
       const actor = result.rows[0];
       if (!actor) return false;
       const user = { roles: actor.roles, tenantMemberships: [{ tenantId: scope.tenantId, role: actor.role, isActive: true }] };
-      if (!permissions.userHasPermission(user, "tenant.ticket.update_state", { tenantId: scope.tenantId })) return false;
+      if (!permissions.userHasPermission(user, permission, { tenantId: scope.tenantId })) return false;
       actorContext = user;
       return actor.role !== "staff" || assignments.userHasLocationAssignment(scope.actorUserId, scope.tenantId, scope.locationId, { client });
     }

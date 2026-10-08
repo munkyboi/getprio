@@ -66,7 +66,24 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
       CREATE TABLE queue_ticket_segments(ticket_id BIGINT,ended_at TIMESTAMPTZ,segment_outcome TEXT,outcome_reason TEXT);
       CREATE TABLE queue_day_state(state TEXT);
       CREATE TABLE lifecycle_notifications(ticket_id BIGINT,status TEXT);
-      CREATE TABLE booking_audit(ticket_id BIGINT,metadata JSONB)`);
+      CREATE TABLE booking_audit(ticket_id BIGINT,metadata JSONB);
+      ALTER TABLE users ADD COLUMN display_name TEXT;
+      ALTER TABLE store_locations ADD COLUMN queue_lifecycle_mode TEXT DEFAULT 'legacy', ADD COLUMN timezone TEXT DEFAULT 'Asia/Manila';
+      ALTER TABLE bookings ADD COLUMN reference TEXT DEFAULT 'BK-1', ADD COLUMN scheduled_start_at TIMESTAMPTZ,
+        ADD COLUMN scheduled_end_at TIMESTAMPTZ, ADD COLUMN execution_mode TEXT DEFAULT 'single';
+      ALTER TABLE booking_bundle_items ADD COLUMN sort_order INTEGER DEFAULT 0;
+      ALTER TABLE tickets ADD COLUMN service_counter_id BIGINT, ADD COLUMN ticket_number TEXT,
+        ADD COLUMN sequence INTEGER, ADD COLUMN date_key TEXT DEFAULT '20261008', ADD COLUMN queue_date_key TEXT,
+        ADD COLUMN developer_project_id BIGINT, ADD COLUMN developer_environment TEXT, ADD COLUMN external_reference TEXT,
+        ADD COLUMN customer_name TEXT, ADD COLUMN notify_by_email BOOLEAN DEFAULT FALSE, ADD COLUMN notify_by_sms BOOLEAN DEFAULT FALSE,
+        ADD COLUMN notes TEXT, ADD COLUMN notified_almost_there_at TIMESTAMPTZ, ADD COLUMN notified_called_at TIMESTAMPTZ,
+        ADD COLUMN called_at TIMESTAMPTZ, ADD COLUMN skipped_at TIMESTAMPTZ, ADD COLUMN cancelled_at TIMESTAMPTZ,
+        ADD COLUMN carried_over_at TIMESTAMPTZ, ADD COLUMN carry_over_count INTEGER DEFAULT 0,
+        ADD COLUMN original_queue_day_id BIGINT, ADD COLUMN current_queue_day_id BIGINT,
+        ADD COLUMN pending_carry_over_since TIMESTAMPTZ, ADD COLUMN carry_over_expires_at TIMESTAMPTZ,
+        ADD COLUMN carry_over_consumed BOOLEAN DEFAULT FALSE, ADD COLUMN terminal_at TIMESTAMPTZ,
+        ADD COLUMN replacement_for_ticket_id BIGINT, ADD COLUMN email_journey_mode TEXT,
+        ADD COLUMN created_at TIMESTAMPTZ DEFAULT clock_timestamp()`);
     await pool.query(fs.readFileSync(path.resolve(__dirname,'../../database/migrations/20261007_add_resource_ledger_foundation.sql'),'utf8'));
     const mocks={
       '../config/db':{pool},
@@ -97,10 +114,10 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
       await pool.query(`TRUNCATE resource_ledger_commands,resource_allocations,resource_ledger_reservations,resource_ledger_scopes,
         ticket_service_plans,tickets,booking_bundle_items,bookings,service_resource_requirements,location_resource_pools,
         store_locations,tenant_membership_locations,service_counter_assignments,service_counters,tenant_memberships,tenants,users,events,webhooks,booking_audit,queue_ticket_segments,queue_day_state,lifecycle_notifications RESTART IDENTITY CASCADE`);
-      await pool.query(`INSERT INTO users VALUES(1,'{}',NULL,NULL,'owner@example.com','09171234567'),(2,'{}',NULL,NULL,'other@example.com','09179876543');
+      await pool.query(`INSERT INTO users(id,roles,deletion_requested_at,platform_access_suspended_at,email,phone) VALUES(1,'{}',NULL,NULL,'owner@example.com','09171234567'),(2,'{}',NULL,NULL,'other@example.com','09179876543');
         INSERT INTO tenants VALUES(1,TRUE),(2,TRUE);
         INSERT INTO tenant_memberships VALUES(1,1,1,'owner',TRUE),(2,2,1,'staff',TRUE);
-        INSERT INTO store_locations VALUES(10,1,TRUE,TRUE),(20,2,TRUE,TRUE);
+        INSERT INTO store_locations(id,tenant_id,is_active,service_timing_enabled) VALUES(10,1,TRUE,TRUE),(20,2,TRUE,TRUE);
         INSERT INTO service_resource_requirements VALUES(1,10,1000,100,1,1);
         INSERT INTO queue_day_state VALUES('open')`);
       await pool.query('INSERT INTO location_resource_pools VALUES(100,1,10,$1,1,$2)',[capacity,enabled]);
@@ -112,8 +129,8 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
       const item={serviceId:'1000',durationMinutes:60,resource:{known:true,poolId:'100',poolRevision:1,requirementRevision:1,unitsRequired:1}};
       if (booking) {
         const epoch=Date.now()-60000; const start=new Date(epoch).toISOString(); const end=new Date(epoch+3600000).toISOString();
-        await pool.query("INSERT INTO bookings(id,tenant_id,location_id,status,pending_expires_at,payment_proof_object_key,queue_ticket_id,customer_email,customer_phone) VALUES(1,1,10,'confirmed',NULL,NULL,$1,'owner@example.com','09171234567')",[id]);
-        await pool.query('INSERT INTO booking_bundle_items VALUES(1,1,1,10,1000,$1,$2)',[start,end]);
+        await pool.query("INSERT INTO bookings(id,tenant_id,location_id,status,pending_expires_at,payment_proof_object_key,queue_ticket_id,customer_email,customer_phone,scheduled_start_at,scheduled_end_at) VALUES(1,1,10,'confirmed',NULL,NULL,$1,'owner@example.com','09171234567',$2,$3)",[id,start,end]);
+        await pool.query('INSERT INTO booking_bundle_items(id,booking_id,tenant_id,location_id,service_id,scheduled_start_at,scheduled_end_at) VALUES(1,1,1,10,1000,$1,$2)',[start,end]);
         Object.assign(item,{bookingItemId:'1',scheduledStartAt:start,scheduledEndAt:end});
         await ledger.executeCommand({pool,tenantId:'1',locationId:'10',actorUserId:'1',operationKey:'booking:1:reserve',command:'reserve',payload:{bookingItemId:'1'}});
       }
@@ -121,7 +138,7 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
     }
     require('tsx/cjs');
     let queueClosed=false;
-    const queueService=loadService({...mocks,
+    const queueMocks={...mocks,
       '../config/env':{waitTimePredictionCaptureEnabled:false},
       '../repositories/tickets':{...mocks['../repositories/tickets'],
         findCurrentCalledTicket:async (tenantId,{client,locationId}) => {
@@ -164,12 +181,30 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
       },
       './queueSnapshotHelpers':{resolveLocation:async (_tenant,options) => options.location || location,buildQueueSnapshot:async () => ({current:null})},
       './queueEvents':{publish:()=>{}}
-    },'queueService');
+    };
+    const queueService=loadService(queueMocks,'queueService');
+    const realTickets=loadService({'../config/db':{pool}},'../repositories/tickets');
+    const operationalQueue=loadService({...queueMocks,'../repositories/tickets':{
+      ...queueMocks['../repositories/tickets'],findCurrentCalledTicket:realTickets.findCurrentCalledTicket,
+      listWaitingTickets:realTickets.listWaitingTickets,callNextWaitingTicket:realTickets.callNextWaitingTicket,
+      confirmCurrentCalledTicket:realTickets.confirmCurrentCalledTicket
+    }},'queueService');
+    const call=(options={})=>operationalQueue.callNextTicket(tenant,{location,actorUserId:'1',queueDateKey:'20261008',...options});
+    const confirm=(code='LOOKUP-1',options={})=>operationalQueue.confirmCurrentTicket(tenant,code,{location,actorUserId:'1',queueDateKey:'20261008',...options});
     const legacy=(status,actor='1') => queueService.updateCurrentTicketStatus(tenant,status,{location,actorUserId:actor});
     const cancelVendor=(id,actor='1',selected=location) => queueService.cancelTicket(tenant,'',{location:selected,actorUserId:actor,vendorTicketId:id});
     const cancelCustomer=(id,{actorUserId,contact={customerEmail:'owner@example.com'},selected=location}={}) =>
       queueService.cancelTicket(tenant,`lookup-${id}`,{location:selected,actorUserId,customerContact:contact,source:'public'});
     const count=async table => (await pool.query(`SELECT count(*)::int AS n FROM ${table}`)).rows[0].n;
+    async function waitForLocationLock() {
+      const deadline=Date.now()+3000;
+      while(Date.now()<deadline) {
+        const waiting=(await pool.query("SELECT 1 FROM pg_stat_activity WHERE application_name=$1 AND wait_event_type='Lock' AND query LIKE 'SELECT id FROM store_locations%'",[schema])).rows.length>0;
+        if(waiting) return;
+        await new Promise(resolve=>setTimeout(resolve,10));
+      }
+      assert.fail('operation must wait for the location lock');
+    }
     await t.test('five simultaneous starts fit four courts; timing uses exact persisted allocation clock',async () => {
       await reset(); for (let i=1;i<=5;i++) await ticket(String(i));
       const starts=await Promise.allSettled([1,2,3,4,5].map(id => record(String(id),'start')));
@@ -468,12 +503,7 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
         try {
           await blocker.query('BEGIN'); await blocker.query('SELECT id FROM store_locations WHERE id=10 FOR UPDATE');
           pending=assert.rejects(cancelCustomer('1',{actorUserId:change.actor}),{statusCode:change.code});
-          const deadline=Date.now()+3000; let waiting=false;
-          while(Date.now()<deadline) {
-            waiting=(await pool.query("SELECT 1 FROM pg_stat_activity WHERE application_name=$1 AND wait_event_type='Lock' AND query LIKE 'SELECT id FROM store_locations%'",[schema])).rows.length>0;
-            if(waiting) break; await new Promise(resolve=>setTimeout(resolve,10));
-          }
-          assert.equal(waiting,true,'cancellation must wait for the location lock');
+          await waitForLocationLock();
           await blocker.query(change.sql); await blocker.query('COMMIT'); await pending;
           assert.equal(await count('events'),0); assert.equal(await count('resource_ledger_commands'),0);
         } finally {await blocker.query('ROLLBACK'); blocker.release(); if(pending) await pending;}
@@ -503,6 +533,98 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
       await assert.rejects(transact((_client,capability)=>capability.executeCommand({command:'cancelReservation',payload:{reservationId:binding},operationKey:`booking:1:reservation:${binding}:expiry:cancel`})),{statusCode:403});
       await assert.rejects(transact((_client,capability)=>capability.executeCommand({command:'cancelReservation',payload:{reservationId:binding},operationKey:`ticket:1:reservation:${binding}:customer-cancel`})),{statusCode:403});
       assert.equal((await pool.query('SELECT state FROM resource_ledger_reservations')).rows[0].state,'protected'); assert.equal(await count('resource_ledger_commands'),1);
+    });
+    await t.test('competing calls use real ticket SQL and preserve one called ticket without allocation',async () => {
+      await reset(); await ticket('1'); await ticket('2'); await pool.query("UPDATE tickets SET status='waiting'");
+      const results=await Promise.allSettled([call(),call()]);
+      assert.equal(results.filter(r=>r.status==='fulfilled').length,1);
+      assert.equal(results.filter(r=>r.status==='rejected' && r.reason.statusCode===400).length,1);
+      assert.equal((await pool.query("SELECT count(*)::int AS n FROM tickets WHERE status='called'")).rows[0].n,1);
+      assert.equal(await count('events'),1); assert.equal(await count('webhooks'),1); assert.equal(pushes,1);
+      assert.equal(await count('resource_allocations'),0); assert.equal(await count('resource_ledger_commands'),0);
+      assert.equal((await pool.query('SELECT bool_and(service_started_at IS NULL) AS untouched FROM tickets')).rows[0].untouched,true);
+      assert.equal((await pool.query('SELECT revision::text FROM resource_ledger_scopes')).rows[0].revision,'2');
+    });
+    await t.test('confirmation checks scanned identity and deduplicates concurrent retries without service start',async () => {
+      await reset(); await ticket('1',{channel:'online'});
+      await assert.rejects(confirm('WRONG'),{statusCode:409}); assert.equal(await count('events'),0);
+      await Promise.all([confirm('lookup-1'),confirm()]);
+      const stamp=(await pool.query('SELECT customer_confirmed_at::text FROM tickets')).rows[0].customer_confirmed_at;
+      assert.ok(stamp); await confirm();
+      assert.equal((await pool.query('SELECT customer_confirmed_at::text FROM tickets')).rows[0].customer_confirmed_at,stamp);
+      assert.equal((await readTicket('1')).status,'called'); assert.equal((await readTicket('1')).serviceStartedAt,null);
+      assert.equal(await count('events'),1); assert.equal(await count('webhooks'),1); assert.equal(pushes,1);
+      assert.equal(await count('resource_allocations'),0); assert.equal(await count('resource_ledger_commands'),0);
+      assert.equal((await pool.query('SELECT revision::text FROM resource_ledger_scopes')).rows[0].revision,'2');
+    });
+    await t.test('call eligibility keeps early arrived bookings waiting and selects an eligible ordinary ticket',async () => {
+      await reset(); await ticket('1',{booking:true}); await pool.query("UPDATE tickets SET status='waiting',service_priority_band='checked_in_booking'; UPDATE bookings SET scheduled_start_at=clock_timestamp()+interval '1 hour'");
+      await assert.rejects(call(),{code:'NO_READY_WAITING_TICKET'});
+      assert.equal((await readTicket('1')).status,'waiting'); assert.equal(await count('events'),0);
+      await ticket('2'); await pool.query("UPDATE tickets SET status='waiting' WHERE id=2; INSERT INTO service_counters VALUES(1,1,10,TRUE)");
+      const result=await call({serviceCounter:{_id:'1'}});
+      assert.equal(result.ticket._id,'2'); assert.equal(result.ticket.serviceCounterId,'1');
+      assert.equal((await readTicket('1')).status,'waiting');
+      assert.equal((await pool.query('SELECT state FROM resource_ledger_reservations')).rows[0].state,'protected');
+      assert.equal(await count('resource_allocations'),0);
+    });
+    await t.test('a booking becoming ready during lock contention uses the current DB clock for eligibility and call time',async () => {
+      await reset(); await ticket('1',{booking:true}); await pool.query("UPDATE tickets SET status='waiting'; UPDATE bookings SET scheduled_start_at=clock_timestamp()+interval '1 hour'");
+      const blocker=await pool.connect(); let pending;
+      try {
+        await blocker.query('BEGIN'); await blocker.query('SELECT id FROM store_locations WHERE id=10 FOR UPDATE');
+        pending=call(); pending.catch(()=>{}); await waitForLocationLock();
+        await blocker.query('UPDATE bookings SET scheduled_start_at=clock_timestamp()'); await blocker.query('COMMIT');
+        const result=await pending; assert.equal(result.ticket._id,'1');
+        assert.equal((await pool.query('SELECT t.called_at>=b.scheduled_start_at AS after_ready FROM tickets t JOIN bookings b ON b.queue_ticket_id=t.id')).rows[0].after_ready,true);
+        assert.equal(await count('resource_allocations'),0);
+      } finally {await blocker.query('ROLLBACK'); blocker.release(); if(pending) await pending.catch(()=>{});}
+    });
+    await t.test('calling and confirmation roll back on event or webhook failures',async () => {
+      for(const action of ['call','confirm']) {
+        for(const failure of ['event','webhook']) {
+          await reset(); await ticket('1',{booking:true});
+          if(action==='call') await pool.query("UPDATE tickets SET status='waiting'");
+          failEvent=failure==='event'; failWebhook=failure==='webhook';
+          await assert.rejects(action==='call'?call():confirm(),new RegExp(`${failure} failed`));
+          assert.equal((await readTicket('1')).status,action==='call'?'waiting':'called');
+          assert.equal((await readTicket('1')).customerConfirmedAt,null);
+          assert.equal(await count('events'),0); assert.equal(await count('webhooks'),0); assert.equal(pushes,0);
+          assert.equal((await pool.query('SELECT revision::text FROM resource_ledger_scopes')).rows[0].revision,'2');
+          assert.equal((await pool.query('SELECT state FROM resource_ledger_reservations')).rows[0].state,'protected');
+        }
+      }
+    });
+    await t.test('calling and confirmation enforce current staff access, branch and counter scope',async () => {
+      await reset(); await ticket('1'); await pool.query("UPDATE tickets SET status='waiting'");
+      await assert.rejects(call({actorUserId:'2'}),{statusCode:403});
+      await assert.rejects(confirm('LOOKUP-1',{actorUserId:'2'}),{statusCode:403});
+      await pool.query('INSERT INTO tenant_membership_locations VALUES(2,10); INSERT INTO service_counters VALUES(1,1,10,FALSE),(2,2,20,TRUE)');
+      for(const id of ['1','2','9007199254740993']) await assert.rejects(call({serviceCounter:{_id:id}}),{statusCode:404});
+      await pool.query('UPDATE service_counters SET is_active=TRUE WHERE id=1');
+      await call({actorUserId:'2',serviceCounter:{_id:'1'}}); await confirm('LOOKUP-1',{actorUserId:'2'});
+      await pool.query('UPDATE tenant_memberships SET is_active=FALSE WHERE user_id=2');
+      await assert.rejects(confirm('LOOKUP-1',{actorUserId:'2'}),{statusCode:403});
+      await pool.query('UPDATE store_locations SET is_active=FALSE WHERE id=10');
+      await assert.rejects(confirm(),{statusCode:409});
+      assert.equal(await count('events'),2); assert.equal(await count('resource_allocations'),0);
+    });
+    await t.test('current enforced mode commits overdue reconciliation before rejecting call or confirmation',async () => {
+      for(const action of ['call','confirm']) {
+        await reset(); await ticket('1',{booking:true});
+        if(action==='call') await pool.query("UPDATE tickets SET status='waiting'");
+        else await record('1','start');
+        await pool.query("UPDATE store_locations SET queue_lifecycle_mode='enforced' WHERE id=10");
+        // The caller's stale location object still has legacy mode.
+        await assert.rejects(action==='call'?call():confirm(),{code:'QUEUE_DAY_OVERDUE'});
+        assert.equal((await pool.query('SELECT state FROM queue_day_state')).rows[0].state,'closed');
+        assert.equal((await readTicket('1')).status,'unserved'); assert.equal(await count('lifecycle_notifications'),1);
+        assert.equal((await pool.query('SELECT count(*)::int AS n FROM events WHERE event_type IN (\'ticket_called\',\'ticket_confirmed\')')).rows[0].n,0);
+        if(action==='confirm') assert.equal((await pool.query('SELECT released_at FROM resource_allocations')).rows[0].released_at,null);
+        const revision=(await pool.query('SELECT revision::text FROM resource_ledger_scopes')).rows[0].revision;
+        await assert.rejects(action==='call'?call():confirm(),{code:'QUEUE_DAY_UNOPENED'});
+        assert.equal((await pool.query('SELECT revision::text FROM resource_ledger_scopes')).rows[0].revision,revision);
+      }
     });
   } finally {await pool.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`); await pool.end();}
 });
