@@ -11,6 +11,15 @@ async function assertLegacyOutcome(client, ticket, status, timingEnabled) {
   if (state.allocation || (ticket.serviceStartedAt && !ticket.serviceEndedAt)
     || (status === "served" && (timingEnabled || state.required))) requireExplicitService();
 }
+async function assertRestorable(client, ticket) {
+  await assertLegacyOutcome(client, ticket, "waiting", false);
+  const converted = await client.query(`SELECT 1 FROM resource_ledger_reservations r JOIN bookings b
+    ON (b.id,b.tenant_id,b.location_id)=(r.booking_id,r.tenant_id,r.location_id)
+    LEFT JOIN ticket_service_plans p ON (p.booking_id,p.tenant_id,p.location_id)=(r.booking_id,r.tenant_id,r.location_id) AND p.source='booking'
+    WHERE r.tenant_id=$1 AND r.location_id=$2 AND (b.queue_ticket_id=$3 OR p.ticket_id=$3) AND r.state='converted' LIMIT 1`,
+  [ticket.tenantId, ticket.locationId, ticket._id]);
+  if (ticket.serviceStartedAt || ticket.serviceEndedAt || converted.rows.length) requireExplicitService();
+}
 async function cancelUnusedProtection(client, ledger, ticket, { operation, cancelBooking = false, actor, customer }) {
   const scope = [ticket.tenantId, ticket.locationId, ticket._id];
   // Location and ticket locks precede booking/binding locks, as for service start.
@@ -39,4 +48,4 @@ async function cancelUnusedProtection(client, ledger, ticket, { operation, cance
       WHERE tenant_id=$1 AND location_id=$2 AND queue_ticket_id=$3 AND status IN ('pending','confirmed','rescheduled')`, scope);
   }
 }
-module.exports = { assertLegacyOutcome, cancelUnusedProtection };
+module.exports = { assertLegacyOutcome, assertRestorable, cancelUnusedProtection };
