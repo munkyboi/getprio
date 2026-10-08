@@ -1,4 +1,5 @@
 const ticketServicePlanService = require("./ticketServicePlanService");
+const storeHoursService = require("./storeHoursService");
 const { withVendorQueueTransaction } = require("./vendorQueueTransactionService");
 const { withCustomerTicketCancellation } = require("./customerTicketCancellationService");
 const ticketResourceOutcomeService = require("./ticketResourceOutcomeService");
@@ -273,7 +274,7 @@ async function assertQueueIntakeOpen(tenant, location, options = {}) {
   throw error;
 }
 
-async function assertRestoreCapacityAvailable(tenant, location, options = {}) {
+async function assertWaitingIntakeCapacityAvailable(tenant, location, options = {}) {
   if (!tenant.autoPauseEnabled || !tenant.autoPauseThreshold) {
     return;
   }
@@ -289,11 +290,12 @@ async function assertRestoreCapacityAvailable(tenant, location, options = {}) {
     return;
   }
 
-  const error = new Error(
-    `This queue is already at its intake threshold of ${tenant.autoPauseThreshold} waiting tickets. Resume or clear space before restoring a missed ticket.`
+  const error = new Error(options.issuance
+    ? `This queue is already at its intake threshold of ${tenant.autoPauseThreshold} waiting tickets. Resume or clear space before adding a walk-in.`
+    : `This queue is already at its intake threshold of ${tenant.autoPauseThreshold} waiting tickets. Resume or clear space before restoring a missed ticket.`
   );
   error.statusCode = 409;
-  error.code = "QUEUE_RESTORE_THRESHOLD_REACHED";
+  error.code = options.issuance ? "QUEUE_INTAKE_THRESHOLD_REACHED" : "QUEUE_RESTORE_THRESHOLD_REACHED";
   throw error;
 }
 
@@ -329,12 +331,14 @@ async function createTicket({
   developerMobileLink,
   serviceId
 }) {
-  const resolvedLocation = await resolveLocation(tenant, { location });
-  await assertQueueIntakeOpen(tenant, resolvedLocation);
-  const transactionResult = await db.withTransaction(async (client) => {
+  let resolvedLocation = await resolveLocation(tenant, { location });
+  let operationTenant = tenant;
+  let vendorDateKey;
+  const persist = async (client) => {
     const createdTicket = await createTicketForTenantInTransaction(client, {
-      tenant,
+      tenant: operationTenant,
       location: resolvedLocation,
+      queueDateKey: vendorDateKey,
       userId,
       customerName,
       customerEmail,
@@ -352,7 +356,7 @@ async function createTicket({
     });
     if (serviceId !== undefined && serviceId !== "") {
       await ticketServicePlanService.captureStaffPlan(client, {
-        tenant, location: resolvedLocation, ticket: createdTicket, serviceId, actorUserId
+        tenant: operationTenant, location: resolvedLocation, ticket: createdTicket, serviceId, actorUserId
       });
     }
     const mobileLink = developerMobileLink
@@ -381,14 +385,30 @@ async function createTicket({
     });
 
     return { ticket: createdTicket, mobileLink };
-  });
+  };
+  let transactionResult;
+  if (joinChannel === "vendor") {
+    transactionResult = await withOpenVendorQueueTransaction(tenant, resolvedLocation, { actorUserId }, "tenant.queue.operate", async (client, scope) => {
+      resolvedLocation = scope.location;
+      vendorDateKey = scope.dateKey;
+      await assertQueueIntakeOpen(tenant, resolvedLocation, { client, queueDateKey: scope.dateKey });
+      await storeHoursService.assertLocationOpenForCustomerJoin(resolvedLocation, { client });
+      const policy = (await client.query("SELECT auto_pause_enabled,auto_pause_threshold,queue_prefix FROM tenants WHERE id=$1", [tenant._id])).rows[0];
+      operationTenant = { ...tenant, autoPauseEnabled: policy.auto_pause_enabled, autoPauseThreshold: policy.auto_pause_threshold, queuePrefix: policy.queue_prefix };
+      await assertWaitingIntakeCapacityAvailable(operationTenant, resolvedLocation, { client, queueDateKey: scope.dateKey, issuance: true });
+      return { ...await persist(client), changed: true };
+    });
+  } else {
+    await assertQueueIntakeOpen(tenant, resolvedLocation);
+    transactionResult = await db.withTransaction(persist);
+  }
   const { ticket, mobileLink } = transactionResult;
 
   pushNotificationService.notifyCustomerQueueUpdate({ tenant, ticket, action: "joined" }).catch((error) => {
     console.warn("[push-customer-queue-joined-skipped]", error.message);
   });
   await maybeNotifyUpcomingTickets(tenant, { location: resolvedLocation });
-  await maybeAutoPauseQueueDay(tenant, { location: resolvedLocation });
+  await maybeAutoPauseQueueDay(operationTenant, { location: resolvedLocation, queueDateKey: vendorDateKey });
   const snapshot = await publishSnapshot(tenant, {
     lookupCode: ticket.lookupCode,
     location: resolvedLocation
@@ -420,14 +440,15 @@ async function createTicketForTenantInTransaction(client, {
   notes,
   servicePriorityBand,
   otpChainId,
-  allowanceReservationKey
+  allowanceReservationKey,
+  queueDateKey
 }) {
   const resolvedLocation = location || (await resolveLocation(tenant));
   let queueDay = null;
   let dateKey;
   let sequence;
   if (resolvedLocation.queueLifecycleMode === "enforced") {
-    queueDay = await assertQueueIntakeOpen(tenant, resolvedLocation, { client });
+    queueDay = await assertQueueIntakeOpen(tenant, resolvedLocation, { client, queueDateKey });
     dateKey = String(queueDay.businessDate).replaceAll("-", "");
     sequence = await queueDayRepository.allocateSequence(queueDay._id, { client });
     if (sequence == null) {
@@ -437,7 +458,7 @@ async function createTicketForTenantInTransaction(client, {
       throw error;
     }
   } else {
-    dateKey = getDateKey(new Date(), resolvedLocation.timezone);
+    dateKey = queueDateKey || getDateKey(new Date(), resolvedLocation.timezone);
     sequence = await reserveNextSequence(client, tenant._id, resolvedLocation._id, dateKey);
   }
 
@@ -1457,7 +1478,7 @@ async function restoreSkippedTicket(tenant, ticketId, options = {}) {
     dateKey = scope.dateKey;
     await assertQueueIntakeOpen(tenant, location, { client, queueDateKey: dateKey });
     const policy = (await client.query("SELECT auto_pause_enabled,auto_pause_threshold FROM tenants WHERE id=$1", [tenant._id])).rows[0];
-    await assertRestoreCapacityAvailable({ ...tenant, autoPauseEnabled: policy.auto_pause_enabled, autoPauseThreshold: policy.auto_pause_threshold }, location, { client, queueDateKey: dateKey });
+    await assertWaitingIntakeCapacityAvailable({ ...tenant, autoPauseEnabled: policy.auto_pause_enabled, autoPauseThreshold: policy.auto_pause_threshold }, location, { client, queueDateKey: dateKey });
 
     const targetTicket = await ticketRepository.findVendorTicketForUpdate(tenant._id, location._id, ticketId, { client });
     const servicePriorityBand = skippedRecoveryPriority(targetTicket, scope, options.lookupCode);
