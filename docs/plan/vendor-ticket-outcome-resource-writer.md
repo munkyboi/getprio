@@ -8,7 +8,7 @@ Vendor waiting cancellation rechecks waiting status and scope, then cancels the 
 
 Ordinary selected services keep direct Serve and customer confirmation rules even when an unrelated pool at the location is enabled. A disabled mapped pool alone does not activate that ticket. Explicit service starts share this ticket-specific gate. Missing/invalid service identity in a tracked location remains unknown and requires reconciliation instead of silently bypassing allocation. Public lookup-code cancellation uses its own location-first customer ownership adapter, described in [Customer ticket cancellation](customer-ticket-cancellation-resource-writer.md). Tracking and writer coverage remain disabled. Snapshot/producer/inference/capture contracts and customer estimates are unchanged; no ready inventory or activation/backfill.
 
-Skipped restoration is covered in [Vendor skipped-ticket restoration](vendor-restore-resource-writer.md). Calling/confirmation are covered separately in [Vendor call and confirmation](vendor-call-confirm-resource-writer.md); calling still does not allocate.
+Vendor walk-in issuance is covered in [Vendor walk-in issuance](vendor-walkin-resource-writer.md). Skipped restoration is covered in [Vendor skipped-ticket restoration](vendor-restore-resource-writer.md). Calling/confirmation are covered separately in [Vendor call and confirmation](vendor-call-confirm-resource-writer.md); calling still does not allocate.
 
 ## Remaining writer inventory
 
@@ -16,7 +16,7 @@ This inventory is source evidence for further slices, not a coverage-complete ce
 
 | Path | Remaining work |
 | --- | --- |
-| `queueService.createTicket`, `queueJoinPaymentService.activatePaidPayment` | Public/customer/developer/paid/vendor issuance and scope revisions; payment-first lock ordering, channel authorization and unknown/ordinary plans must be considered separately. |
+| `queueService.createTicket` non-vendor paths, `queueJoinPaymentService.activatePaidPayment` | Public/customer/developer/paid issuance and scope revisions; payment-first lock ordering, channel authorization and unknown/ordinary plans must be considered separately. |
 | `queueService.closeQueueDay`, `queueDayLifecycleService.closeTicketOutcomes` | Manual/system closure and terminal protection cleanup; retain actual occupancy and explicit timing. |
 | `queueDayLifecycleService.expirePendingCarryOvers` | Scope-first system expiry and terminal booking/protection updates, without releasing active occupancy. |
 | `accountDeletionService.cancelWaitingTickets` | Deletion-authorized cancellation, multiple affected scopes and protection cleanup; preserve deletion transaction/revocation policy. Anonymization alone is distinct from this operational cancellation. |

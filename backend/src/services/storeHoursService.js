@@ -50,7 +50,7 @@ function formatHour(hour) {
 }
 
 async function getOpenStatus(location, options = {}) {
-  const hours = options.hours || (await storeLocationRepository.listHoursByLocationId(location._id));
+  const hours = options.hours || (await storeLocationRepository.listHoursByLocationId(location._id, { client: options.client }));
   const now = options.now || new Date();
   const timezone = location.timezone || "Asia/Manila";
   const { weekday } = getLocationParts(now, timezone);
@@ -67,8 +67,8 @@ async function getOpenStatus(location, options = {}) {
   };
 }
 
-async function assertLocationOpenForCustomerJoin(location) {
-  const openStatus = await getOpenStatus(location);
+async function assertLocationOpenForCustomerJoin(location, options = {}) {
+  const openStatus = await getOpenStatus(location, options);
   if (openStatus.isOpen) {
     return openStatus;
   }
