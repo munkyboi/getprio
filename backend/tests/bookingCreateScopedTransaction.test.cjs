@@ -64,7 +64,10 @@ test('customer booking creation under real scoped PostgreSQL transaction', { ski
   try {
     await pool.query(`CREATE SCHEMA ${schema};
       CREATE TABLE users(id BIGINT PRIMARY KEY,deletion_requested_at TIMESTAMPTZ,platform_access_suspended_at TIMESTAMPTZ,roles TEXT[] DEFAULT ARRAY[]::TEXT[]);
-      CREATE TABLE tenant_memberships(user_id BIGINT,tenant_id BIGINT,role TEXT,is_active BOOLEAN DEFAULT TRUE);
+      CREATE TABLE tenant_memberships(id BIGINT DEFAULT 2,user_id BIGINT,tenant_id BIGINT,role TEXT,is_active BOOLEAN DEFAULT TRUE);
+      CREATE TABLE tenant_membership_locations(tenant_membership_id BIGINT,location_id BIGINT);
+      CREATE TABLE service_counters(id BIGINT,tenant_id BIGINT,location_id BIGINT,is_active BOOLEAN);
+      CREATE TABLE service_counter_assignments(user_id BIGINT,counter_id BIGINT);
       CREATE TABLE store_locations(id BIGINT PRIMARY KEY,tenant_id BIGINT,UNIQUE(id,tenant_id));
       CREATE TABLE bookings(id BIGSERIAL PRIMARY KEY,tenant_id BIGINT,location_id BIGINT,
         starts_at TIMESTAMPTZ,ends_at TIMESTAMPTZ,status TEXT,customer_user_id BIGINT,
@@ -78,7 +81,7 @@ test('customer booking creation under real scoped PostgreSQL transaction', { ski
         pool_id BIGINT,units_required INTEGER,revision INTEGER);
       CREATE TABLE tickets(id BIGINT PRIMARY KEY,tenant_id BIGINT,location_id BIGINT,UNIQUE(id,tenant_id,location_id));
       CREATE TABLE allowances(booking_id BIGINT);
-      INSERT INTO users(id) VALUES(1),(2); INSERT INTO tenant_memberships VALUES(2,1,'owner',TRUE); INSERT INTO store_locations VALUES(10,1)`);
+      INSERT INTO users(id) VALUES(1),(2); INSERT INTO tenant_memberships(user_id,tenant_id,role,is_active) VALUES(2,1,'owner',TRUE); INSERT INTO store_locations VALUES(10,1)`);
     await pool.query(fs.readFileSync(path.resolve(__dirname, '../../database/migrations/20261007_add_resource_ledger_foundation.sql'), 'utf8'));
     const bookingService = loadService({
       '../config/db': { pool },
@@ -129,7 +132,7 @@ test('customer booking creation under real scoped PostgreSQL transaction', { ski
     bookingService._setQueueServiceForTest({ publishSnapshot:noop });
     async function reset() {
       await pool.query('TRUNCATE bookings,booking_bundle_items,allowances,resource_ledger_scopes,resource_ledger_commands,resource_ledger_reservations,resource_allocations,service_resource_requirements,location_resource_pools RESTART IDENTITY CASCADE');
-      await pool.query('UPDATE users SET deletion_requested_at=NULL');
+      await pool.query('UPDATE users SET deletion_requested_at=NULL; TRUNCATE tenant_membership_locations,service_counters,service_counter_assignments');
       allowanceFails = lockedCatalogChanged = lockedAvailabilityChanged = lockedTenantRevoked = lockedLocationRevoked = false;
       notified = cancelled = proofNotified = 0;
       savedBookings.clear();
@@ -241,6 +244,82 @@ test('customer booking creation under real scoped PostgreSQL transaction', { ski
       assert.equal(await count('resource_ledger_reservations'),0); assert.equal(await count('resource_ledger_commands'),0);
       assert.equal((await readBooking(booking._id)).paymentStatus,'paid');
     });
+    async function lateBooking(enabled = true) {
+      const booking = await proofBooking(enabled);
+      const start = new Date(Date.now()-30*60000).toISOString();
+      const end = new Date(Date.now()+30*60000).toISOString();
+      await pool.query("UPDATE bookings SET status='confirmed',starts_at=$1,ends_at=$2",[start,end]);
+      await pool.query('UPDATE booking_bundle_items SET scheduled_start_at=$1,scheduled_end_at=$2',[start,end]);
+      await pool.query('UPDATE resource_ledger_reservations SET starts_at=$1,ends_at=$2',[start,end]);
+      return booking;
+    }
+    const noShow = (booking, selectedLocation = location) => bookingService.markVendorBookingNoShow({tenant,location:selectedLocation,bookingId:booking._id,user:{_id:'2'}});
+    await t.test('no-show cancels frozen protection after draft edits and tracking disable', async () => {
+      const booking = await lateBooking();
+      await pool.query('UPDATE location_resource_pools SET tracking_enabled=FALSE,revision=2; UPDATE service_resource_requirements SET units_required=4,revision=2');
+      const updated = await noShow(booking);
+      assert.equal(updated.status,'canceled'); assert.equal(updated.noShowByUserId,'2'); assert.ok(updated.noShowAt);
+      assert.deepEqual((await pool.query('SELECT state,units,pool_revision FROM resource_ledger_reservations')).rows[0],{state:'cancelled',units:1,pool_revision:1});
+      assert.equal(await count('resource_ledger_commands'),2); assert.equal(cancelled,1);
+    });
+    await t.test('simultaneous no-show requests commit and notify once', async () => {
+      const booking = await lateBooking();
+      const outcomes = await Promise.allSettled([noShow(booking),noShow(booking)]);
+      assert.equal(outcomes.filter(value => value.status === 'fulfilled').length,1);
+      assert.equal(outcomes.find(value => value.status === 'rejected').reason.statusCode,409);
+      assert.equal(cancelled,1); assert.equal(await count('resource_ledger_commands'),2);
+    });
+    await t.test('no-show rollback retains booking, audit, protection, receipt and revision', async () => {
+      const booking = await lateBooking(); const before = await revision();
+      await pool.query(`CREATE FUNCTION reject_no_show_cancel() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'forced no-show cancel failure'; END $$;
+        CREATE TRIGGER reject_no_show_cancel BEFORE UPDATE ON resource_ledger_reservations FOR EACH ROW EXECUTE FUNCTION reject_no_show_cancel()`);
+      try {
+        await assert.rejects(noShow(booking),/forced no-show cancel failure/);
+        const current = await readBooking(booking._id);
+        assert.equal(current.status,'confirmed'); assert.equal(current.noShowAt,undefined);
+        assert.equal((await pool.query('SELECT state FROM resource_ledger_reservations')).rows[0].state,'protected');
+        assert.equal(await revision(),before); assert.equal(await count('resource_ledger_commands'),1); assert.equal(cancelled,0);
+      } finally { await pool.query('DROP TRIGGER reject_no_show_cancel ON resource_ledger_reservations; DROP FUNCTION reject_no_show_cancel()'); }
+    });
+    await t.test('no-show permits assigned staff through explicit branch or active counter only', async () => {
+      for (const assignment of ['branch','counter']) {
+        const booking = await lateBooking();
+        await pool.query("UPDATE tenant_memberships SET role='staff'");
+        await assert.rejects(noShow(booking),{statusCode:403});
+        if (assignment === 'branch') await pool.query('INSERT INTO tenant_membership_locations VALUES(2,10)');
+        else await pool.query('INSERT INTO service_counters VALUES(1,1,10,TRUE); INSERT INTO service_counter_assignments VALUES(2,1)');
+        await noShow(booking); assert.equal(cancelled,1);
+      }
+    });
+    await t.test('no-show rechecks membership, suspension and selected branch before mutation', async () => {
+      for (const scenario of ['revoked','suspended','wrong_branch','inactive_counter']) {
+        const booking = await lateBooking();
+        if (scenario === 'revoked') await pool.query('UPDATE tenant_memberships SET is_active=FALSE');
+        if (scenario === 'suspended') await pool.query('UPDATE users SET platform_access_suspended_at=clock_timestamp() WHERE id=2');
+        if (scenario === 'inactive_counter') await pool.query("UPDATE tenant_memberships SET role='staff'; INSERT INTO service_counters VALUES(1,1,10,FALSE); INSERT INTO service_counter_assignments VALUES(2,1)");
+        await assert.rejects(noShow(booking,scenario === 'wrong_branch' ? {...location,_id:'11'} : location),{statusCode:scenario === 'wrong_branch' ? 404 : 403});
+        assert.equal((await readBooking(booking._id)).status,'confirmed'); assert.equal(cancelled,0);
+      }
+    });
+    await t.test('no-show refuses pending, on-time and converted bookings without releasing occupancy', async () => {
+      for (const scenario of ['pending','on_time','converted']) {
+        const booking = await lateBooking();
+        if (scenario === 'pending') await pool.query("UPDATE bookings SET status='pending'");
+        if (scenario === 'on_time') await pool.query('UPDATE bookings SET starts_at=$1',[new Date().toISOString()]);
+        if (scenario === 'converted') {
+          await pool.query("UPDATE resource_ledger_reservations SET state='converted'; INSERT INTO tickets VALUES(2,1,10)");
+          await pool.query(`INSERT INTO resource_allocations(tenant_id,location_id,ticket_id,pool_id,pool_revision,units,reservation_id,started_at,expected_end_at)
+            SELECT 1,10,2,1000,1,1,id,clock_timestamp(),clock_timestamp()+interval '1 hour' FROM resource_ledger_reservations`);
+        }
+        await assert.rejects(noShow(booking),{statusCode:409}); assert.equal(cancelled,0);
+        if (scenario === 'converted') assert.equal((await pool.query('SELECT released_at FROM resource_allocations')).rows[0].released_at,null);
+      }
+    });
+    await t.test('ordinary no-show preserves behavior without reservation commands', async () => {
+      const booking = await lateBooking(false); await noShow(booking);
+      assert.equal((await readBooking(booking._id)).status,'canceled'); assert.equal(cancelled,1);
+      assert.equal(await count('resource_ledger_reservations'),0); assert.equal(await count('resource_ledger_commands'),0);
+    });
     await t.test('disabled draft pool preserves quantity bookings and creates no binding or receipt', async () => {
       await reset(); await configureResources(false); catalog.allowBookingQuantity = true; body.bookingQuantity = 2;
       const created = await bookingService.createCustomerBooking({user,body});
@@ -337,28 +416,30 @@ test('customer booking creation under real scoped PostgreSQL transaction', { ski
       assert.equal((await pool.query('SELECT state FROM resource_ledger_reservations')).rows[0].state,'cancelled');
     });
     await t.test('arrival is checked again after acquiring the booking lock', async () => {
-      await reset(); const created = await bookingService.createCustomerBooking({user,body});
-      const blocker = await pool.connect();
-      let cancellation;
-      try {
-        await blocker.query('BEGIN'); await blocker.query('SELECT id FROM store_locations WHERE id=10 FOR UPDATE');
-        cancellation = bookingService.cancelCustomerBooking({user,bookingId:created._id}).then(() => null, error => error);
-        // Wait for this production transaction to contend before arriving the booking.
-        for (let attempts=0; attempts<100; attempts++) {
-          const waiting = await pool.query(`SELECT COUNT(*)::int AS count FROM pg_stat_activity
-            WHERE application_name=$1 AND wait_event_type='Lock' AND query LIKE '%store_locations%'
-              AND pid<>pg_backend_pid()`,[schema]);
-          if (waiting.rows[0].count) break;
-          if (attempts === 99) throw new Error('Cancellation did not wait on the location lock');
-          await new Promise(resolve => setTimeout(resolve,5));
-        }
-        await blocker.query('UPDATE bookings SET checked_in_at=clock_timestamp() WHERE id=$1',[created._id]);
-        await blocker.query('COMMIT');
-      } finally { await blocker.query('ROLLBACK'); blocker.release(); }
-      const conflict = await cancellation;
-      assert.equal(conflict?.statusCode,409);
-      assert.match(conflict.message,/checked in/);
-      assert.equal((await readBooking(created._id)).status,'pending'); assert.equal(cancelled,0);
+      for (const action of ['cancel','no-show']) {
+        const created = action === 'cancel' ? await proofBooking(false) : await lateBooking();
+        const blocker = await pool.connect();
+        let cancellation;
+        try {
+          await blocker.query('BEGIN'); await blocker.query('SELECT id FROM store_locations WHERE id=10 FOR UPDATE');
+          cancellation = (action === 'cancel' ? bookingService.cancelCustomerBooking({user,bookingId:created._id}) : noShow(created)).then(() => null, error => error);
+          // Wait for this production transaction to contend before arriving the booking.
+          for (let attempts=0; attempts<100; attempts++) {
+            const waiting = await pool.query(`SELECT COUNT(*)::int AS count FROM pg_stat_activity
+              WHERE application_name=$1 AND wait_event_type='Lock' AND query LIKE '%store_locations%'
+                AND pid<>pg_backend_pid()`,[schema]);
+            if (waiting.rows[0].count) break;
+            if (attempts === 99) throw new Error('Cancellation did not wait on the location lock');
+            await new Promise(resolve => setTimeout(resolve,5));
+          }
+          await blocker.query('UPDATE bookings SET checked_in_at=clock_timestamp() WHERE id=$1',[created._id]);
+          await blocker.query('COMMIT');
+        } finally { await blocker.query('ROLLBACK'); blocker.release(); }
+        const conflict = await cancellation;
+        assert.equal(conflict?.statusCode,409);
+        assert.match(conflict.message,/checked in/);
+        assert.equal((await readBooking(created._id)).status,action === 'cancel' ? 'pending' : 'confirmed'); assert.equal(cancelled,0);
+      }
     });
     const vendor = { _id:'2' };
     const movedStart = new Date(new Date(scheduledStartAt).getTime()+2*3600000).toISOString();
