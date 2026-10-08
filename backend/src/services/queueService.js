@@ -639,8 +639,19 @@ async function updateCurrentTicketStatus(tenant, status, options = {}) {
   const location = await resolveLocation(tenant, options);
   queueLifecycle.assertSupportedCurrentTicketResolution(status);
   let dateKey;
-  const ticket = await withVendorQueueTransaction({ pool: db.pool, tenant, location, actorUserId: options.actorUserId }, async (client, ledger) => {
-    const activeQueueDay = await assertQueueDayOpen(tenant, location, { client, queueDateKey: options.queueDateKey });
+  let overdueError;
+  const ticket = await withVendorQueueTransaction({ pool: db.pool, tenant, location, actorUserId: options.actorUserId }, async (client, ledger, authorizedActor) => {
+    let activeQueueDay;
+    try {
+      activeQueueDay = await assertQueueDayOpen(tenant, location, { client, queueDateKey: options.queueDateKey });
+    } catch (error) {
+      if (error.code !== "QUEUE_DAY_OVERDUE") throw error;
+      // Reconciliation has closed the overdue day. Commit its outcomes/outbox
+      // before rejecting the requested legacy action; no ticket action follows.
+      overdueError = error;
+      await client.query("UPDATE resource_ledger_scopes SET revision=revision+1 WHERE tenant_id=$1 AND location_id=$2", [tenant._id, location._id]);
+      return null;
+    }
     dateKey = options.queueDateKey || (activeQueueDay?.businessDate
       ? String(activeQueueDay.businessDate).replaceAll("-", "")
       : getDateKey(new Date(), location.timezone));
@@ -681,17 +692,17 @@ async function updateCurrentTicketStatus(tenant, status, options = {}) {
     }
 
     if (["cancelled", "unserved"].includes(status)) {
-      await ticketResourceOutcomeService.cancelUnusedProtection(client, ledger, updatedTicket, { operation: `queue-${status}` });
+      await ticketResourceOutcomeService.cancelUnusedProtection(client, ledger, updatedTicket, {
+        operation: `queue-${status}`, cancelBooking: status === "cancelled", actor: authorizedActor
+      });
     }
 
-    if (["served", "cancelled"].includes(status)) {
+    if (status === "served") {
       await bookingRepository.updateBookingByQueueTicketId(
         updatedTicket._id,
         {
-          status: status === "served" ? "completed" : "canceled",
-          fulfillmentOutcomeReason: status === "served"
-            ? "ticket_served"
-            : "ticket_cancelled",
+          status: "completed",
+          fulfillmentOutcomeReason: "ticket_served",
           refundEligible: false,
           fulfillmentResolvedAt: new Date()
         },
@@ -730,6 +741,7 @@ async function updateCurrentTicketStatus(tenant, status, options = {}) {
     return updatedTicket;
   });
 
+  if (overdueError) throw overdueError;
   if (!ticket) {
     return null;
   }
@@ -845,7 +857,7 @@ async function cancelTicket(tenant, lookupCode, options = {}) {
   const runTransaction = options.vendorTicketId
     ? callback => withVendorQueueTransaction({ pool: db.pool, tenant, location, actorUserId: options.actorUserId }, callback)
     : callback => db.withTransaction(callback);
-  const ticket = await runTransaction(async (client, ledger) => {
+  const ticket = await runTransaction(async (client, ledger, authorizedActor) => {
     const existingTicket = options.vendorTicketId
       ? await ticketRepository.findVendorTicketForUpdate(tenant._id, location._id, options.vendorTicketId, { client })
       : await ticketRepository.findTicketByTenantAndLookupCode(tenant._id, normalizedLookupCode, { client });
@@ -877,7 +889,7 @@ async function cancelTicket(tenant, lookupCode, options = {}) {
     }
     if (options.vendorTicketId) {
       await ticketResourceOutcomeService.cancelUnusedProtection(client, ledger, cancelledTicket, {
-        operation: "vendor-cancel", cancelBooking: true
+        operation: "vendor-cancel", cancelBooking: true, actor: authorizedActor
       });
       await client.query("UPDATE resource_ledger_scopes SET revision=revision+1 WHERE tenant_id=$1 AND location_id=$2", [tenant._id, location._id]);
     }

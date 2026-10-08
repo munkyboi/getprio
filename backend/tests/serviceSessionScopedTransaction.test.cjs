@@ -33,7 +33,7 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
   const {Pool}=require('pg');
   const pool=new Pool({connectionString:databaseUrl,options:`-c search_path=${schema}`,application_name:schema,max:8});
   const tenant={_id:'1'}; const location={_id:'10'};
-  let failEvent=false; let failBooking=false; let snapshots=0; let pushes=0;
+  let failEvent=false; let failBooking=false; let failReconciliation=false; let snapshots=0; let pushes=0;
   const noop=async () => {};
   async function readTicket(id,{client=pool}={}) {
     const r=(await client.query('SELECT * FROM tickets WHERE id=$1',[id])).rows[0];
@@ -62,6 +62,8 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
       CREATE TABLE events(id BIGSERIAL PRIMARY KEY,ticket_id BIGINT,event_type TEXT,metadata JSONB);
       CREATE TABLE webhooks(event_id BIGINT);
       CREATE TABLE queue_ticket_segments(ticket_id BIGINT,ended_at TIMESTAMPTZ,segment_outcome TEXT,outcome_reason TEXT);
+      CREATE TABLE queue_day_state(state TEXT);
+      CREATE TABLE lifecycle_notifications(ticket_id BIGINT,status TEXT);
       CREATE TABLE booking_audit(ticket_id BIGINT,metadata JSONB)`);
     await pool.query(fs.readFileSync(path.resolve(__dirname,'../../database/migrations/20261007_add_resource_ledger_foundation.sql'),'utf8'));
     const mocks={
@@ -89,14 +91,16 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
     async function reset(capacity=4,enabled=true) {
       await pool.query(`TRUNCATE resource_ledger_commands,resource_allocations,resource_ledger_reservations,resource_ledger_scopes,
         ticket_service_plans,tickets,booking_bundle_items,bookings,service_resource_requirements,location_resource_pools,
-        store_locations,tenant_membership_locations,service_counter_assignments,service_counters,tenant_memberships,tenants,users,events,webhooks,booking_audit,queue_ticket_segments RESTART IDENTITY CASCADE`);
+        store_locations,tenant_membership_locations,service_counter_assignments,service_counters,tenant_memberships,tenants,users,events,webhooks,booking_audit,queue_ticket_segments,queue_day_state,lifecycle_notifications RESTART IDENTITY CASCADE`);
       await pool.query(`INSERT INTO users VALUES(1,'{}',NULL,NULL),(2,'{}',NULL,NULL);
         INSERT INTO tenants VALUES(1,TRUE),(2,TRUE);
         INSERT INTO tenant_memberships VALUES(1,1,1,'owner',TRUE),(2,2,1,'staff',TRUE);
         INSERT INTO store_locations VALUES(10,1,TRUE,TRUE),(20,2,TRUE,TRUE);
-        INSERT INTO service_resource_requirements VALUES(1,10,1000,100,1,1)`);
+        INSERT INTO service_resource_requirements VALUES(1,10,1000,100,1,1);
+        INSERT INTO queue_day_state VALUES('open')`);
       await pool.query('INSERT INTO location_resource_pools VALUES(100,1,10,$1,1,$2)',[capacity,enabled]);
-      failEvent=false; failBooking=false; snapshots=0; pushes=0; queueClosed=false;
+      failEvent=false; failBooking=false; failReconciliation=false; snapshots=0; pushes=0; queueClosed=false;
+      delete location.queueLifecycleMode;
     }
     async function ticket(id,{plan=true,booking=false,channel='vendor'}={}) {
       await pool.query("INSERT INTO tickets(id,tenant_id,location_id,status,join_channel) VALUES($1,1,10,'called',$2)",[id,channel]);
@@ -136,6 +140,18 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
       '../repositories/queueDayClosures':{findActiveClosure:async (_tenant,_location,_date,{client}) => {
         assert.ok(client); return queueClosed ? {_id:'1'} : null;
       }},
+      './queueDayLifecycleService':{
+        getAuthoritativeQueueDay:async (_tenant,_location,{client}) => {
+          assert.ok(client);
+          const state=(await client.query('SELECT state FROM queue_day_state')).rows[0].state;
+          return state==='open' ? {_id:'999',businessDate:'2026-10-08',currentClosesAt:new Date(Date.now()-1000),state} : null;
+        },
+        closeLockedQueueDay:async client => {
+          await client.query("UPDATE queue_day_state SET state='closed'; UPDATE tickets SET status='unserved'; UPDATE bookings SET status='unfulfilled'");
+          await client.query("INSERT INTO events(ticket_id,event_type,metadata) VALUES(1,'queue_day_closed','{}'); INSERT INTO lifecycle_notifications VALUES(1,'pending')");
+          if(failReconciliation) throw new Error('closure failed');
+        }
+      },
       './queueSnapshotHelpers':{resolveLocation:async (_tenant,options) => options.location || location,buildQueueSnapshot:async () => ({current:null})},
       './queueEvents':{publish:()=>{}}
     },'queueService');
@@ -325,6 +341,38 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
       await reset(4,false); await ticket('1',{plan:false}); await pool.query('UPDATE store_locations SET service_timing_enabled=FALSE');
       await legacy('served'); assert.equal((await readTicket('1')).status,'served'); assert.equal(await count('resource_ledger_commands'),0);
       assert.equal(await count('resource_allocations'),0);
+    });
+    await t.test('linked active booking cancellation requires booking management; staff can cancel ordinary tickets',async () => {
+      await reset(); await ticket('1',{booking:true}); await pool.query('INSERT INTO tenant_membership_locations VALUES(2,10)');
+      await assert.rejects(legacy('cancelled','2'),{statusCode:403});
+      await pool.query("UPDATE tickets SET status='waiting'"); await assert.rejects(cancelVendor('1','2'),{statusCode:403});
+      assert.equal((await readTicket('1')).status,'waiting'); assert.equal((await pool.query('SELECT status FROM bookings')).rows[0].status,'confirmed');
+      assert.equal((await pool.query('SELECT state FROM resource_ledger_reservations')).rows[0].state,'protected'); assert.equal(await count('events'),0);
+      await reset(4,false); await ticket('1',{plan:false}); await pool.query("INSERT INTO tenant_membership_locations VALUES(2,10); UPDATE tickets SET status='waiting'");
+      await cancelVendor('1','2'); assert.equal((await readTicket('1')).status,'cancelled'); assert.equal(await count('events'),1);
+    });
+    await t.test('vendor cancellation preserves terminal booking status',async () => {
+      await reset(); await ticket('1',{booking:true}); await pool.query("UPDATE tickets SET status='waiting'; UPDATE bookings SET status='completed'");
+      await cancelVendor('1'); assert.equal((await pool.query('SELECT status FROM bookings')).rows[0].status,'completed');
+    });
+    await t.test('overdue reconciliation commits before rejecting and retains actual occupancy',async () => {
+      await reset(); await ticket('1',{booking:true}); await record('1','start'); location.queueLifecycleMode='enforced';
+      await assert.rejects(legacy('skipped'),{code:'QUEUE_DAY_OVERDUE'});
+      assert.equal((await pool.query('SELECT state FROM queue_day_state')).rows[0].state,'closed');
+      assert.equal((await readTicket('1')).status,'unserved'); assert.equal((await pool.query('SELECT status FROM bookings')).rows[0].status,'unfulfilled');
+      assert.equal((await pool.query('SELECT released_at FROM resource_allocations')).rows[0].released_at,null);
+      assert.equal(await count('lifecycle_notifications'),1); assert.equal(await count('events'),2);
+      assert.equal((await pool.query('SELECT revision::text FROM resource_ledger_scopes')).rows[0].revision,'5');
+      await assert.rejects(legacy('skipped'),{code:'QUEUE_DAY_UNOPENED'});
+      assert.equal(await count('lifecycle_notifications'),1); assert.equal(await count('events'),2);
+    });
+    await t.test('reconciliation failure still rolls back its partial outcomes',async () => {
+      await reset(); await ticket('1',{booking:true}); location.queueLifecycleMode='enforced'; failReconciliation=true;
+      await assert.rejects(legacy('skipped'),/closure failed/);
+      assert.equal((await pool.query('SELECT state FROM queue_day_state')).rows[0].state,'open');
+      assert.equal((await readTicket('1')).status,'called'); assert.equal((await pool.query('SELECT status FROM bookings')).rows[0].status,'confirmed');
+      assert.equal(await count('lifecycle_notifications'),0); assert.equal(await count('events'),0);
+      assert.equal((await pool.query('SELECT revision::text FROM resource_ledger_scopes')).rows[0].revision,'2');
     });
   } finally {await pool.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`); await pool.end();}
 });
