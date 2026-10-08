@@ -56,7 +56,7 @@ const BOOKING_CALL_NOT_READY = `EXISTS (
   WHERE bookings.queue_ticket_id = tickets.id
     AND bookings.tenant_id = tickets.tenant_id
     AND bookings.location_id = tickets.location_id
-    AND bookings.scheduled_start_at > NOW()
+    AND bookings.scheduled_start_at > clock_timestamp()
 )`;
 
 const WAITING_PRIORITY_ORDER = "CASE service_priority_band WHEN 'carry_over' THEN 0 WHEN 'recovery' THEN 1 WHEN 'checked_in_booking' THEN 2 ELSE 3 END ASC, carry_over_count DESC, created_at ASC";
@@ -827,8 +827,8 @@ async function callNextWaitingTicket(tenantId, options = {}) {
       )
       UPDATE tickets
       SET status = 'called',
-          called_at = NOW(),
-          notified_called_at = NOW(),
+          called_at = clock_timestamp(),
+          notified_called_at = clock_timestamp(),
           customer_confirmed_at = NULL,
           service_counter_id = $3
       WHERE id IN (SELECT id FROM next_ticket)
@@ -901,8 +901,8 @@ async function confirmCurrentCalledTicket(tenantId, ticketId, options = {}) {
   const result = await queryClient.query(
     `
       UPDATE tickets
-      SET customer_confirmed_at = COALESCE(customer_confirmed_at, NOW()),
-          updated_at = NOW()
+      SET customer_confirmed_at = COALESCE(customer_confirmed_at, clock_timestamp()),
+          updated_at = clock_timestamp()
       WHERE id = $1
         AND tenant_id = $2
         AND location_id = $3

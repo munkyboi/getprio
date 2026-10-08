@@ -251,6 +251,28 @@ async function runScopeTransaction({ pool, tenantId, locationId, actorId, author
   }
 }
 
+async function assertCustomerCancellationBinding(client, scope, lookupCode, customerKey, data) {
+  if (customerKey[2] !== data.reservationId) fail("Ticket reservation key does not match its payload.", 403);
+  const eligible = await client.query(`SELECT t.id FROM tickets t JOIN bookings b
+    ON (b.queue_ticket_id,b.tenant_id,b.location_id)=(t.id,t.tenant_id,t.location_id)
+    JOIN resource_ledger_reservations r ON (r.booking_id,r.tenant_id,r.location_id)=(b.id,b.tenant_id,b.location_id)
+    WHERE t.tenant_id=$1 AND t.location_id=$2 AND t.lookup_code=$3 AND t.id=$4 AND r.id=$5
+      AND t.status='cancelled' AND t.status_reason IN ('customer_cancelled','carry_over_declined')`,
+  [...scope, lookupCode, customerKey[1], data.reservationId]);
+  if (!eligible.rows.length) fail("Customer cancellation requires its cancelled ticket's linked protection.", 403);
+}
+
+async function assertSystemExpiryBinding(client, scope, operationKey, data) {
+  if (operationKey.split(":")[3] !== data.reservationId) fail("Expiry reservation key does not match its payload.", 403);
+  const eligible = await client.query(`SELECT b.id FROM bookings b
+    JOIN resource_ledger_reservations r ON (r.booking_id,r.tenant_id,r.location_id)=(b.id,b.tenant_id,b.location_id)
+    WHERE r.tenant_id=$1 AND r.location_id=$2 AND r.id=$3 AND b.id::text=$4 AND b.status='canceled'
+      AND b.expired_at IS NOT NULL AND b.pending_expires_at <= b.expired_at
+      AND b.expired_at <= clock_timestamp() AND b.payment_proof_object_key IS NULL
+      AND b.checked_in_at IS NULL AND b.queue_ticket_id IS NULL`, [...scope, data.reservationId, operationKey.split(":")[1]]);
+  if (!eligible.rows.length) fail("System expiry requires an expired unarrived booking without payment proof.", 403);
+}
+
 async function executeLockedCommand(client, scope, actorId, { operationKey, command, payload }, customerCancellationLookupCode) {
   if (typeof operationKey !== "string" || !operationKey.trim() || operationKey.length > 120) fail("Invalid operation key.", 400);
   const customerKey = customerCancellationLookupCode && operationKey.match(/^ticket:([1-9]\d*):reservation:([1-9]\d*):customer-cancel$/u);
@@ -263,23 +285,9 @@ async function executeLockedCommand(client, scope, actorId, { operationKey, comm
   }
   const data = normalizedCommand(command, payload);
   if (customerCancellationLookupCode) {
-    if (customerKey[2] !== data.reservationId) fail("Ticket reservation key does not match its payload.", 403);
-    const eligible = await client.query(`SELECT t.id FROM tickets t JOIN bookings b
-      ON (b.queue_ticket_id,b.tenant_id,b.location_id)=(t.id,t.tenant_id,t.location_id)
-      JOIN resource_ledger_reservations r ON (r.booking_id,r.tenant_id,r.location_id)=(b.id,b.tenant_id,b.location_id)
-      WHERE t.tenant_id=$1 AND t.location_id=$2 AND t.lookup_code=$3 AND t.id=$4 AND r.id=$5
-        AND t.status='cancelled' AND t.status_reason IN ('customer_cancelled','carry_over_declined')`,
-    [...scope, customerCancellationLookupCode, customerKey[1], data.reservationId]);
-    if (!eligible.rows.length) fail("Customer cancellation requires its cancelled ticket's linked protection.", 403);
+    await assertCustomerCancellationBinding(client, scope, customerCancellationLookupCode, customerKey, data);
   } else if (actorId === null) {
-    if (operationKey.split(":")[3] !== data.reservationId) fail("Expiry reservation key does not match its payload.", 403);
-    const eligible = await client.query(`SELECT b.id FROM bookings b
-      JOIN resource_ledger_reservations r ON (r.booking_id,r.tenant_id,r.location_id)=(b.id,b.tenant_id,b.location_id)
-      WHERE r.tenant_id=$1 AND r.location_id=$2 AND r.id=$3 AND b.id::text=$4 AND b.status='canceled'
-        AND b.expired_at IS NOT NULL AND b.pending_expires_at <= b.expired_at
-        AND b.expired_at <= clock_timestamp() AND b.payment_proof_object_key IS NULL
-        AND b.checked_in_at IS NULL AND b.queue_ticket_id IS NULL`, [...scope, data.reservationId, operationKey.split(":")[1]]);
-    if (!eligible.rows.length) fail("System expiry requires an expired unarrived booking without payment proof.", 403);
+    await assertSystemExpiryBinding(client, scope, operationKey, data);
   }
   const fingerprint = createHash("sha256").update(JSON.stringify({ actorId, command, data })).digest("hex");
   const prior = await client.query(`SELECT payload_hash,result FROM resource_ledger_commands

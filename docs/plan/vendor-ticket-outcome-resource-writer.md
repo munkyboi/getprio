@@ -15,7 +15,7 @@ This inventory is source evidence for further slices, not a coverage-complete ce
 | Path | Remaining work |
 | --- | --- |
 | `queueService.createTicket`, `queueJoinPaymentService.activatePaidPayment` | Public/customer/developer/paid/vendor issuance and scope revisions; payment-first lock ordering, channel authorization and unknown/ordinary plans must be considered separately. |
-| `queueService.callNextTicket`, `confirmCurrentTicket`, `restoreSkippedTicket` | Location-first operational state changes and coherent revisions/earliest-call policy; calling still does not allocate. |
+| `queueService.restoreSkippedTicket` | Location-first restoration, current actor/target scope, intake and capacity checks, and coherent revision. Calling/confirmation are covered separately in [Vendor call and confirmation](vendor-call-confirm-resource-writer.md); calling still does not allocate. |
 | `queueService.closeQueueDay`, `queueDayLifecycleService.closeTicketOutcomes` | Manual/system closure and terminal protection cleanup; retain actual occupancy and explicit timing. |
 | `queueDayLifecycleService.expirePendingCarryOvers` | Scope-first system expiry and terminal booking/protection updates, without releasing active occupancy. |
 | `accountDeletionService.cancelWaitingTickets` | Deletion-authorized cancellation, multiple affected scopes and protection cleanup; preserve deletion transaction/revocation policy. Anonymization alone is distinct from this operational cancellation. |
