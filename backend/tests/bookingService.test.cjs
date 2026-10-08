@@ -178,6 +178,7 @@ function buildBookingService({
       countOverlappingActiveBookings,
       expirePendingBookings,
       listPendingBookingExpiryScopes,
+      getPendingBookingExpiryCutoff: async () => new Date().toISOString(),
       findBookingById,
       findBookingByIdForUpdate,
       ...(listBookingsForCheckInReminder ? { listBookingsForCheckInReminder } : {}),

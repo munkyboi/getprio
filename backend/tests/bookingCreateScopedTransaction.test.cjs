@@ -87,6 +87,7 @@ test('customer booking creation under real scoped PostgreSQL transaction', { ski
       '../config/db': { pool },
       '../repositories/bookings': {
         expirePendingBookings: require('../src/repositories/bookings').expirePendingBookings,
+        getPendingBookingExpiryCutoff: () => require('../src/repositories/bookings').getPendingBookingExpiryCutoff({client:pool}),
         listPendingBookingExpiryScopes: options => require('../src/repositories/bookings').listPendingBookingExpiryScopes({...options,client:pool}),
         countOverlappingActiveBookings: async (_tenant, options) => {
           const result = await (options.client || pool).query("SELECT COUNT(*)::int AS count FROM bookings WHERE status IN ('pending','confirmed','rescheduled') AND tenant_id=$1 AND location_id=$2 AND starts_at<$4 AND ends_at>$3 AND ($5::bigint IS NULL OR id<>$5)", [_tenant, options.locationId,options.startsAt,options.endsAt,options.excludeBookingId || null]);
@@ -409,6 +410,30 @@ test('customer booking creation under real scoped PostgreSQL transaction', { ski
       assert.deepEqual(await bookingService.expirePendingBookingsForCustomer('1'),[first._id]);
       assert.equal((await readBooking(second._id)).status,'pending'); assert.equal(cancelled,1);
       assert.equal((await pool.query("SELECT COUNT(*)::int AS count FROM resource_ledger_reservations WHERE state='protected'")).rows[0].count,1);
+    });
+    await t.test('expiry keeps BIGINT booking identity above JavaScript safe integer range', async () => {
+      await reset(); await configureResources();
+      await pool.query("SELECT setval('bookings_id_seq',9007199254740993,FALSE)");
+      const booking = await bookingService.createCustomerBooking({user,body});
+      assert.equal(booking._id,'9007199254740993');
+      await pool.query("UPDATE bookings SET pending_expires_at=clock_timestamp()-interval '1 minute'");
+      assert.deepEqual(await expire(),[booking._id]);
+      assert.equal((await readBooking(booking._id)).status,'canceled'); assert.equal(cancelled,1);
+    });
+    await t.test('expiry uses the database cutoff even when application clock is ahead', async () => {
+      const booking = await expiringBooking();
+      const ActualDate = Date;
+      global.Date = class extends ActualDate {
+        constructor(...args) { super(...(args.length ? args : [ActualDate.now()+3600000])); }
+        static now() { return ActualDate.now()+3600000; }
+      };
+      try {
+        assert.deepEqual(await expire(),[booking._id]);
+        const current = await readBooking(booking._id);
+        assert.equal(current.status,'canceled');
+        assert.ok(new ActualDate(current.expiredAt).getTime() <= ActualDate.now());
+        assert.equal(cancelled,1);
+      } finally { global.Date = ActualDate; }
     });
     await t.test('system expiry command capability rejects other commands and unexpired bindings', async () => {
       const booking = await proofBooking();
