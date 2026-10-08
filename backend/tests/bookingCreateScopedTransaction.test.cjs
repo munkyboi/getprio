@@ -464,7 +464,8 @@ test('customer booking creation under real scoped PostgreSQL transaction', { ski
     });
     async function arrivalBooking(enabled = true) {
       const booking = await proofBooking(enabled);
-      const start = new Date().toISOString(); const end = new Date(Date.now()+3600000).toISOString();
+      const startsAt = Date.now();
+      const start = new Date(startsAt).toISOString(); const end = new Date(startsAt+3600000).toISOString();
       await pool.query("UPDATE bookings SET status='confirmed',starts_at=$1,ends_at=$2",[start,end]);
       await pool.query('UPDATE booking_bundle_items SET scheduled_start_at=$1,scheduled_end_at=$2',[start,end]);
       await pool.query('UPDATE resource_ledger_reservations SET starts_at=$1,ends_at=$2',[start,end]);
