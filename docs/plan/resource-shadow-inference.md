@@ -23,3 +23,5 @@ Disabled/busy/invalid-target attempts do not call the provider. Provider errors 
 Next gates: complete authoritative writer coverage and reconciliation; implement the producer's ready inventory and byte adapter; verify cancellation/concurrency/late-result behavior; add bounded private capture paired with actual service starts; evaluate support/fallback coverage and performance before any customer promotion. Static syntax/lint checks only were run while authoring this slice; no local tests, operational forecasts or live hooks were executed.
 
 A separate [read-only CLI readiness preflight](resource-shadow-audit.md) now connects the existing not-ready producer to this boundary. It does not add an API caller, ready inventory adapter, sample capture or forecast publication.
+
+[Offline service-start evaluation](resource-shadow-evaluation.md) defines the separate paired observation report. It has no capture/export hook and rejects the existing time-to-call datasets.
