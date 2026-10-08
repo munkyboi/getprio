@@ -871,6 +871,7 @@ router.delete(
       actorUserId: req.user?._id,
       actorRole: req.user ? "customer" : null,
       source: "public",
+      customerContact: { customerEmail: req.body?.customerEmail, customerPhone: req.body?.customerPhone },
       location: ticketLocation || undefined
     });
 
