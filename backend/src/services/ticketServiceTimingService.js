@@ -8,6 +8,10 @@ const automation = require("./queueAutomationHelpers");
 const notificationService = require("./notificationService");
 const pushNotificationService = require("./pushNotificationService");
 const developerWebhookService = require("./developerWebhookService");
+const resourceLedger = require("../repositories/resourceLedger");
+const resources = require("./serviceResourceSessionService");
+const permissions = require("./permissions");
+const assignments = require("../repositories/tenantMembershipLocations");
 
 function reject(message, statusCode = 409) {
   const error = new Error(message);
@@ -26,24 +30,30 @@ async function recordEvent(client, ticket, eventType, options, previousStatus) {
   await developerWebhookService.enqueueQueueEvent({ event, ticket }, { client });
 }
 
-async function startService(current, enabled, options, client) {
-  if (current.serviceStartedAt && !current.serviceEndedAt) return false;
+async function startService(current, enabled, options, client, ledger, state) {
+  if (current.serviceStartedAt && !current.serviceEndedAt) {
+    resources.assertStarted(state);
+    return false;
+  }
   if (current.serviceEndedAt) reject("This ticket already has a finished service record. Issue a new ticket for another service.");
   if (!enabled) reject("Service timing is not enabled for this location.");
   if (current.status !== "called") reject("Call the ticket before starting service.");
   if (!current.customerConfirmedAt && current.joinChannel !== "vendor") reject("Confirm the ticket before starting service.");
-  await timing.start(current, options.actorUserId, client);
+  const allocationId = await resources.allocate(ledger, current, state);
+  await timing.start(current, options.actorUserId, client, allocationId);
   return true;
 }
 
-async function endService(current, outcome, options, client) {
+async function endService(current, outcome, options, client, ledger, state) {
   if (!current.serviceStartedAt) reject("Start service before recording its outcome.");
   if (current.serviceEndedAt) {
     if (current.serviceOutcome !== outcome) reject("This service already has a different recorded outcome.");
+    resources.assertFinished(state, outcome);
     return false;
   }
   if (["waiting", "pending_carry_over"].includes(current.status)) reject("Refresh the queue before resolving this service record.");
-  await timing.finish(current, outcome, options.actorUserId, client);
+  const allocationId = await resources.release(ledger, current, state, outcome);
+  await timing.finish(current, outcome, options.actorUserId, client, allocationId);
   return true;
 }
 
@@ -66,21 +76,35 @@ async function recordTicketService(tenant, ticketId, action, options) {
   if (!Object.prototype.hasOwnProperty.call(eventTypes, action)) reject("Unknown service action.", 400);
   const location = options.location;
   if (!location) reject("Location not found.", 404);
-  const { ticket, resolvedQueueStatus } = await db.withTransaction(async (client) => {
-    // Serialize starts against setting changes; repeat state and scope checks
-    // under locks. The browser cannot supply clocks or actors.
-    const branch = await client.query(`SELECT service_timing_enabled FROM store_locations
-      WHERE id = $1 AND tenant_id = $2 FOR SHARE`, [location._id, tenant._id]);
+  const { ticket, resolvedQueueStatus } = await resourceLedger.withScopeTransaction({
+    pool: db.pool, tenantId: String(tenant._id), locationId: String(location._id), actorUserId: String(options.actorUserId),
+    authorize: async (client, scope) => {
+      const result = await client.query(`SELECT u.roles,m.role FROM users u JOIN tenant_memberships m
+        ON m.user_id=u.id AND m.tenant_id=$2 AND m.is_active=TRUE
+        WHERE u.id=$1 AND u.deletion_requested_at IS NULL AND u.platform_access_suspended_at IS NULL`,
+      [scope.actorUserId, scope.tenantId]);
+      const actor = result.rows[0];
+      if (!actor) return false;
+      const user = { roles: actor.roles, tenantMemberships: [{ tenantId: scope.tenantId, role: actor.role, isActive: true }] };
+      if (!permissions.userHasPermission(user, "tenant.ticket.update_state", { tenantId: scope.tenantId })) return false;
+      return actor.role !== "staff" || assignments.userHasLocationAssignment(scope.actorUserId, scope.tenantId, scope.locationId, { client });
+    }
+  }, async (client, ledger) => {
+    const branch = await client.query(`SELECT l.service_timing_enabled,l.is_active,t.is_active AS tenant_active
+      FROM store_locations l JOIN tenants t ON t.id=l.tenant_id WHERE l.id=$1 AND l.tenant_id=$2`, [location._id, tenant._id]);
     if (!branch.rows[0]) reject("Location not found.", 404);
     const current = await tickets.findTicketByIdForUpdate(ticketId, { client });
     if (!current || String(current.tenantId) !== String(tenant._id)
       || String(current.locationId) !== String(location._id)) reject("Ticket not found.", 404);
+    if (action === "start" && (!branch.rows[0].is_active || !branch.rows[0].tenant_active)) reject("This business or location is inactive.");
+    const state = await resources.readState(client, current);
     const changed = action === "start"
-      ? await startService(current, branch.rows[0].service_timing_enabled, options, client)
-      : await endService(current, action === "complete" ? "completed" : "interrupted", options, client);
+      ? await startService(current, branch.rows[0].service_timing_enabled, options, client, ledger, state)
+      : await endService(current, action === "complete" ? "completed" : "interrupted", options, client, ledger, state);
     if (!changed) return { ticket: current };
     const updated = await tickets.findTicketById(ticketId, { client });
     await recordEvent(client, updated, eventTypes[action], options, current.status);
+    await client.query("UPDATE resource_ledger_scopes SET revision=revision+1 WHERE tenant_id=$1 AND location_id=$2", [tenant._id, location._id]);
     return { ticket: updated, resolvedQueueStatus: await resolveCalledTicket(client, current, updated, options) };
   });
   if (resolvedQueueStatus) {

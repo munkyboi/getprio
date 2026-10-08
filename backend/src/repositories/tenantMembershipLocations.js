@@ -25,7 +25,7 @@ async function userHasLocationAssignment(userId, tenantId, locationId, options =
          )
        )
      LIMIT 1`,
-    [Number(userId), Number(tenantId), Number(locationId)]
+    [userId, tenantId, locationId]
   );
   return result.rows.length > 0;
 }
