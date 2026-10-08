@@ -190,27 +190,40 @@ function assertManualPaymentDestinationAvailable({ service, location }) {
 }
 
 async function expirePendingBookings(options = {}) {
-  if (!bookingRepository.expirePendingBookings) {
-    return [];
-  }
-
-  const expiredIds = await bookingRepository.expirePendingBookings({
-    ...options,
-    reason: PENDING_BOOKING_EXPIRATION_REASON
-  });
-
-  for (const bookingId of expiredIds) {
-    const booking = await bookingRepository.findBookingById(bookingId);
-    if (!booking) {
-      continue;
-    }
-
-    pushNotificationService.notifyCustomerBookingUpdate({
-      booking,
-      action: "pending_expired"
-    }).catch((error) => {
-      console.warn("[web-push-customer-booking-expired-skipped]", error.message);
+  if (!bookingRepository.listPendingBookingExpiryScopes) return [];
+  const criteria = { tenantId: options.tenantId, locationId: options.locationId,
+    customerUserId: options.customerUserId, now: new Date().toISOString(),
+    reason: PENDING_BOOKING_EXPIRATION_REASON };
+  const scopes = await bookingRepository.listPendingBookingExpiryScopes(criteria);
+  const expiredIds = [];
+  for (const scope of scopes) {
+    const committed = await resourceLedger.withSystemExpiryTransaction({ pool: db.pool, ...scope }, async (client, ledger) => {
+      const ids = await bookingRepository.expirePendingBookings({ ...criteria, ...scope, client });
+      for (const bookingId of ids) {
+        const booking = await bookingRepository.findBookingByIdForUpdate(bookingId, { client });
+        if (!booking || String(booking.tenantId) !== scope.tenantId || String(booking.locationId) !== scope.locationId) {
+          const error = new Error("Expired booking scope changed."); error.statusCode = 409; throw error;
+        }
+        await bookingResourceReservationService.cancelBookingReservations({ client, ledger, booking, operation: "expiry:cancel" });
+      }
+      if (ids.length) await client.query(`UPDATE resource_ledger_scopes SET revision=revision+1
+        WHERE tenant_id=$1 AND location_id=$2`, [scope.tenantId, scope.locationId]);
+      return ids;
     });
+    expiredIds.push(...committed);
+    for (const bookingId of committed) {
+      const booking = await bookingRepository.findBookingById(bookingId);
+      if (!booking) {
+        continue;
+      }
+
+      pushNotificationService.notifyCustomerBookingUpdate({
+        booking,
+        action: "pending_expired"
+      }).catch((error) => {
+        console.warn("[web-push-customer-booking-expired-skipped]", error.message);
+      });
+    }
   }
 
   return expiredIds;

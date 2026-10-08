@@ -57,7 +57,7 @@ test('customer booking creation under real scoped PostgreSQL transaction', { ski
     const items = (await (options.client || pool).query('SELECT * FROM booking_bundle_items WHERE booking_id=$1 ORDER BY sort_order,id',[id])).rows;
     return { ...data, ...row.payment_data, locationSlug:location.slug, serviceSlug:data.bundleItems[0].serviceSlug, _id:String(row.id), tenantId:String(row.tenant_id),locationId:String(row.location_id),
       customerUserId:options.client && changedLockedOwner ? "2" : String(row.customer_user_id),status:row.status,
-      checkedInAt:row.checked_in_at,queueTicketId:row.queue_ticket_id,pendingExpiresAt:row.pending_expires_at?.toISOString(),paymentProofObjectKey:row.payment_proof_object_key,scheduledStartAt:row.starts_at.toISOString(),scheduledEndAt:row.ends_at.toISOString(),
+      checkedInAt:row.checked_in_at,queueTicketId:row.queue_ticket_id,pendingExpiresAt:row.pending_expires_at?.toISOString(),paymentProofObjectKey:row.payment_proof_object_key,expiredAt:row.expired_at?.toISOString(),expirationReason:row.expiration_reason,scheduledStartAt:row.starts_at.toISOString(),scheduledEndAt:row.ends_at.toISOString(),
       bundleItems:items.map((item,index) => ({...data.bundleItems[index],id:String(item.id),scheduledStartAt:item.scheduled_start_at.toISOString(),scheduledEndAt:item.scheduled_end_at.toISOString()})) };
   }
   const noop = async () => {};
@@ -71,7 +71,7 @@ test('customer booking creation under real scoped PostgreSQL transaction', { ski
       CREATE TABLE store_locations(id BIGINT PRIMARY KEY,tenant_id BIGINT,UNIQUE(id,tenant_id));
       CREATE TABLE bookings(id BIGSERIAL PRIMARY KEY,tenant_id BIGINT,location_id BIGINT,
         starts_at TIMESTAMPTZ,ends_at TIMESTAMPTZ,status TEXT,customer_user_id BIGINT,
-        checked_in_at TIMESTAMPTZ,queue_ticket_id BIGINT,pending_expires_at TIMESTAMPTZ,payment_proof_object_key TEXT,payment_data JSONB NOT NULL DEFAULT '{}');
+        checked_in_at TIMESTAMPTZ,queue_ticket_id BIGINT,pending_expires_at TIMESTAMPTZ,payment_proof_object_key TEXT,expired_at TIMESTAMPTZ,expiration_reason TEXT,payment_data JSONB NOT NULL DEFAULT '{}');
       CREATE TABLE booking_bundle_items(id BIGSERIAL PRIMARY KEY,booking_id BIGINT,price INTEGER,
         tenant_id BIGINT,location_id BIGINT,service_id BIGINT,booking_quantity INTEGER,
         scheduled_start_at TIMESTAMPTZ,scheduled_end_at TIMESTAMPTZ,sort_order INTEGER);
@@ -86,7 +86,8 @@ test('customer booking creation under real scoped PostgreSQL transaction', { ski
     const bookingService = loadService({
       '../config/db': { pool },
       '../repositories/bookings': {
-        expirePendingBookings: async () => [],
+        expirePendingBookings: require('../src/repositories/bookings').expirePendingBookings,
+        listPendingBookingExpiryScopes: options => require('../src/repositories/bookings').listPendingBookingExpiryScopes({...options,client:pool}),
         countOverlappingActiveBookings: async (_tenant, options) => {
           const result = await (options.client || pool).query("SELECT COUNT(*)::int AS count FROM bookings WHERE status IN ('pending','confirmed','rescheduled') AND tenant_id=$1 AND location_id=$2 AND starts_at<$4 AND ends_at>$3 AND ($5::bigint IS NULL OR id<>$5)", [_tenant, options.locationId,options.startsAt,options.endsAt,options.excludeBookingId || null]);
           return result.rows[0].count;
@@ -319,6 +320,108 @@ test('customer booking creation under real scoped PostgreSQL transaction', { ski
       const booking = await lateBooking(false); await noShow(booking);
       assert.equal((await readBooking(booking._id)).status,'canceled'); assert.equal(cancelled,1);
       assert.equal(await count('resource_ledger_reservations'),0); assert.equal(await count('resource_ledger_commands'),0);
+    });
+    async function expiringBooking(enabled = true) {
+      const booking = await proofBooking(enabled);
+      await pool.query("UPDATE bookings SET pending_expires_at=clock_timestamp()-interval '1 minute'");
+      return booking;
+    }
+    const expire = () => bookingService.expirePendingBookingsForLocation('1','10');
+    await t.test('system expiry handles a deleted customer and cancels immutable protection', async () => {
+      const booking = await expiringBooking();
+      await pool.query('UPDATE bookings SET customer_user_id=NULL; DELETE FROM users WHERE id=1; UPDATE location_resource_pools SET tracking_enabled=FALSE,revision=2; UPDATE service_resource_requirements SET units_required=4,revision=2');
+      try {
+        assert.deepEqual(await expire(),[booking._id]);
+        const current = await readBooking(booking._id);
+        assert.equal(current.status,'canceled'); assert.ok(current.expiredAt); assert.match(current.expirationReason,/pending booking window/);
+        assert.equal((await pool.query('SELECT state FROM resource_ledger_reservations')).rows[0].state,'cancelled');
+        const receipt = (await pool.query("SELECT actor_user_id,operation_key FROM resource_ledger_commands WHERE command='cancelReservation'")).rows[0];
+        assert.equal(receipt.actor_user_id,null); assert.match(receipt.operation_key,/:expiry:cancel$/);
+        assert.equal(cancelled,1);
+        assert.deepEqual(await expire(),[]); assert.equal(cancelled,1);
+      } finally { await pool.query('INSERT INTO users(id) VALUES(1)'); }
+    });
+    await t.test('system expiry serializes concurrent runs and preserves ordinary behavior', async () => {
+      for (const enabled of [true,false]) {
+        const booking = await expiringBooking(enabled);
+        const outcomes = await Promise.all([expire(),expire()]);
+        assert.deepEqual(outcomes.flat(),[booking._id]); assert.equal(cancelled,1);
+        assert.equal(await count('resource_ledger_commands'),enabled ? 2 : 0);
+      }
+    });
+    await t.test('expiry excludes proof, arrived, linked, confirmed and future pending bookings', async () => {
+      for (const scenario of ['proof','arrived','linked','confirmed','future']) {
+        const booking = await expiringBooking();
+        if (scenario === 'proof') await pool.query("UPDATE bookings SET payment_proof_object_key='proof'");
+        if (scenario === 'arrived') await pool.query('UPDATE bookings SET checked_in_at=clock_timestamp()');
+        if (scenario === 'linked') await pool.query('UPDATE bookings SET queue_ticket_id=123');
+        if (scenario === 'confirmed') await pool.query("UPDATE bookings SET status='confirmed'");
+        if (scenario === 'future') await pool.query("UPDATE bookings SET pending_expires_at=clock_timestamp()+interval '1 minute'");
+        const before = await revision(); assert.deepEqual(await expire(),[]);
+        assert.equal((await readBooking(booking._id)).status,scenario === 'confirmed' ? 'confirmed' : 'pending');
+        assert.equal(await revision(),before); assert.equal(cancelled,0);
+      }
+    });
+    await t.test('expiry cancellation failure rolls back booking expiry fields and ledger history', async () => {
+      const booking = await expiringBooking(); const before = await revision();
+      await pool.query(`CREATE FUNCTION reject_expiry_cancel() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'forced expiry failure'; END $$;
+        CREATE TRIGGER reject_expiry_cancel BEFORE UPDATE ON resource_ledger_reservations FOR EACH ROW EXECUTE FUNCTION reject_expiry_cancel()`);
+      try {
+        await assert.rejects(expire(),/forced expiry failure/);
+        const current = await readBooking(booking._id); assert.equal(current.status,'pending'); assert.equal(current.expiredAt,undefined);
+        assert.equal(await revision(),before); assert.equal(await count('resource_ledger_commands'),1); assert.equal(cancelled,0);
+      } finally { await pool.query('DROP TRIGGER reject_expiry_cancel ON resource_ledger_reservations; DROP FUNCTION reject_expiry_cancel()'); }
+    });
+    await t.test('converted expiry binding rolls back cancellation without releasing occupancy', async () => {
+      const booking = await expiringBooking();
+      await pool.query("UPDATE resource_ledger_reservations SET state='converted'; INSERT INTO tickets VALUES(3,1,10)");
+      await pool.query(`INSERT INTO resource_allocations(tenant_id,location_id,ticket_id,pool_id,pool_revision,units,reservation_id,started_at,expected_end_at)
+        SELECT 1,10,3,1000,1,1,id,clock_timestamp(),clock_timestamp()+interval '1 hour' FROM resource_ledger_reservations`);
+      await assert.rejects(expire(),{statusCode:409});
+      assert.equal((await readBooking(booking._id)).status,'pending'); assert.equal(cancelled,0);
+      assert.equal((await pool.query('SELECT released_at FROM resource_allocations')).rows[0].released_at,null);
+    });
+    await t.test('expiry rechecks proof after waiting for the location lock', async () => {
+      const booking = await expiringBooking(); const before = await revision();
+      const blocker = await pool.connect(); let outcome;
+      try {
+        await blocker.query('BEGIN'); await blocker.query('SELECT id FROM store_locations WHERE id=10 FOR UPDATE');
+        outcome = expire().then(ids => ({ids}),error => ({error}));
+        for (let attempts=0; attempts<100; attempts++) {
+          const waiting = await pool.query(`SELECT COUNT(*)::int AS count FROM pg_stat_activity
+            WHERE application_name=$1 AND wait_event_type='Lock' AND query LIKE '%store_locations%'
+              AND pid<>pg_backend_pid()`,[schema]);
+          if (waiting.rows[0].count) break;
+          if (attempts === 99) throw new Error('Expiry did not wait on location lock');
+          await new Promise(resolve => setTimeout(resolve,5));
+        }
+        await blocker.query("UPDATE bookings SET payment_proof_object_key='committed-proof' WHERE id=$1",[booking._id]);
+        await blocker.query('COMMIT');
+      } finally { await blocker.query('ROLLBACK'); blocker.release(); }
+      assert.deepEqual(await outcome,{ids:[]});
+      assert.equal((await readBooking(booking._id)).status,'pending'); assert.equal(cancelled,0); assert.equal(await revision(),before);
+    });
+    await t.test('customer-scoped expiry never cancels another customer at the same branch', async () => {
+      const first = await proofBooking(); await pool.query('UPDATE location_resource_pools SET capacity=2');
+      const second = await bookingService.createCustomerBooking({user,body});
+      await pool.query("UPDATE bookings SET pending_expires_at=clock_timestamp()-interval '1 minute'");
+      await pool.query("UPDATE bookings SET customer_user_id=2 WHERE id=$1",[second._id]);
+      assert.deepEqual(await bookingService.expirePendingBookingsForCustomer('1'),[first._id]);
+      assert.equal((await readBooking(second._id)).status,'pending'); assert.equal(cancelled,1);
+      assert.equal((await pool.query("SELECT COUNT(*)::int AS count FROM resource_ledger_reservations WHERE state='protected'")).rows[0].count,1);
+    });
+    await t.test('system expiry command capability rejects other commands and unexpired bindings', async () => {
+      const booking = await proofBooking();
+      const {withSystemExpiryTransaction} = require('../src/repositories/resourceLedger');
+      const binding = (await pool.query('SELECT id::text FROM resource_ledger_reservations')).rows[0].id;
+      for (const command of ['reserve','allocate','release','cancelReservation']) {
+        await assert.rejects(withSystemExpiryTransaction({pool,tenantId:'1',locationId:'10'},async (client,ledger) => {
+          await client.query('INSERT INTO allowances VALUES(999)');
+          try { await ledger.executeCommand({operationKey:`booking:${booking._id}:reservation:${binding}:expiry:cancel`,command,
+            payload:command === 'reserve' ? {bookingItemId:'1'} : command === 'allocate' ? {ticketId:'1'} : command === 'release' ? {allocationId:'1',outcome:'completed'} : {reservationId:binding}}); } catch { /* caught command still poisons transaction */ }
+        }),{statusCode:403});
+        assert.equal(await count('allowances'),1); assert.equal(await count('resource_ledger_commands'),1);
+      }
     });
     await t.test('disabled draft pool preserves quantity bookings and creates no binding or receipt', async () => {
       await reset(); await configureResources(false); catalog.allowBookingQuantity = true; body.bookingQuantity = 2;

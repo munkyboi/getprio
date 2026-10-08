@@ -928,35 +928,37 @@ async function updateBookingByQueueTicketId(queueTicketId, data, options = {}) {
   return findBookingById(result.rows[0].id, options);
 }
 
+function pendingExpiryQuery(options) {
+  const values = [options.now || new Date().toISOString()];
+  const filters = ["status = 'pending'", "pending_expires_at IS NOT NULL",
+    "pending_expires_at <= $1::timestamptz", "payment_proof_object_key IS NULL",
+    "checked_in_at IS NULL", "queue_ticket_id IS NULL"];
+  for (const [key, column] of [["tenantId", "tenant_id"], ["locationId", "location_id"], ["customerUserId", "customer_user_id"]]) {
+    if (options[key]) { values.push(options[key]); filters.push(`${column} = $${values.length}`); }
+  }
+  return { values, filters };
+}
+
+async function listPendingBookingExpiryScopes(options = {}) {
+  const { values, filters } = pendingExpiryQuery(options);
+  const result = await buildQueryClient(options.client).query(`SELECT DISTINCT tenant_id::text,location_id::text
+    FROM bookings WHERE ${filters.join(" AND ")} ORDER BY tenant_id::text,location_id::text`, values);
+  return result.rows.map(row => ({ tenantId: row.tenant_id, locationId: row.location_id }));
+}
+
+// Call only while holding the location-first system expiry transaction.
 async function expirePendingBookings(options = {}) {
-  const queryClient = buildQueryClient(options.client);
-  const values = [
-    options.now || new Date().toISOString(),
-    options.reason || "Expired after pending booking window."
-  ];
-  const filters = [
-    "status = 'pending'",
-    "pending_expires_at IS NOT NULL",
-    "pending_expires_at <= $1::timestamptz",
-    "payment_proof_object_key IS NULL"
-  ];
-
-  appendBookingScopeFilters(options, filters, values, "");
-
-  const result = await queryClient.query(
-    `
-      UPDATE bookings
-      SET
-        status = 'canceled',
-        expired_at = $1::timestamptz,
-        expiration_reason = $2
-      WHERE ${filters.join(" AND ")}
-      RETURNING id
-    `,
-    values
-  );
-
-  return result.rows.map((row) => String(row.id));
+  if (!options.client || !options.tenantId || !options.locationId) {
+    const error = new Error("Booking expiry requires a scoped transaction client.");
+    error.statusCode = 400;
+    throw error;
+  }
+  const { values, filters } = pendingExpiryQuery(options);
+  values.push(options.reason || "Expired after pending booking window.");
+  const result = await options.client.query(`UPDATE bookings
+    SET status='canceled',expired_at=$1::timestamptz,expiration_reason=$${values.length}
+    WHERE ${filters.join(" AND ")} RETURNING id`, values);
+  return result.rows.map(row => String(row.id));
 }
 
 module.exports = {
@@ -968,6 +970,7 @@ module.exports = {
   listBookingsForTenant,
   countOverlappingActiveBookings,
   expirePendingBookings,
+  listPendingBookingExpiryScopes,
   listBookingsForCheckInReminder,
   markBookingCheckInReminderSent,
   updateBooking,

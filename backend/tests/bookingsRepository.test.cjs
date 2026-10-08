@@ -270,35 +270,19 @@ test("vendor booking list applies search filters and timezone-aware scheduled da
   assert.equal(result.totalItems, 42);
 });
 
-test("pending booking expiration excludes bookings with submitted payment proof", async () => {
+test("pending booking expiration requires transaction scope and excludes proof and arrival", async () => {
   const calls = [];
-  const bookingsRepository = requireWithMocks("../src/repositories/bookings.js", {
-    "../config/db": {
-      pool: {
-        query: async (query, params) => {
-          calls.push({ query, params });
-          return { rows: [{ id: 123 }] };
-        }
-      }
-    }
-  });
-
-  const expiredIds = await bookingsRepository.expirePendingBookings({
-    tenantId: 1,
-    now: "2026-06-23T07:00:00.000Z",
-    reason: "Expired after pending booking window."
-  });
-
-  assert.deepEqual(expiredIds, ["123"]);
-  assert.equal(calls.length, 1);
-  assert.match(calls[0].query, /status = 'pending'/);
-  assert.match(calls[0].query, /payment_proof_object_key IS NULL/);
-  assert.match(calls[0].query, /tenant_id = \$3/);
-  assert.deepEqual(calls[0].params, [
-    "2026-06-23T07:00:00.000Z",
-    "Expired after pending booking window.",
-    1
-  ]);
+  const client = { query: async (query, params) => { calls.push({query,params}); return {rows:[{id:123}]}; } };
+  const repository = requireWithMocks("../src/repositories/bookings.js", { "../config/db": {pool:{query:async () => assert.fail("must use scoped client")}} });
+  await assert.rejects(repository.expirePendingBookings({tenantId:1}),{statusCode:400});
+  const expiredIds = await repository.expirePendingBookings({client,tenantId:'1',locationId:'10',now:'2026-06-23T07:00:00.000Z',reason:'Expired'});
+  assert.deepEqual(expiredIds,['123']);
+  assert.match(calls[0].query,/payment_proof_object_key IS NULL/);
+  assert.match(calls[0].query,/checked_in_at IS NULL/);
+  assert.match(calls[0].query,/queue_ticket_id IS NULL/);
+  assert.match(calls[0].query,/tenant_id = \$2/);
+  assert.match(calls[0].query,/location_id = \$3/);
+  assert.deepEqual(calls[0].params,['2026-06-23T07:00:00.000Z','1','10','Expired']);
 });
 
 test("booking creation retries once on duplicate reference and then reloads the inserted booking", async () => {

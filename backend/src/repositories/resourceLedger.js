@@ -161,8 +161,18 @@ const handlers = { reserve, cancelReservation, allocate, release };
 // The authorize callback rechecks server-owned scope and actor permissions under
 // the location lock, including retries; returning anything except true denies.
 async function withScopeTransaction({ pool, tenantId, locationId, actorUserId, authorize }, callback) {
+  return runScopeTransaction({ pool, tenantId, locationId, actorId: id(actorUserId), authorize }, callback);
+}
+
+// Trusted internal maintenance boundary; never constructed from a request DTO.
+// System expiry has no user identity and can only cancel protected reservations.
+async function withSystemExpiryTransaction({ pool, tenantId, locationId }, callback) {
+  return runScopeTransaction({ pool, tenantId, locationId, actorId: null,
+    authorize: async () => true }, callback);
+}
+
+async function runScopeTransaction({ pool, tenantId, locationId, actorId, authorize }, callback) {
   const scope = [id(tenantId), id(locationId)];
-  const actorId = id(actorUserId);
   if (typeof authorize !== "function" || typeof callback !== "function") {
     fail("Scoped transactions require authorization and a domain callback.", 400);
   }
@@ -233,7 +243,21 @@ async function withScopeTransaction({ pool, tenantId, locationId, actorUserId, a
 
 async function executeLockedCommand(client, scope, actorId, { operationKey, command, payload }) {
   if (typeof operationKey !== "string" || !operationKey.trim() || operationKey.length > 120) fail("Invalid operation key.", 400);
+  if (actorId === null && (command !== "cancelReservation"
+    || !/^booking:[1-9]\d*:reservation:[1-9]\d*:expiry:cancel$/u.test(operationKey))) {
+    fail("System expiry may only cancel booking reservations with an expiry operation key.", 403);
+  }
   const data = normalizedCommand(command, payload);
+  if (actorId === null) {
+    if (operationKey.split(":")[3] !== data.reservationId) fail("Expiry reservation key does not match its payload.", 403);
+    const eligible = await client.query(`SELECT b.id FROM bookings b
+      JOIN resource_ledger_reservations r ON (r.booking_id,r.tenant_id,r.location_id)=(b.id,b.tenant_id,b.location_id)
+      WHERE r.tenant_id=$1 AND r.location_id=$2 AND r.id=$3 AND b.id::text=$4 AND b.status='canceled'
+        AND b.expired_at IS NOT NULL AND b.pending_expires_at <= b.expired_at
+        AND b.expired_at <= clock_timestamp() AND b.payment_proof_object_key IS NULL
+        AND b.checked_in_at IS NULL AND b.queue_ticket_id IS NULL`, [...scope, data.reservationId, operationKey.split(":")[1]]);
+    if (!eligible.rows.length) fail("System expiry requires an expired unarrived booking without payment proof.", 403);
+  }
   const fingerprint = createHash("sha256").update(JSON.stringify({ actorId, command, data })).digest("hex");
   const prior = await client.query(`SELECT payload_hash,result FROM resource_ledger_commands
     WHERE tenant_id=$1 AND location_id=$2 AND operation_key=$3`, [...scope, operationKey]);
@@ -265,4 +289,4 @@ async function executeCommand(options) {
   return withScopeTransaction({ ...options, authorize: async () => true },
     async (_client, ledger) => ledger.executeCommand(options));
 }
-module.exports = { executeCommand, withScopeTransaction };
+module.exports = { executeCommand, withScopeTransaction, withSystemExpiryTransaction };
