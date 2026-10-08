@@ -105,6 +105,12 @@ async function findServiceByTenantAndSlug(tenantId, slug, options = {}) {
   return mapVendorService(result.rows[0]);
 }
 
+async function findServiceByTenantAndId(tenantId, serviceId, options = {}) {
+  const result = await buildQueryClient(options.client).query(`SELECT ${SERVICE_COLUMNS}
+    FROM vendor_services WHERE tenant_id=$1 AND id=$2 LIMIT 1`, [tenantId,serviceId]);
+  return mapVendorService(result.rows[0]);
+}
+
 async function isServiceSlugAvailable(tenantId, slug, excludeServiceId = null, options = {}) {
   const normalizedSlug = normalizeServiceSlug(slug);
   if (!normalizedSlug) {
@@ -246,6 +252,7 @@ module.exports = {
   normalizeServiceSlug,
   listServicesByTenantId,
   findServiceByTenantAndSlug,
+  findServiceByTenantAndId,
   isServiceSlugAvailable,
   createService,
   updateService,

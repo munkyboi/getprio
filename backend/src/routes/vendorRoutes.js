@@ -741,6 +741,7 @@ router.patch(
       action: async ({ tenant }) =>
         bookingService.updateVendorBookingStatus({
           tenant,
+          user: req.user,
           bookingId: req.params.bookingId,
           status: String(req.body.status || "").trim()
         })
@@ -850,6 +851,7 @@ router.patch(
       action: async ({ tenant }) =>
         bookingService.rescheduleVendorBooking({
           tenant,
+          user: req.user,
           bookingId: req.params.bookingId,
           scheduledStartAt: req.body.scheduledStartAt
         })
