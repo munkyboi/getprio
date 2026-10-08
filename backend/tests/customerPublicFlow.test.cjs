@@ -854,8 +854,11 @@ test("public cancellation allows guest owner with matching email", async () => {
       customerPhone: "09998887777",
       status: "waiting"
     },
-    async (_tenant, lookupCode) => {
+    async (_tenant, lookupCode, options) => {
       cancelledLookupCode = lookupCode;
+      assert.equal(options.actorUserId, undefined);
+      assert.equal(options.vendorTicketId, undefined);
+      assert.deepEqual(options.customerContact, { customerEmail: "owner@example.com", customerPhone: undefined });
       return {
         ticket: { lookupCode, status: "cancelled" },
         snapshot: { queueDay: { isClosed: false } }
@@ -868,7 +871,7 @@ test("public cancellation allows guest owner with matching email", async () => {
     const response = await fetch(`${baseUrl}/tenant/demo/tickets/ABC12345`, {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ customerEmail: "owner@example.com" })
+      body: JSON.stringify({ customerEmail: "owner@example.com", actorUserId: "user-1", vendorTicketId: "ticket-1" })
     });
 
     assert.equal(response.status, 200);
@@ -892,8 +895,10 @@ test("public cancellation allows authenticated customer owner without contact pa
       customerPhone: "09171234567",
       status: "waiting"
     },
-    async () => {
+    async (_tenant, _lookupCode, options) => {
       cancelled = true;
+      assert.equal(options.actorUserId, "user-1");
+      assert.equal(options.vendorTicketId, undefined);
       return {
         ticket: { lookupCode: "ABC12345", status: "cancelled" },
         snapshot: { queueDay: { isClosed: false } }
@@ -909,7 +914,7 @@ test("public cancellation allows authenticated customer owner without contact pa
         "Content-Type": "application/json",
         "x-test-auth-mode": "customer"
       },
-      body: JSON.stringify({})
+      body: JSON.stringify({ actorUserId: "other-user", vendorTicketId: "ticket-1" })
     });
 
     assert.equal(response.status, 200);

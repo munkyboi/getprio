@@ -1,5 +1,6 @@
 const ticketServicePlanService = require("./ticketServicePlanService");
 const { withVendorQueueTransaction } = require("./vendorQueueTransactionService");
+const { withCustomerTicketCancellation } = require("./customerTicketCancellationService");
 const ticketResourceOutcomeService = require("./ticketResourceOutcomeService");
 const db = require("../config/db");
 const env = require("../config/env");
@@ -856,11 +857,13 @@ async function cancelTicket(tenant, lookupCode, options = {}) {
   }
   const runTransaction = options.vendorTicketId
     ? callback => withVendorQueueTransaction({ pool: db.pool, tenant, location, actorUserId: options.actorUserId }, callback)
-    : callback => db.withTransaction(callback);
-  const ticket = await runTransaction(async (client, ledger, authorizedActor) => {
+    : callback => withCustomerTicketCancellation({ pool: db.pool, tenant, location, lookupCode: normalizedLookupCode,
+      actorUserId: options.actorUserId, contact: options.customerContact },
+    (client, ledger, existing, customer) => callback(client, ledger, null, existing, customer));
+  const ticket = await runTransaction(async (client, ledger, authorizedActor, authorizedTicket, customer) => {
     const existingTicket = options.vendorTicketId
       ? await ticketRepository.findVendorTicketForUpdate(tenant._id, location._id, options.vendorTicketId, { client })
-      : await ticketRepository.findTicketByTenantAndLookupCode(tenant._id, normalizedLookupCode, { client });
+      : authorizedTicket;
     if (!existingTicket) {
       return null;
     }
@@ -870,13 +873,11 @@ async function cancelTicket(tenant, lookupCode, options = {}) {
       error.statusCode = 409;
       throw error;
     }
-    if (options.vendorTicketId) {
-      if (String(existingTicket.tenantId) !== String(tenant._id)
-        || String(existingTicket.locationId) !== String(location._id)) {
-        throw Object.assign(new Error("Ticket not found."), { statusCode: 404 });
-      }
-      await ticketResourceOutcomeService.assertLegacyOutcome(client, existingTicket, "cancelled", false);
+    if (String(existingTicket.tenantId) !== String(tenant._id)
+      || String(existingTicket.locationId) !== String(location._id)) {
+      throw Object.assign(new Error("Ticket not found."), { statusCode: 404 });
     }
+    await ticketResourceOutcomeService.assertLegacyOutcome(client, existingTicket, "cancelled", false);
 
     queueLifecycle.assertValidTransition(existingTicket.status, "cancelled");
     const cancelledTicket = await ticketRepository.cancelWaitingTicket(
@@ -887,18 +888,16 @@ async function cancelTicket(tenant, lookupCode, options = {}) {
     if (!cancelledTicket) {
       return null;
     }
-    if (options.vendorTicketId) {
-      await ticketResourceOutcomeService.cancelUnusedProtection(client, ledger, cancelledTicket, {
-        operation: "vendor-cancel", cancelBooking: true, actor: authorizedActor
-      });
-      await client.query("UPDATE resource_ledger_scopes SET revision=revision+1 WHERE tenant_id=$1 AND location_id=$2", [tenant._id, location._id]);
-    }
+    await ticketResourceOutcomeService.cancelUnusedProtection(client, ledger, cancelledTicket, {
+      operation: options.vendorTicketId ? "vendor-cancel" : "customer-cancel", cancelBooking: true, actor: authorizedActor, customer
+    });
+    await client.query("UPDATE resource_ledger_scopes SET revision=revision+1 WHERE tenant_id=$1 AND location_id=$2", [tenant._id, location._id]);
 
     await client.query(
       `UPDATE queue_ticket_segments
        SET ended_at = $2, segment_outcome = 'cancelled', outcome_reason = $3
        WHERE ticket_id = $1 AND ended_at IS NULL`,
-      [Number(cancelledTicket._id), cancelledTicket.updatedAt, getCancellationReason(existingTicket, options)]
+      [cancelledTicket._id, cancelledTicket.updatedAt, getCancellationReason(existingTicket, options)]
     );
 
     const actor = buildQueueEventActor({

@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { randomUUID } = require('node:crypto');
-const { executeCommand, withScopeTransaction } = require('../src/repositories/resourceLedger');
+const { executeCommand, withScopeTransaction, withCustomerTicketCancellationTransaction } = require('../src/repositories/resourceLedger');
 
 const databaseUrl = process.env.RESOURCE_LEDGER_TEST_DATABASE_URL;
 const fixtureSchema = `ledger_test_${randomUUID().replaceAll('-', '')}`;
@@ -23,6 +23,8 @@ test('ledger validates scope and command before connecting', async () => {
   await assert.rejects(withScopeTransaction({ pool: forbiddenPool, ...scope, actorUserId:null, authorize:async () => true },async () => {}), /identifier/);
   await assert.rejects(withScopeTransaction({ pool: forbiddenPool, ...scope }, async () => {}), /authorization/);
   await assert.rejects(withScopeTransaction({ pool: forbiddenPool, ...scope, authorize: async () => true }, null), /callback/);
+  await assert.rejects(withCustomerTicketCancellationTransaction({ pool: forbiddenPool, ...scope, lookupCode:'LOOKUP' },async()=>{}),/authorization/);
+  await assert.rejects(withCustomerTicketCancellationTransaction({ pool: forbiddenPool, ...scope, lookupCode:'',authorize:async()=>true },async()=>{}),/lookup code/);
 });
 
 test('PostgreSQL resource ledger interface', { skip: !databaseUrl }, async (t) => {

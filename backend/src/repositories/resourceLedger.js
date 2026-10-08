@@ -164,6 +164,16 @@ async function withScopeTransaction({ pool, tenantId, locationId, actorUserId, a
   return runScopeTransaction({ pool, tenantId, locationId, actorId: id(actorUserId), authorize }, callback);
 }
 
+// Customer ownership is rechecked by the adapter under the location lock. Guest
+// callers have no actor ID; this capability can only cancel this ticket's unused
+// booking protection, never reserve, allocate, release, or run system expiry.
+async function withCustomerTicketCancellationTransaction({ pool, tenantId, locationId, actorUserId, lookupCode, authorize }, callback) {
+  if (typeof lookupCode !== "string" || !lookupCode || lookupCode.length > 120) fail("Invalid ticket lookup code.", 400);
+  return runScopeTransaction({ pool, tenantId, locationId,
+    actorId: actorUserId == null ? null : id(actorUserId), authorize,
+    customerCancellationLookupCode: lookupCode }, callback);
+}
+
 // Trusted internal maintenance boundary; never constructed from a request DTO.
 // System expiry has no user identity and can only cancel protected reservations.
 async function withSystemExpiryTransaction({ pool, tenantId, locationId }, callback) {
@@ -171,7 +181,7 @@ async function withSystemExpiryTransaction({ pool, tenantId, locationId }, callb
     authorize: async () => true }, callback);
 }
 
-async function runScopeTransaction({ pool, tenantId, locationId, actorId, authorize }, callback) {
+async function runScopeTransaction({ pool, tenantId, locationId, actorId, authorize, customerCancellationLookupCode = null }, callback) {
   const scope = [id(tenantId), id(locationId)];
   if (typeof authorize !== "function" || typeof callback !== "function") {
     fail("Scoped transactions require authorization and a domain callback.", 400);
@@ -191,7 +201,7 @@ async function runScopeTransaction({ pool, tenantId, locationId, actorId, author
         }
         // Poison the enclosing transaction even when a domain callback catches a
         // semantic conflict: it must not commit a partial reservation replacement.
-        const operation = executeLockedCommand(client, scope, actorId, options);
+        const operation = executeLockedCommand(client, scope, actorId, options, customerCancellationLookupCode);
         pending = operation;
         try {
           return await operation;
@@ -241,14 +251,27 @@ async function runScopeTransaction({ pool, tenantId, locationId, actorId, author
   }
 }
 
-async function executeLockedCommand(client, scope, actorId, { operationKey, command, payload }) {
+async function executeLockedCommand(client, scope, actorId, { operationKey, command, payload }, customerCancellationLookupCode) {
   if (typeof operationKey !== "string" || !operationKey.trim() || operationKey.length > 120) fail("Invalid operation key.", 400);
-  if (actorId === null && (command !== "cancelReservation"
+  const customerKey = customerCancellationLookupCode && operationKey.match(/^ticket:([1-9]\d*):reservation:([1-9]\d*):customer-cancel$/u);
+  if (customerCancellationLookupCode && (command !== "cancelReservation" || !customerKey)) {
+    fail("Customer ticket cancellation may only cancel its linked protection.", 403);
+  }
+  if (actorId === null && !customerCancellationLookupCode && (command !== "cancelReservation"
     || !/^booking:[1-9]\d*:reservation:[1-9]\d*:expiry:cancel$/u.test(operationKey))) {
     fail("System expiry may only cancel booking reservations with an expiry operation key.", 403);
   }
   const data = normalizedCommand(command, payload);
-  if (actorId === null) {
+  if (customerCancellationLookupCode) {
+    if (customerKey[2] !== data.reservationId) fail("Ticket reservation key does not match its payload.", 403);
+    const eligible = await client.query(`SELECT t.id FROM tickets t JOIN bookings b
+      ON (b.queue_ticket_id,b.tenant_id,b.location_id)=(t.id,t.tenant_id,t.location_id)
+      JOIN resource_ledger_reservations r ON (r.booking_id,r.tenant_id,r.location_id)=(b.id,b.tenant_id,b.location_id)
+      WHERE t.tenant_id=$1 AND t.location_id=$2 AND t.lookup_code=$3 AND t.id=$4 AND r.id=$5
+        AND t.status='cancelled' AND t.status_reason IN ('customer_cancelled','carry_over_declined')`,
+    [...scope, customerCancellationLookupCode, customerKey[1], data.reservationId]);
+    if (!eligible.rows.length) fail("Customer cancellation requires its cancelled ticket's linked protection.", 403);
+  } else if (actorId === null) {
     if (operationKey.split(":")[3] !== data.reservationId) fail("Expiry reservation key does not match its payload.", 403);
     const eligible = await client.query(`SELECT b.id FROM bookings b
       JOIN resource_ledger_reservations r ON (r.booking_id,r.tenant_id,r.location_id)=(b.id,b.tenant_id,b.location_id)
@@ -289,4 +312,4 @@ async function executeCommand(options) {
   return withScopeTransaction({ ...options, authorize: async () => true },
     async (_client, ledger) => ledger.executeCommand(options));
 }
-module.exports = { executeCommand, withScopeTransaction, withSystemExpiryTransaction };
+module.exports = { executeCommand, withScopeTransaction, withSystemExpiryTransaction, withCustomerTicketCancellationTransaction };

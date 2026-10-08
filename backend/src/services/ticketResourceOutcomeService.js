@@ -1,5 +1,6 @@
 const resources = require("./serviceResourceSessionService");
 const permissions = require("./permissions");
+const { assertOwnership } = require("./customerTicketCancellationService");
 function requireExplicitService() {
   const error = new Error("Use Start service and Complete service, or record an interrupted service, for this ticket.");
   error.statusCode = 409;
@@ -10,12 +11,16 @@ async function assertLegacyOutcome(client, ticket, status, timingEnabled) {
   if (state.allocation || (ticket.serviceStartedAt && !ticket.serviceEndedAt)
     || (status === "served" && (timingEnabled || state.required))) requireExplicitService();
 }
-async function cancelUnusedProtection(client, ledger, ticket, { operation, cancelBooking = false, actor }) {
+async function cancelUnusedProtection(client, ledger, ticket, { operation, cancelBooking = false, actor, customer }) {
   const scope = [ticket.tenantId, ticket.locationId, ticket._id];
   // Location and ticket locks precede booking/binding locks, as for service start.
-  const bookings = await client.query(`SELECT id::text,status FROM bookings
+  const bookings = await client.query(`SELECT id::text,status,customer_user_id::text,customer_email,customer_phone FROM bookings
     WHERE tenant_id=$1 AND location_id=$2 AND queue_ticket_id=$3 ORDER BY id FOR UPDATE`, scope);
-  if (cancelBooking && bookings.rows.some(booking => ["pending", "confirmed", "rescheduled"].includes(booking.status))) {
+  if (customer) {
+    for (const booking of bookings.rows) assertOwnership(customer, {
+      userId: booking.customer_user_id, customerEmail: booking.customer_email, customerPhone: booking.customer_phone
+    });
+  } else if (cancelBooking && bookings.rows.some(booking => ["pending", "confirmed", "rescheduled"].includes(booking.status))) {
     permissions.assertPermission(actor, "tenant.booking.manage", { tenantId: ticket.tenantId });
   }
   for (const booking of bookings.rows) {
