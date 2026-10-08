@@ -46,7 +46,7 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
   try {
     await pool.query(`CREATE SCHEMA ${schema};
       CREATE TABLE users(id BIGINT PRIMARY KEY,roles TEXT[],deletion_requested_at TIMESTAMPTZ,platform_access_suspended_at TIMESTAMPTZ,email TEXT,phone TEXT);
-      CREATE TABLE tenants(id BIGINT PRIMARY KEY,is_active BOOLEAN);
+      CREATE TABLE tenants(id BIGINT PRIMARY KEY,is_active BOOLEAN,auto_pause_enabled BOOLEAN DEFAULT FALSE,auto_pause_threshold INTEGER);
       CREATE TABLE tenant_memberships(id BIGINT PRIMARY KEY,user_id BIGINT,tenant_id BIGINT,role TEXT,is_active BOOLEAN);
       CREATE TABLE tenant_membership_locations(tenant_membership_id BIGINT,location_id BIGINT);
       CREATE TABLE service_counters(id BIGINT,tenant_id BIGINT,location_id BIGINT,is_active BOOLEAN);
@@ -64,7 +64,8 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
       CREATE TABLE events(id BIGSERIAL PRIMARY KEY,ticket_id BIGINT,event_type TEXT,metadata JSONB);
       CREATE TABLE webhooks(event_id BIGINT);
       CREATE TABLE queue_ticket_segments(ticket_id BIGINT,ended_at TIMESTAMPTZ,segment_outcome TEXT,outcome_reason TEXT);
-      CREATE TABLE queue_day_state(state TEXT);
+      CREATE TABLE queue_day_state(state TEXT,closes_at TIMESTAMPTZ DEFAULT clock_timestamp()-interval '1 second',intake_mode TEXT DEFAULT 'accepting');
+      CREATE TABLE intake_state(paused BOOLEAN);
       CREATE TABLE lifecycle_notifications(ticket_id BIGINT,status TEXT);
       CREATE TABLE booking_audit(ticket_id BIGINT,metadata JSONB);
       ALTER TABLE users ADD COLUMN display_name TEXT;
@@ -104,7 +105,7 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
         if (failWebhook) throw new Error('webhook failed');
       }},
       './queueService':{publishSnapshot:async () => {snapshots++; return {}; }},
-      './queueAutomationHelpers':{maybeAutoResumeQueueDay:noop,maybeNotifyUpcomingTickets:noop},
+      './queueAutomationHelpers':{maybeAutoResumeQueueDay:noop,maybeAutoPauseQueueDay:noop,maybeNotifyUpcomingTickets:noop},
       './notificationService':{notifyJourneyLifecycle:noop},
       './pushNotificationService':{notifyCustomerQueueUpdate:async () => {pushes++; }}
     };
@@ -113,13 +114,13 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
     async function reset(capacity=4,enabled=true) {
       await pool.query(`TRUNCATE resource_ledger_commands,resource_allocations,resource_ledger_reservations,resource_ledger_scopes,
         ticket_service_plans,tickets,booking_bundle_items,bookings,service_resource_requirements,location_resource_pools,
-        store_locations,tenant_membership_locations,service_counter_assignments,service_counters,tenant_memberships,tenants,users,events,webhooks,booking_audit,queue_ticket_segments,queue_day_state,lifecycle_notifications RESTART IDENTITY CASCADE`);
+        store_locations,tenant_membership_locations,service_counter_assignments,service_counters,tenant_memberships,tenants,users,events,webhooks,booking_audit,queue_ticket_segments,queue_day_state,intake_state,lifecycle_notifications RESTART IDENTITY CASCADE`);
       await pool.query(`INSERT INTO users(id,roles,deletion_requested_at,platform_access_suspended_at,email,phone) VALUES(1,'{}',NULL,NULL,'owner@example.com','09171234567'),(2,'{}',NULL,NULL,'other@example.com','09179876543');
-        INSERT INTO tenants VALUES(1,TRUE),(2,TRUE);
+        INSERT INTO tenants(id,is_active) VALUES(1,TRUE),(2,TRUE);
         INSERT INTO tenant_memberships VALUES(1,1,1,'owner',TRUE),(2,2,1,'staff',TRUE);
         INSERT INTO store_locations(id,tenant_id,is_active,service_timing_enabled) VALUES(10,1,TRUE,TRUE),(20,2,TRUE,TRUE);
         INSERT INTO service_resource_requirements VALUES(1,10,1000,100,1,1);
-        INSERT INTO queue_day_state VALUES('open')`);
+        INSERT INTO queue_day_state(state) VALUES('open'); INSERT INTO intake_state VALUES(FALSE)`);
       await pool.query('INSERT INTO location_resource_pools VALUES(100,1,10,$1,1,$2)',[capacity,enabled]);
       failEvent=false; failBooking=false; failWebhook=false; failReconciliation=false; snapshots=0; pushes=0; queueClosed=false;
       delete location.queueLifecycleMode;
@@ -164,14 +165,17 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
           return r.rows[0] ? readTicket(r.rows[0].id,{client}) : null;
         }
       },
+      '../repositories/queueDayPauses':{findActivePause:async (_tenant,_location,_date,{client}) => {
+        assert.ok(client); return (await client.query('SELECT paused FROM intake_state')).rows[0].paused ? {_id:'1'} : null;
+      }},
       '../repositories/queueDayClosures':{findActiveClosure:async (_tenant,_location,_date,{client}) => {
         assert.ok(client); return queueClosed ? {_id:'1'} : null;
       }},
       './queueDayLifecycleService':{
         getAuthoritativeQueueDay:async (_tenant,_location,{client}) => {
           assert.ok(client);
-          const state=(await client.query('SELECT state FROM queue_day_state')).rows[0].state;
-          return state==='open' ? {_id:'999',businessDate:'2026-10-08',currentClosesAt:new Date(Date.now()-1000),state} : null;
+          const row=(await client.query('SELECT * FROM queue_day_state')).rows[0];
+          return row.state==='open' ? {_id:'999',businessDate:'2026-10-08',currentClosesAt:row.closes_at,intakeMode:row.intake_mode,state:row.state} : null;
         },
         closeLockedQueueDay:async client => {
           await client.query("UPDATE queue_day_state SET state='closed'; UPDATE tickets SET status='unserved'; UPDATE bookings SET status='unfulfilled'");
@@ -179,18 +183,30 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
           if(failReconciliation) throw new Error('closure failed');
         }
       },
-      './queueSnapshotHelpers':{resolveLocation:async (_tenant,options) => options.location || location,buildQueueSnapshot:async () => ({current:null})},
+      './queueSnapshotHelpers':{resolveLocation:async (_tenant,options) => options.location || location,buildQueueSnapshot:async () => ({current:null,queueIntake:{state:"accepting",stateLabel:"Accepting"}})},
       './queueEvents':{publish:()=>{}}
     };
+    const intakeLifecycle=loadService({...mocks,'../repositories/queueDays':{
+      findLatestByLocation:async (_tenant,_location,{client})=>queueMocks['./queueDayLifecycleService'].getAuthoritativeQueueDay(_tenant,_location,{client})
+    }},'queueDayLifecycleService');
+    queueMocks['./queueDayLifecycleService'].assertIntakeOpen=intakeLifecycle.assertIntakeOpen;
+    queueMocks['./queueDayLifecycleService'].getQueueDayForSnapshot=async () => ({queueDay:await queueMocks['./queueDayLifecycleService'].getAuthoritativeQueueDay('1','10',{client:pool})});
+    queueMocks['./queueDayLifecycleService'].formatQueueDayStatus=queueDay => ({state:queueDay.state,intakeMode:queueDay.intakeMode});
     const queueService=loadService(queueMocks,'queueService');
     const realTickets=loadService({'../config/db':{pool}},'../repositories/tickets');
     const operationalQueue=loadService({...queueMocks,'../repositories/tickets':{
       ...queueMocks['../repositories/tickets'],findCurrentCalledTicket:realTickets.findCurrentCalledTicket,
       listWaitingTickets:realTickets.listWaitingTickets,callNextWaitingTicket:realTickets.callNextWaitingTicket,
-      confirmCurrentCalledTicket:realTickets.confirmCurrentCalledTicket
+      confirmCurrentCalledTicket:realTickets.confirmCurrentCalledTicket,
+      findVendorTicketForUpdate:realTickets.findVendorTicketForUpdate,restoreSkippedTicket:realTickets.restoreSkippedTicket
     }},'queueService');
     const call=(options={})=>operationalQueue.callNextTicket(tenant,{location,actorUserId:'1',queueDateKey:'20261008',...options});
     const confirm=(code='LOOKUP-1',options={})=>operationalQueue.confirmCurrentTicket(tenant,code,{location,actorUserId:'1',queueDateKey:'20261008',...options});
+    const restore=(id='1',options={})=>operationalQueue.restoreSkippedTicket(tenant,id,{location,actorUserId:'1',queueDateKey:'20261008',lookupCode:`LOOKUP-${id}`,...options});
+    async function skipped(id='1',options={}) {
+      await ticket(id,options);
+      await pool.query("UPDATE tickets SET status='skipped',skipped_at=clock_timestamp(),rejoin_deadline_at=clock_timestamp()+interval '10 minutes',called_at=clock_timestamp(),customer_confirmed_at=clock_timestamp(),service_counter_id=123 WHERE id=$1",[id]);
+    }
     const legacy=(status,actor='1') => queueService.updateCurrentTicketStatus(tenant,status,{location,actorUserId:actor});
     const cancelVendor=(id,actor='1',selected=location) => queueService.cancelTicket(tenant,'',{location:selected,actorUserId:actor,vendorTicketId:id});
     const cancelCustomer=(id,{actorUserId,contact={customerEmail:'owner@example.com'},selected=location}={}) =>
@@ -625,6 +641,124 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
         await assert.rejects(action==='call'?call():confirm(),{code:'QUEUE_DAY_UNOPENED'});
         assert.equal((await pool.query('SELECT revision::text FROM resource_ledger_scopes')).rows[0].revision,revision);
       }
+    });
+    await t.test('competing restorations commit once and preserve booking protection and frozen service plan',async () => {
+      await reset(); await skipped('1',{booking:true});
+      const plan=(await pool.query('SELECT items FROM ticket_service_plans')).rows[0].items;
+      const results=await Promise.allSettled([restore(),restore()]);
+      assert.equal(results.filter(r=>r.status==='fulfilled').length,1);
+      assert.equal(results.find(r=>r.status==='rejected').reason.statusCode,409);
+      const row=(await pool.query('SELECT * FROM tickets')).rows[0];
+      assert.equal(row.status,'waiting'); assert.equal(row.service_priority_band,'recovery');
+      for(const key of ['service_counter_id','called_at','notified_called_at','customer_confirmed_at','rejoin_deadline_at','service_started_at']) assert.equal(row[key],null);
+      assert.equal(await count('events'),1); assert.equal(await count('webhooks'),1); assert.equal(pushes,1);
+      assert.deepEqual((await pool.query('SELECT items FROM ticket_service_plans')).rows[0].items,plan);
+      assert.equal((await pool.query('SELECT state FROM resource_ledger_reservations')).rows[0].state,'protected');
+      assert.equal((await pool.query('SELECT status FROM bookings')).rows[0].status,'confirmed');
+      assert.equal((await pool.query('SELECT revision::text FROM resource_ledger_scopes')).rows[0].revision,'3');
+      assert.equal(await count('resource_allocations'),0); assert.equal(await count('resource_ledger_commands'),1);
+      await reset(); await skipped(); await pool.query("UPDATE tickets SET rejoin_deadline_at=clock_timestamp()-interval '1 second'");
+      assert.equal((await restore()).ticket.servicePriorityBand,'normal');
+      await reset(4,false); await skipped('1',{plan:false});
+      assert.equal((await restore()).ticket.status,'waiting');
+      assert.equal(await count('resource_allocations'),0);
+    });
+    await t.test('restoration rechecks scoped identity, current access, metadata and same nonterminal Queue Day',async () => {
+      for(const sql of [
+        "UPDATE tenant_memberships SET is_active=FALSE WHERE user_id=1",
+        "UPDATE users SET platform_access_suspended_at=clock_timestamp() WHERE id=1",
+        "UPDATE tenant_memberships SET role='customer' WHERE user_id=1",
+        "UPDATE tenant_memberships SET role='staff' WHERE user_id=1",
+        "UPDATE store_locations SET is_active=FALSE WHERE id=10",
+        "UPDATE tenants SET is_active=FALSE WHERE id=1",
+        "UPDATE tickets SET skipped_at=NULL",
+        "UPDATE tickets SET date_key='20261007'",
+        "UPDATE tickets SET terminal_at=clock_timestamp()"
+      ]) {
+        await reset(); await skipped(); await pool.query(sql);
+        await assert.rejects(restore()); assert.equal((await readTicket('1')).status,'skipped');
+        assert.equal(await count('events'),0);
+      }
+      await reset(); await skipped();
+      await assert.rejects(restore('1',{lookupCode:'WRONG'}),{statusCode:404});
+      await assert.rejects(restore('1',{location:{_id:'20'}}));
+      for(const id of ['9007199254740993','-1','1.1','1x']) await assert.rejects(restore(id),{statusCode:404});
+      await pool.query("UPDATE tenant_memberships SET role='staff' WHERE user_id=1; INSERT INTO tenant_membership_locations VALUES(1,10)");
+      assert.equal((await restore()).ticket.status,'waiting');
+    });
+    await t.test('restoration reads current intake policy and serializes the last waiting place',async () => {
+      await reset(); await skipped(); await pool.query('UPDATE intake_state SET paused=TRUE');
+      await assert.rejects(restore(),{code:'QUEUE_INTAKE_PAUSED'});
+      await pool.query('UPDATE intake_state SET paused=FALSE; UPDATE tenants SET auto_pause_enabled=TRUE,auto_pause_threshold=1 WHERE id=1');
+      await skipped('2');
+      const results=await Promise.allSettled([restore('1'),restore('2')]);
+      assert.equal(results.filter(r=>r.status==='fulfilled').length,1);
+      assert.equal(results.find(r=>r.status==='rejected').reason.code,'QUEUE_RESTORE_THRESHOLD_REACHED');
+      assert.equal((await pool.query("SELECT count(*)::int AS n FROM tickets WHERE status='waiting'")).rows[0].n,1);
+      assert.equal(await count('events'),1); assert.equal(await count('webhooks'),1);
+      await reset(); await skipped(); queueClosed=true;
+      await assert.rejects(restore(),{statusCode:409});
+    });
+    await t.test('restoration rejects service history even after tracking disable and never releases occupancy',async () => {
+      await reset(); await ticket('1'); await record('1','start');
+      await pool.query("UPDATE tickets SET status='skipped',skipped_at=clock_timestamp(); UPDATE location_resource_pools SET tracking_enabled=FALSE");
+      await assert.rejects(restore(),{statusCode:409});
+      assert.equal((await pool.query('SELECT released_at FROM resource_allocations')).rows[0].released_at,null);
+      await pool.query("UPDATE resource_allocations SET released_at=clock_timestamp(),outcome='completed'; UPDATE tickets SET service_ended_at=clock_timestamp()");
+      await assert.rejects(restore(),{statusCode:409});
+      await reset(); await skipped(); await pool.query('UPDATE tickets SET service_started_at=clock_timestamp(),service_ended_at=clock_timestamp()');
+      await assert.rejects(restore(),{statusCode:409});
+      await reset(); await skipped('1',{booking:true});
+      await pool.query("UPDATE resource_ledger_reservations SET state='converted'");
+      await assert.rejects(restore(),{statusCode:409});
+      await pool.query('UPDATE bookings SET queue_ticket_id=NULL');
+      await assert.rejects(restore(),{statusCode:409});
+      assert.equal(await count('resource_allocations'),0);
+    });
+    await t.test('enforced restoration requires the current accepting Queue Day and reads changes after lock contention',async () => {
+      await reset(); await skipped();
+      await pool.query("UPDATE store_locations SET queue_lifecycle_mode='enforced' WHERE id=10; UPDATE queue_day_state SET closes_at=clock_timestamp()+interval '1 hour'; UPDATE tickets SET current_queue_day_id=998");
+      await assert.rejects(restore(),{statusCode:409});
+      await pool.query("UPDATE tickets SET current_queue_day_id=999; UPDATE queue_day_state SET intake_mode='paused'");
+      await assert.rejects(restore(),{code:'QUEUE_INTAKE_PAUSED'});
+      await pool.query("UPDATE queue_day_state SET intake_mode='accepting'");
+      assert.equal((await restore('1',{queueDateKey:undefined})).ticket.status,'waiting');
+      await reset(); await skipped();
+      const blocker=await pool.connect(); let pending;
+      try {
+        await blocker.query('BEGIN'); await blocker.query('SELECT id FROM store_locations WHERE id=10 FOR UPDATE');
+        pending=restore(); pending.catch(()=>{}); await waitForLocationLock();
+        await blocker.query("UPDATE tickets SET rejoin_deadline_at=clock_timestamp()-interval '1 second'");
+        await blocker.query('COMMIT');
+        assert.equal((await pending).ticket.servicePriorityBand,'normal');
+      } finally {await blocker.query('ROLLBACK'); blocker.release(); if(pending) await pending.catch(()=>{});}
+      await reset(); await skipped();
+      const revoke=await pool.connect(); pending=undefined;
+      try {
+        await revoke.query('BEGIN'); await revoke.query('SELECT id FROM store_locations WHERE id=10 FOR UPDATE');
+        pending=restore(); pending.catch(()=>{}); await waitForLocationLock();
+        await revoke.query('UPDATE tenant_memberships SET is_active=FALSE WHERE user_id=1'); await revoke.query('COMMIT');
+        await assert.rejects(pending); assert.equal((await readTicket('1')).status,'skipped');
+      } finally {await revoke.query('ROLLBACK'); revoke.release(); if(pending) await pending.catch(()=>{});}
+    });
+    await t.test('restoration event and webhook failures roll back priority, timestamps, protection and revision',async () => {
+      for(const failure of ['event','webhook']) {
+        await reset(); await skipped('1',{booking:true});
+        const before=(await pool.query('SELECT to_jsonb(t) AS row FROM tickets t')).rows[0].row;
+        const revision=(await pool.query('SELECT revision::text FROM resource_ledger_scopes')).rows[0].revision;
+        failEvent=failure==='event'; failWebhook=failure==='webhook';
+        await assert.rejects(restore(),new RegExp(`${failure} failed`));
+        assert.deepEqual((await pool.query('SELECT to_jsonb(t) AS row FROM tickets t')).rows[0].row,before);
+        assert.equal((await pool.query('SELECT revision::text FROM resource_ledger_scopes')).rows[0].revision,revision);
+        assert.equal((await pool.query('SELECT state FROM resource_ledger_reservations')).rows[0].state,'protected');
+        assert.equal(await count('events'),0); assert.equal(await count('webhooks'),0); assert.equal(pushes,0);
+      }
+      await reset(); await skipped(); await pool.query("UPDATE store_locations SET queue_lifecycle_mode='enforced' WHERE id=10");
+      await assert.rejects(restore(),{code:'QUEUE_DAY_OVERDUE'});
+      assert.equal((await pool.query('SELECT state FROM queue_day_state')).rows[0].state,'closed');
+      assert.equal(await count('lifecycle_notifications'),1);
+      await assert.rejects(restore(),{code:'QUEUE_DAY_UNOPENED'});
+      assert.equal(await count('lifecycle_notifications'),1);
     });
   } finally {await pool.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`); await pool.end();}
 });

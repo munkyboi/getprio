@@ -566,7 +566,7 @@ async function withOpenVendorQueueTransaction(tenant, location, options, permiss
     }
     const dateKey = options.queueDateKey || (queueDay?.businessDate
       ? String(queueDay.businessDate).replaceAll("-", "") : requestedDateKey);
-    const outcome = await callback(client, { location: currentLocation, dateKey });
+    const outcome = await callback(client, { location: currentLocation, dateKey, queueDay });
     if (outcome?.changed) await client.query("UPDATE resource_ledger_scopes SET revision=revision+1 WHERE tenant_id=$1 AND location_id=$2", [tenant._id, location._id]);
     return outcome;
   });
@@ -1417,61 +1417,51 @@ async function resumeQueueDay(tenant, options = {}) {
   return publishSnapshot(tenant, { location, queueDateKey });
 }
 
+function skippedRecoveryPriority(targetTicket, scope, lookupCode) {
+  if (!targetTicket || (lookupCode && String(targetTicket.lookupCode || "").toUpperCase() !== String(lookupCode).toUpperCase())) {
+    throw Object.assign(new Error("Skipped ticket not found."), { statusCode: 404 });
+  }
+  if (targetTicket.terminalAt || String(targetTicket.queueDateKey || targetTicket.dateKey) !== scope.dateKey
+    || (scope.queueDay && String(targetTicket.currentQueueDayId) !== String(scope.queueDay._id))) {
+    throw Object.assign(new Error("Only missed tickets from the current Queue Day can be restored."), { statusCode: 409 });
+  }
+  if (targetTicket.status !== "skipped") {
+    const error = new Error("Only skipped tickets can be restored.");
+    error.statusCode = 409;
+    throw error;
+  }
+
+  if (!targetTicket.skippedAt) {
+    const error = new Error("This skipped ticket is missing recovery metadata.");
+    error.statusCode = 409;
+    throw error;
+  }
+
+  const recoveryDeadline = targetTicket.rejoinDeadlineAt
+    ? new Date(targetTicket.rejoinDeadlineAt)
+    : null;
+  const servicePriorityBand =
+    recoveryDeadline && recoveryDeadline.getTime() > Date.now() ? "recovery" : "normal";
+
+  return servicePriorityBand;
+}
+
 async function restoreSkippedTicket(tenant, ticketId, options = {}) {
-  const location = await resolveLocation(tenant, options);
-  const activeQueueDay = await assertQueueIntakeOpen(tenant, location, {
-    queueDateKey: options.queueDateKey
-  });
-  const dateKey = options.queueDateKey
-    || (activeQueueDay?.businessDate
-      ? String(activeQueueDay.businessDate).replaceAll("-", "")
-      : getDateKey(new Date(), location.timezone));
-
-  const ticket = await db.withTransaction(async (client) => {
+  if (!/^[1-9]\d*$/u.test(String(ticketId)) || !Number.isSafeInteger(Number(ticketId))) {
+    throw Object.assign(new Error("Skipped ticket not found."), { statusCode: 404 });
+  }
+  let location = await resolveLocation(tenant, options);
+  let dateKey;
+  const result = await withOpenVendorQueueTransaction(tenant, location, options, "tenant.ticket.update_state", async (client, scope) => {
+    location = scope.location;
+    dateKey = scope.dateKey;
     await assertQueueIntakeOpen(tenant, location, { client, queueDateKey: dateKey });
-    await assertRestoreCapacityAvailable(tenant, location, { client, queueDateKey: dateKey });
+    const policy = (await client.query("SELECT auto_pause_enabled,auto_pause_threshold FROM tenants WHERE id=$1", [tenant._id])).rows[0];
+    await assertRestoreCapacityAvailable({ ...tenant, autoPauseEnabled: policy.auto_pause_enabled, autoPauseThreshold: policy.auto_pause_threshold }, location, { client, queueDateKey: dateKey });
 
-    const targetTicket = await ticketRepository.findTicketById(ticketId, { client });
-
-    if (!targetTicket || String(targetTicket.tenantId) !== String(tenant._id)) {
-      const error = new Error("Skipped ticket not found.");
-      error.statusCode = 404;
-      throw error;
-    }
-
-    if (
-      options.lookupCode &&
-      String(targetTicket.lookupCode || "").toUpperCase() !==
-        String(options.lookupCode || "").toUpperCase()
-    ) {
-      const error = new Error("Skipped ticket not found.");
-      error.statusCode = 404;
-      throw error;
-    }
-
-    if (targetTicket.locationId && String(targetTicket.locationId) !== String(location._id)) {
-      const error = new Error("Skipped ticket not found.");
-      error.statusCode = 404;
-      throw error;
-    }
-
-    if (targetTicket.status !== "skipped") {
-      const error = new Error("Only skipped tickets can be restored.");
-      error.statusCode = 409;
-      throw error;
-    }
-
-    if (!targetTicket.skippedAt) {
-      const error = new Error("This skipped ticket is missing recovery metadata.");
-      error.statusCode = 409;
-      throw error;
-    }
-
-    const recoveryDeadline = targetTicket.rejoinDeadlineAt
-      ? new Date(targetTicket.rejoinDeadlineAt)
-      : null;
-    const servicePriorityBand =
-      recoveryDeadline && recoveryDeadline.getTime() > Date.now() ? "recovery" : "normal";
+    const targetTicket = await ticketRepository.findVendorTicketForUpdate(tenant._id, location._id, ticketId, { client });
+    const servicePriorityBand = skippedRecoveryPriority(targetTicket, scope, options.lookupCode);
+    await ticketResourceOutcomeService.assertRestorable(client, targetTicket);
 
     queueLifecycle.assertValidTransition(targetTicket.status, "waiting");
     const restoredTicket = await ticketRepository.restoreSkippedTicket(tenant._id, ticketId, {
@@ -1504,8 +1494,9 @@ async function restoreSkippedTicket(tenant, ticketId, options = {}) {
       developerWebhook: options.developerWebhook
     });
 
-    return restoredTicket;
+    return { ticket: restoredTicket, changed: true };
   });
+  const ticket = result?.ticket;
 
   if (!ticket) {
     return null;
