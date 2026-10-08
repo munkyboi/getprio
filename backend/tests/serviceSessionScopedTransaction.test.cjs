@@ -374,5 +374,25 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
       assert.equal(await count('lifecycle_notifications'),0); assert.equal(await count('events'),0);
       assert.equal((await pool.query('SELECT revision::text FROM resource_ledger_scopes')).rows[0].revision,'2');
     });
+    await t.test('an unrelated enabled pool does not block ordinary or disabled-pool services',async () => {
+      await reset(4,false); await ticket('1'); await ticket('2');
+      await pool.query('INSERT INTO location_resource_pools VALUES(101,1,10,4,1,TRUE); INSERT INTO service_resource_requirements VALUES(1,10,2000,101,1,1); UPDATE store_locations SET service_timing_enabled=FALSE');
+      await legacy('served'); assert.equal((await readTicket('1')).status,'served');
+      await pool.query('DELETE FROM service_resource_requirements WHERE service_id=1000');
+      await pool.query(`UPDATE ticket_service_plans SET items=jsonb_set(items,'{0,resource}','{"known":false}') WHERE ticket_id=2`);
+      await legacy('served'); assert.equal((await readTicket('2')).status,'served');
+      assert.equal(await count('resource_allocations'),0); assert.equal(await count('resource_ledger_commands'),0);
+    });
+    await t.test('mixed-service explicit starts allocate only the ticket resource and retain unknown-plan denial',async () => {
+      await reset(4,false); await ticket('1'); await ticket('2'); await ticket('3',{plan:false});
+      await pool.query('INSERT INTO location_resource_pools VALUES(101,1,10,4,1,TRUE); INSERT INTO service_resource_requirements VALUES(1,10,2000,101,1,1)');
+      await pool.query(`UPDATE ticket_service_plans SET items=jsonb_set(jsonb_set(items,'{0,serviceId}','"2000"'),'{0,resource,poolId}','"101"') WHERE ticket_id=2`);
+      await record('1','start'); await record('2','start');
+      assert.equal(await count('resource_allocations'),1);
+      const allocation=(await pool.query('SELECT ticket_id::text,pool_id::text FROM resource_allocations')).rows[0];
+      assert.deepEqual(allocation,{ticket_id:'2',pool_id:'101'});
+      await assert.rejects(record('3','start'),/plan/);
+      await record('1','complete'); await record('2','complete');
+    });
   } finally {await pool.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`); await pool.end();}
 });
