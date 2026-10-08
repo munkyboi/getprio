@@ -20,7 +20,27 @@ async function readState(client, ticket) {
   const allocations = await client.query(`SELECT id::text,released_at,outcome FROM resource_allocations
     WHERE tenant_id=$1 AND location_id=$2 AND ticket_id=$3`, scope);
   const allocation = allocations.rows[0] || null;
-  return { allocation, required: !!allocation || flags.rows[0].enabled || flags.rows[0].bound };
+  let enabled = flags.rows[0].enabled;
+  if (enabled && !allocation && !flags.rows[0].bound) {
+    const plans = await client.query(`SELECT items FROM ticket_service_plans
+      WHERE tenant_id=$1 AND location_id=$2 AND ticket_id=$3`, scope);
+    const items = plans.rows[0]?.items;
+    const identified = Array.isArray(items) && items.length > 0 && items.every(item =>
+      typeof item?.serviceId === "string" && /^[1-9]\d{0,18}$/u.test(item.serviceId)
+      && BigInt(item.serviceId) <= 9223372036854775807n);
+    if (identified) {
+      const pools = items.filter(item => item.resource?.known === true).map(item => item.resource.poolId).filter(value => typeof value === "string");
+      const tracked = await client.query(`SELECT EXISTS (SELECT 1 FROM location_resource_pools p
+        LEFT JOIN service_resource_requirements r ON (r.pool_id,r.tenant_id,r.location_id)=(p.id,p.tenant_id,p.location_id)
+        WHERE p.tenant_id=$1 AND p.location_id=$2 AND p.tracking_enabled=TRUE
+          AND (p.id::text=ANY($3::text[]) OR r.service_id::text=ANY($4::text[]))) AS enabled`,
+      [ticket.tenantId, ticket.locationId, pools, items.map(item => item.serviceId)]);
+      enabled = tracked.rows[0].enabled;
+    }
+    // Missing/invalid service identity remains unknown in a tracked location;
+    // it cannot silently bypass allocation as an ordinary selected service.
+  }
+  return { allocation, required: !!allocation || enabled || flags.rows[0].bound };
 }
 
 function assertStarted(state) {
