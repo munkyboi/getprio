@@ -1,4 +1,6 @@
 const ticketServicePlanService = require("./ticketServicePlanService");
+const { withVendorQueueTransaction } = require("./vendorQueueTransactionService");
+const ticketResourceOutcomeService = require("./ticketResourceOutcomeService");
 const db = require("../config/db");
 const env = require("../config/env");
 const billingRepository = require("../repositories/billing");
@@ -636,12 +638,12 @@ async function callNextTicket(tenant, options = {}) {
 async function updateCurrentTicketStatus(tenant, status, options = {}) {
   const location = await resolveLocation(tenant, options);
   queueLifecycle.assertSupportedCurrentTicketResolution(status);
-  const activeQueueDay = await assertQueueDayOpen(tenant, location);
-  const dateKey = options.queueDateKey
-    || (activeQueueDay?.businessDate
+  let dateKey;
+  const ticket = await withVendorQueueTransaction({ pool: db.pool, tenant, location, actorUserId: options.actorUserId }, async (client, ledger) => {
+    const activeQueueDay = await assertQueueDayOpen(tenant, location, { client, queueDateKey: options.queueDateKey });
+    dateKey = options.queueDateKey || (activeQueueDay?.businessDate
       ? String(activeQueueDay.businessDate).replaceAll("-", "")
       : getDateKey(new Date(), location.timezone));
-  const ticket = await db.withTransaction(async (client) => {
     const currentTicket = await ticketRepository.findCurrentCalledTicket(tenant._id, {
       client,
       forUpdate: true,
@@ -651,15 +653,14 @@ async function updateCurrentTicketStatus(tenant, status, options = {}) {
     if (!currentTicket) {
       return null;
     }
+    if (String(currentTicket.tenantId) !== String(tenant._id)
+      || String(currentTicket.locationId) !== String(location._id)) {
+      throw Object.assign(new Error("Ticket not found."), { statusCode: 404 });
+    }
 
     const branch = await client.query(`SELECT service_timing_enabled FROM store_locations
       WHERE id = $1 AND tenant_id = $2`, [location._id, tenant._id]);
-    if ((currentTicket.serviceStartedAt && !currentTicket.serviceEndedAt)
-      || (status === "served" && branch.rows[0]?.service_timing_enabled)) {
-      const error = new Error("Use Start service and Complete service, or record an interrupted service, for this ticket.");
-      error.statusCode = 409;
-      throw error;
-    }
+    await ticketResourceOutcomeService.assertLegacyOutcome(client, currentTicket, status, branch.rows[0]?.service_timing_enabled);
 
     if (status === "served" && !currentTicket.customerConfirmedAt && currentTicket.joinChannel !== "vendor") {
       const error = new Error("Confirm the called ticket before serving this customer.");
@@ -677,6 +678,10 @@ async function updateCurrentTicketStatus(tenant, status, options = {}) {
     });
     if (!updatedTicket) {
       return null;
+    }
+
+    if (["cancelled", "unserved"].includes(status)) {
+      await ticketResourceOutcomeService.cancelUnusedProtection(client, ledger, updatedTicket, { operation: `queue-${status}` });
     }
 
     if (["served", "cancelled"].includes(status)) {
@@ -721,6 +726,7 @@ async function updateCurrentTicketStatus(tenant, status, options = {}) {
       });
     }
 
+    await client.query("UPDATE resource_ledger_scopes SET revision=revision+1 WHERE tenant_id=$1 AND location_id=$2", [tenant._id, location._id]);
     return updatedTicket;
   });
 
@@ -832,7 +838,14 @@ function getCancellationReason(ticket, options) {
 async function cancelTicket(tenant, lookupCode, options = {}) {
   const location = options.location || (await resolveLocation(tenant, options));
   const normalizedLookupCode = lookupCode.toUpperCase();
-  const ticket = await db.withTransaction(async (client) => {
+  if (options.vendorTicketId && (!/^[1-9]\d*$/u.test(String(options.vendorTicketId))
+    || !Number.isSafeInteger(Number(options.vendorTicketId)))) {
+    throw Object.assign(new Error("Ticket not found."), { statusCode: 404 });
+  }
+  const runTransaction = options.vendorTicketId
+    ? callback => withVendorQueueTransaction({ pool: db.pool, tenant, location, actorUserId: options.actorUserId }, callback)
+    : callback => db.withTransaction(callback);
+  const ticket = await runTransaction(async (client, ledger) => {
     const existingTicket = options.vendorTicketId
       ? await ticketRepository.findVendorTicketForUpdate(tenant._id, location._id, options.vendorTicketId, { client })
       : await ticketRepository.findTicketByTenantAndLookupCode(tenant._id, normalizedLookupCode, { client });
@@ -845,6 +858,13 @@ async function cancelTicket(tenant, lookupCode, options = {}) {
       error.statusCode = 409;
       throw error;
     }
+    if (options.vendorTicketId) {
+      if (String(existingTicket.tenantId) !== String(tenant._id)
+        || String(existingTicket.locationId) !== String(location._id)) {
+        throw Object.assign(new Error("Ticket not found."), { statusCode: 404 });
+      }
+      await ticketResourceOutcomeService.assertLegacyOutcome(client, existingTicket, "cancelled", false);
+    }
 
     queueLifecycle.assertValidTransition(existingTicket.status, "cancelled");
     const cancelledTicket = await ticketRepository.cancelWaitingTicket(
@@ -854,6 +874,12 @@ async function cancelTicket(tenant, lookupCode, options = {}) {
     );
     if (!cancelledTicket) {
       return null;
+    }
+    if (options.vendorTicketId) {
+      await ticketResourceOutcomeService.cancelUnusedProtection(client, ledger, cancelledTicket, {
+        operation: "vendor-cancel", cancelBooking: true
+      });
+      await client.query("UPDATE resource_ledger_scopes SET revision=revision+1 WHERE tenant_id=$1 AND location_id=$2", [tenant._id, location._id]);
     }
 
     await client.query(

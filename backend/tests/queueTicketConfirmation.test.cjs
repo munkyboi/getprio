@@ -42,6 +42,8 @@ for (const joinChannel of ["vendor", "online", "qr", undefined]) {
       const events = [];
       const writes = [];
       const mocks = {
+        "./vendorQueueTransactionService": { withVendorQueueTransaction: async (_scope, run) => run({ query: async () => ({ rows: [{ service_timing_enabled: false }] }) }, {}) },
+        "./ticketResourceOutcomeService": { assertLegacyOutcome: async () => {}, cancelUnusedProtection: async () => {} },
         "../config/db": { withTransaction: async (run) => run({ query: async () => ({ rows: [{ service_timing_enabled: false }] }) }) },
         "../repositories/queueDayClosures": { findActiveClosure: async () => null },
         "../repositories/tickets": {

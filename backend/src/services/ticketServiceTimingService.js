@@ -8,10 +8,8 @@ const automation = require("./queueAutomationHelpers");
 const notificationService = require("./notificationService");
 const pushNotificationService = require("./pushNotificationService");
 const developerWebhookService = require("./developerWebhookService");
-const resourceLedger = require("../repositories/resourceLedger");
+const { withVendorQueueTransaction } = require("./vendorQueueTransactionService");
 const resources = require("./serviceResourceSessionService");
-const permissions = require("./permissions");
-const assignments = require("../repositories/tenantMembershipLocations");
 
 function reject(message, statusCode = 409) {
   const error = new Error(message);
@@ -76,19 +74,8 @@ async function recordTicketService(tenant, ticketId, action, options) {
   if (!Object.prototype.hasOwnProperty.call(eventTypes, action)) reject("Unknown service action.", 400);
   const location = options.location;
   if (!location) reject("Location not found.", 404);
-  const { ticket, resolvedQueueStatus } = await resourceLedger.withScopeTransaction({
-    pool: db.pool, tenantId: String(tenant._id), locationId: String(location._id), actorUserId: String(options.actorUserId),
-    authorize: async (client, scope) => {
-      const result = await client.query(`SELECT u.roles,m.role FROM users u JOIN tenant_memberships m
-        ON m.user_id=u.id AND m.tenant_id=$2 AND m.is_active=TRUE
-        WHERE u.id=$1 AND u.deletion_requested_at IS NULL AND u.platform_access_suspended_at IS NULL`,
-      [scope.actorUserId, scope.tenantId]);
-      const actor = result.rows[0];
-      if (!actor) return false;
-      const user = { roles: actor.roles, tenantMemberships: [{ tenantId: scope.tenantId, role: actor.role, isActive: true }] };
-      if (!permissions.userHasPermission(user, "tenant.ticket.update_state", { tenantId: scope.tenantId })) return false;
-      return actor.role !== "staff" || assignments.userHasLocationAssignment(scope.actorUserId, scope.tenantId, scope.locationId, { client });
-    }
+  const { ticket, resolvedQueueStatus } = await withVendorQueueTransaction({
+    pool: db.pool, tenant, location, actorUserId: options.actorUserId
   }, async (client, ledger) => {
     const branch = await client.query(`SELECT l.service_timing_enabled,l.is_active,t.is_active AS tenant_active
       FROM store_locations l JOIN tenants t ON t.id=l.tenant_id WHERE l.id=$1 AND l.tenant_id=$2`, [location._id, tenant._id]);
