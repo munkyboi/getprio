@@ -664,3 +664,17 @@ test("count overlapping active bookings can count branch-wide capacity across se
   assert.match(calls[0].query, /\(\$3::bigint IS NULL OR booking_bundle_items\.service_id = \$3::bigint\)/);
   assert.deepEqual(calls[0].params, [1, 2, null, ["pending", "confirmed", "rescheduled"], "2026-06-23T08:00:00.000Z", "2026-06-23T09:30:00.000Z", null]);
 });
+
+
+test("booking reads retain validated decimal BIGINT identity without rounding", async () => {
+  const calls = [];
+  const client = {query:async (_sql,params) => { calls.push(params); return {rows:[]}; }};
+  const repository = requireWithMocks("../src/repositories/bookings.js", {"../config/db":{pool:client}});
+  const id = '9007199254740993';
+  await repository.findBookingById(id);
+  await repository.findBookingByIdForUpdate(id,{client});
+  assert.deepEqual(calls,[[id],[id]]);
+  await assert.rejects(repository.findBookingById(Number(id)),{statusCode:400});
+  await assert.rejects(repository.findBookingById('9223372036854775808'),{statusCode:400});
+  assert.equal(calls.length,2);
+});

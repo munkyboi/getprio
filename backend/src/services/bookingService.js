@@ -192,7 +192,7 @@ function assertManualPaymentDestinationAvailable({ service, location }) {
 async function expirePendingBookings(options = {}) {
   if (!bookingRepository.listPendingBookingExpiryScopes) return [];
   const criteria = { tenantId: options.tenantId, locationId: options.locationId,
-    customerUserId: options.customerUserId, now: new Date().toISOString(),
+    customerUserId: options.customerUserId, now: await bookingRepository.getPendingBookingExpiryCutoff(),
     reason: PENDING_BOOKING_EXPIRATION_REASON };
   const scopes = await bookingRepository.listPendingBookingExpiryScopes(criteria);
   const expiredIds = [];

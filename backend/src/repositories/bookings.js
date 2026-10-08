@@ -480,6 +480,15 @@ async function createGroupFundedBooking(data, options = {}) {
   return null;
 }
 
+function bookingIdParameter(value) {
+  const decimal = String(value);
+  if (!["string", "number"].includes(typeof value) || (typeof value === "number" && !Number.isSafeInteger(value)) || !/^[1-9]\d{0,18}$/u.test(decimal)
+    || BigInt(decimal) > 9223372036854775807n) {
+    const error = new Error("Invalid booking identifier."); error.statusCode = 400; throw error;
+  }
+  return value;
+}
+
 async function findBookingById(id, options = {}) {
   const result = await buildQueryClient(options.client).query(
     `
@@ -494,7 +503,7 @@ async function findBookingById(id, options = {}) {
       WHERE bookings.id = $1
       LIMIT 1
     `,
-    [Number(id)]
+    [bookingIdParameter(id)]
   );
 
   return mapBooking(result.rows[0]);
@@ -515,7 +524,7 @@ async function findBookingByIdForUpdate(id, options = {}) {
       FOR UPDATE OF bookings
       LIMIT 1
     `,
-    [Number(id)]
+    [bookingIdParameter(id)]
   );
 
   return mapBooking(result.rows[0]);
@@ -928,6 +937,11 @@ async function updateBookingByQueueTicketId(queueTicketId, data, options = {}) {
   return findBookingById(result.rows[0].id, options);
 }
 
+async function getPendingBookingExpiryCutoff(options = {}) {
+  const result = await buildQueryClient(options.client).query("SELECT clock_timestamp() AS cutoff");
+  return result.rows[0].cutoff.toISOString();
+}
+
 function pendingExpiryQuery(options) {
   const values = [options.now || new Date().toISOString()];
   const filters = ["status = 'pending'", "pending_expires_at IS NOT NULL",
@@ -971,6 +985,7 @@ module.exports = {
   countOverlappingActiveBookings,
   expirePendingBookings,
   listPendingBookingExpiryScopes,
+  getPendingBookingExpiryCutoff,
   listBookingsForCheckInReminder,
   markBookingCheckInReminderSent,
   updateBooking,
