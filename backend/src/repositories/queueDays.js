@@ -175,8 +175,8 @@ async function extendDeadline(queueDayId, data, options = {}) {
          updated_at = NOW()
      WHERE id = $1
        AND state = 'open'
-       AND current_closes_at > NOW()
-       AND current_closes_at <= NOW() + INTERVAL '15 minutes'
+       AND current_closes_at > clock_timestamp()
+       AND current_closes_at <= clock_timestamp() + INTERVAL '15 minutes'
        AND ($2::INTEGER IS NULL OR version = $2)
      RETURNING ${QUEUE_DAY_COLUMNS}`,
     [Number(queueDayId), data.expectedVersion == null ? null : Number(data.expectedVersion)]

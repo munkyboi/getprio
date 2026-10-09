@@ -4,21 +4,12 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const {randomUUID} = require('node:crypto');
+const {loadModuleWithMocks} = require('./helpers/loadModuleWithMocks.cjs');
 const ledger = require('../src/repositories/resourceLedger');
 const databaseUrl = process.env.RESOURCE_LEDGER_TEST_DATABASE_URL;
 function loadService(mocks, filename = 'ticketServiceTimingService') {
   const target = require.resolve(`../src/services/${filename}`);
-  const saved = new Map();
-  try {
-    for (const [name,exports] of Object.entries(mocks)) {
-      const id=require.resolve(path.resolve(path.dirname(target),name));
-      saved.set(id,require.cache[id]); require.cache[id]={id,filename:id,loaded:true,exports};
-    }
-    delete require.cache[target]; return require(target);
-  } finally {
-    delete require.cache[target];
-    for (const [id,original] of saved) { if (original) require.cache[id]=original; else delete require.cache[id]; }
-  }
+  return loadModuleWithMocks(target, mocks);
 }
 test('staff assignment lookup preserves exact scoped identifiers', async () => {
   const ids=['9007199254740993','9007199254740995','9007199254740997'];
@@ -1613,7 +1604,7 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
       for(const action of ['closeQueueDay','pauseQueueDay']) {
         await reset(); await legacyPayment(); let signal; const locked=new Promise(resolve=>{signal=resolve;}); let release; const unblock=new Promise(resolve=>{release=resolve;});
         const lifecycle=legacyLifecycle({pool,withTransaction:callback=>withTransaction(client=>callback({query:async (...args)=>{
-          const result=await client.query(...args); if(String(args[0]).includes('FROM store_locations') && String(args[0]).includes('FOR UPDATE')) {signal(); await unblock;} return result;
+          const result=await client.query(...args); if(String(args[0]).includes('FROM store_locations') && String(args[0]).includes('FOR NO KEY UPDATE')) {signal(); await unblock;} return result;
         }}))});
         const operation=lifecycle[action](tenant,{location:{...location,queueLifecycleMode:'legacy'},actorUserId:'1'}); operation.catch(()=>{}); let pending;
         try {
@@ -1677,6 +1668,30 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
           if(kind==='counter')await assert.rejects(pool.query('SELECT id FROM service_counters WHERE id=200 FOR UPDATE NOWAIT'),{code:'55P03'});
           release();await pending;assert.equal((await pool.query('SELECT paused FROM intake_state')).rows[0].paused,true);
         } finally {release();await pending.catch(()=>{});}
+      }
+    });
+    await t.test('legacy intake permits tenant-first grant changes to insert branch-FK assignments without a lock cycle',async () => {
+      for(const action of ['pauseQueueDay','resumeQueueDay','closeQueueDay','reopenQueueDay']) {
+        await reset();const lifecycle=legacyLifecycle({pool,withTransaction});
+        if(action==='resumeQueueDay')await lifecycle.pauseQueueDay(tenant,{location,actorUserId:'1'});
+        if(action==='reopenQueueDay')await lifecycle.closeQueueDay(tenant,{location,actorUserId:'1'});
+        const before=(await pool.query('SELECT revision::text FROM resource_ledger_scopes')).rows[0]?.revision;
+        const revoker=await pool.connect();let pending;
+        try {
+          await revoker.query('BEGIN');await revoker.query('SELECT id FROM tenants WHERE id=1 FOR UPDATE');
+          pending=lifecycle[action](tenant,{location,actorUserId:'1'});const denied=assert.rejects(pending,{statusCode:403});
+          const deadline=Date.now()+3000;let waiting=false;
+          while(Date.now()<deadline) {
+            waiting=(await pool.query("SELECT 1 FROM pg_stat_activity WHERE application_name=$1 AND wait_event_type='Lock' AND query LIKE 'SELECT is_active FROM tenants%'",[schema])).rows.length>0;
+            if(waiting)break;await new Promise(resolve=>setTimeout(resolve,10));
+          }
+          assert.equal(waiting,true,'legacy intake must wait for current tenant grant state');
+          await revoker.query('UPDATE tenant_memberships SET is_active=FALSE WHERE id=1');
+          await revoker.query("SET LOCAL lock_timeout='2s'");
+          await revoker.query('INSERT INTO tenant_membership_locations VALUES(1,10)');
+          await revoker.query('COMMIT');await denied;
+        } finally {await revoker.query('ROLLBACK');revoker.release();if(pending)await pending.catch(()=>{});}
+        assert.equal((await pool.query('SELECT revision::text FROM resource_ledger_scopes')).rows[0]?.revision,before);
       }
     });
     await t.test('legacy intake rechecks committed access and mode changes after waiting for the location lock',async () => {

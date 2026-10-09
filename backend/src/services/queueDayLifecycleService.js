@@ -6,6 +6,8 @@ const queueEvents = require("../repositories/queueEvents");
 const outbox = require("../repositories/queueNotificationOutbox");
 const waitTimePredictionRepository = require("../repositories/waitTimePredictions");
 const storeLocations = require("../repositories/storeLocations");
+const { withVendorQueueTransaction } = require("./vendorQueueTransactionService");
+const permissions = require("./permissions");
 const { formatTicketNumber } = require("./queueHelpers");
 const {
   getWarningPhase,
@@ -626,11 +628,38 @@ async function closeQueueDay(tenant, location, options = {}) {
   });
 }
 
+async function withEnforcedIntakeTransaction(tenant, location, options, callback) {
+  if (options.actorUserId == null) throw stateError("Vendor authorization is required.", "QUEUE_AUTHORIZATION_REQUIRED", 403);
+  for (const value of [tenant._id, location._id, options.actorUserId]) {
+    if (!/^[1-9]\d{0,18}$/u.test(String(value)) || !Number.isSafeInteger(Number(value))) {
+      throw stateError("Queue identity requires reconciliation.", "QUEUE_IDENTITY_INVALID", 400);
+    }
+  }
+  return withVendorQueueTransaction({ pool: db.pool, tenant, location,
+    actorUserId: String(options.actorUserId), permission: "tenant.queue.operate", lockTenantActivity: true
+  }, async (client, _ledger, actor) => {
+    const branch = (await client.query(`SELECT l.queue_lifecycle_mode,l.is_active,t.is_active AS tenant_active
+      FROM store_locations l JOIN tenants t ON t.id=l.tenant_id WHERE l.id=$1 AND l.tenant_id=$2`, [location._id, tenant._id])).rows[0];
+    if (branch.queue_lifecycle_mode !== "enforced") {
+      throw stateError("Queue lifecycle mode changed. Refresh and try again.", "QUEUE_LIFECYCLE_NOT_ENFORCED");
+    }
+    if (!branch.is_active || !branch.tenant_active) {
+      throw stateError("This business or location is inactive.", "QUEUE_SCOPE_INACTIVE");
+    }
+    const result = await callback(client, { ...options, actorRole: permissions.getTenantRole(actor, tenant._id) });
+    if (result?.overdue || result?.idempotent === false) {
+      await client.query("UPDATE resource_ledger_scopes SET revision=revision+1 WHERE tenant_id=$1 AND location_id=$2", [tenant._id, location._id]);
+    }
+    return result;
+  });
+}
+
 async function extendQueueDay(tenant, location, options = {}) {
   if (!String(options.reason || "").trim()) {
     throw stateError("A reason is required for a Queue Day extension.", "QUEUE_EXTENSION_REASON_REQUIRED", 400);
   }
-  return db.withTransaction(async (client) => {
+  return withEnforcedIntakeTransaction(tenant, location, options, async (client, currentOptions) => {
+    options = currentOptions;
     const current = await queueDays.findLatestByLocation(tenant._id, location._id, {
       client,
       state: "open",
@@ -683,7 +712,9 @@ async function extendQueueDay(tenant, location, options = {}) {
 }
 
 async function setQueueIntake(tenant, location, intakeMode, options = {}) {
-  const result = await db.withTransaction(async (client) => {
+  if (!["paused", "accepting"].includes(intakeMode)) throw stateError("Invalid queue intake mode.", "QUEUE_INTAKE_MODE_INVALID", 400);
+  const result = await withEnforcedIntakeTransaction(tenant, location, options, async (client, currentOptions) => {
+    options = currentOptions;
     const current = await queueDays.findLatestByLocation(tenant._id, location._id, {
       client,
       state: "open",

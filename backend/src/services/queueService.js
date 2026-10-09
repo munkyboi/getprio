@@ -1095,7 +1095,7 @@ async function lockLegacyIntakeLocation(client, tenant, location, options, permi
       throw Object.assign(new Error("Queue identity requires reconciliation."), { statusCode: 400 });
     }
   }
-  const result = await client.query("SELECT id,timezone,queue_lifecycle_mode,is_active FROM store_locations WHERE tenant_id=$1 AND id=$2 FOR UPDATE", [tenant._id, location._id]);
+  const result = await client.query("SELECT id,timezone,queue_lifecycle_mode,is_active FROM store_locations WHERE tenant_id=$1 AND id=$2 FOR NO KEY UPDATE", [tenant._id, location._id]);
   const current = result.rows[0];
   if (!current) throw Object.assign(new Error("Queue location not found."), { statusCode: 404 });
   if (!["legacy", "shadow"].includes(current.queue_lifecycle_mode)) {

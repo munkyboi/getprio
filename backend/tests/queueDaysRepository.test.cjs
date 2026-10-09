@@ -82,7 +82,7 @@ test("extension is an optimistic conditional update limited to the warning windo
   };
   const repository = loadRepository(client);
   await repository.extendDeadline(7, { expectedVersion: 4 }, { client });
-  assert.match(query.sql, /current_closes_at <= NOW\(\) \+ INTERVAL '15 minutes'/);
+  assert.match(query.sql, /current_closes_at <= clock_timestamp\(\) \+ INTERVAL '15 minutes'/);
   assert.match(query.sql, /version = version \+ 1/);
   assert.match(query.sql, /deadline_version = deadline_version \+ 1/);
   assert.equal(query.values[1], 4);
