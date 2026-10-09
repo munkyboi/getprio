@@ -1,0 +1,13 @@
+# Request-triggered Queue Day reconciliation writer
+
+Snapshot-triggered `closeQueueDay` and standalone `assertIntakeOpen` now use the trusted location-first maintenance transaction. Safe tenant/location identities are required before scope access. The current branch must remain enforced; inactive business/branch or revoked vendor memberships do not prevent overdue cleanup. No vendor actor is fabricated and maintenance exposes only its transaction client.
+
+The open Queue Day is selected and locked after the branch. Database wall-clock time is read after the Queue Day lock wait. Snapshot reconciliation closes only a currently overdue open day, so an extension or replacement day cannot be closed using a stale snapshot. Standalone intake ignores caller time, preserves paused/unopened responses, and commits overdue closure before returning its existing conflict response. Missing, changed or unsafe scope/day identities fail closed. Mode rejection and operational failures roll back the private scope as well as domain effects.
+
+Closure, ticket/booking/segment outcomes, obsolete warnings, lifecycle events, durable outbox intents and one branch revision commit together. Competing automatic closers commit one closure/revision. No-op maintenance can seed the private scope at revision one without advancing its operational revision. Actual allocations and explicit service timing remain intact; terminal linked bookings retain their statuses. Calling/check-in/closure do not imply service start or allocation release.
+
+Real PostgreSQL regressions reuse the lifecycle/ledger fixture and cover snapshot/intake contenders, extension after branch and day lock waits, expiry after day waits, caller-time rejection, inactive cleanup, current mode after branch waits, event/outbox rollback, and unsafe/mismatched identities.
+
+Intake checks supplied an existing transaction client retain their caller-owned boundary and remain a separate inventory gap. Other diagnostic/warning ordering, unused terminal protection cleanup, carry-over protection reconciliation, account deletion, related catalog/settings revision writers and full activation reconciliation remain uncovered. Tracking and writer coverage stay false; producer stays `not_ready`. No migration, UI, estimate, inference, capture/export or activation changes. Authenticated live vendor execution remains a separate acceptance gate.
+
+Validation: full isolated PostgreSQL backend coverage passed 1,088 tests, seven opt-in skips (1,095 total), zero failures. Focused source ESLint, backend typecheck and diff checks passed. Coverage: 68.32 percent lines/statements, 69.49 percent branches, 63.93 percent functions; no 80 percent threshold claim.

@@ -195,7 +195,7 @@ async function withCarryOverExpiryTransaction({ pool, tenantId, locationId, tick
     authorize: async () => true, ticketExpiryId: id(ticketId) }, callback);
 }
 
-// Trusted scheduled/Platform Queue Day maintenance; no request actor or ledger
+// Trusted automatic Queue Day maintenance; no request actor or ledger
 // command capability is exposed to the lifecycle callback.
 async function withQueueDayReconciliationTransaction({ pool, tenantId, locationId }, callback) {
   return runScopeTransaction({ pool, tenantId, locationId, actorId: null,

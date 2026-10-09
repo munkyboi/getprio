@@ -390,10 +390,11 @@ test('enforced vendor Queue Day writers use location-first PostgreSQL transactio
         assert.equal((await day()).version, 1); assert.equal(await revision(), undefined); assert.equal(await count('queue_events'), 0);
       }
     });
-    await t.test('trusted request reconciliation keeps its actor-free entry point and remains uncertified', async () => {
+    await t.test('trusted request reconciliation commits a closure revision without releasing occupancy', async () => {
       await reset(); await history();
-      await service.closeQueueDay(tenant, location, { source: 'request_reconciliation', reason: 'effective_hours_ended' });
-      assert.equal((await day()).state, 'closed'); assert.equal(await revision(), undefined);
+      await pool.query("UPDATE queue_days SET current_closes_at=clock_timestamp()-interval '1 second' WHERE id=1");
+      await service.closeQueueDay(tenant, location);
+      assert.equal((await day()).state, 'closed'); assert.equal(await revision(), '2');
       assert.equal((await pool.query('SELECT released_at FROM resource_allocations')).rows[0].released_at, null);
     });
     await t.test('mode change committed during a branch lock wait rejects the stale enforced request', async () => {
@@ -453,6 +454,75 @@ test('enforced vendor Queue Day writers use location-first PostgreSQL transactio
       await reset(); await history();
       await pool.query("UPDATE queue_days SET current_closes_at=clock_timestamp()-interval '1 second' WHERE id=1");
     }
+    await t.test('snapshot and standalone intake contenders commit one closure before intake rejects', async () => {
+      await overdue();
+      const result = await Promise.allSettled([service.closeQueueDay(tenant, location), service.assertIntakeOpen(tenant, location, { now: new Date(0) })]);
+      assert.equal(result[0].status, 'fulfilled'); assert.equal(result[1].status, 'rejected');
+      assert.ok(['QUEUE_DAY_OVERDUE', 'QUEUE_DAY_UNOPENED'].includes(result[1].reason.code));
+      assert.equal((await day()).state, 'closed'); assert.equal(await revision(), '2');
+      assert.equal((await pool.query("SELECT COUNT(*)::int n FROM queue_events WHERE event_type='queue_day_closed'")).rows[0].n, 1);
+    });
+    await t.test('request reconciliation uses current deadlines after branch and day lock waits', async () => {
+      for (const method of ['closeQueueDay', 'assertIntakeOpen']) for (const lock of ['store_locations', 'queue_days']) {
+        await overdue(); const blocker = await pool.connect(); let pending;
+        try {
+          await blocker.query('BEGIN'); await blocker.query(`SELECT id FROM ${lock} WHERE id=${lock === 'queue_days' ? 1 : 10} FOR UPDATE`);
+          pending = service[method](tenant, location, { now: new Date(0) }); pending.catch(() => {});
+          await waitForLock(`FROM ${lock}`);
+          await blocker.query("UPDATE queue_days SET current_closes_at=clock_timestamp()+interval '1 hour' WHERE id=1");
+          await blocker.query('COMMIT'); await pending;
+        } finally { await blocker.query('ROLLBACK'); blocker.release(); if (pending) await pending.catch(() => {}); }
+        assert.equal((await day()).state, 'open'); assert.equal(await revision(), '1'); assert.equal(await count('queue_events'), 0);
+      }
+    });
+    await t.test('standalone intake ignores caller time and evaluates expiry after day locks', async () => {
+      await reset(); const blocker = await pool.connect(); let pending;
+      try {
+        await blocker.query('BEGIN'); await blocker.query('SELECT id FROM queue_days WHERE id=1 FOR UPDATE');
+        pending = service.assertIntakeOpen(tenant, location, { now: new Date('2100-01-01') });
+        const denied = assert.rejects(pending, { code: 'QUEUE_DAY_OVERDUE' }); await waitForLock('FROM queue_days');
+        await blocker.query("UPDATE queue_days SET current_closes_at=clock_timestamp()-interval '1 second' WHERE id=1");
+        await blocker.query('COMMIT'); await denied;
+      } finally { await blocker.query('ROLLBACK'); blocker.release(); if (pending) await pending.catch(() => {}); }
+      assert.equal((await day()).state, 'closed'); assert.equal(await revision(), '2');
+    });
+    await t.test('request maintenance permits inactive scope but rejects changed lifecycle mode', async () => {
+      for (const method of ['closeQueueDay', 'assertIntakeOpen']) {
+        await overdue(); await pool.query('UPDATE tenants SET is_active=FALSE; UPDATE store_locations SET is_active=FALSE; UPDATE tenant_memberships SET is_active=FALSE');
+        if (method === 'assertIntakeOpen') await assert.rejects(service[method](tenant, location), { code: 'QUEUE_DAY_OVERDUE' });
+        else await service[method](tenant, location);
+        assert.equal(await revision(), '2');
+        await overdue(); const blocker = await pool.connect(); let pending;
+        try {
+          await blocker.query('BEGIN'); await blocker.query('SELECT id FROM store_locations WHERE id=10 FOR UPDATE');
+          pending = service[method](tenant, location); const denied = assert.rejects(pending, { code: 'QUEUE_LIFECYCLE_NOT_ENFORCED' });
+          await waitForLock('FROM store_locations'); await blocker.query("UPDATE store_locations SET queue_lifecycle_mode='legacy' WHERE id=10");
+          await blocker.query('COMMIT'); await denied;
+        } finally { await blocker.query('ROLLBACK'); blocker.release(); if (pending) await pending.catch(() => {}); }
+        assert.equal((await day()).state, 'open'); assert.equal(await revision(), undefined); assert.equal(await count('queue_events'), 0);
+      }
+    });
+    await t.test('request failures roll back closure outcomes outbox and revision together', async () => {
+      for (const method of ['closeQueueDay', 'assertIntakeOpen']) for (const table of ['queue_events', 'queue_notification_outbox']) {
+        await overdue(); failure = `INSERT INTO ${table}`;
+        await assert.rejects(service[method](tenant, location), method === 'assertIntakeOpen' ? { code: 'QUEUE_RECONCILIATION_UNAVAILABLE' } : /injected write failure/);
+        failure = null; assert.equal((await day()).state, 'open'); assert.equal(await revision(), undefined);
+        assert.equal((await pool.query('SELECT status FROM tickets')).rows[0].status, 'called');
+        assert.equal(await count('queue_events'), 0);
+        assert.equal((await pool.query("SELECT status FROM queue_notification_outbox WHERE idempotency_key='old-warning'")).rows[0].status, 'pending');
+      }
+    });
+    await t.test('request maintenance fails closed for unsafe or mismatched scopes and unsafe days', async () => {
+      for (const method of ['closeQueueDay', 'assertIntakeOpen']) {
+        await overdue(); await assert.rejects(service[method]({ _id: '9007199254740993' }, location), { code: 'QUEUE_IDENTITY_INVALID' });
+        await assert.rejects(service[method](tenant, { _id: '20' }));
+        await pool.query(`UPDATE queue_days SET state='closed',intake_mode=NULL WHERE id=1;
+          INSERT INTO queue_days(id,tenant_id,location_id,business_date,state,intake_mode,timezone_snapshot,current_closes_at)
+          VALUES(9007199254740993,1,10,current_date+1,'open','accepting','Asia/Manila',clock_timestamp()-interval '1 second')`);
+        await assert.rejects(service[method](tenant, location), { code: 'QUEUE_IDENTITY_INVALID' });
+        assert.equal(await revision(), undefined); assert.equal(await count('queue_events'), 0);
+      }
+    });
     await t.test('competing scheduled and Platform retries close once and retain occupancy and timing', async () => {
       await overdue();
       const timing = (await pool.query('SELECT service_started_at,service_ended_at FROM tickets')).rows;
