@@ -533,7 +533,7 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
           pending=runActiveVendorAction(action);pending.catch(()=>{});
           const deadline=Date.now()+3000;let waiting=false;
           while(Date.now()<deadline) {
-            waiting=(await pool.query("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE application_name=$1 AND wait_event_type='Lock' AND query LIKE 'SELECT l.%' AND query LIKE '%FOR SHARE OF t%') AS waiting",[schema])).rows[0].waiting;
+            waiting=(await pool.query("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE application_name=$1 AND wait_event_type='Lock' AND query LIKE 'SELECT id FROM tenants%FOR SHARE%') AS waiting",[schema])).rows[0].waiting;
             if(waiting)break;await new Promise(resolve=>setTimeout(resolve,10));
           }
           assert.equal(waiting,true,`${action} must wait for the changing tenant activity row`);
@@ -541,6 +541,44 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
           assert.equal(await count('events'),0);assert.equal(await count('resource_allocations'),0);assert.equal(await count('resource_ledger_scopes'),0);
           assert.equal(await count('tickets'),action==='walkin'?0:1);
         } finally {await blocker.query('ROLLBACK');blocker.release();if(pending)await pending.catch(()=>{});}
+      }
+    });
+    await t.test('staff access changes and activity-gated vendor actions take tenant before membership in both orderings',async () => {
+      const {createStaffAccessEmailService}=require('../src/services/staffAccessEmailService');
+      const staffUsers={findUserById:async(id,{client})=>{
+        const row=(await client.query('SELECT role,is_active FROM tenant_memberships WHERE user_id=$1 AND tenant_id=1',[id])).rows[0];
+        return {_id:String(id),tenantMemberships:row?[{tenantId:'1',role:row.role,isActive:row.is_active}]:[]};
+      },listUsersByTenantId:async()=>[]};
+      for(const action of activeVendorActions)for(const first of ['staff','queue']) {
+        await prepareActiveVendorAction(action);await pool.query('INSERT INTO tenant_membership_locations VALUES(2,10)');
+        const run=()=>action==='start'?record('1','start','2'):action==='walkin'?walkin({actorUserId:'2'}):action==='call'?call({actorUserId:'2'}):action==='confirm'?confirm('LOOKUP-1',{actorUserId:'2'}):restore('1',{actorUserId:'2'});
+        let reached;const locked=new Promise(resolve=>{reached=resolve;});let release;const unblock=new Promise(resolve=>{release=resolve;});
+        const staffService=createStaffAccessEmailService({database:{withTransaction:callback=>withTransaction(async client=>{
+          const wrapped={query:async(...args)=>{
+            const result=await client.query(...args);
+            if(first==='staff' && String(args[0]).includes('FROM tenants') && String(args[0]).includes('FOR UPDATE')){reached();await unblock;}
+            return result;
+          }};
+          return callback(wrapped);
+        })},userRepository:staffUsers,locationRepository:require('../src/repositories/tenantMembershipLocations')});
+        const change=()=>staffService.change({tenant,userId:'2',actorId:'1'},async({client})=>client.query('UPDATE tenant_memberships SET is_active=FALSE WHERE user_id=2 AND tenant_id=1'));
+        if(first==='queue')vendorEventBarrier={reached,release:unblock};
+        const leading=first==='staff'?change():run();leading.catch(()=>{});let trailing;
+        try {
+          await Promise.race([locked,leading.then(()=>{throw new Error('staff access ordering barrier missing');})]);
+          trailing=first==='staff'?run():change();trailing.catch(()=>{});
+          const deadline=Date.now()+3000;let waiting=false;
+          while(Date.now()<deadline) {
+            waiting=(await pool.query("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE application_name=$1 AND wait_event_type='Lock' AND query LIKE 'SELECT id FROM tenants%FOR %') AS waiting",[schema])).rows[0].waiting;
+            if(waiting)break;await new Promise(resolve=>setTimeout(resolve,10));
+          }
+          assert.equal(waiting,true,'the competing transaction must wait at tenant, before membership');
+          if(first==='staff')await pool.query('SELECT id FROM tenant_memberships WHERE id=2 FOR UPDATE NOWAIT');
+          release();await leading;
+          if(first==='staff')await assert.rejects(trailing,{statusCode:403});else await trailing;
+          assert.equal((await pool.query('SELECT is_active FROM tenant_memberships WHERE id=2')).rows[0].is_active,false);
+          assert.equal(await count('events'),first==='staff'?0:1);assert.equal(await count('resource_allocations'),first==='queue'&&action==='start'?1:0);
+        } finally {release();await leading.catch(()=>{});if(trailing)await trailing.catch(()=>{});vendorEventBarrier=null;}
       }
     });
     await t.test('tenant activity share locks allow simultaneous service starts at distinct branches',async () => {

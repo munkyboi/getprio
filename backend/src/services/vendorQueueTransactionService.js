@@ -16,11 +16,13 @@ async function readAuthorizedVendorQueueActor(client, scope, permission, options
   return user;
 }
 
-async function withVendorQueueTransaction({ pool, tenant, location, actorUserId, permission = "tenant.ticket.update_state" }, callback) {
+async function withVendorQueueTransaction({ pool, tenant, location, actorUserId, permission = "tenant.ticket.update_state", lockTenantActivity = false }, callback) {
   let actorContext;
   return resourceLedger.withScopeTransaction({
     pool, tenantId: String(tenant._id), locationId: String(location._id), actorUserId: String(actorUserId),
     authorize: async (client, scope) => {
+      // Staff access changes take tenant before membership; use the same order.
+      if (lockTenantActivity) await client.query("SELECT id FROM tenants WHERE id=$1 FOR SHARE", [scope.tenantId]);
       // Keep accepted access grants stable until the queue transaction commits.
       actorContext = await readAuthorizedVendorQueueActor(client, scope, permission, { forShare: true });
       return Boolean(actorContext);

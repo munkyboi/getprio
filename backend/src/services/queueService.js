@@ -618,10 +618,9 @@ async function executeOpenVendorQueueAction(client, tenant, scope, callback) {
 
 async function withOpenVendorQueueTransaction(tenant, location, options, permission, callback) {
   let overdueError;
-  const result = await withVendorQueueTransaction({ pool: db.pool, tenant, location, actorUserId: options.actorUserId, permission }, async (client) => {
+  const result = await withVendorQueueTransaction({ pool: db.pool, tenant, location, actorUserId: options.actorUserId, permission, lockTenantActivity: true }, async (client) => {
     const branch = (await client.query(`SELECT l.is_active,l.queue_lifecycle_mode,l.timezone,t.is_active AS tenant_active
-      FROM store_locations l JOIN tenants t ON t.id=l.tenant_id WHERE l.id=$1 AND l.tenant_id=$2
-      FOR SHARE OF t`, [location._id, tenant._id])).rows[0];
+      FROM store_locations l JOIN tenants t ON t.id=l.tenant_id WHERE l.id=$1 AND l.tenant_id=$2`, [location._id, tenant._id])).rows[0];
     if (!branch?.is_active || !branch.tenant_active) {
       throw Object.assign(new Error("This business or location is inactive."), { statusCode: 409 });
     }
