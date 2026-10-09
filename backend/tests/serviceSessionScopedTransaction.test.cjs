@@ -976,6 +976,30 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
       await assert.rejects(confirm(),{statusCode:409});
       assert.equal(await count('events'),2); assert.equal(await count('resource_allocations'),0);
     });
+    await t.test('vendor call and confirmation use database deadlines with skewed application clocks',async () => {
+      // A fast host clock can request snapshot maintenance after the action.
+      // Its real boundary was covered separately; model its database-time no-op.
+      queueMocks['./queueDayLifecycleService'].closeQueueDay=async()=>{
+        assert.equal((await pool.query('SELECT closes_at<=clock_timestamp() AS due FROM queue_day_state')).rows[0].due,false);
+      };
+      const ActualDate=Date;
+      for(const action of ['call','confirm']) for(const due of [false,true]) {
+        await reset();await ticket('1',{booking:true});
+        if(action==='call')await pool.query("UPDATE tickets SET status='waiting'");
+        await pool.query("UPDATE store_locations SET queue_lifecycle_mode='enforced' WHERE id=10");
+        await pool.query(`UPDATE queue_day_state SET closes_at=clock_timestamp()+interval '${due ? '-1 second' : '1 hour'}'`);
+        globalThis.Date=class extends ActualDate {
+          constructor(...args){super(...(args.length?args:[due?'1980-01-01':'2100-01-01']));}
+        };
+        try {
+          const pending=action==='call'?call():confirm();
+          if(due)await assert.rejects(pending,{code:'QUEUE_DAY_OVERDUE'});else await pending;
+        } finally {globalThis.Date=ActualDate;}
+        assert.equal((await pool.query('SELECT state FROM queue_day_state')).rows[0].state,due?'closed':'open');
+        assert.equal((await readTicket('1')).status,due?'unserved':'called');
+        assert.equal(await count('resource_allocations'),0);
+      }
+    });
     await t.test('current enforced mode commits overdue reconciliation before rejecting call or confirmation',async () => {
       for(const action of ['call','confirm']) {
         await reset(); await ticket('1',{booking:true});

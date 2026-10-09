@@ -396,10 +396,8 @@ async function assertIntakeOpenWithClient(client, tenant, location, options = {}
     if (!queueDay) {
       throw stateError("The queue has not been opened by staff.", "QUEUE_DAY_UNOPENED");
     }
-    if (options.useDatabaseTime) assertSafeQueueIdentity(queueDay._id);
-    const now = options.useDatabaseTime
-      ? (await client.query("SELECT clock_timestamp() AS now")).rows[0].now
-      : (options.now || new Date());
+    assertSafeQueueIdentity(queueDay._id);
+    const now = (await client.query("SELECT clock_timestamp() AS now")).rows[0].now;
     if (new Date(queueDay.currentClosesAt) <= now) {
       if (options.reconcileOverdue) {
         await closeLockedQueueDay(client, tenant, location, queueDay, {
@@ -424,7 +422,7 @@ async function assertIntakeOpen(tenant, location, options = {}) {
   try {
     result = await withRequestReconciliationTransaction(tenant, location, client =>
       assertIntakeOpenWithClient(client, tenant, location, {
-        reconcileOverdue: true, useDatabaseTime: true
+        reconcileOverdue: true
       })
     );
   } catch (error) {
@@ -772,7 +770,8 @@ async function setQueueIntake(tenant, location, intakeMode, options = {}) {
     if (!current) {
       throw stateError("The queue has not been opened.", "QUEUE_DAY_UNOPENED");
     }
-    if (new Date(current.currentClosesAt) <= new Date()) {
+    const now = (await client.query("SELECT clock_timestamp() AS now")).rows[0].now;
+    if (new Date(current.currentClosesAt) <= now) {
       await closeLockedQueueDay(client, tenant, location, current, {
         source: "request_reconciliation",
         reason: "effective_hours_ended"

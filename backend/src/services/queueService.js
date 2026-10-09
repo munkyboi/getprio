@@ -144,7 +144,10 @@ async function assertQueueDayOpen(tenant, location, options = {}) {
       location._id,
       { client: options.client, state: "open", forUpdate: Boolean(options.client) }
     );
-    if (queueDay && new Date(queueDay.currentClosesAt) > new Date()) {
+    const now = options.client
+      ? (await options.client.query("SELECT clock_timestamp() AS now")).rows[0].now
+      : new Date();
+    if (queueDay && new Date(queueDay.currentClosesAt) > now) {
       return queueDay;
     }
     if (queueDay && options.client) {
