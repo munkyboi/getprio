@@ -454,6 +454,44 @@ test('enforced vendor Queue Day writers use location-first PostgreSQL transactio
       await reset(); await history();
       await pool.query("UPDATE queue_days SET current_closes_at=clock_timestamp()-interval '1 second' WHERE id=1");
     }
+    async function withHostClock(instant, callback) {
+      const ActualDate = Date;
+      globalThis.Date = class extends ActualDate {
+        constructor(...args) { super(...(args.length ? args : [instant])); }
+      };
+      try { return await callback(); } finally { globalThis.Date = ActualDate; }
+    }
+    await t.test('caller-owned intake ignores caller time and application clock skew without writing closure', async () => {
+      await reset();
+      await withHostClock('2100-01-01', () => database.withTransaction(async client => {
+        const result = await service.assertIntakeOpen(tenant, location, { client, now: new Date('2100-01-01') });
+        assert.equal(result.state, 'open');
+      }));
+      await overdue();
+      await withHostClock('1980-01-01', () => assert.rejects(database.withTransaction(client =>
+        service.assertIntakeOpen(tenant, location, { client, now: new Date(0) })), { code: 'QUEUE_DAY_OVERDUE' }));
+      assert.equal((await day()).state, 'open'); assert.equal(await revision(), undefined); assert.equal(await count('queue_events'), 0);
+    });
+    await t.test('caller-owned intake reads wall-clock after a Queue Day lock wait', async () => {
+      await reset(); const blocker = await pool.connect(); let pending;
+      try {
+        await blocker.query('BEGIN'); await blocker.query('SELECT id FROM queue_days WHERE id=1 FOR UPDATE');
+        pending = database.withTransaction(client => service.assertIntakeOpen(tenant, location, { client, now: new Date(0) }));
+        const denied = assert.rejects(pending, { code: 'QUEUE_DAY_OVERDUE' }); await waitForLock('FROM queue_days');
+        await blocker.query("UPDATE queue_days SET current_closes_at=clock_timestamp()-interval '1 second' WHERE id=1");
+        await blocker.query('COMMIT'); await denied;
+      } finally { await blocker.query('ROLLBACK'); blocker.release(); if (pending) await pending.catch(() => {}); }
+      assert.equal((await day()).state, 'open'); assert.equal(await revision(), undefined); assert.equal(await count('queue_events'), 0);
+    });
+    await t.test('vendor intake uses database deadlines despite application clock skew', async () => {
+      await reset();
+      await withHostClock('2100-01-01', () => run('pause'));
+      assert.equal((await day()).state, 'open'); assert.equal((await day()).intake_mode, 'paused'); assert.equal(await revision(), '2');
+      await overdue();
+      await withHostClock('1980-01-01', () => assert.rejects(run('pause'), { code: 'QUEUE_DAY_OVERDUE' }));
+      assert.equal((await day()).state, 'closed'); assert.equal(await revision(), '2');
+      assert.equal((await pool.query('SELECT released_at FROM resource_allocations')).rows[0].released_at, null);
+    });
     await t.test('snapshot and standalone intake contenders commit one closure before intake rejects', async () => {
       await overdue();
       const result = await Promise.allSettled([service.closeQueueDay(tenant, location), service.assertIntakeOpen(tenant, location, { now: new Date(0) })]);
