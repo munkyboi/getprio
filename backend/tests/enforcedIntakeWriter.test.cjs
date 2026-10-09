@@ -67,7 +67,7 @@ test('enforced vendor Queue Day writers use location-first PostgreSQL transactio
       INSERT INTO location_resource_pools(tenant_id,location_id,name,capacity) VALUES(1,10,'Courts',4);
       INSERT INTO queue_days(tenant_id,location_id,business_date,state,intake_mode,timezone_snapshot,
         initial_closes_at,current_closes_at,effective_closes_at,opened_at)
-        VALUES(1,10,CURRENT_DATE,'open','accepting','Asia/Manila',clock_timestamp()-interval '2 hours',
+        VALUES(1,10,(clock_timestamp() AT TIME ZONE 'Asia/Manila')::date,'open','accepting','Asia/Manila',clock_timestamp()-interval '2 hours',
           clock_timestamp()+interval '10 minutes',clock_timestamp()+interval '10 minutes',clock_timestamp()-interval '2 hours');
       INSERT INTO queue_notification_outbox(idempotency_key,queue_day_id,tenant_id,recipient_key,channel,template_name,deadline_version)
         VALUES('old-warning',1,1,'operators','web_push','queue_closing_15m',1)`);
@@ -153,7 +153,7 @@ test('enforced vendor Queue Day writers use location-first PostgreSQL transactio
     await t.test('opening rolls prior-day closure, new opening and carry-over activation back on segment failure', async () => {
       await reset('open'); await pendingCarryOver();
       await pool.query(`INSERT INTO queue_days(id,tenant_id,location_id,business_date,state,intake_mode,timezone_snapshot,
-        initial_closes_at,current_closes_at,opened_at) VALUES(2,1,10,CURRENT_DATE-1,'open','accepting','Asia/Manila',
+        initial_closes_at,current_closes_at,opened_at) VALUES(2,1,10,(clock_timestamp() AT TIME ZONE 'Asia/Manila')::date-1,'open','accepting','Asia/Manila',
           clock_timestamp()-interval '1 day',clock_timestamp()-interval '1 hour',clock_timestamp()-interval '1 day');
         INSERT INTO tickets(id,tenant_id,location_id,status,current_queue_day_id) VALUES(2,1,10,'called',2);
         INSERT INTO bookings(id,queue_ticket_id,status) VALUES(2,2,'confirmed')`);
