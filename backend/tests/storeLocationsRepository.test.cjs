@@ -134,6 +134,10 @@ test("store locations normalize slugs, reset primary flags, and replace hours", 
         };
       }
 
+      if (String(query).includes("SELECT id FROM store_locations") && String(query).includes("FOR UPDATE")) {
+        return { rows: [{ id: 8 }] };
+      }
+
       if (String(query).includes("DELETE FROM store_hours")) {
         return { rows: [] };
       }
@@ -164,7 +168,8 @@ test("store locations normalize slugs, reset primary flags, and replace hours", 
   };
   const storeLocations = requireWithMocks("../src/repositories/storeLocations.js", {
     "../config/db": {
-      pool: client
+      pool: client,
+      withTransaction: async callback => callback(client)
     }
   });
 

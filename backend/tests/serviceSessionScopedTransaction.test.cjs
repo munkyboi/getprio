@@ -1223,6 +1223,36 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
         assert.equal((await realPayments.findPaymentById('1',{client:pool})).ticketIssuanceStatus,'issued');
       } finally {await blocker.query('ROLLBACK'); blocker.release(); if(pending) await pending.catch(()=>{}); global.Date=NativeDate;}
     });
+    await t.test('atomic hours replacement makes paid admission wait through rebuild and rolls back insertion failure',async () => {
+      await reset(); await legacyPayment(); await pool.query('UPDATE store_hours SET is_closed=TRUE');
+      let deleted; const afterDelete=new Promise(resolve=>{deleted=resolve;}); let release; const continueWrite=new Promise(resolve=>{release=resolve;});
+      const loadHoursWriter=database=>{
+        const filename=path.resolve(__dirname,'../src/repositories/storeLocations.js');
+        const compiled=new (require('node:module').Module)(filename);
+        compiled.require=request=>request==='../config/db' ? database : require(request);
+        compiled._compile(fs.readFileSync(filename,'utf8'),filename); return compiled.exports;
+      };
+      const replacements=loadHoursWriter({pool,withTransaction:callback=>withTransaction(client=>callback({query:async (...args)=>{
+        const result=await client.query(...args); if(String(args[0]).includes('DELETE FROM store_hours')) {deleted(); await continueWrite;} return result;
+      }}))});
+      const schedule=Array.from({length:7},(_,weekday)=>({weekday,opensAt:'00:00',closesAt:'00:00',isClosed:false}));
+      const replacing=replacements.replaceHours('10',schedule,{client:pool}); replacing.catch(()=>{}); let pending;
+      try {
+        await Promise.race([afterDelete,replacing.then(()=>{throw new Error('hours replacement finished without the delete barrier');})]); pending=paid(); pending.catch(()=>{}); await waitForLocationLock();
+        assert.equal((await pool.query('SELECT count(*)::int AS n FROM store_hours WHERE is_closed')).rows[0].n,7);
+        assert.equal((await realPayments.findPaymentById('1',{client:pool})).status,'pending');
+        release(); await replacing; await pending;
+        assert.equal((await realPayments.findPaymentById('1',{client:pool})).ticketIssuanceStatus,'issued'); assert.equal(await count('tickets'),1);
+        assert.equal((await pool.query('SELECT count(*)::int AS n FROM store_hours WHERE NOT is_closed')).rows[0].n,7);
+      } finally {release(); await replacing.catch(()=>{}); if(pending) await pending.catch(()=>{});}
+      await reset(); await legacyPayment(); await pool.query('UPDATE store_hours SET is_closed=TRUE');
+      const failed=loadHoursWriter({pool,withTransaction:callback=>withTransaction(client=>callback({query:async (...args)=>{
+        const result=await client.query(...args); if(String(args[0]).includes('INSERT INTO store_hours')) throw new Error('hours insert failed'); return result;
+      }}))});
+      await assert.rejects(failed.replaceHours('10',schedule),/hours insert failed/);
+      assert.equal((await pool.query('SELECT count(*)::int AS n FROM store_hours WHERE is_closed')).rows[0].n,7);
+      await paid(); assert.equal((await realPayments.findPaymentById('1',{client:pool})).ticketIssuanceStatus,'refund_pending'); assert.equal(await count('tickets'),0);
+    });
     await t.test('versioned legacy payments with missing IDs or unsupported versions require reconciliation',async () => {
       for(const sql of ["UPDATE queue_join_payments SET payload=payload-'locationId'", "UPDATE queue_join_payments SET metadata='{\"locationBindingVersion\":2}'"]) {
         await reset(); await legacyPayment(); await pool.query(sql); await assert.rejects(paid(),{statusCode:409});

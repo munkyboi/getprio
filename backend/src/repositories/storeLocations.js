@@ -399,7 +399,6 @@ async function listHoursByLocationId(locationId, options = {}) {
 }
 
 async function replaceHours(locationId, hours, options = {}) {
-  const queryClient = buildQueryClient(options.client);
   const normalizedHours = Array.isArray(hours) ? hours : [];
   const intervalsByDay = new Map();
   for (const hour of normalizedHours) {
@@ -432,25 +431,30 @@ async function replaceHours(locationId, hours, options = {}) {
     }
     intervalsByDay.set(weekday, [...existingRanges, ...ranges]);
   }
-  await queryClient.query(`DELETE FROM store_hours WHERE location_id = $1`, [Number(locationId)]);
+  const persist = async (queryClient) => {
+    const location = await queryClient.query("SELECT id FROM store_locations WHERE id = $1 FOR UPDATE", [Number(locationId)]);
+    if (!location.rows.length) throw Object.assign(new Error("Operating-hours location not found."), { statusCode: 404 });
+    await queryClient.query(`DELETE FROM store_hours WHERE location_id = $1`, [Number(locationId)]);
 
-  for (const hour of normalizedHours) {
-    await queryClient.query(
-      `
-        INSERT INTO store_hours (location_id, weekday, opens_at, closes_at, is_closed)
-        VALUES ($1, $2, $3, $4, $5)
-      `,
-      [
-        Number(locationId),
-        Number(hour.weekday),
-        hour.opensAt || null,
-        hour.closesAt || null,
-        Boolean(hour.isClosed)
-      ]
-    );
-  }
+    for (const hour of normalizedHours) {
+      await queryClient.query(
+        `
+          INSERT INTO store_hours (location_id, weekday, opens_at, closes_at, is_closed)
+          VALUES ($1, $2, $3, $4, $5)
+        `,
+        [
+          Number(locationId),
+          Number(hour.weekday),
+          hour.opensAt || null,
+          hour.closesAt || null,
+          Boolean(hour.isClosed)
+        ]
+      );
+    }
 
-  return listHoursByLocationId(locationId, { client: queryClient });
+    return listHoursByLocationId(locationId, { client: queryClient });
+  };
+  return options.client && options.client !== db.pool ? persist(buildQueryClient(options.client)) : db.withTransaction(persist);
 }
 
 function toMinutes(value) {
