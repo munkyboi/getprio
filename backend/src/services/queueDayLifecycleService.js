@@ -8,6 +8,7 @@ const waitTimePredictionRepository = require("../repositories/waitTimePrediction
 const storeLocations = require("../repositories/storeLocations");
 const { withVendorQueueTransaction } = require("./vendorQueueTransactionService");
 const permissions = require("./permissions");
+const { withQueueDayReconciliationTransaction } = require("../repositories/resourceLedger");
 const { formatTicketNumber } = require("./queueHelpers");
 const {
   getWarningPhase,
@@ -853,40 +854,53 @@ async function emitDueWarnings(options = {}) {
   return emitted;
 }
 
+async function reconcileSelectedQueueDay(queueDayId, source, skipStale = false) {
+  const safeIdentity = value => /^[1-9]\d{0,18}$/u.test(String(value)) && Number.isSafeInteger(Number(value));
+  if (!safeIdentity(queueDayId)) throw stateError("Queue identity requires reconciliation.", "QUEUE_IDENTITY_INVALID", 400);
+  const selected = await queueDays.findById(queueDayId);
+  if (!selected) {
+    if (skipStale) return null;
+    throw stateError("Queue Day not found.", "QUEUE_DAY_NOT_FOUND", 404);
+  }
+  if (![selected.tenantId, selected.locationId].every(safeIdentity)) {
+    throw stateError("Queue identity requires reconciliation.", "QUEUE_IDENTITY_INVALID", 400);
+  }
+  return withQueueDayReconciliationTransaction({ pool: db.pool, tenantId: selected.tenantId, locationId: selected.locationId }, async client => {
+    const current = await queueDays.findById(queueDayId, { client, forUpdate: true });
+    if (!current || current.tenantId !== selected.tenantId || current.locationId !== selected.locationId) {
+      throw stateError("Queue Day scope changed. Refresh and try again.", "QUEUE_SCOPE_CHANGED");
+    }
+    if (current.state === "closed") return { queueDay: current, outcomes: null, idempotent: true };
+    const branch = (await client.query("SELECT queue_lifecycle_mode,clock_timestamp() AS now FROM store_locations WHERE id=$1", [selected.locationId])).rows[0];
+    if (branch.queue_lifecycle_mode !== "enforced" || current.state !== "open" || new Date(current.currentClosesAt) > new Date(branch.now)) {
+      if (skipStale) return null;
+      throw stateError("Queue Day is not due for enforced reconciliation.", "QUEUE_STATE_CHANGED");
+    }
+    const result = await closeLockedQueueDay(client, { _id: current.tenantId }, { _id: current.locationId }, current,
+      { source, reason: "effective_hours_ended" });
+    if (!result.idempotent) {
+      await client.query("UPDATE resource_ledger_scopes SET revision=revision+1 WHERE tenant_id=$1 AND location_id=$2", [current.tenantId, current.locationId]);
+    }
+    return result;
+  });
+}
+
 async function reconcileDueQueueDays(limit = 50, options = {}) {
   const candidateIds = await queueDays.listDueCandidateIds(limit);
   let reconciledCount = 0;
   for (const candidateId of candidateIds) {
     let transition = null;
     try {
-      transition = await db.withTransaction(async (client) => {
-        const queueDay = await queueDays.findById(candidateId, { client, forUpdate: true });
-        if (
-          !queueDay
-          || queueDay.state !== "open"
-          || new Date(queueDay.currentClosesAt) > new Date()
-        ) {
-          return null;
-        }
-        const result = await closeLockedQueueDay(
-          client,
-          { _id: queueDay.tenantId },
-          { _id: queueDay.locationId },
-          queueDay,
-          {
-            source: "scheduled_reconciliation",
-            reason: "effective_hours_ended"
-          }
-        );
-        return {
-          tenantId: result.queueDay.tenantId,
-          locationId: result.queueDay.locationId,
-          transition: "closed"
-        };
-      });
+      const result = await reconcileSelectedQueueDay(candidateId, "scheduled_reconciliation", true);
+      if (result && !result.idempotent) transition = {
+        tenantId: result.queueDay.tenantId, locationId: result.queueDay.locationId, transition: "closed"
+      };
     } catch (error) {
-      await queueDays.recordReconciliationError(candidateId, error.message);
-      await recordReconciliationFailure(candidateId, error);
+      // Unsafe or moved identities must not be coerced into diagnostic writes.
+      if (!["QUEUE_IDENTITY_INVALID", "QUEUE_SCOPE_CHANGED"].includes(error.code)) {
+        await queueDays.recordReconciliationError(candidateId, error.message);
+        await recordReconciliationFailure(candidateId, error);
+      }
     }
     if (transition) {
       reconciledCount += 1;
@@ -897,25 +911,7 @@ async function reconcileDueQueueDays(limit = 50, options = {}) {
 }
 
 async function reconcileQueueDayById(queueDayId) {
-  return db.withTransaction(async (client) => {
-    const queueDay = await queueDays.findById(queueDayId, { client, forUpdate: true });
-    if (!queueDay) {
-      throw stateError("Queue Day not found.", "QUEUE_DAY_NOT_FOUND", 404);
-    }
-    if (queueDay.state === "closed") {
-      return { queueDay, outcomes: null, idempotent: true };
-    }
-    if (queueDay.state !== "open" || new Date(queueDay.currentClosesAt) > new Date()) {
-      throw stateError("Queue Day is not due for reconciliation.", "QUEUE_STATE_CHANGED");
-    }
-    return closeLockedQueueDay(
-      client,
-      { _id: queueDay.tenantId },
-      { _id: queueDay.locationId },
-      queueDay,
-      { source: "platform_reconciliation_retry", reason: "effective_hours_ended" }
-    );
-  });
+  return reconcileSelectedQueueDay(queueDayId, "platform_reconciliation_retry");
 }
 
 function formatQueueDayStatus(queueDay, location, now = new Date(), options = {}) {
