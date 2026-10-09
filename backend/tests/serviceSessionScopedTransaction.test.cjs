@@ -33,7 +33,7 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
   const {Pool}=require('pg');
   const pool=new Pool({connectionString:databaseUrl,options:`-c search_path=${schema}`,application_name:schema,max:8});
   const tenant={_id:'1'}; const location={_id:'10'};
-  let failEvent=false; let failBooking=false; let failWebhook=false; let failReconciliation=false; let snapshots=0; let pushes=0; let failAllowance=false; let dueRead=0; let dayReads=0; let failPayment=false; let subscriptionUnavailable=false; let paidDeadlineRace=false; let paidDeadlineObserved=false; let verifyPaidUserLock=false; let verifyPaidTenantLock=false; const billingEvents=new Set();
+  let failEvent=false; let failBooking=false; let failWebhook=false; let failReconciliation=false; let snapshots=0; let pushes=0; let failAllowance=false; let dueRead=0; let dayReads=0; let failPayment=false; let subscriptionUnavailable=false; let paidDeadlineRace=false; let paidDeadlineObserved=false; let verifyPaidUserLock=false; let verifyPaidTenantLock=false; const billingEvents=new Set(); let paidEventBarrier=null;
   const noop=async () => {};
   async function readTicket(id,{client=pool}={}) {
     const r=(await client.query('SELECT * FROM tickets WHERE id=$1',[id])).rows[0];
@@ -65,7 +65,7 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
       CREATE TABLE webhooks(event_id BIGINT);
       CREATE TABLE queue_ticket_segments(ticket_id BIGINT,ended_at TIMESTAMPTZ,segment_outcome TEXT,outcome_reason TEXT,queue_day_id BIGINT,display_number TEXT,sequence INTEGER,priority_band TEXT,UNIQUE(ticket_id,queue_day_id));
       CREATE TABLE queue_day_state(state TEXT,closes_at TIMESTAMPTZ DEFAULT clock_timestamp()-interval '1 second',intake_mode TEXT DEFAULT 'accepting',next_sequence INTEGER DEFAULT 1);
-      CREATE TABLE intake_state(paused BOOLEAN);
+      CREATE TABLE intake_state(paused BOOLEAN,closed BOOLEAN DEFAULT FALSE);
       CREATE TABLE lifecycle_notifications(ticket_id BIGINT,status TEXT);
       CREATE TABLE booking_audit(ticket_id BIGINT,metadata JSONB);
       CREATE TABLE counters(tenant_id BIGINT,location_id BIGINT,key TEXT,date_key TEXT,value INTEGER,PRIMARY KEY(tenant_id,location_id,key,date_key));
@@ -113,6 +113,7 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
       }},
       '../repositories/queueEvents':{createQueueEvent:async (data,{client}) => {
         const r=await client.query('INSERT INTO events(ticket_id,event_type,metadata,actor_role) VALUES($1,$2,$3,$4) RETURNING id',[data.ticketId,data.eventType,JSON.stringify(data.metadata),data.actorRole]);
+        if (paidEventBarrier && data.eventType==='ticket_created') {paidEventBarrier.reached(); await paidEventBarrier.release;}
         if (verifyPaidUserLock && data.eventType==='ticket_created') await assert.rejects(pool.query('SELECT id FROM users WHERE id=1 FOR UPDATE NOWAIT'),{code:'55P03'});
         if (verifyPaidTenantLock && data.eventType==='ticket_created') await assert.rejects(pool.query('SELECT id FROM tenants WHERE id=1 FOR UPDATE NOWAIT'),{code:'55P03'});
         if (failEvent) throw new Error('event failed'); return {_id:String(r.rows[0].id)};
@@ -137,11 +138,11 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
         INSERT INTO tenant_memberships VALUES(1,1,1,'owner',TRUE),(2,2,1,'staff',TRUE);
         INSERT INTO store_locations(id,tenant_id,is_active,service_timing_enabled) VALUES(10,1,TRUE,TRUE),(20,2,TRUE,TRUE);
         INSERT INTO service_resource_requirements VALUES(1,10,1000,100,1,1);
-        INSERT INTO queue_day_state(state) VALUES('open'); INSERT INTO intake_state VALUES(FALSE);
+        INSERT INTO queue_day_state(state) VALUES('open'); INSERT INTO intake_state(paused) VALUES(FALSE);
         INSERT INTO vendor_services VALUES(1000,1,'Court play',60,TRUE); INSERT INTO location_services VALUES(1000,1,10,TRUE);
         INSERT INTO store_hours(location_id,weekday,opens_at,closes_at,is_closed) SELECT 10,n,'00:00','00:00',FALSE FROM generate_series(0,6) n`);
       await pool.query('INSERT INTO location_resource_pools(id,tenant_id,location_id,capacity,revision,tracking_enabled) VALUES(100,1,10,$1,1,$2)',[capacity,enabled]);
-      failEvent=false; failBooking=false; failWebhook=false; failReconciliation=false; snapshots=0; pushes=0; failAllowance=false; dueRead=0; dayReads=0; failPayment=false; subscriptionUnavailable=false; paidDeadlineRace=false; paidDeadlineObserved=false; verifyPaidUserLock=false; verifyPaidTenantLock=false; billingEvents.clear(); queueClosed=false;
+      failEvent=false; failBooking=false; failWebhook=false; failReconciliation=false; snapshots=0; pushes=0; failAllowance=false; dueRead=0; dayReads=0; failPayment=false; subscriptionUnavailable=false; paidDeadlineRace=false; paidDeadlineObserved=false; verifyPaidUserLock=false; verifyPaidTenantLock=false; billingEvents.clear(); paidEventBarrier=null; queueClosed=false;
       delete location.queueLifecycleMode;
     }
     async function ticket(id,{plan=true,booking=false,channel='vendor'}={}) {
@@ -188,7 +189,7 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
         assert.ok(client); return (await client.query('SELECT paused FROM intake_state')).rows[0].paused ? {_id:'1'} : null;
       }},
       '../repositories/queueDayClosures':{findActiveClosure:async (_tenant,_location,_date,{client}) => {
-        assert.ok(client); return queueClosed ? {_id:'1'} : null;
+        assert.ok(client); return queueClosed || (await client.query('SELECT closed FROM intake_state')).rows[0].closed ? {_id:'1'} : null;
       }},
       './queueDayLifecycleService':{
         getAuthoritativeQueueDay:async (_tenant,_location,{client}) => {
@@ -319,7 +320,7 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
     async function waitForLocationLock() {
       const deadline=Date.now()+3000;
       while(Date.now()<deadline) {
-        const waiting=(await pool.query("SELECT 1 FROM pg_stat_activity WHERE application_name=$1 AND wait_event_type='Lock' AND query LIKE 'SELECT id FROM store_locations%'",[schema])).rows.length>0;
+        const waiting=(await pool.query("SELECT 1 FROM pg_stat_activity WHERE application_name=$1 AND wait_event_type='Lock' AND query LIKE 'SELECT id%FROM store_locations%'",[schema])).rows.length>0;
         if(waiting) return;
         await new Promise(resolve=>setTimeout(resolve,10));
       }
@@ -1252,6 +1253,48 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
       await assert.rejects(failed.replaceHours('10',schedule),/hours insert failed/);
       assert.equal((await pool.query('SELECT count(*)::int AS n FROM store_hours WHERE is_closed')).rows[0].n,7);
       await paid(); assert.equal((await realPayments.findPaymentById('1',{client:pool})).ticketIssuanceStatus,'refund_pending'); assert.equal(await count('tickets'),0);
+    });
+    function legacyLifecycle(database) {
+      const injected={...queueMocks,'../config/db':database,
+        '../repositories/tickets':{...queueMocks['../repositories/tickets'],listWaitingTickets:realTickets.listWaitingTickets,
+          listTicketsForQueueClosure:realTickets.listTicketsForQueueClosure,markTicketsUnservedForClosure:realTickets.markTicketsUnservedForClosure,carryOverWaitingTickets:realTickets.carryOverWaitingTickets},
+        '../repositories/queueDayClosures':{...queueMocks['../repositories/queueDayClosures'],createClosure:async (_data,{client})=>{await client.query('UPDATE intake_state SET closed=TRUE'); return {_id:'1'};}},
+        '../repositories/queueDayPauses':{...queueMocks['../repositories/queueDayPauses'],createPause:async (data,{client})=>{await client.query('UPDATE intake_state SET paused=TRUE'); return {_id:'1',...data};},resumePause:async (_id,_actor,{client})=>{await client.query('UPDATE intake_state SET paused=FALSE');}},
+        './pushNotificationService':{...mocks['./pushNotificationService'],notifyVendorQueueLifecycle:noop}};
+      const filename=path.resolve(__dirname,'../src/services/queueService.js'); const compiled=new (require('node:module').Module)(filename);
+      compiled.require=request=>Object.hasOwn(injected,request) ? injected[request] : require(path.resolve(path.dirname(filename),request));
+      compiled._compile(fs.readFileSync(filename,'utf8'),filename); return compiled.exports;
+    }
+    await t.test('legacy close and pause winning the location lock block paid admission after committing intake',async () => {
+      for(const action of ['closeQueueDay','pauseQueueDay']) {
+        await reset(); await legacyPayment(); let signal; const locked=new Promise(resolve=>{signal=resolve;}); let release; const unblock=new Promise(resolve=>{release=resolve;});
+        const lifecycle=legacyLifecycle({pool,withTransaction:callback=>withTransaction(client=>callback({query:async (...args)=>{
+          const result=await client.query(...args); if(String(args[0]).includes('FROM store_locations') && String(args[0]).includes('FOR UPDATE')) {signal(); await unblock;} return result;
+        }}))});
+        const operation=lifecycle[action](tenant,{location:{...location,queueLifecycleMode:'legacy'}}); operation.catch(()=>{}); let pending;
+        try {
+          await Promise.race([locked,operation.then(()=>{throw new Error('lifecycle finished without location lock');})]);
+          pending=paid(); pending.catch(()=>{}); await waitForLocationLock(); release(); await operation; await pending;
+          assert.equal((await realPayments.findPaymentById('1',{client:pool})).ticketIssuanceStatus,'refund_pending');
+          assert.equal(await count('tickets'),0); assert.equal((await pool.query('SELECT state FROM payment_allowance')).rows[0].state,'released');
+        } finally {release(); await operation.catch(()=>{}); if(pending) await pending.catch(()=>{});}
+      }
+    });
+    await t.test('legacy close and pause wait for paid issuance and then observe its committed ticket',async () => {
+      for(const action of ['closeQueueDay','pauseQueueDay']) {
+        await reset(); await legacyPayment(); let reached; const inserted=new Promise(resolve=>{reached=resolve;}); let release; const unblock=new Promise(resolve=>{release=resolve;});
+        paidEventBarrier={reached,release:unblock}; const pending=paid(); pending.catch(()=>{}); let operation;
+        try {
+          await Promise.race([inserted,pending.then(()=>{throw new Error('paid event barrier missing');})]);
+          const lifecycle=legacyLifecycle({pool,withTransaction});
+          operation=lifecycle[action](tenant,{location:{...location,queueLifecycleMode:'legacy'}}); operation.catch(()=>{});
+          await waitForLocationLock(); release(); await pending; await operation;
+          assert.equal((await realPayments.findPaymentById('1',{client:pool})).ticketIssuanceStatus,'issued');
+          const row=(await pool.query('SELECT * FROM tickets')).rows[0]; assert.equal(row.status,'waiting');
+          if(action==='closeQueueDay') assert.equal(row.carry_over_count,1);
+          else assert.equal((await pool.query("SELECT metadata FROM events WHERE event_type='queue_paused'")).rows[0].metadata.waitingCount,1);
+        } finally {release(); await pending.catch(()=>{}); if(operation) await operation.catch(()=>{}); paidEventBarrier=null;}
+      }
     });
     await t.test('versioned legacy payments with missing IDs or unsupported versions require reconciliation',async () => {
       for(const sql of ["UPDATE queue_join_payments SET payload=payload-'locationId'", "UPDATE queue_join_payments SET metadata='{\"locationBindingVersion\":2}'"]) {

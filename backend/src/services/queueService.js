@@ -1044,8 +1044,18 @@ async function cancelTicket(tenant, lookupCode, options = {}) {
   return { ticket, snapshot };
 }
 
+async function lockLegacyIntakeLocation(client, tenant, location) {
+  const result = await client.query("SELECT id,timezone,queue_lifecycle_mode FROM store_locations WHERE tenant_id=$1 AND id=$2 FOR UPDATE", [tenant._id, location._id]);
+  const current = result.rows[0];
+  if (!current) throw Object.assign(new Error("Queue location not found."), { statusCode: 404 });
+  if (!["legacy", "shadow"].includes(current.queue_lifecycle_mode)) {
+    throw Object.assign(new Error("Queue lifecycle mode changed. Refresh and try again."), { statusCode: 409 });
+  }
+  return { ...location, timezone: current.timezone, queueLifecycleMode: current.queue_lifecycle_mode };
+}
+
 async function closeQueueDay(tenant, options = {}) {
-  const location = await resolveLocation(tenant, options);
+  let location = await resolveLocation(tenant, options);
   if (!location) {
     const error = new Error("A location is required to close the queue.");
     error.statusCode = 400;
@@ -1056,14 +1066,16 @@ async function closeQueueDay(tenant, options = {}) {
     return publishSnapshot(tenant, { location });
   }
 
-  const queueDateKey = options.queueDateKey || getDateKey(new Date(), location.timezone);
-  const nextQueueDateKey = options.nextQueueDateKey || getDateKey(
-    new Date(Date.now() + 24 * 60 * 60 * 1000),
-    location.timezone
-  );
+  let queueDateKey;
+  let nextQueueDateKey;
   let unservedTicketsForPush = [];
   let carriedTicketsForPush = [];
   await db.withTransaction(async (client) => {
+    location = await lockLegacyIntakeLocation(client, tenant, location);
+    const now = new Date();
+    queueDateKey = options.queueDateKey || getDateKey(now, location.timezone);
+    nextQueueDateKey = options.nextQueueDateKey || getDateKey(new Date(now.getTime() + 24 * 60 * 60 * 1000), location.timezone);
+
     const existingClosure = await queueDayClosureRepository.findActiveClosure(
       tenant._id,
       location._id,
@@ -1223,7 +1235,7 @@ async function closeQueueDay(tenant, options = {}) {
 }
 
 async function reopenQueueDay(tenant, options = {}) {
-  const location = await resolveLocation(tenant, options);
+  let location = await resolveLocation(tenant, options);
   if (!location) {
     const error = new Error("A location is required to reopen the queue.");
     error.statusCode = 400;
@@ -1234,9 +1246,12 @@ async function reopenQueueDay(tenant, options = {}) {
     return publishSnapshot(tenant, { location });
   }
 
-  const queueDateKey = options.queueDateKey || getDateKey(new Date(), location.timezone);
+  let queueDateKey;
   let reopenedTicketsForPush = [];
   await db.withTransaction(async (client) => {
+    location = await lockLegacyIntakeLocation(client, tenant, location);
+    queueDateKey = options.queueDateKey || getDateKey(new Date(), location.timezone);
+
     const activeClosure = await queueDayClosureRepository.findActiveClosure(
       tenant._id,
       location._id,
@@ -1341,7 +1356,7 @@ async function reopenQueueDay(tenant, options = {}) {
 }
 
 async function pauseQueueDay(tenant, options = {}) {
-  const location = await resolveLocation(tenant, options);
+  let location = await resolveLocation(tenant, options);
   if (!location) {
     const error = new Error("A location is required to pause queue intake.");
     error.statusCode = 400;
@@ -1352,8 +1367,11 @@ async function pauseQueueDay(tenant, options = {}) {
     return publishSnapshot(tenant, { location });
   }
 
-  const queueDateKey = options.queueDateKey || getDateKey();
+  let queueDateKey;
   await db.withTransaction(async (client) => {
+    location = await lockLegacyIntakeLocation(client, tenant, location);
+    queueDateKey = options.queueDateKey || getDateKey(new Date(), location.timezone);
+
     const activeClosure = await queueDayClosureRepository.findActiveClosure(
       tenant._id,
       location._id,
@@ -1425,7 +1443,7 @@ async function pauseQueueDay(tenant, options = {}) {
 }
 
 async function resumeQueueDay(tenant, options = {}) {
-  const location = await resolveLocation(tenant, options);
+  let location = await resolveLocation(tenant, options);
   if (!location) {
     const error = new Error("A location is required to resume queue intake.");
     error.statusCode = 400;
@@ -1436,8 +1454,11 @@ async function resumeQueueDay(tenant, options = {}) {
     return publishSnapshot(tenant, { location });
   }
 
-  const queueDateKey = options.queueDateKey || getDateKey();
+  let queueDateKey;
   await db.withTransaction(async (client) => {
+    location = await lockLegacyIntakeLocation(client, tenant, location);
+    queueDateKey = options.queueDateKey || getDateKey(new Date(), location.timezone);
+
     const activePause = await queueDayPauseRepository.findActivePause(
       tenant._id,
       location._id,

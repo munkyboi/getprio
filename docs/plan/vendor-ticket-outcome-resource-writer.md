@@ -17,7 +17,7 @@ This inventory is source evidence for further slices, not a coverage-complete ce
 | Path | Remaining work |
 | --- | --- |
 | `queueService.createTicket` non-vendor paths, `queueJoinPaymentService.activatePaidPayment` | Zero-fee public/customer/developer and historical unversioned paid issuance remain. Enforced Queue Day-bound and versioned location-bound legacy paid fulfillment now have location-first locking and atomic issuance/revisions; channel authorization and unknown/ordinary plans remain distinct. |
-| `queueService.closeQueueDay`, `queueDayLifecycleService.closeTicketOutcomes` | Manual/system closure and terminal protection cleanup; retain actual occupancy and explicit timing. |
+| `queueService.closeQueueDay`, `queueDayLifecycleService.closeTicketOutcomes` | Legacy manual close/reopen/pause/resume now serialize intake with versioned paid issuance. Full manual/system closure authorization, revisions and terminal protection cleanup remain; retain actual occupancy and explicit timing. |
 | `queueDayLifecycleService.expirePendingCarryOvers` | Scope-first system expiry and terminal booking/protection updates, without releasing active occupancy. |
 | `accountDeletionService.cancelWaitingTickets` | Deletion-authorized cancellation, multiple affected scopes and protection cleanup; preserve deletion transaction/revocation policy. Anonymization alone is distinct from this operational cancellation. |
 | `resourceConfigurationService.saveConfiguration` and related catalog/settings writers | Existing branch lock helps draft serialization, but complete revisions, authorization revalidation and activation reconciliation remain unproven. |
