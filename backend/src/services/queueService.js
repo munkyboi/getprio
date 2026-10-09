@@ -1119,7 +1119,7 @@ async function closeQueueDay(tenant, options = {}) {
     throw error;
   }
   if (location.queueLifecycleMode === "enforced") {
-    await queueDayLifecycleService.closeQueueDay(tenant, location, options);
+    await queueDayLifecycleService.closeVendorQueueDay(tenant, location, options);
     return publishSnapshot(tenant, { location });
   }
 

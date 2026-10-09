@@ -12,7 +12,7 @@ function loadLifecycle(database) {
     '../config/env': { waitTimePredictionCaptureEnabled: false } });
 }
 
-test('enforced intake and extensions use location-first PostgreSQL transactions', { skip: !databaseUrl }, async t => {
+test('enforced vendor Queue Day writers use location-first PostgreSQL transactions', { skip: !databaseUrl }, async t => {
   const url = new URL(databaseUrl); assert.equal(url.hostname, '127.0.0.1');
   assert.ok(['/getprio_test', '/getprio_ledger_test'].includes(url.pathname));
   const schema = `enforced_intake_${randomUUID().replaceAll('-', '')}`;
@@ -38,10 +38,14 @@ test('enforced intake and extensions use location-first PostgreSQL transactions'
   };
   const service = loadLifecycle(database);
   const tenant = { _id: '1' }, location = { _id: '10', queueLifecycleMode: 'enforced' };
-  const actions = ['pause', 'resume', 'extend'];
-  const run = (action, options = {}, selected = location) => action === 'extend'
-    ? service.extendQueueDay(tenant, selected, { actorUserId: '1', actorRole: 'stale', reason: 'Extra service time', ...options })
-    : service.setQueueIntake(tenant, selected, action === 'pause' ? 'paused' : 'accepting', { actorUserId: '1', actorRole: 'stale', ...options });
+  const actions = ['pause', 'resume', 'extend', 'close', 'reopen'];
+  const run = (action, options = {}, selected = location) => {
+    const current = { actorUserId: '1', actorRole: 'stale', ...options };
+    if (action === 'extend') return service.extendQueueDay(tenant, selected, { reason: 'Extra service time', ...current });
+    if (action === 'close') return service.closeVendorQueueDay(tenant, selected, current);
+    if (action === 'reopen') return service.reopenQueueDay(tenant, selected, current);
+    return service.setQueueIntake(tenant, selected, action === 'pause' ? 'paused' : 'accepting', current);
+  };
   const count = async table => (await pool.query(`SELECT COUNT(*)::int n FROM ${table}`)).rows[0].n;
   const revision = async () => (await pool.query('SELECT revision::text FROM resource_ledger_scopes WHERE tenant_id=1 AND location_id=10')).rows[0]?.revision;
   const day = async () => (await pool.query('SELECT * FROM queue_days WHERE id=1')).rows[0];
@@ -66,6 +70,7 @@ test('enforced intake and extensions use location-first PostgreSQL transactions'
       INSERT INTO queue_notification_outbox(idempotency_key,queue_day_id,tenant_id,recipient_key,channel,template_name,deadline_version)
         VALUES('old-warning',1,1,'operators','web_push','queue_closing_15m',1)`);
     if (action === 'resume') await pool.query("UPDATE queue_days SET intake_mode='paused' WHERE id=1");
+    if (action === 'reopen') await pool.query("UPDATE queue_days SET state='closed',intake_mode=NULL,closed_at=clock_timestamp(),close_source='manual' WHERE id=1");
   }
   function hold(kind = 'after') {
     let reached, release;
@@ -87,6 +92,7 @@ test('enforced intake and extensions use location-first PostgreSQL transactions'
   }
   async function history() {
     await pool.query(`INSERT INTO tickets(id,tenant_id,location_id,status,current_queue_day_id) VALUES(1,1,10,'called',1);
+      UPDATE tickets SET service_started_at=clock_timestamp()-interval '10 minutes' WHERE id=1;
       INSERT INTO resource_allocations(tenant_id,location_id,ticket_id,pool_id,pool_revision,units,expected_end_at)
         VALUES(1,10,1,1,1,1,clock_timestamp()+interval '1 hour');
       INSERT INTO queue_ticket_segments(ticket_id,queue_day_id,priority_band) VALUES(1,1,'normal');
@@ -107,7 +113,7 @@ test('enforced intake and extensions use location-first PostgreSQL transactions'
       CREATE TABLE booking_bundle_items(id BIGINT PRIMARY KEY,booking_id BIGINT,tenant_id BIGINT,location_id BIGINT);
       CREATE TABLE tickets(id BIGINT PRIMARY KEY,tenant_id BIGINT,location_id BIGINT,status TEXT,current_queue_day_id BIGINT,
         carry_over_consumed BOOLEAN DEFAULT FALSE,notify_by_email BOOLEAN DEFAULT FALSE,user_id BIGINT,status_reason TEXT,
-        pending_carry_over_since TIMESTAMPTZ,carry_over_expires_at TIMESTAMPTZ,unserved_at TIMESTAMPTZ,terminal_at TIMESTAMPTZ,updated_at TIMESTAMPTZ,UNIQUE(id,tenant_id,location_id));
+        pending_carry_over_since TIMESTAMPTZ,carry_over_expires_at TIMESTAMPTZ,unserved_at TIMESTAMPTZ,terminal_at TIMESTAMPTZ,updated_at TIMESTAMPTZ,service_started_at TIMESTAMPTZ,service_ended_at TIMESTAMPTZ,UNIQUE(id,tenant_id,location_id));
       CREATE TABLE bookings(id BIGINT PRIMARY KEY,queue_ticket_id BIGINT,status TEXT,fulfillment_outcome_reason TEXT,
         refund_eligible BOOLEAN,fulfillment_resolved_at TIMESTAMPTZ,updated_at TIMESTAMPTZ);
       CREATE TABLE queue_ticket_segments(ticket_id BIGINT,queue_day_id BIGINT,priority_band TEXT,ended_at TIMESTAMPTZ,segment_outcome TEXT,outcome_reason TEXT);
@@ -166,7 +172,7 @@ test('enforced intake and extensions use location-first PostgreSQL transactions'
       await assert.rejects(run(action, {}, { _id: '20' }), { statusCode: 404 });
       assert.equal(await revision(), undefined);
     });
-    for (const action of actions) for (const kind of ['explicit', 'counter']) await t.test(`${action} holds accepted ${kind} staff grants, scope and mode through commit`, async () => {
+    for (const action of actions.filter(action => action !== 'reopen')) for (const kind of ['explicit', 'counter']) await t.test(`${action} holds accepted ${kind} staff grants, scope and mode through commit`, async () => {
       await reset(action);
       await pool.query(kind === 'explicit' ? 'INSERT INTO tenant_membership_locations VALUES(2,10)' :
         'INSERT INTO service_counters VALUES(1,1,10,TRUE); INSERT INTO service_counter_assignments VALUES(2,1)');
@@ -195,6 +201,106 @@ test('enforced intake and extensions use location-first PostgreSQL transactions'
       } finally { await revoker.query('ROLLBACK'); revoker.release(); if (pending) await pending.catch(() => {}); }
       assert.equal(await revision(), undefined); assert.equal(await count('queue_events'), 0);
     });
+    await t.test('reopen requires owner/admin permission even with current staff branch or counter grants', async () => {
+      for (const kind of ['explicit', 'counter']) {
+        await reset('reopen');
+        await pool.query(kind === 'explicit' ? 'INSERT INTO tenant_membership_locations VALUES(2,10)' :
+          'INSERT INTO service_counters VALUES(1,1,10,TRUE); INSERT INTO service_counter_assignments VALUES(2,1)');
+        await assert.rejects(run('reopen', { actorUserId: '2' }), { statusCode: 403 });
+        assert.equal((await day()).state, 'closed'); assert.equal(await revision(), undefined);
+      }
+      await reset('reopen'); await pool.query("UPDATE tenant_memberships SET role='admin' WHERE id=1");
+      await run('reopen'); assert.equal(await revision(), '2');
+      assert.equal((await pool.query('SELECT actor_role FROM queue_events LIMIT 1')).rows[0].actor_role, 'admin');
+    });
+    await t.test('reopen rejects demotion to assigned staff committed while waiting for the branch', async () => {
+      await reset('reopen'); await pool.query('INSERT INTO tenant_membership_locations VALUES(1,10)');
+      const blocker = await pool.connect(); let pending;
+      try {
+        await blocker.query('BEGIN'); await blocker.query('SELECT id FROM store_locations WHERE id=10 FOR UPDATE');
+        pending = run('reopen'); const denied = assert.rejects(pending, { statusCode: 403 });
+        await waitForLock('FROM store_locations');
+        await blocker.query("UPDATE tenant_memberships SET role='staff' WHERE id=1");
+        await blocker.query('COMMIT'); await denied;
+      } finally { await blocker.query('ROLLBACK'); blocker.release(); if (pending) await pending.catch(() => {}); }
+      assert.equal((await day()).state, 'closed'); assert.equal(await count('queue_events'), 0); assert.equal(await revision(), undefined);
+    });
+    await t.test('manual close and reopen commit one revision each, preserve occupancy and do not resurrect ticket outcomes', async () => {
+      await reset(); await history();
+      const timing = (await pool.query('SELECT service_started_at,service_ended_at FROM tickets')).rows;
+      const results = await Promise.all([run('close', { expectedVersion: 1 }), run('close', { expectedVersion: 1 })]);
+      assert.equal(results.filter(result => result.idempotent).length, 1);
+      assert.equal((await day()).state, 'closed'); assert.equal((await day()).version, 2);
+      assert.equal(await revision(), '2');
+      const outcomes = (await pool.query('SELECT * FROM tickets ORDER BY id')).rows;
+      assert.equal(outcomes[0].status, 'unserved');
+      assert.equal((await pool.query('SELECT status FROM bookings')).rows[0].status, 'completed');
+      const reopened = await Promise.allSettled([run('reopen', { expectedVersion: 2 }), run('reopen', { expectedVersion: 2 })]);
+      assert.equal(reopened.filter(result => result.status === 'fulfilled').length, 1);
+      assert.equal(reopened.find(result => result.status === 'rejected').reason.code, 'QUEUE_DAY_UNOPENED');
+      assert.equal((await day()).state, 'open'); assert.equal((await day()).version, 3); assert.equal(await revision(), '3');
+      assert.deepEqual((await pool.query('SELECT * FROM tickets ORDER BY id')).rows, outcomes);
+      assert.deepEqual((await pool.query('SELECT service_started_at,service_ended_at FROM tickets')).rows, timing);
+      assert.equal((await pool.query('SELECT released_at FROM resource_allocations')).rows[0].released_at, null);
+      assert.deepEqual((await pool.query('SELECT event_type,actor_role FROM queue_events WHERE ticket_id IS NULL ORDER BY id')).rows,
+        [{ event_type: 'queue_day_closed', actor_role: 'owner' }, { event_type: 'queue_day_reopened', actor_role: 'owner' }]);
+      assert.deepEqual((await pool.query('SELECT template_name,status FROM queue_notification_outbox ORDER BY id')).rows,
+        [{ template_name: 'queue_closing_15m', status: 'obsolete' }, { template_name: 'ticket_unserved', status: 'pending' },
+          { template_name: 'queue_closed', status: 'pending' },
+          { template_name: 'queue_reopened', status: 'pending' }]);
+      assert.equal(await count('resource_ledger_commands'), 0);
+    });
+    await t.test('manual closure retains waiting/carry-over/skipped policy and resolves only nonterminal linked bookings', async () => {
+      await reset();
+      await pool.query(`INSERT INTO tickets(id,tenant_id,location_id,status,current_queue_day_id,carry_over_consumed)
+        VALUES(1,1,10,'waiting',1,FALSE),(2,1,10,'waiting',1,TRUE),(3,1,10,'skipped',1,FALSE),(4,1,10,'called',1,FALSE);
+        INSERT INTO queue_ticket_segments(ticket_id,queue_day_id,priority_band) VALUES(1,1,'normal'),(2,1,'carry_over'),(3,1,'normal'),(4,1,'normal');
+        INSERT INTO bookings(id,queue_ticket_id,status) VALUES(1,1,'confirmed'),(2,2,'confirmed'),(3,3,'confirmed'),(4,4,'confirmed')`);
+      const result = await run('close');
+      assert.deepEqual(result.outcomes, { pendingCarryOver: 1, expired: 1, unserved: 1, skipped: 1 });
+      assert.deepEqual((await pool.query('SELECT status,current_queue_day_id FROM tickets ORDER BY id')).rows,
+        ['pending_carry_over', 'expired', 'skipped', 'unserved'].map(status => ({ status, current_queue_day_id: null })));
+      assert.deepEqual((await pool.query('SELECT status FROM bookings ORDER BY id')).rows.map(row => row.status),
+        ['confirmed', 'unfulfilled', 'missed', 'unfulfilled']);
+      assert.equal(await revision(), '2');
+    });
+    for (const action of ['close', 'reopen']) await t.test(`${action} stale version and outbox failures roll all closure effects back`, async () => {
+      await reset(action); await history();
+      const before = await day(); const tickets = (await pool.query('SELECT * FROM tickets')).rows;
+      const bookings = (await pool.query('SELECT * FROM bookings')).rows;
+      const segments = (await pool.query('SELECT * FROM queue_ticket_segments')).rows;
+      await assert.rejects(run(action, { expectedVersion: 99 }), { code: 'QUEUE_STATE_CHANGED' });
+      failure = 'INSERT INTO queue_notification_outbox';
+      await assert.rejects(run(action), /injected write failure/); failure = null;
+      assert.deepEqual(await day(), before); assert.equal(await revision(), undefined);
+      assert.deepEqual((await pool.query('SELECT * FROM tickets')).rows, tickets);
+      assert.deepEqual((await pool.query('SELECT * FROM bookings')).rows, bookings);
+      assert.deepEqual((await pool.query('SELECT * FROM queue_ticket_segments')).rows, segments);
+      assert.equal(await count('queue_events'), 0);
+      assert.equal((await pool.query('SELECT status FROM queue_notification_outbox')).rows[0].status, 'pending');
+    });
+    await t.test('duplicate manual close still checks current authorization before idempotency', async () => {
+      await reset(); await run('close');
+      await pool.query('UPDATE tenant_memberships SET is_active=FALSE WHERE id=1');
+      await assert.rejects(run('close'), { statusCode: 403 }); assert.equal(await revision(), '2');
+    });
+    await t.test('vendor queue service close/reopen reject missing actors through the enforced boundary', async () => {
+      const queue = loadModuleWithMocks(require.resolve('../src/services/queueService'), {
+        '../config/db': database, './queueDayLifecycleService': service,
+        './queueSnapshotHelpers': { resolveLocation: async () => location }
+      });
+      for (const [action, method] of [['close', 'closeQueueDay'], ['reopen', 'reopenQueueDay']]) {
+        await reset(action);
+        await assert.rejects(queue[method](tenant, { location }), { code: 'QUEUE_AUTHORIZATION_REQUIRED' });
+        assert.equal((await day()).version, 1); assert.equal(await revision(), undefined); assert.equal(await count('queue_events'), 0);
+      }
+    });
+    await t.test('trusted request reconciliation keeps its actor-free entry point and remains uncertified', async () => {
+      await reset(); await history();
+      await service.closeQueueDay(tenant, location, { source: 'request_reconciliation', reason: 'effective_hours_ended' });
+      assert.equal((await day()).state, 'closed'); assert.equal(await revision(), undefined);
+      assert.equal((await pool.query('SELECT released_at FROM resource_allocations')).rows[0].released_at, null);
+    });
     await t.test('mode change committed during a branch lock wait rejects the stale enforced request', async () => {
       await reset(); const blocker = await pool.connect(); let pending;
       try {
@@ -219,12 +325,12 @@ test('enforced intake and extensions use location-first PostgreSQL transactions'
       assert.equal(await count('queue_events'), 0); assert.equal(await count('queue_day_extensions'), 0);
       assert.equal((await pool.query('SELECT status FROM queue_notification_outbox')).rows[0].status, 'pending');
     });
-    await t.test('extension cannot use transaction-start time after waiting past the deadline', async () => {
-      await reset('extend'); const blocker = await pool.connect(); let pending;
+    for (const action of ['extend', 'reopen']) await t.test(`${action} cannot use transaction-start time after waiting past the deadline`, async () => {
+      await reset(action); const blocker = await pool.connect(); let pending;
       try {
         await blocker.query('BEGIN'); await blocker.query('SELECT id FROM store_locations WHERE id=10 FOR UPDATE');
         await pool.query("UPDATE queue_days SET current_closes_at=clock_timestamp()+interval '250 milliseconds' WHERE id=1");
-        pending = run('extend'); const denied = assert.rejects(pending, { code: 'QUEUE_STATE_CHANGED' });
+        pending = run(action); const denied = assert.rejects(pending, { code: 'QUEUE_STATE_CHANGED' });
         await waitForLock('FROM store_locations'); await blocker.query('SELECT pg_sleep(0.3)');
         await blocker.query('COMMIT'); await denied;
       } finally { await blocker.query('ROLLBACK'); blocker.release(); if (pending) await pending.catch(() => {}); }

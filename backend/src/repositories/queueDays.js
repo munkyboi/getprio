@@ -233,7 +233,7 @@ async function reopen(queueDayId, data, options = {}) {
      WHERE id = $1
        AND state = 'closed'
        AND close_source = 'manual'
-       AND current_closes_at > NOW()
+       AND current_closes_at > clock_timestamp()
        AND ($4::INTEGER IS NULL OR version = $4)
      RETURNING ${QUEUE_DAY_COLUMNS}`,
     [

@@ -602,33 +602,41 @@ async function closeLockedQueueDay(client, tenant, location, queueDay, options =
   return { queueDay: closed, outcomes, idempotent: false };
 }
 
-async function closeQueueDay(tenant, location, options = {}) {
-  return db.withTransaction(async (client) => {
-    const queueDay = await queueDays.findLatestByLocation(tenant._id, location._id, {
+async function closeLatestQueueDay(client, tenant, location, options) {
+  const queueDay = await queueDays.findLatestByLocation(tenant._id, location._id, {
+    client,
+    state: "open",
+    forUpdate: true
+  });
+  if (!queueDay) {
+    const latest = await queueDays.findLatestByLocation(tenant._id, location._id, {
       client,
-      state: "open",
       forUpdate: true
     });
-    if (!queueDay) {
-      const latest = await queueDays.findLatestByLocation(tenant._id, location._id, {
-        client,
-        forUpdate: true
-      });
-      if (latest?.state === "closed") {
-        return { queueDay: latest, outcomes: null, idempotent: true };
-      }
-      throw stateError("The queue has not been opened.", "QUEUE_DAY_UNOPENED");
+    if (latest?.state === "closed") {
+      return { queueDay: latest, outcomes: null, idempotent: true };
     }
-    return closeLockedQueueDay(client, tenant, location, queueDay, {
-      ...options,
-      source: options.source || "vendor",
-      closeSource: "manual",
-      reason: options.reason || "manual_close"
-    });
+    throw stateError("The queue has not been opened.", "QUEUE_DAY_UNOPENED");
+  }
+  return closeLockedQueueDay(client, tenant, location, queueDay, {
+    ...options,
+    source: options.source || "vendor",
+    closeSource: "manual",
+    reason: options.reason || "manual_close"
   });
 }
 
-async function withEnforcedIntakeTransaction(tenant, location, options, callback) {
+// Trusted reconciliation callers retain their existing transaction boundary.
+async function closeQueueDay(tenant, location, options = {}) {
+  return db.withTransaction(client => closeLatestQueueDay(client, tenant, location, options));
+}
+
+async function closeVendorQueueDay(tenant, location, options = {}) {
+  return withEnforcedQueueDayTransaction(tenant, location, options,
+    (client, currentOptions) => closeLatestQueueDay(client, tenant, location, currentOptions));
+}
+
+async function withEnforcedQueueDayTransaction(tenant, location, options, callback, permission = "tenant.queue.operate") {
   if (options.actorUserId == null) throw stateError("Vendor authorization is required.", "QUEUE_AUTHORIZATION_REQUIRED", 403);
   for (const value of [tenant._id, location._id, options.actorUserId]) {
     if (!/^[1-9]\d{0,18}$/u.test(String(value)) || !Number.isSafeInteger(Number(value))) {
@@ -636,7 +644,7 @@ async function withEnforcedIntakeTransaction(tenant, location, options, callback
     }
   }
   return withVendorQueueTransaction({ pool: db.pool, tenant, location,
-    actorUserId: String(options.actorUserId), permission: "tenant.queue.operate", lockTenantActivity: true
+    actorUserId: String(options.actorUserId), permission, lockTenantActivity: true
   }, async (client, _ledger, actor) => {
     const branch = (await client.query(`SELECT l.queue_lifecycle_mode,l.is_active,t.is_active AS tenant_active
       FROM store_locations l JOIN tenants t ON t.id=l.tenant_id WHERE l.id=$1 AND l.tenant_id=$2`, [location._id, tenant._id])).rows[0];
@@ -658,7 +666,7 @@ async function extendQueueDay(tenant, location, options = {}) {
   if (!String(options.reason || "").trim()) {
     throw stateError("A reason is required for a Queue Day extension.", "QUEUE_EXTENSION_REASON_REQUIRED", 400);
   }
-  return withEnforcedIntakeTransaction(tenant, location, options, async (client, currentOptions) => {
+  return withEnforcedQueueDayTransaction(tenant, location, options, async (client, currentOptions) => {
     options = currentOptions;
     const current = await queueDays.findLatestByLocation(tenant._id, location._id, {
       client,
@@ -713,7 +721,7 @@ async function extendQueueDay(tenant, location, options = {}) {
 
 async function setQueueIntake(tenant, location, intakeMode, options = {}) {
   if (!["paused", "accepting"].includes(intakeMode)) throw stateError("Invalid queue intake mode.", "QUEUE_INTAKE_MODE_INVALID", 400);
-  const result = await withEnforcedIntakeTransaction(tenant, location, options, async (client, currentOptions) => {
+  const result = await withEnforcedQueueDayTransaction(tenant, location, options, async (client, currentOptions) => {
     options = currentOptions;
     const current = await queueDays.findLatestByLocation(tenant._id, location._id, {
       client,
@@ -761,7 +769,8 @@ async function setQueueIntake(tenant, location, intakeMode, options = {}) {
 }
 
 async function reopenQueueDay(tenant, location, options = {}) {
-  return db.withTransaction(async (client) => {
+  return withEnforcedQueueDayTransaction(tenant, location, options, async (client, currentOptions) => {
+    options = currentOptions;
     const current = await queueDays.findLatestByLocation(tenant._id, location._id, {
       client,
       forUpdate: true
@@ -792,7 +801,7 @@ async function reopenQueueDay(tenant, location, options = {}) {
     });
     await enqueueStaffIntent(client, event, reopened, "queue_reopened");
     return { queueDay: reopened, idempotent: false };
-  });
+  }, "tenant.queue.reopen");
 }
 
 async function emitDueWarnings(options = {}) {
@@ -970,6 +979,7 @@ module.exports = {
   assertIntakeOpen,
   closeLockedQueueDay,
   closeQueueDay,
+  closeVendorQueueDay,
   emitDueWarnings,
   expirePendingCarryOvers,
   extendQueueDay,
