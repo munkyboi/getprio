@@ -10,8 +10,11 @@ const queueFeeService = require("./queueFeeService");
 const queueDayLifecycleService = require("./queueDayLifecycleService");
 const pushNotificationService = require("./pushNotificationService");
 const allowanceService = require("./allowanceService");
+const storeHoursService = require("./storeHoursService");
+const { getDateKey } = require("./queueHelpers");
 const {
   createTicketForTenantInTransaction,
+  assertQueueIntakeOpen,
   assertWaitingIntakeCapacityAvailable,
   recordCreatedTicketEvent,
   maybeNotifyUpcomingTickets,
@@ -170,6 +173,7 @@ async function createPayMongoCheckoutForJoin({ tenant, otpId, payload, queueFee 
   const checkoutLocation = payload.locationSlug
     ? await storeLocationRepository.findLocationByTenantAndSlug(tenant._id, payload.locationSlug)
     : await storeLocationRepository.findPrimaryLocationByTenantId(tenant._id);
+  if (!checkoutLocation) throw Object.assign(new Error("Queue checkout location not found."), { statusCode: 404 });
   const checkoutQueueDay = checkoutLocation?.queueLifecycleMode === "enforced"
     ? await queueDayLifecycleService.assertIntakeOpen(tenant, checkoutLocation)
     : null;
@@ -180,11 +184,12 @@ async function createPayMongoCheckoutForJoin({ tenant, otpId, payload, queueFee 
     provider: PAYMONGO_PROVIDER,
     amountCents: queueFee.amountCents,
     currency: queueFee.currency,
-    payload,
+    payload: { ...payload, locationId: String(checkoutLocation._id), locationSlug: checkoutLocation.slug },
     queueDayId: checkoutQueueDay?._id,
     queueDayVersionAtCheckout: checkoutQueueDay?.version,
     metadata: {
       purpose: "queue_join_fee",
+      locationBindingVersion: 1,
       tenantId: String(tenant._id),
       tenantSlug: tenant.slug,
       planSlug: queueFee.planSlug
@@ -388,9 +393,13 @@ async function blockBoundPaidTicket(payment, tenant, location, providerPaymentId
       source: "paid_queue_reconciliation", reason: "effective_hours_ended"
     });
   }
+  return recordBlockedPaidTicket(payment, tenant, providerPaymentId, paymentAttributes, options, "bound_queue_day_unavailable");
+}
+
+async function recordBlockedPaidTicket(payment, tenant, providerPaymentId, paymentAttributes, options, reason) {
   const blocked = await paymentRepository.markPaidTicketBlocked(payment._id, {
     providerPaymentId, paidAt: normalizeProviderTimestamp(paymentAttributes?.paid_at),
-    reason: "bound_queue_day_unavailable", metadata: { ticketIssuanceBlocked: true, boundQueueDayId: payment.queueDayId }
+    reason, metadata: { ticketIssuanceBlocked: true, boundQueueDayId: payment.queueDayId, boundLocationId: getStoredPaymentLocationId(payment) }
   }, options);
   await allowanceService.releaseReservation({ tenantId: tenant._id, resourceKey: "queueTickets", reservationKey: `queue-payment:${payment._id}` }, options);
   return { payment: blocked, tenant, ticket: null, alreadyIssued: false, ticketBlocked: true };
@@ -430,25 +439,62 @@ async function issueBoundPaidTicket(payment, tenant, location, providerPaymentId
   await options.client.query("SAVEPOINT bound_paid_issuance");
   try {
     await assertWaitingIntakeCapacityAvailable(tenant, location, { client: options.client, queueDateKey: String(day.businessDate).replaceAll("-", ""), issuance: true });
-    const ticket = await createTicketForTenantInTransaction(options.client, {
-      ...payment.payload, tenant, location, allowanceReservationKey: `queue-payment:${payment._id}`
-    });
-    if (String(ticket.currentQueueDayId) !== String(payment.queueDayId)) {
-      throw Object.assign(new Error("Paid ticket admission changed."), { code: "QUEUE_STATE_CHANGED", statusCode: 409 });
-    }
-    await recordCreatedTicketEvent(options.client, ticket, { actorUserId: payment.payload?.userId, actorRole: payment.payload?.userId ? "customer" : null, source: "public" });
-    const updated = await paymentRepository.markPaidWithTicket(payment._id, {
-      providerPaymentId, paidAt: normalizeProviderTimestamp(paymentAttributes?.paid_at), ticketId: ticket._id,
-      ticketLookupCode: ticket.lookupCode, metadata: { paidAmount: paymentAttributes?.amount || payment.amountCents, paidCurrency: paymentAttributes?.currency || payment.currency }
-    }, options);
+    const issued = await persistScopedPaidTicket(payment, tenant, location, providerPaymentId, paymentAttributes, options);
     await options.client.query("RELEASE SAVEPOINT bound_paid_issuance");
-    return { payment: updated, tenant, ticket, alreadyIssued: false };
+    return issued;
   } catch (error) {
     if (!["QUEUE_DAY_OVERDUE", "QUEUE_DAY_UNOPENED", "QUEUE_INTAKE_PAUSED", "QUEUE_STATE_CHANGED", "QUEUE_INTAKE_THRESHOLD_REACHED"].includes(error.code)) throw error;
     await options.client.query("ROLLBACK TO SAVEPOINT bound_paid_issuance");
     await options.client.query("RELEASE SAVEPOINT bound_paid_issuance");
     return blockBoundPaidTicket(payment, tenant, location, providerPaymentId, paymentAttributes, options);
   }
+}
+
+async function persistScopedPaidTicket(payment, tenant, location, providerPaymentId, paymentAttributes, options) {
+  const ticket = await createTicketForTenantInTransaction(options.client, {
+    ...payment.payload, tenant, location, queueDateKey: options.queueDateKey, allowanceReservationKey: `queue-payment:${payment._id}`
+  });
+  if (payment.queueDayId && String(ticket.currentQueueDayId) !== String(payment.queueDayId)) {
+    throw Object.assign(new Error("Paid ticket admission changed."), { code: "QUEUE_STATE_CHANGED", statusCode: 409 });
+  }
+  await recordCreatedTicketEvent(options.client, ticket, { actorUserId: payment.payload?.userId, actorRole: payment.payload?.userId ? "customer" : null, source: "public" });
+  const updated = await paymentRepository.markPaidWithTicket(payment._id, {
+    providerPaymentId, paidAt: normalizeProviderTimestamp(paymentAttributes?.paid_at), ticketId: ticket._id,
+    ticketLookupCode: ticket.lookupCode, metadata: { paidAmount: paymentAttributes?.amount || payment.amountCents, paidCurrency: paymentAttributes?.currency || payment.currency }
+  }, options);
+  return { payment: updated, tenant, ticket, alreadyIssued: false };
+}
+
+async function issueLocationBoundLegacyPaidTicket(payment, tenant, location, providerPaymentId, paymentAttributes, options) {
+  if (payment.ticketIssuanceStatus === "refund_pending") return { payment, tenant, ticket: null, alreadyIssued: true, ticketBlocked: true };
+  const block = () => recordBlockedPaidTicket(payment, tenant, providerPaymentId, paymentAttributes, options, "bound_location_unavailable");
+  if (!tenant.isActive || !location?.isActive || !["legacy", "shadow"].includes(location.queueLifecycleMode)) return block();
+  try {
+    await queueFeeService.assertTenantCanAcceptCustomerJoins(payment.tenantId, options);
+  } catch (error) {
+    if (error.code !== "SUBSCRIPTION_REQUIRED") throw error;
+    return block();
+  }
+  if (!await boundPaidCustomerAvailable(payment, options.client)) return block();
+  const dateKey = getDateKey(new Date(), location.timezone);
+  try {
+    await assertQueueIntakeOpen(tenant, location, { client: options.client, queueDateKey: dateKey });
+    await options.client.query("SELECT location_id FROM store_hours WHERE location_id=$1 FOR SHARE", [location._id]);
+    if (!(await storeHoursService.getOpenStatus(location, { client: options.client })).isOpen) return block();
+    await assertWaitingIntakeCapacityAvailable(tenant, location, { client: options.client, queueDateKey: dateKey, issuance: true });
+  } catch (error) {
+    if (!["QUEUE_DAY_CLOSED", "QUEUE_INTAKE_PAUSED", "QUEUE_INTAKE_THRESHOLD_REACHED"].includes(error.code)) throw error;
+    return block();
+  }
+  return persistScopedPaidTicket(payment, tenant, location, providerPaymentId, paymentAttributes, { ...options, queueDateKey: dateKey });
+}
+
+function getStoredPaymentLocationId(payment) {
+  return payment.metadata?.locationBindingVersion === 1 ? payment.payload?.locationId : null;
+}
+
+function hasStoredPaymentScope(payment) {
+  return Boolean(payment.queueDayId || getStoredPaymentLocationId(payment));
 }
 
 async function issueTicketForPaidPayment(payment, providerPaymentId, paymentAttributes, options = {}) {
@@ -479,6 +525,7 @@ async function issueTicketForPaidPayment(payment, providerPaymentId, paymentAttr
   if (payment.queueDayId) {
     return issueBoundPaidTicket(payment, tenant, location, providerPaymentId, paymentAttributes, options);
   }
+  if (getStoredPaymentLocationId(payment)) return issueLocationBoundLegacyPaidTicket(payment, tenant, location, providerPaymentId, paymentAttributes, options);
   await queueFeeService.assertTenantCanAcceptCustomerJoins(payment.tenantId, options);
 
   const ticket = await createTicketForTenantInTransaction(options.client, {
@@ -515,26 +562,31 @@ async function lockPaidPayment(observed, client) {
   const current = await paymentRepository.findPaymentByIdForUpdate(observed._id, { client });
   if (!current) throw Object.assign(new Error("Queue join payment not found."), { statusCode: 404 });
   if (String(current.tenantId) !== String(observed.tenantId) || current.queueDayId !== observed.queueDayId
-    || current.providerCheckoutSessionId !== observed.providerCheckoutSessionId) {
+    || current.providerCheckoutSessionId !== observed.providerCheckoutSessionId
+    || String(getStoredPaymentLocationId(current) || "") !== String(getStoredPaymentLocationId(observed) || "")
+    || current.metadata?.locationBindingVersion !== observed.metadata?.locationBindingVersion) {
     throw Object.assign(new Error("Queue payment scope changed. Refresh and try again."), { statusCode: 409 });
   }
   return current;
 }
 
 async function withPaidPaymentTransaction(observed, callback) {
-  if (!observed.queueDayId) {
+  if (!hasStoredPaymentScope(observed)) {
     return db.withTransaction(async client => callback(await lockPaidPayment(observed, client), { client }));
   }
-  const advisoryDay = await queueDayRepository.findById(observed.queueDayId);
-  if (!advisoryDay || String(advisoryDay.tenantId) !== String(observed.tenantId)) {
+  const advisoryDay = observed.queueDayId ? await queueDayRepository.findById(observed.queueDayId) : null;
+  const advisoryLocationId = advisoryDay?.locationId || getStoredPaymentLocationId(observed);
+  if (!/^[1-9]\d{0,18}$/u.test(String(advisoryLocationId)) || BigInt(advisoryLocationId) > 9223372036854775807n
+    || (observed.queueDayId && (!advisoryDay || String(advisoryDay.tenantId) !== String(observed.tenantId)))
+    || (advisoryDay && getStoredPaymentLocationId(observed) && String(advisoryDay.locationId) !== String(getStoredPaymentLocationId(observed)))) {
     throw Object.assign(new Error("Queue payment binding needs reconciliation."), { statusCode: 409 });
   }
   return db.withTransaction(async client => {
-    const scope = [observed.tenantId, advisoryDay.locationId];
+    const scope = [observed.tenantId, advisoryLocationId];
     const branch = await client.query("SELECT id FROM store_locations WHERE tenant_id=$1 AND id=$2 FOR UPDATE", scope);
     if (!branch.rows.length) throw Object.assign(new Error("Queue payment location not found."), { statusCode: 404 });
     const payment = await lockPaidPayment(observed, client);
-    const boundLocation = await storeLocationRepository.findLocationById(advisoryDay.locationId, { client });
+    const boundLocation = await storeLocationRepository.findLocationById(advisoryLocationId, { client });
     await client.query("SELECT id FROM tenants WHERE id=$1 FOR SHARE", [observed.tenantId]);
     await client.query("INSERT INTO resource_ledger_scopes (tenant_id,location_id) VALUES ($1,$2) ON CONFLICT DO NOTHING", scope);
     const result = await callback(payment, { client, boundLocation });
@@ -580,7 +632,7 @@ async function syncQueueJoinPayment({ tenant, paymentId }) {
   }
 
   if (payment.status === "paid" && payment.ticketLookupCode) {
-    const activated = payment.queueDayId ? await activatePaidPayment(payment, payment.providerPaymentId, {}) : null;
+    const activated = hasStoredPaymentScope(payment) ? await activatePaidPayment(payment, payment.providerPaymentId, {}) : null;
     const snapshot = activated?.snapshot || await publishSnapshot(tenant, {
       lookupCode: payment.ticketLookupCode,
       locationSlug: payment.payload?.locationSlug
@@ -678,7 +730,7 @@ async function handlePayMongoPaidCheckout(resource, event, options = {}) {
   );
 
   // A durable receipt must not suppress retry of a bound issuance that rolled back.
-  if (!eventRecord && (!existingPayment.queueDayId || existingPayment.ticketId || existingPayment.ticketIssuanceStatus === "refund_pending")) {
+  if (!eventRecord && (!hasStoredPaymentScope(existingPayment) || existingPayment.ticketId || existingPayment.ticketIssuanceStatus === "refund_pending")) {
     return {
       handled: true,
       duplicate: true

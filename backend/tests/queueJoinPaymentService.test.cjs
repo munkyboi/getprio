@@ -177,6 +177,7 @@ test("enabled queue fee starts checkout without notification opt-ins and marks c
             notifyBySms: false,
             joinChannel: "online",
             locationSlug: "main",
+            locationId: "untrusted-client-value",
             mobileReturnUrl: "https://getprio.online/payment/return",
             notes: ""
           }
@@ -185,6 +186,9 @@ test("enabled queue fee starts checkout without notification opt-ins and marks c
     );
 
     assert.equal(createPaymentCalls.length, 1);
+    assert.equal(createPaymentCalls[0].payload.locationId, "location-1");
+    assert.equal(createPaymentCalls[0].payload.locationSlug, "main");
+    assert.equal(createPaymentCalls[0].metadata.locationBindingVersion, 1);
     assert.equal(updateProviderDataCalls.length, 0);
     assert.equal(markFailedCalls.length, 1);
     assert.equal(
