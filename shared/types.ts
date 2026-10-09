@@ -1674,6 +1674,7 @@ export interface CancelQueueTicketRequest {
 
 export interface QueueJoinPaymentSummary {
   id: string;
+  locationSlug?: string | null;
   tenantId: string;
   tenantName?: string;
   tenantSlug?: string;

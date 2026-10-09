@@ -185,7 +185,7 @@ export default function PublicQueuePage() {
             title: "Joined queue"
           });
           navigate(
-            buildJoinedQueuePathWithTicket(tenantSlugValue, data.ticket.lookupCode, locationSlug),
+            buildJoinedQueuePathWithTicket(tenantSlugValue, data.ticket.lookupCode, data.payment.locationSlug ?? locationSlug),
             { replace: true }
           );
           return;
