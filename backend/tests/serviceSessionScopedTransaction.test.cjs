@@ -33,7 +33,7 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
   const {Pool}=require('pg');
   const pool=new Pool({connectionString:databaseUrl,options:`-c search_path=${schema}`,application_name:schema,max:8});
   const tenant={_id:'1'}; const location={_id:'10'};
-  let failEvent=false; let failBooking=false; let failWebhook=false; let failReconciliation=false; let snapshots=0; let pushes=0; let failAllowance=false; let dueRead=0; let dayReads=0; let failPayment=false; let subscriptionUnavailable=false; let paidDeadlineRace=false; let paidDeadlineObserved=false; let verifyPaidUserLock=false; let verifyPaidTenantLock=false; const billingEvents=new Set(); let paidEventBarrier=null;
+  let failEvent=false; let failBooking=false; let failWebhook=false; let failReconciliation=false; let snapshots=0; let pushes=0; let failAllowance=false; let dueRead=0; let dayReads=0; let failPayment=false; let subscriptionUnavailable=false; let paidDeadlineRace=false; let paidDeadlineObserved=false; let verifyPaidUserLock=false; let verifyPaidTenantLock=false; const billingEvents=new Set(); let paidEventBarrier=null; let intakeBarrier=null;
   const noop=async () => {};
   async function readTicket(id,{client=pool}={}) {
     const r=(await client.query('SELECT * FROM tickets WHERE id=$1',[id])).rows[0];
@@ -46,6 +46,7 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
   try {
     await pool.query(`CREATE SCHEMA ${schema};
       CREATE TABLE users(id BIGINT PRIMARY KEY,roles TEXT[],deletion_requested_at TIMESTAMPTZ,platform_access_suspended_at TIMESTAMPTZ,email TEXT,phone TEXT);
+      CREATE TABLE tenant_subscriptions(id BIGINT PRIMARY KEY,tenant_id BIGINT,status TEXT,plan_slug TEXT,updated_at TIMESTAMPTZ);
       CREATE TABLE tenants(id BIGINT PRIMARY KEY,is_active BOOLEAN,auto_pause_enabled BOOLEAN DEFAULT FALSE,auto_pause_threshold INTEGER,queue_prefix TEXT DEFAULT 'Q');
       CREATE TABLE tenant_memberships(id BIGINT PRIMARY KEY,user_id BIGINT,tenant_id BIGINT,role TEXT,is_active BOOLEAN);
       CREATE TABLE tenant_membership_locations(tenant_membership_id BIGINT,location_id BIGINT);
@@ -132,8 +133,9 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
     async function reset(capacity=4,enabled=true) {
       await pool.query(`TRUNCATE resource_ledger_commands,resource_allocations,resource_ledger_reservations,resource_ledger_scopes,
         ticket_service_plans,tickets,booking_bundle_items,bookings,service_resource_requirements,location_resource_pools,
-        store_locations,tenant_membership_locations,service_counter_assignments,service_counters,tenant_memberships,tenants,users,events,webhooks,booking_audit,queue_ticket_segments,queue_day_state,intake_state,lifecycle_notifications,counters,vendor_services,location_services,store_hours,allowance_audit,queue_email_slots,queue_email_journeys,queue_join_payments,payment_allowance RESTART IDENTITY CASCADE`);
+        store_locations,tenant_membership_locations,service_counter_assignments,service_counters,tenant_memberships,tenants,users,events,webhooks,booking_audit,queue_ticket_segments,queue_day_state,intake_state,lifecycle_notifications,counters,vendor_services,location_services,store_hours,allowance_audit,queue_email_slots,queue_email_journeys,queue_join_payments,payment_allowance,tenant_subscriptions RESTART IDENTITY CASCADE`);
       await pool.query(`INSERT INTO users(id,roles,deletion_requested_at,platform_access_suspended_at,email,phone) VALUES(1,'{}',NULL,NULL,'owner@example.com','09171234567'),(2,'{}',NULL,NULL,'other@example.com','09179876543');
+        INSERT INTO tenant_subscriptions VALUES(1,1,'active','free',clock_timestamp());
         INSERT INTO tenants(id,is_active) VALUES(1,TRUE),(2,TRUE);
         INSERT INTO tenant_memberships VALUES(1,1,1,'owner',TRUE),(2,2,1,'staff',TRUE);
         INSERT INTO store_locations(id,tenant_id,is_active,service_timing_enabled) VALUES(10,1,TRUE,TRUE),(20,2,TRUE,TRUE);
@@ -142,7 +144,7 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
         INSERT INTO vendor_services VALUES(1000,1,'Court play',60,TRUE); INSERT INTO location_services VALUES(1000,1,10,TRUE);
         INSERT INTO store_hours(location_id,weekday,opens_at,closes_at,is_closed) SELECT 10,n,'00:00','00:00',FALSE FROM generate_series(0,6) n`);
       await pool.query('INSERT INTO location_resource_pools(id,tenant_id,location_id,capacity,revision,tracking_enabled) VALUES(100,1,10,$1,1,$2)',[capacity,enabled]);
-      failEvent=false; failBooking=false; failWebhook=false; failReconciliation=false; snapshots=0; pushes=0; failAllowance=false; dueRead=0; dayReads=0; failPayment=false; subscriptionUnavailable=false; paidDeadlineRace=false; paidDeadlineObserved=false; verifyPaidUserLock=false; verifyPaidTenantLock=false; billingEvents.clear(); paidEventBarrier=null; queueClosed=false;
+      failEvent=false; failBooking=false; failWebhook=false; failReconciliation=false; snapshots=0; pushes=0; failAllowance=false; dueRead=0; dayReads=0; failPayment=false; subscriptionUnavailable=false; paidDeadlineRace=false; paidDeadlineObserved=false; verifyPaidUserLock=false; verifyPaidTenantLock=false; billingEvents.clear(); paidEventBarrier=null; intakeBarrier=null; queueClosed=false;
       delete location.queueLifecycleMode;
     }
     async function ticket(id,{plan=true,booking=false,channel='vendor'}={}) {
@@ -186,7 +188,7 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
         }
       },
       '../repositories/queueDayPauses':{findActivePause:async (_tenant,_location,_date,{client}) => {
-        assert.ok(client); return (await client.query('SELECT paused FROM intake_state')).rows[0].paused ? {_id:'1'} : null;
+        assert.ok(client); const paused=(await client.query('SELECT paused FROM intake_state')).rows[0].paused; if(intakeBarrier) {intakeBarrier.reached(); await intakeBarrier.release;} return paused ? {_id:'1',pauseMode:'auto_threshold'} : null;
       }},
       '../repositories/queueDayClosures':{findActiveClosure:async (_tenant,_location,_date,{client}) => {
         assert.ok(client); return queueClosed || (await client.query('SELECT closed FROM intake_state')).rows[0].closed ? {_id:'1'} : null;
@@ -250,6 +252,7 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
       if(forUpdate) paidDeadlineObserved=true;
       return {_id:'999',tenantId:'1',locationId:'10',businessDate:'2026-10-08',state:row.state,intakeMode:row.intake_mode,currentClosesAt:closesAt};
     }};
+    const realFee=loadService({'../repositories/billing':require('../src/repositories/billing')},'queueFeeService');
     const paidService=loadService({
       '../config/db':{pool,withTransaction},
       '../config/env':{},
@@ -271,8 +274,9 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
       '../repositories/billing':{recordBillingEvent:async input=>{
         if(billingEvents.has(input.providerEventId)) return null; billingEvents.add(input.providerEventId); return {_id:'1'};
       }},
-      './queueFeeService':{assertTenantCanAcceptCustomerJoins:async (_tenant,{client})=>{
-        assert.ok(client); if(subscriptionUnavailable) throw Object.assign(new Error('subscription unavailable'),{code:'SUBSCRIPTION_REQUIRED'});
+      './queueFeeService':{assertTenantCanAcceptCustomerJoins:async (_tenant,{client,forShare})=>{
+        assert.ok(client); assert.equal(forShare,true); if(subscriptionUnavailable) throw Object.assign(new Error('subscription unavailable'),{code:'SUBSCRIPTION_REQUIRED'});
+        return realFee.assertTenantCanAcceptCustomerJoins(_tenant,{client,forShare});
       }},
       './allowanceService':{releaseReservation:async (input,{client})=>{
         await client.query("UPDATE payment_allowance SET state='released' WHERE reservation_key=$1",[input.reservationKey]);
@@ -1254,14 +1258,14 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
       assert.equal((await pool.query('SELECT count(*)::int AS n FROM store_hours WHERE is_closed')).rows[0].n,7);
       await paid(); assert.equal((await realPayments.findPaymentById('1',{client:pool})).ticketIssuanceStatus,'refund_pending'); assert.equal(await count('tickets'),0);
     });
-    function legacyLifecycle(database) {
-      const injected={...queueMocks,'../config/db':database,
+    function legacyLifecycle(database, target='queueService') {
+      const injected={...queueMocks,'../config/db':database,'./queueHelpers':require('../src/services/queueHelpers'),
         '../repositories/tickets':{...queueMocks['../repositories/tickets'],listWaitingTickets:realTickets.listWaitingTickets,
           listTicketsForQueueClosure:realTickets.listTicketsForQueueClosure,markTicketsUnservedForClosure:realTickets.markTicketsUnservedForClosure,carryOverWaitingTickets:realTickets.carryOverWaitingTickets},
         '../repositories/queueDayClosures':{...queueMocks['../repositories/queueDayClosures'],createClosure:async (_data,{client})=>{await client.query('UPDATE intake_state SET closed=TRUE'); return {_id:'1'};}},
         '../repositories/queueDayPauses':{...queueMocks['../repositories/queueDayPauses'],createPause:async (data,{client})=>{await client.query('UPDATE intake_state SET paused=TRUE'); return {_id:'1',...data};},resumePause:async (_id,_actor,{client})=>{await client.query('UPDATE intake_state SET paused=FALSE');}},
         './pushNotificationService':{...mocks['./pushNotificationService'],notifyVendorQueueLifecycle:noop}};
-      const filename=path.resolve(__dirname,'../src/services/queueService.js'); const compiled=new (require('node:module').Module)(filename);
+      const filename=path.resolve(__dirname,`../src/services/${target}.js`); const compiled=new (require('node:module').Module)(filename);
       compiled.require=request=>Object.hasOwn(injected,request) ? injected[request] : require(path.resolve(path.dirname(filename),request));
       compiled._compile(fs.readFileSync(filename,'utf8'),filename); return compiled.exports;
     }
@@ -1294,6 +1298,55 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
           if(action==='closeQueueDay') assert.equal(row.carry_over_count,1);
           else assert.equal((await pool.query("SELECT metadata FROM events WHERE event_type='queue_paused'")).rows[0].metadata.waitingCount,1);
         } finally {release(); await pending.catch(()=>{}); if(operation) await operation.catch(()=>{}); paidEventBarrier=null;}
+      }
+    });
+    await t.test('automatic resume shares the paid location lock in both commit orderings',async () => {
+      const autoTenant={...tenant,autoPauseEnabled:true,autoPauseThreshold:3,autoResumeEnabled:true,autoResumeVacancyPercent:25};
+      for(const first of ['resume','paid']) {
+        await reset(); await legacyPayment(); await pool.query('UPDATE intake_state SET paused=TRUE');
+        let reached; const locked=new Promise(resolve=>{reached=resolve;}); let release; const unblock=new Promise(resolve=>{release=resolve;});
+        const automation=legacyLifecycle({pool,withTransaction:callback=>withTransaction(client=>callback({query:async (...args)=>{
+          const result=await client.query(...args); if(first==='resume' && String(args[0]).includes('FROM store_locations') && String(args[0]).includes('FOR UPDATE')) {reached(); await unblock;} return result;
+        }}))},'queueAutomationHelpers');
+        if(first==='paid') intakeBarrier={reached,release:unblock};
+        const firstOperation=first==='resume' ? automation.maybeAutoResumeQueueDay(autoTenant,{location}) : paid(); firstOperation.catch(()=>{}); let second;
+        try {
+          await Promise.race([locked,firstOperation.then(()=>{throw new Error('automatic intake barrier missing');})]);
+          second=first==='resume' ? paid() : automation.maybeAutoResumeQueueDay(autoTenant,{location}); second.catch(()=>{});
+          await waitForLocationLock(); release(); await firstOperation; await second;
+          assert.equal((await realPayments.findPaymentById('1',{client:pool})).ticketIssuanceStatus,first==='resume'?'issued':'refund_pending');
+          assert.equal((await pool.query('SELECT paused FROM intake_state')).rows[0].paused,false);
+        } finally {release(); await firstOperation.catch(()=>{}); if(second) await second.catch(()=>{}); intakeBarrier=null;}
+      }
+    });
+    await t.test('automatic pause reevaluates waiting count after the location lock wait',async () => {
+      await reset(); await legacyPayment(); await ticket('1'); await pool.query("UPDATE tickets SET status='waiting'");
+      const blocker=await pool.connect(); await blocker.query('BEGIN'); await blocker.query('SELECT id FROM store_locations WHERE id=10 FOR UPDATE');
+      const automation=legacyLifecycle({pool,withTransaction},'queueAutomationHelpers');
+      const pending=automation.maybeAutoPauseQueueDay({...tenant,autoPauseEnabled:true,autoPauseThreshold:1},{location,queueDateKey:'20261008'}); pending.catch(()=>{});
+      try {
+        await waitForLocationLock(); await blocker.query("UPDATE tickets SET status='cancelled' WHERE id=1"); await blocker.query('COMMIT');
+        assert.equal(await pending,null); assert.equal((await pool.query('SELECT paused FROM intake_state')).rows[0].paused,false);
+      } finally {await blocker.query('ROLLBACK');blocker.release();await pending.catch(()=>{});}
+    });
+    await t.test('subscription suspension and paid issuance serialize on the accepted subscription row',async () => {
+      for(const first of ['suspend','paid']) {
+        await reset(); await legacyPayment(); let reached; const locked=new Promise(resolve=>{reached=resolve;}); let release; const unblock=new Promise(resolve=>{release=resolve;});
+        if(first==='paid') paidEventBarrier={reached,release:unblock};
+        const suspend=()=>withTransaction(async client=>{await client.query('SELECT id FROM tenant_subscriptions WHERE id=1 FOR UPDATE'); if(first==='suspend'){reached();await unblock;} await client.query("UPDATE tenant_subscriptions SET status='suspended' WHERE id=1");});
+        const operation=first==='suspend'?suspend():paid(); operation.catch(()=>{}); let second;
+        try {
+          await Promise.race([locked,operation.then(()=>{throw new Error('subscription barrier missing');})]);
+          second=first==='suspend'?paid():suspend(); second.catch(()=>{});
+          let waiting=false;
+          for(let attempt=0;attempt<100;attempt++) {
+            const row=await pool.query("SELECT 1 FROM pg_stat_activity WHERE application_name=$1 AND wait_event_type='Lock' AND query LIKE '%tenant_subscriptions%'",[schema]);
+            if(row.rows.length){waiting=true;break;} await new Promise(resolve=>setTimeout(resolve,10));
+          }
+          assert.equal(waiting,true); release(); await operation; await second;
+          assert.equal((await realPayments.findPaymentById('1',{client:pool})).ticketIssuanceStatus,first==='paid'?'issued':'refund_pending');
+          assert.equal(await count('tickets'),first==='paid'?1:0);
+        } finally {release(); await operation.catch(()=>{}); if(second) await second.catch(()=>{}); paidEventBarrier=null;}
       }
     });
     await t.test('versioned legacy payments with missing IDs or unsupported versions require reconciliation',async () => {

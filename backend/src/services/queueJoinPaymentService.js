@@ -427,7 +427,7 @@ async function issueBoundPaidTicket(payment, tenant, location, providerPaymentId
     return { payment, tenant, ticket: null, alreadyIssued: true, ticketBlocked: true };
   }
   try {
-    await queueFeeService.assertTenantCanAcceptCustomerJoins(payment.tenantId, options);
+    await queueFeeService.assertTenantCanAcceptCustomerJoins(payment.tenantId, { ...options, forShare: Boolean(options.client) });
   } catch (error) {
     if (error.code !== "SUBSCRIPTION_REQUIRED") throw error;
     return blockBoundPaidTicket(payment, tenant, location, providerPaymentId, paymentAttributes, options);
@@ -470,7 +470,7 @@ async function issueLocationBoundLegacyPaidTicket(payment, tenant, location, pro
   const block = () => recordBlockedPaidTicket(payment, tenant, providerPaymentId, paymentAttributes, options, "bound_location_unavailable");
   if (!tenant.isActive || !location?.isActive || !["legacy", "shadow"].includes(location.queueLifecycleMode)) return block();
   try {
-    await queueFeeService.assertTenantCanAcceptCustomerJoins(payment.tenantId, options);
+    await queueFeeService.assertTenantCanAcceptCustomerJoins(payment.tenantId, { ...options, forShare: Boolean(options.client) });
   } catch (error) {
     if (error.code !== "SUBSCRIPTION_REQUIRED") throw error;
     return block();
@@ -528,7 +528,7 @@ async function issueTicketForPaidPayment(payment, providerPaymentId, paymentAttr
     return issueBoundPaidTicket(payment, tenant, location, providerPaymentId, paymentAttributes, options);
   }
   if (getStoredPaymentLocationId(payment)) return issueLocationBoundLegacyPaidTicket(payment, tenant, location, providerPaymentId, paymentAttributes, options);
-  await queueFeeService.assertTenantCanAcceptCustomerJoins(payment.tenantId, options);
+  await queueFeeService.assertTenantCanAcceptCustomerJoins(payment.tenantId, { ...options, forShare: Boolean(options.client) });
 
   const ticket = await createTicketForTenantInTransaction(options.client, {
     tenant,

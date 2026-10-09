@@ -109,6 +109,7 @@ async function getActiveSubscriptionByTenantId(tenantId, options = {}) {
         END,
         updated_at DESC
       LIMIT 1
+      ${options.forShare ? "FOR SHARE" : ""}
     `,
     [Number(tenantId)]
   );
