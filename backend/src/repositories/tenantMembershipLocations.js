@@ -2,6 +2,19 @@ const db = require("../config/db");
 
 async function userHasLocationAssignment(userId, tenantId, locationId, options = {}) {
   const client = options.client || db.pool;
+  if (options.forShare) {
+    const explicit = await client.query(`SELECT 1 FROM tenant_memberships m
+      JOIN tenant_membership_locations a ON a.tenant_membership_id=m.id
+      WHERE m.user_id=$1 AND m.tenant_id=$2 AND m.role='staff' AND m.is_active=TRUE AND a.location_id=$3
+      LIMIT 1 FOR SHARE OF m,a`, [userId, tenantId, locationId]);
+    if (explicit.rows.length) return true;
+    const counter = await client.query(`SELECT 1 FROM service_counter_assignments a JOIN service_counters c ON c.id=a.counter_id
+      JOIN tenant_memberships m ON m.user_id=a.user_id AND m.tenant_id=c.tenant_id
+      WHERE a.user_id=$1 AND c.tenant_id=$2 AND c.location_id=$3 AND c.is_active=TRUE
+        AND m.role='staff' AND m.is_active=TRUE
+      LIMIT 1 FOR SHARE OF a,c,m`, [userId, tenantId, locationId]);
+    return counter.rows.length > 0;
+  }
   const result = await client.query(
     `SELECT 1
      FROM tenant_memberships AS membership
