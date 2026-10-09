@@ -129,12 +129,15 @@ async function enqueueAdminEmailIntent(client, event, queueDay, templateName, op
   }, { client });
 }
 
-async function recordReconciliationFailure(queueDayId, error) {
-  return db.withTransaction(async (client) => {
+async function recordReconciliationFailure(queueDayId, error, scope) {
+  if (!scope) return null;
+  return withQueueDayReconciliationTransaction({ pool: db.pool, ...scope }, async (client) => {
     const queueDay = await queueDays.findById(queueDayId, { client, forUpdate: true });
-    if (!queueDay || queueDay.state !== "open") {
+    if (queueDay?.state !== "open" || queueDay.tenantId !== scope.tenantId || queueDay.locationId !== scope.locationId) {
       return null;
     }
+    await queueDays.recordReconciliationError(queueDayId, error.message, { client });
+    queueDay.reconciliationAttemptCount += 1;
     const event = await recordLifecycleEvent(
       client,
       queueDay,
@@ -854,7 +857,7 @@ async function emitDueWarnings(options = {}) {
   return emitted;
 }
 
-async function reconcileSelectedQueueDay(queueDayId, source, skipStale = false) {
+async function readReconciliationCandidate(queueDayId, skipStale) {
   const safeIdentity = value => /^[1-9]\d{0,18}$/u.test(String(value)) && Number.isSafeInteger(Number(value));
   if (!safeIdentity(queueDayId)) throw stateError("Queue identity requires reconciliation.", "QUEUE_IDENTITY_INVALID", 400);
   const selected = await queueDays.findById(queueDayId);
@@ -865,9 +868,16 @@ async function reconcileSelectedQueueDay(queueDayId, source, skipStale = false) 
   if (![selected.tenantId, selected.locationId].every(safeIdentity)) {
     throw stateError("Queue identity requires reconciliation.", "QUEUE_IDENTITY_INVALID", 400);
   }
+  return selected;
+}
+
+async function reconcileSelectedQueueDay(queueDayId, source, skipStale = false, onSelected = () => {}) {
+  const selected = await readReconciliationCandidate(queueDayId, skipStale);
+  if (!selected) return null;
+  onSelected(Object.freeze({ tenantId: selected.tenantId, locationId: selected.locationId }));
   return withQueueDayReconciliationTransaction({ pool: db.pool, tenantId: selected.tenantId, locationId: selected.locationId }, async client => {
     const current = await queueDays.findById(queueDayId, { client, forUpdate: true });
-    if (!current || current.tenantId !== selected.tenantId || current.locationId !== selected.locationId) {
+    if (current?.tenantId !== selected.tenantId || current?.locationId !== selected.locationId) {
       throw stateError("Queue Day scope changed. Refresh and try again.", "QUEUE_SCOPE_CHANGED");
     }
     if (current.state === "closed") return { queueDay: current, outcomes: null, idempotent: true };
@@ -890,16 +900,16 @@ async function reconcileDueQueueDays(limit = 50, options = {}) {
   let reconciledCount = 0;
   for (const candidateId of candidateIds) {
     let transition = null;
+    let selectedScope = null;
     try {
-      const result = await reconcileSelectedQueueDay(candidateId, "scheduled_reconciliation", true);
+      const result = await reconcileSelectedQueueDay(candidateId, "scheduled_reconciliation", true, scope => { selectedScope = scope; });
       if (result && !result.idempotent) transition = {
         tenantId: result.queueDay.tenantId, locationId: result.queueDay.locationId, transition: "closed"
       };
     } catch (error) {
       // Unsafe or moved identities must not be coerced into diagnostic writes.
-      if (!["QUEUE_IDENTITY_INVALID", "QUEUE_SCOPE_CHANGED"].includes(error.code)) {
-        await queueDays.recordReconciliationError(candidateId, error.message);
-        await recordReconciliationFailure(candidateId, error);
+      if (error.statusCode !== 404 && !["QUEUE_IDENTITY_INVALID", "QUEUE_SCOPE_CHANGED"].includes(error.code)) {
+        await recordReconciliationFailure(candidateId, error, selectedScope);
       }
     }
     if (transition) {

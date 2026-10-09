@@ -18,13 +18,14 @@ test('enforced vendor Queue Day writers use location-first PostgreSQL transactio
   const schema = `enforced_intake_${randomUUID().replaceAll('-', '')}`;
   const { Pool } = require('pg');
   const pool = new Pool({ connectionString: databaseUrl, options: `-c search_path=${schema}`, application_name: schema, max: 8 });
-  let eventBarrier = null, failure = null, beforeEvent = null, failOnce = false;
+  let eventBarrier = null, failure = null, beforeEvent = null, failOnce = false, afterRollback = null;
   const database = { pool: { query: (...args) => pool.query(...args), connect: async () => {
     const client = await pool.connect();
     return { release: () => client.release(), query: async (...args) => {
       const sql = String(args[0]);
       if (sql.includes('INSERT INTO queue_events') && beforeEvent) { beforeEvent.reached(); await beforeEvent.release; }
       const result = await client.query(...args);
+      if (sql === 'ROLLBACK' && afterRollback) { const callback = afterRollback; afterRollback = null; await callback(); }
       if (sql.includes('INSERT INTO queue_events') && eventBarrier) { eventBarrier.reached(); await eventBarrier.release; }
       if (failure && sql.includes(failure)) { if (failOnce) failure = null; throw new Error('injected write failure'); }
       return result;
@@ -51,7 +52,7 @@ test('enforced vendor Queue Day writers use location-first PostgreSQL transactio
   const revision = async () => (await pool.query('SELECT revision::text FROM resource_ledger_scopes WHERE tenant_id=1 AND location_id=10')).rows[0]?.revision;
   const day = async () => (await pool.query('SELECT * FROM queue_days WHERE id=1')).rows[0];
   async function reset(action = 'pause') {
-    eventBarrier = null; beforeEvent = null; failure = null; failOnce = false;
+    eventBarrier = null; beforeEvent = null; failure = null; failOnce = false; afterRollback = null;
     await pool.query(`TRUNCATE users,tenants,tenant_memberships,tenant_membership_locations,store_locations,
       store_hours,service_counter_assignments,service_counters,vendor_services,location_services,location_resource_pools,
       service_resource_requirements,queue_days,queue_events,queue_day_extensions,queue_notification_outbox,
@@ -514,7 +515,7 @@ test('enforced vendor Queue Day writers use location-first PostgreSQL transactio
       await overdue(); failure = 'INSERT INTO queue_events'; failOnce = true;
       assert.equal(await service.reconcileDueQueueDays(), 0);
       assert.equal((await day()).state, 'open'); assert.equal((await day()).reconciliation_attempt_count, 1);
-      assert.equal(await revision(), undefined);
+      assert.equal(await revision(), '1');
       assert.deepEqual((await pool.query('SELECT event_type FROM queue_events')).rows, [{ event_type: 'queue_day_reconciliation_failed' }]);
       await service.reconcileQueueDayById('1'); assert.equal(await revision(), '2');
     });
@@ -545,6 +546,28 @@ test('enforced vendor Queue Day writers use location-first PostgreSQL transactio
         await revoker.query('COMMIT'); await pending;
       } finally { await revoker.query('ROLLBACK'); revoker.release(); if (pending) await pending.catch(() => {}); }
       assert.equal((await day()).state, 'closed'); assert.equal(await revision(), '2');
+    });
+    await t.test('unsupported oldest identities cannot starve a bounded valid reconciliation batch', async () => {
+      await overdue();
+      await pool.query(`INSERT INTO queue_days(id,tenant_id,location_id,business_date,state,intake_mode,initial_closes_at,current_closes_at)
+        SELECT 9007199254740992+n,1,10,(clock_timestamp() AT TIME ZONE 'Asia/Manila')::date-n,'open','accepting',
+          clock_timestamp()-interval '100 days',clock_timestamp()-n*interval '1 day' FROM generate_series(1,55) n`);
+      assert.equal(await service.reconcileDueQueueDays(1), 1);
+      assert.equal((await day()).state, 'closed'); assert.equal(await revision(), '2');
+      assert.equal((await pool.query("SELECT COUNT(*)::int n FROM queue_days WHERE id>9007199254740991 AND state='open'")).rows[0].n, 55);
+      assert.equal((await pool.query("SELECT COUNT(*)::int n FROM queue_events WHERE event_type='queue_day_reconciliation_failed'")).rows[0].n, 0);
+    });
+    await t.test('failure diagnostics do not follow a Queue Day moved after operational rollback', async () => {
+      await overdue(); failure = 'INSERT INTO queue_events'; failOnce = true;
+      afterRollback = async () => {
+        await pool.query('UPDATE queue_days SET tenant_id=2,location_id=20 WHERE id=1');
+      };
+      assert.equal(await service.reconcileDueQueueDays(), 0);
+      const moved = await day(); assert.equal(moved.state, 'open'); assert.equal(moved.reconciliation_attempt_count, 0);
+      assert.equal(moved.last_reconciliation_error, null);
+      assert.equal(await count('queue_events'), 0); assert.equal(await count('queue_notification_outbox'), 1);
+      assert.equal(await revision(), '1');
+      assert.equal((await pool.query('SELECT COUNT(*)::int n FROM resource_ledger_scopes WHERE tenant_id=2')).rows[0].n, 0);
     });
     await t.test('scope moved during a branch wait rolls back without touching either branch', async () => {
       await overdue(); const blocker = await pool.connect(); let pending;

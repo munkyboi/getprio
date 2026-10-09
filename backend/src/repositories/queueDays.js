@@ -282,9 +282,13 @@ async function listDueCandidateIds(limit = 50, options = {}) {
     `SELECT id
      FROM queue_days
      WHERE state = 'open' AND current_closes_at <= NOW()
+       AND id BETWEEN 1 AND 9007199254740991
+       AND tenant_id BETWEEN 1 AND 9007199254740991
+       AND location_id BETWEEN 1 AND 9007199254740991
        AND EXISTS (
          SELECT 1 FROM store_locations
          WHERE store_locations.id = queue_days.location_id
+           AND store_locations.tenant_id = queue_days.tenant_id
            AND store_locations.queue_lifecycle_mode = 'enforced'
        )
      ORDER BY current_closes_at, id
