@@ -17,7 +17,7 @@ test('enforced vendor Queue Day writers use location-first PostgreSQL transactio
   assert.ok(['/getprio_test', '/getprio_ledger_test'].includes(url.pathname));
   const schema = `enforced_intake_${randomUUID().replaceAll('-', '')}`;
   const { Pool } = require('pg');
-  const pool = new Pool({ connectionString: databaseUrl, options: `-c search_path=${schema}`, application_name: schema, max: 8 });
+  const pool = new Pool({ connectionString: databaseUrl, options: `-c search_path=${schema} -c timezone=UTC`, application_name: schema, max: 8 });
   let eventBarrier = null, failure = null, beforeEvent = null, failOnce = false, afterRollback = null;
   const database = { pool: { query: (...args) => pool.query(...args), connect: async () => {
     const client = await pool.connect();
@@ -556,7 +556,7 @@ test('enforced vendor Queue Day writers use location-first PostgreSQL transactio
         await assert.rejects(service[method](tenant, { _id: '20' }));
         await pool.query(`UPDATE queue_days SET state='closed',intake_mode=NULL WHERE id=1;
           INSERT INTO queue_days(id,tenant_id,location_id,business_date,state,intake_mode,timezone_snapshot,current_closes_at)
-          VALUES(9007199254740993,1,10,current_date+1,'open','accepting','Asia/Manila',clock_timestamp()-interval '1 second')`);
+          VALUES(9007199254740993,1,10,(SELECT business_date+1 FROM queue_days WHERE id=1),'open','accepting','Asia/Manila',clock_timestamp()-interval '1 second')`);
         await assert.rejects(service[method](tenant, location), { code: 'QUEUE_IDENTITY_INVALID' });
         assert.equal(await revision(), undefined); assert.equal(await count('queue_events'), 0);
       }
