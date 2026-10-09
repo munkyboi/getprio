@@ -34,7 +34,7 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
   const pool=new Pool({connectionString:databaseUrl,options:`-c search_path=${schema}`,application_name:schema,max:8});
   const tenant={_id:'1'}; const location={_id:'10'};
   let failEvent=false; let failBooking=false; let failWebhook=false; let failReconciliation=false; let snapshots=0; let pushes=0; let failAllowance=false; let dueRead=0; let dayReads=0; let failPayment=false; let subscriptionUnavailable=false; let paidDeadlineRace=false; let paidDeadlineObserved=false; let verifyPaidUserLock=false; let verifyPaidTenantLock=false; const billingEvents=new Set(); let paidEventBarrier=null; let intakeBarrier=null;
-  let automaticPushes=0;let failCarryOverOutbox=false;
+  let automaticPushes=0;let failCarryOverOutbox=false;let vendorEventBarrier=null;
   const noop=async () => {};
   async function readTicket(id,{client=pool}={}) {
     const r=(await client.query('SELECT * FROM tickets WHERE id=$1',[id])).rows[0];
@@ -121,6 +121,7 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
       }},
       '../repositories/queueEvents':{createQueueEvent:async (data,{client}) => {
         const r=await client.query('INSERT INTO events(ticket_id,event_type,metadata,actor_role,source) VALUES($1,$2,$3,$4,$5) RETURNING id',[data.ticketId,data.eventType,JSON.stringify(data.metadata),data.actorRole,data.source]);
+        if (vendorEventBarrier) {vendorEventBarrier.reached();await vendorEventBarrier.release;}
         if (paidEventBarrier && data.eventType==='ticket_created') {paidEventBarrier.reached(); await paidEventBarrier.release;}
         if (verifyPaidUserLock && data.eventType==='ticket_created') await assert.rejects(pool.query('SELECT id FROM users WHERE id=1 FOR UPDATE NOWAIT'),{code:'55P03'});
         if (verifyPaidTenantLock && data.eventType==='ticket_created') await assert.rejects(pool.query('SELECT id FROM tenants WHERE id=1 FOR UPDATE NOWAIT'),{code:'55P03'});
@@ -151,7 +152,7 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
         INSERT INTO vendor_services VALUES(1000,1,'Court play',60,TRUE); INSERT INTO location_services VALUES(1000,1,10,TRUE);
         INSERT INTO store_hours(location_id,weekday,opens_at,closes_at,is_closed) SELECT 10,n,'00:00','00:00',FALSE FROM generate_series(0,6) n`);
       await pool.query('INSERT INTO location_resource_pools(id,tenant_id,location_id,capacity,revision,tracking_enabled) VALUES(100,1,10,$1,1,$2)',[capacity,enabled]);
-      automaticPushes=0; failCarryOverOutbox=false; failEvent=false; failBooking=false; failWebhook=false; failReconciliation=false; snapshots=0; pushes=0; failAllowance=false; dueRead=0; dayReads=0; failPayment=false; subscriptionUnavailable=false; paidDeadlineRace=false; paidDeadlineObserved=false; verifyPaidUserLock=false; verifyPaidTenantLock=false; billingEvents.clear(); paidEventBarrier=null; intakeBarrier=null; queueClosed=false;
+      automaticPushes=0; failCarryOverOutbox=false; vendorEventBarrier=null; failEvent=false; failBooking=false; failWebhook=false; failReconciliation=false; snapshots=0; pushes=0; failAllowance=false; dueRead=0; dayReads=0; failPayment=false; subscriptionUnavailable=false; paidDeadlineRace=false; paidDeadlineObserved=false; verifyPaidUserLock=false; verifyPaidTenantLock=false; billingEvents.clear(); paidEventBarrier=null; intakeBarrier=null; queueClosed=false;
       delete location.queueLifecycleMode;
     }
     async function ticket(id,{plan=true,booking=false,channel='vendor'}={}) {
@@ -418,6 +419,79 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
       } finally {await blocker.query('ROLLBACK'); blocker.release();}
       await pool.query('UPDATE tenant_memberships SET is_active=TRUE; UPDATE users SET platform_access_suspended_at=clock_timestamp() WHERE id=1');
       await assert.rejects(record('1','start'),{statusCode:403});
+    });
+    await t.test('vendor queue transactions hold accepted actor and assignment grants until commit',async () => {
+      for(const kind of ['owner','explicit','counter']) {
+        await reset();await ticket('1');const actor=kind==='owner'?'1':'2';
+        if(kind==='explicit')await pool.query('INSERT INTO tenant_membership_locations VALUES(2,10)');
+        if(kind==='counter')await pool.query('INSERT INTO service_counters VALUES(200,1,10,TRUE);INSERT INTO service_counter_assignments VALUES(2,200)');
+        let reached;const locked=new Promise(resolve=>{reached=resolve;});let release;const unblock=new Promise(resolve=>{release=resolve;});
+        vendorEventBarrier={reached,release:unblock};
+        const pending=record('1','start',actor);pending.catch(()=>{});let revocation;
+        try {
+          await Promise.race([locked,pending.then(()=>{throw new Error('vendor access barrier missing');})]);
+          for(const query of [`SELECT id FROM users WHERE id=${actor} FOR UPDATE NOWAIT`,`SELECT id FROM tenant_memberships WHERE id=${actor} FOR UPDATE NOWAIT`]) await assert.rejects(pool.query(query),{code:'55P03'});
+          if(kind==='explicit')await assert.rejects(pool.query('SELECT tenant_membership_id FROM tenant_membership_locations WHERE tenant_membership_id=2 FOR UPDATE NOWAIT'),{code:'55P03'});
+          if(kind==='counter')for(const query of ['SELECT user_id FROM service_counter_assignments WHERE user_id=2 FOR UPDATE NOWAIT','SELECT id FROM service_counters WHERE id=200 FOR UPDATE NOWAIT'])await assert.rejects(pool.query(query),{code:'55P03'});
+          const sql=kind==='owner'?'UPDATE users SET platform_access_suspended_at=clock_timestamp() WHERE id=1':kind==='explicit'?'DELETE FROM tenant_membership_locations WHERE tenant_membership_id=2':'UPDATE service_counters SET is_active=FALSE WHERE id=200';
+          revocation=pool.query(sql);revocation.catch(()=>{});
+          const deadline=Date.now()+3000;let waiting=false;
+          while(Date.now()<deadline) {
+            waiting=(await pool.query("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE application_name=$1 AND wait_event_type='Lock' AND query=$2) AS waiting",[schema,sql])).rows[0].waiting;
+            if(waiting)break;await new Promise(resolve=>setTimeout(resolve,10));
+          }
+          assert.equal(waiting,true,'access revocation must wait for the accepted queue transaction');
+          assert.equal((await readTicket('1')).serviceStartedAt,null);assert.equal(await count('resource_allocations'),0);
+          release();await pending;await revocation;vendorEventBarrier=null;
+          assert.ok((await readTicket('1')).serviceStartedAt);assert.equal(await count('resource_allocations'),1);assert.equal(await count('events'),1);
+          await assert.rejects(record('1','complete',actor),{statusCode:403});
+          assert.equal((await pool.query('SELECT released_at FROM resource_allocations')).rows[0].released_at,null);
+        } finally {release();await pending.catch(()=>{});if(revocation)await revocation.catch(()=>{});vendorEventBarrier=null;}
+      }
+    });
+    await t.test('vendor queue authorization rereads revoked grants after waiting for the location lock',async () => {
+      for(const sql of ["UPDATE users SET deletion_requested_at=clock_timestamp() WHERE id=2", "UPDATE users SET platform_access_suspended_at=clock_timestamp() WHERE id=2",
+        "UPDATE tenant_memberships SET is_active=FALSE WHERE id=2", "UPDATE tenant_memberships SET role='unknown' WHERE id=2",
+        "DELETE FROM tenant_membership_locations WHERE tenant_membership_id=2;UPDATE service_counters SET is_active=FALSE WHERE id=200",
+        "DELETE FROM tenant_membership_locations WHERE tenant_membership_id=2;DELETE FROM service_counter_assignments WHERE user_id=2"]) {
+        await reset();await ticket('1');await pool.query('INSERT INTO tenant_membership_locations VALUES(2,10);INSERT INTO service_counters VALUES(200,1,10,TRUE);INSERT INTO service_counter_assignments VALUES(2,200)');
+        const blocker=await pool.connect();let pending;
+        try {
+          await blocker.query('BEGIN');await blocker.query('SELECT id FROM store_locations WHERE id=10 FOR UPDATE');
+          pending=record('1','start','2');pending.catch(()=>{});await waitForLocationLock();
+          await blocker.query(sql);await blocker.query('COMMIT');await assert.rejects(pending,{statusCode:403});
+          assert.equal((await readTicket('1')).serviceStartedAt,null);assert.equal(await count('resource_allocations'),0);assert.equal(await count('events'),0);assert.equal(await count('resource_ledger_scopes'),0);
+        } finally {await blocker.query('ROLLBACK');blocker.release();if(pending)await pending.catch(()=>{});}
+      }
+    });
+    await t.test('vendor grant lock waits reread revocation committed by the competing transaction',async () => {
+      for(const sql of ["UPDATE users SET platform_access_suspended_at=clock_timestamp() WHERE id=2", "UPDATE tenant_memberships SET is_active=FALSE WHERE id=2",
+        "DELETE FROM tenant_membership_locations WHERE tenant_membership_id=2", "UPDATE service_counters SET is_active=FALSE WHERE id=200", "DELETE FROM service_counter_assignments WHERE user_id=2"]) {
+        await reset();await ticket('1');
+        await pool.query(sql.includes('service_counter')?'INSERT INTO service_counters VALUES(200,1,10,TRUE);INSERT INTO service_counter_assignments VALUES(2,200)':'INSERT INTO tenant_membership_locations VALUES(2,10)');
+        const blocker=await pool.connect();let pending;
+        try {
+          await blocker.query('BEGIN');await blocker.query(sql);pending=record('1','start','2');pending.catch(()=>{});
+          const deadline=Date.now()+3000;let waiting=false;
+          while(Date.now()<deadline) {
+            waiting=(await pool.query("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE application_name=$1 AND wait_event_type='Lock' AND (query LIKE 'SELECT u.roles%' OR query LIKE 'SELECT 1 FROM tenant_memberships%' OR query LIKE 'SELECT 1 FROM service_counter_assignments%')) AS waiting",[schema])).rows[0].waiting;
+            if(waiting)break;await new Promise(resolve=>setTimeout(resolve,10));
+          }
+          assert.equal(waiting,true,'authorization must wait for the changing grant');
+          await blocker.query('COMMIT');await assert.rejects(pending,{statusCode:403});
+          assert.equal((await readTicket('1')).serviceStartedAt,null);assert.equal(await count('resource_allocations'),0);assert.equal(await count('resource_ledger_scopes'),0);assert.equal(await count('events'),0);
+        } finally {await blocker.query('ROLLBACK');blocker.release();if(pending)await pending.catch(()=>{});}
+      }
+    });
+    await t.test('vendor grant locks release on rollback and inactive scopes still allow explicit service release',async () => {
+      await reset();await ticket('1');await pool.query('INSERT INTO tenant_membership_locations VALUES(2,10)');
+      failEvent=true;await assert.rejects(record('1','start','2'),/event failed/);
+      for(const query of ['SELECT id FROM users WHERE id=2 FOR UPDATE NOWAIT','SELECT id FROM tenant_memberships WHERE id=2 FOR UPDATE NOWAIT','SELECT tenant_membership_id FROM tenant_membership_locations WHERE tenant_membership_id=2 FOR UPDATE NOWAIT'])await pool.query(query);
+      assert.equal(await count('resource_allocations'),0);assert.equal(await count('events'),0);assert.equal(await count('resource_ledger_scopes'),0);
+      failEvent=false;await record('1','start','2');await pool.query('UPDATE tenants SET is_active=FALSE WHERE id=1;UPDATE store_locations SET is_active=FALSE,service_timing_enabled=FALSE WHERE id=10');
+      await record('1','interrupt','2');assert.equal((await pool.query('SELECT outcome FROM resource_allocations')).rows[0].outcome,'terminated');
+      await ticket('2');await assert.rejects(record('2','start','2'),{statusCode:409});
+      assert.equal(await count('resource_allocations'),1);
     });
     await t.test('start rejects wrong scope, disabled timing, unconfirmed tickets and stale or unknown plans',async () => {
       await reset(); await ticket('1',{plan:false}); await assert.rejects(record('1','start'),{statusCode:409});
