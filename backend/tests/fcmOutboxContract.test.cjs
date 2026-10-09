@@ -27,8 +27,13 @@ test("durable queue lifecycle customer intents include one FCM channel key", () 
     path.join(repositoryRoot, "backend/src/services/queueDayLifecycleService.js"),
     "utf8"
   );
-  const fcmOccurrences = (lifecycle.match(/customer:fcm/g) || []).length;
+  const expiry = fs.readFileSync(
+    path.join(repositoryRoot, "backend/src/services/queueCarryOverExpiryService.js"),
+    "utf8"
+  );
+  const fcmOccurrences = ((lifecycle + expiry).match(/channel: "fcm"/g) || []).length;
   assert.equal(fcmOccurrences, 2);
-  assert.match(lifecycle, /channel: "fcm"/);
+  assert.match(lifecycle, /customer:fcm/);
+  assert.match(expiry, /customer:\$\{intent\.channel\}/);
   assert.match(lifecycle, /recipientKey: `user:\$\{ticket\.user_id\}`/);
 });

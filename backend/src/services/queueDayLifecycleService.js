@@ -1,3 +1,4 @@
+const { expirePendingCarryOvers } = require("./queueCarryOverExpiryService");
 const db = require("../config/db");
 const env = require("../config/env");
 const queueDays = require("../repositories/queueDays");
@@ -760,92 +761,6 @@ async function reopenQueueDay(tenant, location, options = {}) {
     });
     await enqueueStaffIntent(client, event, reopened, "queue_reopened");
     return { queueDay: reopened, idempotent: false };
-  });
-}
-
-async function expirePendingCarryOvers(limit = 100) {
-  return db.withTransaction(async (client) => {
-    const due = await client.query(
-      `SELECT id, tenant_id, user_id, notify_by_email, carry_over_expires_at
-       FROM tickets
-       WHERE status = 'pending_carry_over'
-         AND carry_over_expires_at <= NOW()
-       ORDER BY carry_over_expires_at, id
-       LIMIT $1
-       FOR UPDATE SKIP LOCKED`,
-      [Math.max(1, Math.min(Number(limit) || 100, 500))]
-    );
-    for (const ticket of due.rows) {
-      await client.query(
-        `UPDATE tickets
-         SET status = 'expired', status_reason = 'carry_over_window_expired',
-             terminal_at = NOW(), updated_at = NOW()
-         WHERE id = $1 AND status = 'pending_carry_over'`,
-        [Number(ticket.id)]
-      );
-      await client.query(
-        `UPDATE bookings
-         SET status = 'unfulfilled',
-             fulfillment_outcome_reason = 'carry_over_window_expired',
-             refund_eligible = TRUE,
-             fulfillment_resolved_at = NOW(),
-             updated_at = NOW()
-         WHERE queue_ticket_id = $1
-           AND status NOT IN ('completed', 'canceled', 'reviewed', 'disputed')`,
-        [Number(ticket.id)]
-      );
-      const event = await queueEvents.createLifecycleEvent({
-        ticketId: ticket.id,
-        tenantId: ticket.tenant_id,
-        queueDateKey: "pending",
-        eventType: "ticket_expired",
-        fromStatus: "pending_carry_over",
-        toStatus: "expired",
-        source: "system",
-        reasonCode: "carry_over_window_expired",
-        eventKey: `ticket:${ticket.id}:pending-expiry:${new Date(ticket.carry_over_expires_at).toISOString()}`
-      }, { client });
-      if (event) {
-        await outbox.enqueue({
-          idempotencyKey: `${event.eventKey}:customer:web_push`,
-          queueEventId: event._id,
-          ticketId: ticket.id,
-          tenantId: ticket.tenant_id,
-          recipientKey: ticket.user_id ? `user:${ticket.user_id}` : `ticket:${ticket.id}`,
-          channel: "web_push",
-          templateName: "ticket_expired",
-          payload: { ticketId: String(ticket.id), reasonCode: "carry_over_window_expired" }
-        }, { client });
-        if (ticket.user_id) {
-          await outbox.enqueue({
-            idempotencyKey: `${event.eventKey}:customer:fcm`,
-            queueEventId: event._id,
-            ticketId: ticket.id,
-            tenantId: ticket.tenant_id,
-            recipientKey: `user:${ticket.user_id}`,
-            channel: "fcm",
-            templateName: "ticket_expired",
-            payload: { ticketId: String(ticket.id), reasonCode: "carry_over_window_expired" }
-          }, { client });
-        }
-        if (ticket.notify_by_email) {
-          await outbox.enqueue({
-            idempotencyKey: `${event.eventKey}:customer:email`,
-            queueEventId: event._id,
-            ticketId: ticket.id,
-            tenantId: ticket.tenant_id,
-            recipientKey: `ticket:${ticket.id}:email`,
-            channel: "email",
-            templateName: "ticket_expired",
-            payload: {
-              ticketId: String(ticket.id),
-              reasonCode: "carry_over_window_expired"
-            }
-          }, { client });
-        }
-      }
-    }
-    return due.rows.length;
   });
 }
 
