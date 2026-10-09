@@ -68,7 +68,7 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
       CREATE TABLE webhooks(event_id BIGINT);
       CREATE TABLE queue_ticket_segments(ticket_id BIGINT,ended_at TIMESTAMPTZ,segment_outcome TEXT,outcome_reason TEXT,queue_day_id BIGINT,display_number TEXT,sequence INTEGER,priority_band TEXT,UNIQUE(ticket_id,queue_day_id));
       CREATE TABLE queue_day_state(state TEXT,closes_at TIMESTAMPTZ DEFAULT clock_timestamp()-interval '1 second',intake_mode TEXT DEFAULT 'accepting',next_sequence INTEGER DEFAULT 1);
-      CREATE TABLE intake_state(paused BOOLEAN,closed BOOLEAN DEFAULT FALSE);
+      CREATE TABLE intake_state(paused BOOLEAN,closed BOOLEAN DEFAULT FALSE,closure JSONB DEFAULT '{}');
       CREATE TABLE lifecycle_notifications(ticket_id BIGINT,status TEXT);
       CREATE TABLE booking_audit(ticket_id BIGINT,metadata JSONB);
       CREATE TABLE counters(tenant_id BIGINT,location_id BIGINT,key TEXT,date_key TEXT,value INTEGER,PRIMARY KEY(tenant_id,location_id,key,date_key));
@@ -1351,9 +1351,9 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
     });
     function legacyLifecycle(database, target='queueService') {
       const injected={...queueMocks,'../config/db':database,'./queueHelpers':require('../src/services/queueHelpers'),
-        '../repositories/tickets':{...queueMocks['../repositories/tickets'],listWaitingTickets:realTickets.listWaitingTickets,
+        '../repositories/tickets':{...queueMocks['../repositories/tickets'],listWaitingTickets:realTickets.listWaitingTickets,reopenTicketsFromClosure:realTickets.reopenTicketsFromClosure,restoreCarriedOverTicketsFromClosure:realTickets.restoreCarriedOverTicketsFromClosure,
           listTicketsForQueueClosure:realTickets.listTicketsForQueueClosure,markTicketsUnservedForClosure:realTickets.markTicketsUnservedForClosure,carryOverWaitingTickets:realTickets.carryOverWaitingTickets},
-        '../repositories/queueDayClosures':{...queueMocks['../repositories/queueDayClosures'],createClosure:async (_data,{client})=>{await client.query('UPDATE intake_state SET closed=TRUE'); return {_id:'1'};}},
+        '../repositories/queueDayClosures':{...queueMocks['../repositories/queueDayClosures'],findActiveClosure:async (_tenant,_location,_date,{client})=>{const row=(await client.query('SELECT closed,closure FROM intake_state')).rows[0];return row.closed?{_id:'1',...row.closure}:null;},createClosure:async (data,{client})=>{await client.query('UPDATE intake_state SET closed=TRUE,closure=$1',[JSON.stringify(data)]); return {_id:'1',...data};},reopenClosure:async (_id,_actor,{client})=>{await client.query('UPDATE intake_state SET closed=FALSE');}},
         '../repositories/queueDayPauses':{...queueMocks['../repositories/queueDayPauses'],createPause:async (data,{client})=>{await client.query('UPDATE intake_state SET paused=TRUE'); return {_id:'1',...data};},resumePause:async (_id,_actor,{client})=>{await client.query('UPDATE intake_state SET paused=FALSE');}},
         './pushNotificationService':{...mocks['./pushNotificationService'],notifyVendorQueueLifecycle:noop}};
       const filename=path.resolve(__dirname,`../src/services/${target}.js`); const compiled=new (require('node:module').Module)(filename);
@@ -1366,7 +1366,7 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
         const lifecycle=legacyLifecycle({pool,withTransaction:callback=>withTransaction(client=>callback({query:async (...args)=>{
           const result=await client.query(...args); if(String(args[0]).includes('FROM store_locations') && String(args[0]).includes('FOR UPDATE')) {signal(); await unblock;} return result;
         }}))});
-        const operation=lifecycle[action](tenant,{location:{...location,queueLifecycleMode:'legacy'}}); operation.catch(()=>{}); let pending;
+        const operation=lifecycle[action](tenant,{location:{...location,queueLifecycleMode:'legacy'},actorUserId:'1'}); operation.catch(()=>{}); let pending;
         try {
           await Promise.race([locked,operation.then(()=>{throw new Error('lifecycle finished without location lock');})]);
           pending=paid(); pending.catch(()=>{}); await waitForLocationLock(); release(); await operation; await pending;
@@ -1382,13 +1382,73 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
         try {
           await Promise.race([inserted,pending.then(()=>{throw new Error('paid event barrier missing');})]);
           const lifecycle=legacyLifecycle({pool,withTransaction});
-          operation=lifecycle[action](tenant,{location:{...location,queueLifecycleMode:'legacy'}}); operation.catch(()=>{});
+          operation=lifecycle[action](tenant,{location:{...location,queueLifecycleMode:'legacy'},actorUserId:'1'}); operation.catch(()=>{});
           await waitForLocationLock(); release(); await pending; await operation;
           assert.equal((await realPayments.findPaymentById('1',{client:pool})).ticketIssuanceStatus,'issued');
           const row=(await pool.query('SELECT * FROM tickets')).rows[0]; assert.equal(row.status,'waiting');
           if(action==='closeQueueDay') assert.equal(row.carry_over_count,1);
           else assert.equal((await pool.query("SELECT metadata FROM events WHERE event_type='queue_paused'")).rows[0].metadata.waitingCount,1);
         } finally {release(); await pending.catch(()=>{}); if(operation) await operation.catch(()=>{}); paidEventBarrier=null;}
+      }
+    });
+    await t.test('manual legacy pause resume close and reopen commit events and revisions together',async () => {
+      await reset();await ticket('1');await ticket('2');await pool.query("UPDATE tickets SET date_key=to_char(clock_timestamp() AT TIME ZONE 'Asia/Manila','YYYYMMDD'),status=CASE WHEN id=2 THEN 'waiting' ELSE 'called' END"); const lifecycle=legacyLifecycle({pool,withTransaction});
+      for(const [index,action] of ['pauseQueueDay','resumeQueueDay','closeQueueDay','reopenQueueDay'].entries()) {
+        await lifecycle[action](tenant,{location:{...location,queueLifecycleMode:'legacy'},actorUserId:'1'});
+        assert.equal((await pool.query('SELECT revision::text FROM resource_ledger_scopes')).rows[0].revision,String(index+2));
+      }
+      assert.deepEqual((await pool.query('SELECT status,carry_over_count FROM tickets ORDER BY id')).rows,[{status:'waiting',carry_over_count:0},{status:'waiting',carry_over_count:0}]);assert.equal(await count('events'),8);assert.deepEqual((await pool.query('SELECT paused,closed FROM intake_state')).rows[0],{paused:false,closed:false});
+      await assert.rejects(lifecycle.resumeQueueDay(tenant,{location,actorUserId:'1'}),{statusCode:404});
+      assert.equal((await pool.query('SELECT revision::text FROM resource_ledger_scopes')).rows[0].revision,'5');assert.equal(await count('events'),8);
+    });
+    await t.test('legacy intake denies revoked actors inactive scope wrong branch and missing assignment under the lock',async () => {
+      for(const sql of ["UPDATE tenant_memberships SET is_active=FALSE WHERE user_id=1", "UPDATE users SET deletion_requested_at=clock_timestamp() WHERE id=1",
+        "UPDATE users SET platform_access_suspended_at=clock_timestamp() WHERE id=1", "UPDATE store_locations SET is_active=FALSE WHERE id=10", "UPDATE tenants SET is_active=FALSE WHERE id=1"]) {
+        await reset();await pool.query(sql);const lifecycle=legacyLifecycle({pool,withTransaction});
+        for(const action of ['closeQueueDay','pauseQueueDay','resumeQueueDay','reopenQueueDay']) await assert.rejects(lifecycle[action](tenant,{location,actorUserId:'1'}));
+        assert.equal(await count('events'),0);assert.equal(await count('resource_ledger_scopes'),0);
+      }
+      await reset();const lifecycle=legacyLifecycle({pool,withTransaction});
+      await assert.rejects(lifecycle.pauseQueueDay(tenant,{location,actorUserId:'2'}),{statusCode:403});
+      await assert.rejects(lifecycle.pauseQueueDay(tenant,{location:{_id:'20'},actorUserId:'1'}),{statusCode:404});
+      await assert.rejects(lifecycle.pauseQueueDay(tenant,{location}),{statusCode:403});
+      await assert.rejects(lifecycle.pauseQueueDay(tenant,{location,actorUserId:'9007199254740993'}),{statusCode:400});
+      assert.equal(await count('resource_ledger_scopes'),0);
+    });
+    await t.test('legacy intake accepts assigned staff and holds explicit or active counter access through commit',async () => {
+      for(const kind of ['explicit','counter']) {
+        await reset();await pool.query(kind==='explicit'?'INSERT INTO tenant_membership_locations VALUES(2,10)':"INSERT INTO service_counters VALUES(200,1,10,TRUE);INSERT INTO service_counter_assignments VALUES(2,200)");
+        let reached;const locked=new Promise(resolve=>{reached=resolve;});let release;const unblock=new Promise(resolve=>{release=resolve;});
+        const lifecycle=legacyLifecycle({pool,withTransaction:callback=>withTransaction(client=>callback({query:async(...args)=>{
+          const result=await client.query(...args);if(String(args[0]).includes('INSERT INTO resource_ledger_scopes')){reached();await unblock;}return result;
+        }}))});
+        const pending=lifecycle.pauseQueueDay(tenant,{location,actorUserId:'2'});pending.catch(()=>{});
+        try {await Promise.race([locked,pending.then(()=>{throw new Error('legacy access barrier missing');})]);
+          for(const query of ['SELECT id FROM users WHERE id=2 FOR UPDATE NOWAIT','SELECT id FROM tenant_memberships WHERE id=2 FOR UPDATE NOWAIT','SELECT id FROM tenants WHERE id=1 FOR UPDATE NOWAIT',kind==='explicit'?'SELECT tenant_membership_id FROM tenant_membership_locations WHERE tenant_membership_id=2 FOR UPDATE NOWAIT':'SELECT user_id FROM service_counter_assignments WHERE user_id=2 FOR UPDATE NOWAIT']) await assert.rejects(pool.query(query),{code:'55P03'});
+          if(kind==='counter')await assert.rejects(pool.query('SELECT id FROM service_counters WHERE id=200 FOR UPDATE NOWAIT'),{code:'55P03'});
+          release();await pending;assert.equal((await pool.query('SELECT paused FROM intake_state')).rows[0].paused,true);
+        } finally {release();await pending.catch(()=>{});}
+      }
+    });
+    await t.test('legacy intake rechecks committed access and mode changes after waiting for the location lock',async () => {
+      for(const sql of ["DELETE FROM tenant_membership_locations WHERE tenant_membership_id=2", "UPDATE tenant_memberships SET is_active=FALSE WHERE id=2", "UPDATE store_locations SET queue_lifecycle_mode='enforced' WHERE id=10"]) {
+        await reset();await pool.query('INSERT INTO tenant_membership_locations VALUES(2,10)');const blocker=await pool.connect();let pending;
+        try {await blocker.query('BEGIN');await blocker.query('SELECT id FROM store_locations WHERE id=10 FOR UPDATE');
+          const lifecycle=legacyLifecycle({pool,withTransaction});pending=lifecycle.pauseQueueDay(tenant,{location,actorUserId:'2'});pending.catch(()=>{});await waitForLocationLock();
+          await blocker.query(sql);await blocker.query('COMMIT');await assert.rejects(pending);assert.equal(await count('events'),0);assert.equal(await count('resource_ledger_scopes'),0);
+        } finally {await blocker.query('ROLLBACK');blocker.release();if(pending)await pending.catch(()=>{});}
+      }
+    });
+    await t.test('legacy lifecycle event failure rolls intake ticket outcomes and revision back',async () => {
+      for(const action of ['pauseQueueDay','resumeQueueDay','closeQueueDay','reopenQueueDay']) {
+        await reset();const lifecycle=legacyLifecycle({pool,withTransaction});
+        if(action==='resumeQueueDay')await lifecycle.pauseQueueDay(tenant,{location,actorUserId:'1'});
+        if(action==='reopenQueueDay')await lifecycle.closeQueueDay(tenant,{location,actorUserId:'1'});
+        if(action==='closeQueueDay'){await ticket('1');await pool.query("UPDATE tickets SET status='waiting',date_key=to_char(clock_timestamp() AT TIME ZONE 'Asia/Manila','YYYYMMDD')");}
+        const before=(await pool.query('SELECT * FROM intake_state')).rows[0];const revision=(await pool.query('SELECT revision::text FROM resource_ledger_scopes')).rows[0]?.revision;const events=await count('events');
+        failEvent=true;await assert.rejects(lifecycle[action](tenant,{location,actorUserId:'1'}),/event failed/);
+        assert.deepEqual((await pool.query('SELECT * FROM intake_state')).rows[0],before);assert.equal((await pool.query('SELECT revision::text FROM resource_ledger_scopes')).rows[0]?.revision,revision);assert.equal(await count('events'),events);
+        if(action==='closeQueueDay')assert.equal((await pool.query('SELECT carry_over_count FROM tickets WHERE id=1')).rows[0].carry_over_count,0);
       }
     });
     await t.test('automatic resume shares the paid location lock in both commit orderings',async () => {

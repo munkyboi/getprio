@@ -1,6 +1,6 @@
 const ticketServicePlanService = require("./ticketServicePlanService");
 const storeHoursService = require("./storeHoursService");
-const { withVendorQueueTransaction } = require("./vendorQueueTransactionService");
+const { withVendorQueueTransaction, readAuthorizedVendorQueueActor } = require("./vendorQueueTransactionService");
 const { withCustomerTicketCancellation } = require("./customerTicketCancellationService");
 const { withCustomerQueueIssuance } = require("./customerQueueIssuanceService");
 const ticketResourceOutcomeService = require("./ticketResourceOutcomeService");
@@ -1088,13 +1088,26 @@ async function cancelTicket(tenant, lookupCode, options = {}) {
   return { ticket, snapshot };
 }
 
-async function lockLegacyIntakeLocation(client, tenant, location) {
-  const result = await client.query("SELECT id,timezone,queue_lifecycle_mode FROM store_locations WHERE tenant_id=$1 AND id=$2 FOR UPDATE", [tenant._id, location._id]);
+async function lockLegacyIntakeLocation(client, tenant, location, options) {
+  if (options.actorUserId == null) throw Object.assign(new Error("Vendor authorization is required."), { statusCode: 403 });
+  for (const value of [tenant._id, location._id, options.actorUserId]) {
+    if (!/^[1-9]\d{0,18}$/u.test(String(value)) || !Number.isSafeInteger(Number(value))) {
+      throw Object.assign(new Error("Queue identity requires reconciliation."), { statusCode: 400 });
+    }
+  }
+  const result = await client.query("SELECT id,timezone,queue_lifecycle_mode,is_active FROM store_locations WHERE tenant_id=$1 AND id=$2 FOR UPDATE", [tenant._id, location._id]);
   const current = result.rows[0];
   if (!current) throw Object.assign(new Error("Queue location not found."), { statusCode: 404 });
   if (!["legacy", "shadow"].includes(current.queue_lifecycle_mode)) {
     throw Object.assign(new Error("Queue lifecycle mode changed. Refresh and try again."), { statusCode: 409 });
   }
+  const business = (await client.query("SELECT is_active FROM tenants WHERE id=$1 FOR SHARE", [tenant._id])).rows[0];
+  if (!current.is_active || !business?.is_active) throw Object.assign(new Error("This business or location is inactive."), { statusCode: 409 });
+  const actor = await readAuthorizedVendorQueueActor(client, {
+    actorUserId: String(options.actorUserId), tenantId: String(tenant._id), locationId: String(location._id)
+  }, "tenant.queue.operate", { forShare: true });
+  if (!actor) throw Object.assign(new Error("Queue operation is not authorized."), { statusCode: 403 });
+  await client.query("INSERT INTO resource_ledger_scopes(tenant_id,location_id) VALUES($1,$2) ON CONFLICT DO NOTHING", [tenant._id, location._id]);
   return { ...location, timezone: current.timezone, queueLifecycleMode: current.queue_lifecycle_mode };
 }
 
@@ -1115,7 +1128,7 @@ async function closeQueueDay(tenant, options = {}) {
   let unservedTicketsForPush = [];
   let carriedTicketsForPush = [];
   await db.withTransaction(async (client) => {
-    location = await lockLegacyIntakeLocation(client, tenant, location);
+    location = await lockLegacyIntakeLocation(client, tenant, location, options);
     const now = new Date();
     queueDateKey = options.queueDateKey || getDateKey(now, location.timezone);
     nextQueueDateKey = options.nextQueueDateKey || getDateKey(new Date(now.getTime() + 24 * 60 * 60 * 1000), location.timezone);
@@ -1243,6 +1256,7 @@ async function closeQueueDay(tenant, options = {}) {
         nextQueueDateKey
       }
     });
+    await client.query("UPDATE resource_ledger_scopes SET revision=revision+1 WHERE tenant_id=$1 AND location_id=$2", [tenant._id, location._id]);
   });
 
   for (const ticket of unservedTicketsForPush) {
@@ -1293,7 +1307,7 @@ async function reopenQueueDay(tenant, options = {}) {
   let queueDateKey;
   let reopenedTicketsForPush = [];
   await db.withTransaction(async (client) => {
-    location = await lockLegacyIntakeLocation(client, tenant, location);
+    location = await lockLegacyIntakeLocation(client, tenant, location, options);
     queueDateKey = options.queueDateKey || getDateKey(new Date(), location.timezone);
 
     const activeClosure = await queueDayClosureRepository.findActiveClosure(
@@ -1377,6 +1391,7 @@ async function reopenQueueDay(tenant, options = {}) {
         restoredCarriedTicketIds: restoredCarriedTickets.map((ticket) => ticket._id)
       }
     });
+    await client.query("UPDATE resource_ledger_scopes SET revision=revision+1 WHERE tenant_id=$1 AND location_id=$2", [tenant._id, location._id]);
   });
 
   await maybeNotifyUpcomingTickets(tenant, { location });
@@ -1413,7 +1428,7 @@ async function pauseQueueDay(tenant, options = {}) {
 
   let queueDateKey;
   await db.withTransaction(async (client) => {
-    location = await lockLegacyIntakeLocation(client, tenant, location);
+    location = await lockLegacyIntakeLocation(client, tenant, location, options);
     queueDateKey = options.queueDateKey || getDateKey(new Date(), location.timezone);
 
     const activeClosure = await queueDayClosureRepository.findActiveClosure(
@@ -1473,6 +1488,7 @@ async function pauseQueueDay(tenant, options = {}) {
         autoPauseThreshold: tenant.autoPauseThreshold || null
       }
     });
+    await client.query("UPDATE resource_ledger_scopes SET revision=revision+1 WHERE tenant_id=$1 AND location_id=$2", [tenant._id, location._id]);
   });
 
   pushNotificationService.notifyVendorQueueLifecycle({
@@ -1500,7 +1516,7 @@ async function resumeQueueDay(tenant, options = {}) {
 
   let queueDateKey;
   await db.withTransaction(async (client) => {
-    location = await lockLegacyIntakeLocation(client, tenant, location);
+    location = await lockLegacyIntakeLocation(client, tenant, location, options);
     queueDateKey = options.queueDateKey || getDateKey(new Date(), location.timezone);
 
     const activePause = await queueDayPauseRepository.findActivePause(
@@ -1532,6 +1548,7 @@ async function resumeQueueDay(tenant, options = {}) {
         pauseReason: activePause.pauseReason
       }
     });
+    await client.query("UPDATE resource_ledger_scopes SET revision=revision+1 WHERE tenant_id=$1 AND location_id=$2", [tenant._id, location._id]);
   });
 
   pushNotificationService.notifyVendorQueueLifecycle({
