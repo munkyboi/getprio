@@ -75,7 +75,7 @@ async function recordTicketService(tenant, ticketId, action, options) {
   const location = options.location;
   if (!location) reject("Location not found.", 404);
   const { ticket, resolvedQueueStatus } = await withVendorQueueTransaction({
-    pool: db.pool, tenant, location, actorUserId: options.actorUserId
+    pool: db.pool, tenant, location, actorUserId: options.actorUserId, lockTenantActivity: action === "start"
   }, async (client, ledger) => {
     const branch = await client.query(`SELECT l.service_timing_enabled,l.is_active,t.is_active AS tenant_active
       FROM store_locations l JOIN tenants t ON t.id=l.tenant_id WHERE l.id=$1 AND l.tenant_id=$2`, [location._id, tenant._id]);
