@@ -270,7 +270,7 @@ for (const method of ["get", "put"]) {
     assertTenantPermission(req.user, tenant._id, "tenant.location.manage");
     assertTenantPermission(req.user, tenant._id, "tenant.service.manage");
     const location = await getLocationForTenant(tenant, req.params.locationSlug);
-    const scope = { tenantId: tenant._id, locationId: location._id };
+    const scope = { tenantId: tenant._id, locationId: location._id, actorUserId: req.user._id };
     const configuration = method === "get"
       ? await resourceConfigurationService.getConfiguration(scope)
       : await resourceConfigurationService.saveConfiguration(scope, req.body);

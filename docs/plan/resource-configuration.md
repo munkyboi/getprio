@@ -30,4 +30,6 @@ Next: capture [ticket service plans](ticket-service-plans.md), then implement tr
 
 ## Verification
 
+The later [draft configuration writer slice](resource-configuration-writer.md) adds transactional authorization/revision handling and isolated PostgreSQL coverage. The original UI acceptance gaps below remain separate.
+
 Static checks and hosted CI are separate from runtime acceptance. No local database migration or test suite is run for this implementation request. Local environment restoration is blocked by Bitwarden CLI authentication. Before operational acceptance, verify authorized/denied roles, branch isolation, stale versions, invalid IDs, duplicate names, capacity reductions, inactive/unassigned services, and concurrent saves against an isolated database. Inspect the stacked inline forms at mobile, tablet, desktop, short-height, and keyboard viewports. Inline editors follow a single-column mobile layout, and the existing compact confirmation modal handles removal and unsaved panel edits. Verify focus on editor open, confirmation dismissal and return, and small/keyboard viewport behavior. Number fields hide undersized spinner controls while preserving 44-pixel inputs.
