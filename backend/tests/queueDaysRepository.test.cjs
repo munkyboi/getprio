@@ -104,6 +104,7 @@ test("manual opening keeps the initial deadline at version one", async () => {
     expectedVersion: 1
   }, { client });
   assert.match(query.sql, /deadline_version = 1/);
+  assert.match(query.sql, /\$4::TIMESTAMPTZ > clock_timestamp\(\)/);
   assert.doesNotMatch(query.sql, /deadline_version = deadline_version \+ 1/);
 });
 

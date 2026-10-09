@@ -38,9 +38,10 @@ test('enforced vendor Queue Day writers use location-first PostgreSQL transactio
   };
   const service = loadLifecycle(database);
   const tenant = { _id: '1' }, location = { _id: '10', queueLifecycleMode: 'enforced' };
-  const actions = ['pause', 'resume', 'extend', 'close', 'reopen'];
+  const actions = ['pause', 'resume', 'extend', 'close', 'reopen', 'open'];
   const run = (action, options = {}, selected = location) => {
     const current = { actorUserId: '1', actorRole: 'stale', ...options };
+    if (action === 'open') return service.openQueueDay(tenant, selected, current);
     if (action === 'extend') return service.extendQueueDay(tenant, selected, { reason: 'Extra service time', ...current });
     if (action === 'close') return service.closeVendorQueueDay(tenant, selected, current);
     if (action === 'reopen') return service.reopenQueueDay(tenant, selected, current);
@@ -52,7 +53,7 @@ test('enforced vendor Queue Day writers use location-first PostgreSQL transactio
   async function reset(action = 'pause') {
     eventBarrier = null; beforeEvent = null; failure = null;
     await pool.query(`TRUNCATE users,tenants,tenant_memberships,tenant_membership_locations,store_locations,
-      service_counter_assignments,service_counters,vendor_services,location_services,location_resource_pools,
+      store_hours,service_counter_assignments,service_counters,vendor_services,location_services,location_resource_pools,
       service_resource_requirements,queue_days,queue_events,queue_day_extensions,queue_notification_outbox,
       tickets,bookings,booking_bundle_items,queue_ticket_segments,resource_ledger_scopes,
       resource_ledger_reservations,resource_allocations,resource_ledger_commands RESTART IDENTITY CASCADE;
@@ -60,15 +61,17 @@ test('enforced vendor Queue Day writers use location-first PostgreSQL transactio
       INSERT INTO tenants VALUES(1,TRUE),(2,TRUE);
       INSERT INTO tenant_memberships VALUES(1,1,1,'owner',TRUE),(2,2,1,'staff',TRUE);
       INSERT INTO store_locations(id,tenant_id,is_active,queue_lifecycle_mode) VALUES(10,1,TRUE,'enforced'),(20,2,TRUE,'enforced');
+      INSERT INTO store_hours(location_id,weekday,opens_at,closes_at,is_closed) SELECT 10,day,'00:00','00:00',FALSE FROM generate_series(0,6) day;
       INSERT INTO vendor_services VALUES(1000,1,'Court',TRUE);
       INSERT INTO location_services VALUES(10,1000,1,TRUE);
       INSERT INTO location_resource_pools(tenant_id,location_id,name,capacity) VALUES(1,10,'Courts',4);
       INSERT INTO queue_days(tenant_id,location_id,business_date,state,intake_mode,timezone_snapshot,
         initial_closes_at,current_closes_at,effective_closes_at,opened_at)
-        VALUES(1,10,CURRENT_DATE,'open','accepting','Asia/Manila',clock_timestamp()-interval '2 hours',
+        VALUES(1,10,(clock_timestamp() AT TIME ZONE 'Asia/Manila')::date,'open','accepting','Asia/Manila',clock_timestamp()-interval '2 hours',
           clock_timestamp()+interval '10 minutes',clock_timestamp()+interval '10 minutes',clock_timestamp()-interval '2 hours');
       INSERT INTO queue_notification_outbox(idempotency_key,queue_day_id,tenant_id,recipient_key,channel,template_name,deadline_version)
         VALUES('old-warning',1,1,'operators','web_push','queue_closing_15m',1)`);
+    if (action === 'open') await pool.query("UPDATE queue_days SET state='unopened',intake_mode=NULL,opened_at=NULL WHERE id=1");
     if (action === 'resume') await pool.query("UPDATE queue_days SET intake_mode='paused' WHERE id=1");
     if (action === 'reopen') await pool.query("UPDATE queue_days SET state='closed',intake_mode=NULL,closed_at=clock_timestamp(),close_source='manual' WHERE id=1");
   }
@@ -104,7 +107,8 @@ test('enforced vendor Queue Day writers use location-first PostgreSQL transactio
       CREATE TABLE users(id BIGINT PRIMARY KEY,roles TEXT[],deletion_requested_at TIMESTAMPTZ,platform_access_suspended_at TIMESTAMPTZ);
       CREATE TABLE tenants(id BIGINT PRIMARY KEY,is_active BOOLEAN);
       CREATE TABLE tenant_memberships(id BIGINT PRIMARY KEY,user_id BIGINT REFERENCES users(id),tenant_id BIGINT REFERENCES tenants(id),role TEXT,is_active BOOLEAN);
-      CREATE TABLE store_locations(id BIGINT PRIMARY KEY,tenant_id BIGINT REFERENCES tenants(id),is_active BOOLEAN,UNIQUE(id,tenant_id));
+      CREATE TABLE store_locations(id BIGINT PRIMARY KEY,tenant_id BIGINT REFERENCES tenants(id),is_active BOOLEAN,timezone TEXT DEFAULT 'Asia/Manila',UNIQUE(id,tenant_id));
+      CREATE TABLE store_hours(id BIGSERIAL PRIMARY KEY,location_id BIGINT REFERENCES store_locations(id),weekday INTEGER,opens_at TIME,closes_at TIME,is_closed BOOLEAN,created_at TIMESTAMPTZ DEFAULT NOW(),updated_at TIMESTAMPTZ DEFAULT NOW());
       CREATE TABLE tenant_membership_locations(tenant_membership_id BIGINT REFERENCES tenant_memberships(id),location_id BIGINT REFERENCES store_locations(id));
       CREATE TABLE service_counters(id BIGINT PRIMARY KEY,tenant_id BIGINT REFERENCES tenants(id),location_id BIGINT REFERENCES store_locations(id),is_active BOOLEAN);
       CREATE TABLE service_counter_assignments(user_id BIGINT REFERENCES users(id),counter_id BIGINT REFERENCES service_counters(id));
@@ -113,10 +117,10 @@ test('enforced vendor Queue Day writers use location-first PostgreSQL transactio
       CREATE TABLE booking_bundle_items(id BIGINT PRIMARY KEY,booking_id BIGINT,tenant_id BIGINT,location_id BIGINT);
       CREATE TABLE tickets(id BIGINT PRIMARY KEY,tenant_id BIGINT,location_id BIGINT,status TEXT,current_queue_day_id BIGINT,
         carry_over_consumed BOOLEAN DEFAULT FALSE,notify_by_email BOOLEAN DEFAULT FALSE,user_id BIGINT,status_reason TEXT,
-        pending_carry_over_since TIMESTAMPTZ,carry_over_expires_at TIMESTAMPTZ,unserved_at TIMESTAMPTZ,terminal_at TIMESTAMPTZ,updated_at TIMESTAMPTZ,service_started_at TIMESTAMPTZ,service_ended_at TIMESTAMPTZ,UNIQUE(id,tenant_id,location_id));
+        pending_carry_over_since TIMESTAMPTZ,carry_over_expires_at TIMESTAMPTZ,unserved_at TIMESTAMPTZ,terminal_at TIMESTAMPTZ,updated_at TIMESTAMPTZ,service_started_at TIMESTAMPTZ,service_ended_at TIMESTAMPTZ,ticket_number TEXT,sequence INTEGER,date_key TEXT,queue_date_key TEXT,carried_over_at TIMESTAMPTZ,carry_over_count INTEGER DEFAULT 0,service_priority_band TEXT,UNIQUE(id,tenant_id,location_id));
       CREATE TABLE bookings(id BIGINT PRIMARY KEY,queue_ticket_id BIGINT,status TEXT,fulfillment_outcome_reason TEXT,
         refund_eligible BOOLEAN,fulfillment_resolved_at TIMESTAMPTZ,updated_at TIMESTAMPTZ);
-      CREATE TABLE queue_ticket_segments(ticket_id BIGINT,queue_day_id BIGINT,priority_band TEXT,ended_at TIMESTAMPTZ,segment_outcome TEXT,outcome_reason TEXT);
+      CREATE TABLE queue_ticket_segments(ticket_id BIGINT,queue_day_id BIGINT,priority_band TEXT,ended_at TIMESTAMPTZ,segment_outcome TEXT,outcome_reason TEXT,display_number TEXT,sequence INTEGER,UNIQUE(ticket_id,queue_day_id));
       CREATE TABLE queue_day_closures(id BIGINT PRIMARY KEY); CREATE TABLE queue_day_pauses(id BIGINT PRIMARY KEY);
       CREATE TABLE queue_events(id BIGSERIAL PRIMARY KEY,ticket_id BIGINT REFERENCES tickets(id),tenant_id BIGINT REFERENCES tenants(id),
         location_id BIGINT REFERENCES store_locations(id),queue_date_key TEXT,event_type TEXT,from_status TEXT,to_status TEXT,
@@ -127,6 +131,96 @@ test('enforced vendor Queue Day writers use location-first PostgreSQL transactio
       '20261007_add_resource_ledger_foundation.sql']) {
       await pool.query(fs.readFileSync(path.resolve(__dirname, '../../database/migrations', migration), 'utf8'));
     }
+    async function pendingCarryOver() {
+      await history();
+      await pool.query("UPDATE tickets SET status='pending_carry_over',current_queue_day_id=NULL,carry_over_expires_at=clock_timestamp()+interval '1 hour' WHERE id=1; DELETE FROM queue_ticket_segments");
+    }
+    await t.test('concurrent opening activates carry-over once with one revision and retains occupancy/timing', async () => {
+      await reset('open'); await pendingCarryOver();
+      const timing = (await pool.query('SELECT service_started_at,service_ended_at FROM tickets')).rows;
+      await pool.query("INSERT INTO tickets(id,tenant_id,location_id,status,carry_over_expires_at) VALUES(2,1,10,'pending_carry_over',clock_timestamp()-interval '1 second')");
+      const results = await Promise.all([run('open', { expectedVersion: 1 }), run('open', { expectedVersion: 1 })]);
+      assert.equal(results.filter(result => result.idempotent).length, 1);
+      assert.equal(results.reduce((total, result) => total + result.activatedCarryOverCount, 0), 1);
+      assert.equal((await day()).version, 2); assert.equal(await revision(), '2');
+      assert.deepEqual((await pool.query('SELECT status,carry_over_count FROM tickets ORDER BY id')).rows,
+        [{ status: 'waiting', carry_over_count: 1 }, { status: 'pending_carry_over', carry_over_count: 0 }]);
+      assert.equal(await count('queue_ticket_segments'), 1); assert.equal(await count('queue_events'), 2);
+      assert.equal((await pool.query("SELECT actor_role FROM queue_events WHERE event_type='queue_day_opened'")).rows[0].actor_role, 'owner');
+      assert.deepEqual((await pool.query('SELECT service_started_at,service_ended_at FROM tickets WHERE id=1')).rows, timing);
+      assert.equal((await pool.query('SELECT released_at FROM resource_allocations')).rows[0].released_at, null);
+    });
+    await t.test('opening rolls prior-day closure, new opening and carry-over activation back on segment failure', async () => {
+      await reset('open'); await pendingCarryOver();
+      await pool.query(`INSERT INTO queue_days(id,tenant_id,location_id,business_date,state,intake_mode,timezone_snapshot,
+        initial_closes_at,current_closes_at,opened_at) VALUES(2,1,10,(clock_timestamp() AT TIME ZONE 'Asia/Manila')::date-1,'open','accepting','Asia/Manila',
+          clock_timestamp()-interval '1 day',clock_timestamp()-interval '1 hour',clock_timestamp()-interval '1 day');
+        INSERT INTO tickets(id,tenant_id,location_id,status,current_queue_day_id) VALUES(2,1,10,'called',2);
+        INSERT INTO bookings(id,queue_ticket_id,status) VALUES(2,2,'confirmed')`);
+      const before = (await pool.query('SELECT * FROM queue_days ORDER BY id')).rows;
+      const tickets = (await pool.query('SELECT * FROM tickets ORDER BY id')).rows;
+      failure = 'INSERT INTO queue_ticket_segments';
+      await assert.rejects(run('open'), /injected write failure/); failure = null;
+      assert.deepEqual((await pool.query('SELECT * FROM queue_days ORDER BY id')).rows, before);
+      assert.deepEqual((await pool.query('SELECT * FROM tickets ORDER BY id')).rows, tickets);
+      assert.equal((await pool.query('SELECT status FROM bookings WHERE id=2')).rows[0].status, 'confirmed');
+      assert.equal(await revision(), undefined); assert.equal(await count('queue_events'), 0);
+      assert.equal(await count('queue_notification_outbox'), 1);
+      await run('open');
+      assert.equal((await pool.query('SELECT state FROM queue_days WHERE id=2')).rows[0].state, 'closed');
+      assert.equal((await day()).state, 'open'); assert.equal(await revision(), '2');
+      assert.equal((await pool.query('SELECT status FROM bookings WHERE id=2')).rows[0].status, 'unfulfilled');
+    });
+    await t.test('opening uses current timezone and database time rather than caller snapshots', async () => {
+      await reset('open'); await pool.query("UPDATE store_locations SET timezone='UTC' WHERE id=10");
+      const result = await run('open', { now: new Date('1980-01-01'), expectedVersion: 1 }, { ...location, timezone: 'invalid-stale-zone' });
+      assert.equal(result.queueDay.timezone, 'UTC');
+      assert.ok(new Date(result.queueDay.currentClosesAt) > new Date());
+    });
+    await t.test('opening rereads hours changed during branch contention and rejects outside hours without changes', async () => {
+      await reset('open'); const blocker = await pool.connect(); let pending;
+      try {
+        await blocker.query('BEGIN'); await blocker.query('SELECT id FROM store_locations WHERE id=10 FOR UPDATE');
+        pending = run('open'); const denied = assert.rejects(pending, { code: 'QUEUE_OUTSIDE_EFFECTIVE_HOURS' });
+        await waitForLock('FROM store_locations'); await blocker.query('UPDATE store_hours SET is_closed=TRUE');
+        await blocker.query('COMMIT'); await denied;
+      } finally { await blocker.query('ROLLBACK'); blocker.release(); if (pending) await pending.catch(() => {}); }
+      assert.equal((await day()).state, 'unopened'); assert.equal(await revision(), undefined);
+    });
+    await t.test('opening cannot activate a carry-over ticket that expires while its row lock waits', async () => {
+      await reset('open'); await pendingCarryOver(); const blocker = await pool.connect(); let pending;
+      try {
+        await pool.query("UPDATE tickets SET carry_over_expires_at=clock_timestamp()+interval '250 milliseconds' WHERE id=1");
+        await blocker.query('BEGIN'); await blocker.query('SELECT id FROM tickets WHERE id=1 FOR UPDATE');
+        pending = run('open'); pending.catch(() => {}); await waitForLock('FROM tickets');
+        await blocker.query('SELECT pg_sleep(0.3)'); await blocker.query('COMMIT');
+        assert.equal((await pending).activatedCarryOverCount, 0);
+      } finally { await blocker.query('ROLLBACK'); blocker.release(); if (pending) await pending.catch(() => {}); }
+      assert.equal((await pool.query('SELECT status FROM tickets')).rows[0].status, 'pending_carry_over');
+      assert.equal(await count('queue_ticket_segments'), 0); assert.equal(await revision(), '2');
+    });
+    await t.test('late initial opening update cannot use an interval that expired during a row lock wait', async () => {
+      await reset('open'); const blocker = await pool.connect(); let pending;
+      try {
+        await blocker.query('BEGIN'); await blocker.query('SELECT id FROM queue_days WHERE id=1 FOR UPDATE');
+        const interval = { timezone: 'UTC', effectiveOpensAt: new Date(Date.now()-1000),
+          effectiveClosesAt: new Date(Date.now()+250), actorUserId: '1' };
+        pending = database.withTransaction(async client => {
+          const repository = require('../src/repositories/queueDays');
+          await repository.findById('1', { client, forUpdate: true });
+          return repository.transitionOpen('1', interval, { client });
+        });
+        await waitForLock('FROM queue_days'); await blocker.query('SELECT pg_sleep(0.3)');
+        await blocker.query('COMMIT'); assert.equal(await pending, null);
+      } finally { await blocker.query('ROLLBACK'); blocker.release(); if (pending) await pending.catch(() => {}); }
+      assert.equal((await day()).state, 'unopened');
+    });
+    await t.test('opening rejects stale versions and already-closed days without a revision', async () => {
+      await reset('open'); await assert.rejects(run('open', { expectedVersion: 99 }), { code: 'QUEUE_STATE_CHANGED' });
+      assert.equal((await day()).state, 'unopened'); assert.equal(await revision(), undefined);
+      await reset('reopen'); await assert.rejects(run('open'), { code: 'QUEUE_DAY_CLOSED' });
+      assert.equal(await count('queue_events'), 0); assert.equal(await revision(), undefined);
+    });
     await t.test('pause/resume commit one event and revision per transition; duplicates remain idempotent', async () => {
       await reset(); await history();
       const result = await Promise.all([run('pause', { expectedVersion: 1 }), run('pause', { expectedVersion: 1 })]);
@@ -289,7 +383,7 @@ test('enforced vendor Queue Day writers use location-first PostgreSQL transactio
         '../config/db': database, './queueDayLifecycleService': service,
         './queueSnapshotHelpers': { resolveLocation: async () => location }
       });
-      for (const [action, method] of [['close', 'closeQueueDay'], ['reopen', 'reopenQueueDay']]) {
+      for (const [action, method] of [['close', 'closeQueueDay'], ['reopen', 'reopenQueueDay'], ['open', 'openQueueDay']]) {
         await reset(action);
         await assert.rejects(queue[method](tenant, { location }), { code: 'QUEUE_AUTHORIZATION_REQUIRED' });
         assert.equal((await day()).version, 1); assert.equal(await revision(), undefined); assert.equal(await count('queue_events'), 0);
@@ -318,9 +412,9 @@ test('enforced vendor Queue Day writers use location-first PostgreSQL transactio
       assert.equal(await count('queue_events'), 0); assert.equal(await count('queue_day_extensions'), 0);
       assert.equal((await pool.query('SELECT status FROM queue_notification_outbox')).rows[0].status, 'pending');
     });
-    await t.test('extension outbox failure rolls extension, warning obsolescence, event and revision back', async () => {
-      await reset('extend'); const before = await day(); failure = 'INSERT INTO queue_notification_outbox';
-      await assert.rejects(run('extend'), /injected write failure/); failure = null;
+    for (const action of ['extend', 'open']) await t.test(`${action} outbox failure rolls day, history, warning, event and revision back`, async () => {
+      await reset(action); const before = await day(); failure = 'INSERT INTO queue_notification_outbox';
+      await assert.rejects(run(action), /injected write failure/); failure = null;
       assert.deepEqual(await day(), before); assert.equal(await revision(), undefined);
       assert.equal(await count('queue_events'), 0); assert.equal(await count('queue_day_extensions'), 0);
       assert.equal((await pool.query('SELECT status FROM queue_notification_outbox')).rows[0].status, 'pending');

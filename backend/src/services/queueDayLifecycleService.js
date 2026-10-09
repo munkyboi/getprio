@@ -164,13 +164,19 @@ async function activatePendingCarryOvers(client, tenant, location, queueDay) {
        AND location_id = $2
        AND status = 'pending_carry_over'
        AND carry_over_consumed = FALSE
-       AND carry_over_expires_at > NOW()
+       AND carry_over_expires_at > clock_timestamp()
      ORDER BY pending_carry_over_since, id
      FOR UPDATE`,
     [Number(tenant._id), Number(location._id)]
   );
 
+  let activated = 0;
   for (const row of pending.rows) {
+    // Time can advance while the pending-ticket lock waits.
+    const eligible = (await client.query(`SELECT id FROM tickets WHERE id=$1
+      AND status='pending_carry_over' AND carry_over_consumed=FALSE
+      AND carry_over_expires_at > clock_timestamp()`, [row.id])).rows.length;
+    if (!eligible) continue;
     const sequence = await queueDays.allocateSequence(queueDay._id, { client });
     if (sequence == null) {
       throw stateError("Queue intake changed while carry-over tickets were activating.", "QUEUE_STATE_CHANGED");
@@ -209,31 +215,26 @@ async function activatePendingCarryOvers(client, tenant, location, queueDay) {
       reasonCode: "carry_over_activated",
       eventKey: `ticket:${row.id}:queue-day:${queueDay._id}:carry-over-activated`
     });
+    activated += 1;
   }
-  return pending.rows.length;
+  return activated;
 }
 
 async function openQueueDay(tenant, location, options = {}) {
-  const now = options.now || new Date();
-  const hours = await storeLocations.listHoursByLocationId(location._id);
-  const interval = resolveEffectiveStoreInterval({
-    now,
-    timezone: location.timezone,
-    hours
-  });
-  if (!interval) {
-    throw stateError(
-      "The queue can only be opened during this location's effective store hours.",
-      "QUEUE_OUTSIDE_EFFECTIVE_HOURS"
-    );
-  }
-
-  return db.withTransaction(async (client) => {
+  return withEnforcedQueueDayTransaction(tenant, location, options, async (client, currentOptions) => {
+    options = currentOptions;
     const previousOpen = await queueDays.findLatestByLocation(
       tenant._id,
       location._id,
       { client, state: "open", forUpdate: true }
     );
+    const current = (await client.query("SELECT timezone,clock_timestamp() AS now FROM store_locations WHERE id=$1", [location._id])).rows[0];
+    const now = new Date(current.now);
+    const hours = await storeLocations.listHoursByLocationId(location._id, { client });
+    const interval = resolveEffectiveStoreInterval({ now, timezone: current.timezone, hours });
+    if (!interval) {
+      throw stateError("The queue can only be opened during this location's effective store hours.", "QUEUE_OUTSIDE_EFFECTIVE_HOURS");
+    }
     if (previousOpen && previousOpen.businessDate !== interval.businessDate) {
       if (new Date(previousOpen.currentClosesAt) > now) {
         throw stateError(
