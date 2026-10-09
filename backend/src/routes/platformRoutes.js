@@ -872,10 +872,10 @@ registerPlatformUserMutation("/users/:userId/tenant-memberships", "platform.user
   const payload = { userId, tenantId, role, active };
   const outcome = await db.withTransaction(async (client) => {
     await client.query("SELECT pg_advisory_xact_lock(73921, $1)", [Number(tenantId)]);
+    const tenant = (await client.query("SELECT id,name FROM tenants WHERE id=$1 FOR UPDATE", [Number(tenantId)])).rows[0];
     const target = (await client.query("SELECT id,email,roles,mfa_required,deletion_requested_at FROM users WHERE id=$1 FOR UPDATE", [Number(userId)])).rows[0];
     if (!target) return { missingUser: true };
     if (target.deletion_requested_at) return { deletionPending: true };
-    const tenant = (await client.query("SELECT id,name FROM tenants WHERE id=$1 FOR UPDATE", [Number(tenantId)])).rows[0];
     if (!tenant) return { missingTenant: true };
     const current = (await client.query("SELECT role,is_active FROM tenant_memberships WHERE user_id=$1 AND tenant_id=$2 FOR UPDATE", [Number(userId), Number(tenantId)])).rows[0] || null;
     if (!current) return { missingMembership: true };
