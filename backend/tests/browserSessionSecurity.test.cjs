@@ -92,7 +92,9 @@ test("developer sessions use separate access, refresh, and CSRF cookies", () => 
   assert.equal(getAccessCookie({ [ACCESS_COOKIE]: "app-access" }, true, "developer"), null);
 });
 
-test("persistent developer sessions can keep the access cookie alive with the refresh session", () => {
+test("persistent developer sessions can keep the access cookie alive with the refresh session", t => {
+  const now = Date.now();
+  t.mock.method(Date, "now", () => now);
   const response = buildResponse();
   issueBrowserSession(response, {
     accessToken: "developer-access",

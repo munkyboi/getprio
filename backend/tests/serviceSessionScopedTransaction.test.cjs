@@ -34,6 +34,7 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
   const pool=new Pool({connectionString:databaseUrl,options:`-c search_path=${schema}`,application_name:schema,max:8});
   const tenant={_id:'1'}; const location={_id:'10'};
   let failEvent=false; let failBooking=false; let failWebhook=false; let failReconciliation=false; let snapshots=0; let pushes=0; let failAllowance=false; let dueRead=0; let dayReads=0; let failPayment=false; let subscriptionUnavailable=false; let paidDeadlineRace=false; let paidDeadlineObserved=false; let verifyPaidUserLock=false; let verifyPaidTenantLock=false; const billingEvents=new Set(); let paidEventBarrier=null; let intakeBarrier=null;
+  let automaticPushes=0;
   const noop=async () => {};
   async function readTicket(id,{client=pool}={}) {
     const r=(await client.query('SELECT * FROM tickets WHERE id=$1',[id])).rows[0];
@@ -49,7 +50,7 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
       CREATE TABLE queue_fee_settings(plan_slug TEXT PRIMARY KEY,enabled BOOLEAN,amount_cents INTEGER,currency TEXT,
         updated_by_user_id BIGINT,created_at TIMESTAMPTZ,updated_at TIMESTAMPTZ);
       CREATE TABLE tenant_subscriptions(id BIGINT PRIMARY KEY,tenant_id BIGINT,status TEXT,plan_slug TEXT,updated_at TIMESTAMPTZ);
-      CREATE TABLE tenants(id BIGINT PRIMARY KEY,is_active BOOLEAN,auto_pause_enabled BOOLEAN DEFAULT FALSE,auto_pause_threshold INTEGER,queue_prefix TEXT DEFAULT 'Q');
+      CREATE TABLE tenants(id BIGINT PRIMARY KEY,is_active BOOLEAN,auto_pause_enabled BOOLEAN DEFAULT FALSE,auto_pause_threshold INTEGER,auto_resume_enabled BOOLEAN DEFAULT FALSE,auto_resume_vacancy_percent INTEGER,queue_prefix TEXT DEFAULT 'Q');
       CREATE TABLE tenant_memberships(id BIGINT PRIMARY KEY,user_id BIGINT,tenant_id BIGINT,role TEXT,is_active BOOLEAN);
       CREATE TABLE tenant_membership_locations(tenant_membership_id BIGINT,location_id BIGINT);
       CREATE TABLE service_counters(id BIGINT,tenant_id BIGINT,location_id BIGINT,is_active BOOLEAN);
@@ -64,7 +65,9 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
         service_outcome TEXT,status_reason TEXT,updated_at TIMESTAMPTZ,served_at TIMESTAMPTZ,unserved_at TIMESTAMPTZ,service_priority_band TEXT,rejoin_deadline_at TIMESTAMPTZ,
         lookup_code TEXT,user_id BIGINT,customer_email TEXT,customer_phone TEXT,UNIQUE(id,tenant_id,location_id));
       CREATE TABLE ticket_service_plans(ticket_id BIGINT PRIMARY KEY,tenant_id BIGINT,location_id BIGINT,source TEXT,booking_id BIGINT,items JSONB);
-      CREATE TABLE events(id BIGSERIAL PRIMARY KEY,ticket_id BIGINT,event_type TEXT,metadata JSONB,actor_role TEXT);
+      CREATE TABLE events(id BIGSERIAL PRIMARY KEY,ticket_id BIGINT,event_type TEXT,metadata JSONB,actor_role TEXT,source TEXT);
+      CREATE TABLE queue_day_pauses(id BIGSERIAL PRIMARY KEY,tenant_id BIGINT,location_id BIGINT,queue_date_key TEXT,pause_reason TEXT,pause_mode TEXT,paused_by_user_id BIGINT,resumed_by_user_id BIGINT,paused_at TIMESTAMPTZ,resumed_at TIMESTAMPTZ,created_at TIMESTAMPTZ DEFAULT NOW(),updated_at TIMESTAMPTZ DEFAULT NOW());
+      CREATE UNIQUE INDEX queue_day_pauses_active_scope_idx ON queue_day_pauses(tenant_id,location_id,queue_date_key) WHERE resumed_at IS NULL;
       CREATE TABLE webhooks(event_id BIGINT);
       CREATE TABLE queue_ticket_segments(ticket_id BIGINT,ended_at TIMESTAMPTZ,segment_outcome TEXT,outcome_reason TEXT,queue_day_id BIGINT,display_number TEXT,sequence INTEGER,priority_band TEXT,UNIQUE(ticket_id,queue_day_id));
       CREATE TABLE queue_day_state(state TEXT,closes_at TIMESTAMPTZ DEFAULT clock_timestamp()-interval '1 second',intake_mode TEXT DEFAULT 'accepting',next_sequence INTEGER DEFAULT 1);
@@ -115,7 +118,7 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
         if (failBooking) throw new Error('booking failed');
       }},
       '../repositories/queueEvents':{createQueueEvent:async (data,{client}) => {
-        const r=await client.query('INSERT INTO events(ticket_id,event_type,metadata,actor_role) VALUES($1,$2,$3,$4) RETURNING id',[data.ticketId,data.eventType,JSON.stringify(data.metadata),data.actorRole]);
+        const r=await client.query('INSERT INTO events(ticket_id,event_type,metadata,actor_role,source) VALUES($1,$2,$3,$4,$5) RETURNING id',[data.ticketId,data.eventType,JSON.stringify(data.metadata),data.actorRole,data.source]);
         if (paidEventBarrier && data.eventType==='ticket_created') {paidEventBarrier.reached(); await paidEventBarrier.release;}
         if (verifyPaidUserLock && data.eventType==='ticket_created') await assert.rejects(pool.query('SELECT id FROM users WHERE id=1 FOR UPDATE NOWAIT'),{code:'55P03'});
         if (verifyPaidTenantLock && data.eventType==='ticket_created') await assert.rejects(pool.query('SELECT id FROM tenants WHERE id=1 FOR UPDATE NOWAIT'),{code:'55P03'});
@@ -135,7 +138,7 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
     async function reset(capacity=4,enabled=true) {
       await pool.query(`TRUNCATE resource_ledger_commands,resource_allocations,resource_ledger_reservations,resource_ledger_scopes,
         ticket_service_plans,tickets,booking_bundle_items,bookings,service_resource_requirements,location_resource_pools,
-        store_locations,tenant_membership_locations,service_counter_assignments,service_counters,tenant_memberships,tenants,users,events,webhooks,booking_audit,queue_ticket_segments,queue_day_state,intake_state,lifecycle_notifications,counters,vendor_services,location_services,store_hours,allowance_audit,queue_email_slots,queue_email_journeys,queue_join_payments,payment_allowance,tenant_subscriptions,queue_fee_settings RESTART IDENTITY CASCADE`);
+        store_locations,tenant_membership_locations,service_counter_assignments,service_counters,tenant_memberships,tenants,users,events,webhooks,booking_audit,queue_ticket_segments,queue_day_state,intake_state,queue_day_pauses,lifecycle_notifications,counters,vendor_services,location_services,store_hours,allowance_audit,queue_email_slots,queue_email_journeys,queue_join_payments,payment_allowance,tenant_subscriptions,queue_fee_settings RESTART IDENTITY CASCADE`);
       await pool.query(`INSERT INTO users(id,roles,deletion_requested_at,platform_access_suspended_at,email,phone) VALUES(1,'{}',NULL,NULL,'owner@example.com','09171234567'),(2,'{}',NULL,NULL,'other@example.com','09179876543');
         INSERT INTO tenant_subscriptions VALUES(1,1,'active','free',clock_timestamp());
         INSERT INTO tenants(id,is_active) VALUES(1,TRUE),(2,TRUE);
@@ -146,7 +149,7 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
         INSERT INTO vendor_services VALUES(1000,1,'Court play',60,TRUE); INSERT INTO location_services VALUES(1000,1,10,TRUE);
         INSERT INTO store_hours(location_id,weekday,opens_at,closes_at,is_closed) SELECT 10,n,'00:00','00:00',FALSE FROM generate_series(0,6) n`);
       await pool.query('INSERT INTO location_resource_pools(id,tenant_id,location_id,capacity,revision,tracking_enabled) VALUES(100,1,10,$1,1,$2)',[capacity,enabled]);
-      failEvent=false; failBooking=false; failWebhook=false; failReconciliation=false; snapshots=0; pushes=0; failAllowance=false; dueRead=0; dayReads=0; failPayment=false; subscriptionUnavailable=false; paidDeadlineRace=false; paidDeadlineObserved=false; verifyPaidUserLock=false; verifyPaidTenantLock=false; billingEvents.clear(); paidEventBarrier=null; intakeBarrier=null; queueClosed=false;
+      automaticPushes=0; failEvent=false; failBooking=false; failWebhook=false; failReconciliation=false; snapshots=0; pushes=0; failAllowance=false; dueRead=0; dayReads=0; failPayment=false; subscriptionUnavailable=false; paidDeadlineRace=false; paidDeadlineObserved=false; verifyPaidUserLock=false; verifyPaidTenantLock=false; billingEvents.clear(); paidEventBarrier=null; intakeBarrier=null; queueClosed=false;
       delete location.queueLifecycleMode;
     }
     async function ticket(id,{plan=true,booking=false,channel='vendor'}={}) {
@@ -1349,13 +1352,14 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
       assert.equal((await pool.query('SELECT count(*)::int AS n FROM store_hours WHERE is_closed')).rows[0].n,7);
       await paid(); assert.equal((await realPayments.findPaymentById('1',{client:pool})).ticketIssuanceStatus,'refund_pending'); assert.equal(await count('tickets'),0);
     });
-    function legacyLifecycle(database, target='queueService') {
+    function legacyLifecycle(database, target='queueService', actualPauses=false) {
       const injected={...queueMocks,'../config/db':database,'./queueHelpers':require('../src/services/queueHelpers'),
         '../repositories/tickets':{...queueMocks['../repositories/tickets'],listWaitingTickets:realTickets.listWaitingTickets,reopenTicketsFromClosure:realTickets.reopenTicketsFromClosure,restoreCarriedOverTicketsFromClosure:realTickets.restoreCarriedOverTicketsFromClosure,
           listTicketsForQueueClosure:realTickets.listTicketsForQueueClosure,markTicketsUnservedForClosure:realTickets.markTicketsUnservedForClosure,carryOverWaitingTickets:realTickets.carryOverWaitingTickets},
         '../repositories/queueDayClosures':{...queueMocks['../repositories/queueDayClosures'],findActiveClosure:async (_tenant,_location,_date,{client})=>{const row=(await client.query('SELECT closed,closure FROM intake_state')).rows[0];return row.closed?{_id:'1',...row.closure}:null;},createClosure:async (data,{client})=>{await client.query('UPDATE intake_state SET closed=TRUE,closure=$1',[JSON.stringify(data)]); return {_id:'1',...data};},reopenClosure:async (_id,_actor,{client})=>{await client.query('UPDATE intake_state SET closed=FALSE');}},
-        '../repositories/queueDayPauses':{...queueMocks['../repositories/queueDayPauses'],createPause:async (data,{client})=>{await client.query('UPDATE intake_state SET paused=TRUE'); return {_id:'1',...data};},resumePause:async (_id,_actor,{client})=>{await client.query('UPDATE intake_state SET paused=FALSE');}},
-        './pushNotificationService':{...mocks['./pushNotificationService'],notifyVendorQueueLifecycle:noop}};
+        '../repositories/queueDayPauses':{...queueMocks['../repositories/queueDayPauses'],createPause:async (data,{client})=>{await client.query('UPDATE intake_state SET paused=TRUE'); return {_id:'1',...data};},resumePause:async (_id,_actor,{client})=>{await client.query('UPDATE intake_state SET paused=FALSE');return {_id:'1'};}},
+        './pushNotificationService':{...mocks['./pushNotificationService'],notifyVendorQueueLifecycle:async()=>{automaticPushes++;}}};
+      if(actualPauses) injected['../repositories/queueDayPauses']=require('../src/repositories/queueDayPauses');
       const filename=path.resolve(__dirname,`../src/services/${target}.js`); const compiled=new (require('node:module').Module)(filename);
       compiled.require=request=>Object.hasOwn(injected,request) ? injected[request] : require(path.resolve(path.dirname(filename),request));
       compiled._compile(fs.readFileSync(filename,'utf8'),filename); return compiled.exports;
@@ -1464,7 +1468,7 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
     await t.test('automatic resume shares the paid location lock in both commit orderings',async () => {
       const autoTenant={...tenant,autoPauseEnabled:true,autoPauseThreshold:3,autoResumeEnabled:true,autoResumeVacancyPercent:25};
       for(const first of ['resume','paid']) {
-        await reset(); await legacyPayment(); await pool.query('UPDATE intake_state SET paused=TRUE');
+        await reset(); await legacyPayment(); await pool.query('UPDATE intake_state SET paused=TRUE; UPDATE tenants SET auto_pause_enabled=TRUE,auto_pause_threshold=3,auto_resume_enabled=TRUE,auto_resume_vacancy_percent=25 WHERE id=1');
         let reached; const locked=new Promise(resolve=>{reached=resolve;}); let release; const unblock=new Promise(resolve=>{release=resolve;});
         const automation=legacyLifecycle({pool,withTransaction:callback=>withTransaction(client=>callback({query:async (...args)=>{
           const result=await client.query(...args); if(first==='resume' && String(args[0]).includes('FROM store_locations') && String(args[0]).includes('FOR UPDATE')) {reached(); await unblock;} return result;
@@ -1481,7 +1485,7 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
       }
     });
     await t.test('automatic pause reevaluates waiting count after the location lock wait',async () => {
-      await reset(); await legacyPayment(); await ticket('1'); await pool.query("UPDATE tickets SET status='waiting'");
+      await reset(); await legacyPayment(); await ticket('1'); await pool.query("UPDATE tickets SET status='waiting'; UPDATE tenants SET auto_pause_enabled=TRUE,auto_pause_threshold=1 WHERE id=1");
       const blocker=await pool.connect(); await blocker.query('BEGIN'); await blocker.query('SELECT id FROM store_locations WHERE id=10 FOR UPDATE');
       const automation=legacyLifecycle({pool,withTransaction},'queueAutomationHelpers');
       const pending=automation.maybeAutoPauseQueueDay({...tenant,autoPauseEnabled:true,autoPauseThreshold:1},{location,queueDateKey:'20261008'}); pending.catch(()=>{});
@@ -1489,6 +1493,77 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
         await waitForLocationLock(); await blocker.query("UPDATE tickets SET status='cancelled' WHERE id=1"); await blocker.query('COMMIT');
         assert.equal(await pending,null); assert.equal((await pool.query('SELECT paused FROM intake_state')).rows[0].paused,false);
       } finally {await blocker.query('ROLLBACK');blocker.release();await pending.catch(()=>{});}
+    });
+    async function automaticPolicy(threshold=1,vacancy=25) {
+      await pool.query('UPDATE tenants SET auto_pause_enabled=TRUE,auto_pause_threshold=$1,auto_resume_enabled=TRUE,auto_resume_vacancy_percent=$2 WHERE id=1',[threshold,vacancy]);
+    }
+    async function automaticWaiting(id='1') {
+      await ticket(id);await pool.query("UPDATE tickets SET status='waiting',date_key=to_char(clock_timestamp() AT TIME ZONE 'Asia/Manila','YYYYMMDD') WHERE id=$1",[id]);
+    }
+    function automatic(database={pool,withTransaction}) {return legacyLifecycle(database,'queueAutomationHelpers',true);}
+    await t.test('automatic legacy pause and resume commit one actual pause event and revision on concurrent repeats without releasing occupancy',async () => {
+      await reset();await automaticPolicy();await automaticWaiting();await ticket('2');await record('2','start');
+      const before=(await pool.query('SELECT revision::text FROM resource_ledger_scopes')).rows[0].revision;
+      const automation=automatic();const pauses=await Promise.all([automation.maybeAutoPauseQueueDay(tenant,{location}),automation.maybeAutoPauseQueueDay(tenant,{location})]);
+      assert.equal(pauses[0]._id,pauses[1]._id);assert.equal(await count('queue_day_pauses'),1);assert.equal(automaticPushes,1);
+      assert.equal((await pool.query('SELECT revision::text FROM resource_ledger_scopes')).rows[0].revision,String(Number(before)+1));
+      await pool.query("UPDATE tickets SET status='cancelled' WHERE id=1");
+      assert.deepEqual((await Promise.all([automation.maybeAutoResumeQueueDay(tenant,{location}),automation.maybeAutoResumeQueueDay(tenant,{location})])).sort(),[null,true]);
+      assert.equal(automaticPushes,2);assert.equal((await pool.query('SELECT revision::text FROM resource_ledger_scopes')).rows[0].revision,String(Number(before)+2));
+      const transitions=(await pool.query("SELECT event_type,source,metadata FROM events WHERE event_type IN ('queue_paused','queue_resumed') ORDER BY id")).rows;
+      assert.deepEqual(transitions.map(r=>[r.event_type,r.source,r.metadata.pauseMode,r.metadata.waitingCount]),[['queue_paused','system','auto_threshold',1],['queue_resumed','system','auto_threshold',0]]);
+      assert.equal((await pool.query('SELECT released_at FROM resource_allocations')).rows[0].released_at,null);
+      assert.equal(await automation.maybeAutoResumeQueueDay(tenant,{location}),null);assert.equal(automaticPushes,2);
+    });
+    await t.test('automatic legacy intake noops on inactive disabled invalid closed enforced or below-threshold scopes without a revision',async () => {
+      for(const sql of ["UPDATE tenants SET auto_pause_enabled=FALSE", "UPDATE tenants SET is_active=FALSE", "UPDATE store_locations SET is_active=FALSE WHERE id=10", "UPDATE tenants SET auto_pause_threshold=501", "UPDATE intake_state SET closed=TRUE", "UPDATE store_locations SET queue_lifecycle_mode='enforced' WHERE id=10", "UPDATE tenants SET auto_pause_threshold=2"]) {
+        await reset();await automaticPolicy();await automaticWaiting();await pool.query(sql);const automation=automatic();
+        assert.equal(await automation.maybeAutoPauseQueueDay({...tenant,autoPauseEnabled:true,autoPauseThreshold:1},{location}),null);
+        assert.equal(await count('queue_day_pauses'),0);assert.equal(await count('events'),0);assert.equal(await count('resource_ledger_scopes'),0);assert.equal(automaticPushes,0);
+      }
+      await reset();await automaticPolicy();const automation=automatic();
+      const date=require('../src/services/queueHelpers').getDateKey();const pauses=require('../src/repositories/queueDayPauses');
+      await withTransaction(client=>pauses.createPause({tenantId:'1',locationId:'10',queueDateKey:date,pauseMode:'manual'},{client}));
+      assert.equal(await automation.maybeAutoResumeQueueDay(tenant,{location}),null);assert.equal(await count('resource_ledger_scopes'),0);
+      await assert.rejects(automation.maybeAutoPauseQueueDay(tenant,{location:{_id:'9007199254740993'}}),{statusCode:400});
+    });
+    await t.test('automatic intake rereads disabled threshold and activity changes after the location lock wait',async () => {
+      for(const sql of ["UPDATE tenants SET auto_pause_enabled=FALSE WHERE id=1", "UPDATE tenants SET auto_pause_threshold=2 WHERE id=1", "UPDATE tenants SET is_active=FALSE WHERE id=1", "UPDATE store_locations SET is_active=FALSE WHERE id=10", "UPDATE store_locations SET queue_lifecycle_mode='enforced' WHERE id=10"]) {
+        await reset();await automaticPolicy();await automaticWaiting();const blocker=await pool.connect();let pending;
+        try {await blocker.query('BEGIN');await blocker.query('SELECT id FROM store_locations WHERE id=10 FOR UPDATE');
+          pending=automatic().maybeAutoPauseQueueDay({...tenant,autoPauseEnabled:true,autoPauseThreshold:1},{location});pending.catch(()=>{});await waitForLocationLock();
+          await blocker.query(sql);await blocker.query('COMMIT');assert.equal(await pending,null);assert.equal(await count('queue_day_pauses'),0);assert.equal(await count('resource_ledger_scopes'),0);
+        } finally {await blocker.query('ROLLBACK');blocker.release();if(pending)await pending.catch(()=>{});}
+      }
+      await reset();await automaticPolicy();await automaticWaiting();assert.ok(await automatic().maybeAutoPauseQueueDay({...tenant,autoPauseEnabled:false},{location}));
+    });
+    await t.test('automatic resume uses current vacancy and enabled policy after waiting rather than stale tenant values',async () => {
+      for(const sql of ["UPDATE tenants SET auto_resume_enabled=FALSE WHERE id=1", "UPDATE tenants SET auto_resume_vacancy_percent=50 WHERE id=1"]) {
+        await reset();await automaticPolicy(4,25);for(const id of ['1','2','3','4'])await automaticWaiting(id);const automation=automatic();await automation.maybeAutoPauseQueueDay(tenant,{location});
+        await pool.query("UPDATE tickets SET status='cancelled' WHERE id=4");const blocker=await pool.connect();let pending;
+        try {await blocker.query('BEGIN');await blocker.query('SELECT id FROM store_locations WHERE id=10 FOR UPDATE');
+          pending=automation.maybeAutoResumeQueueDay({...tenant,autoPauseEnabled:true,autoPauseThreshold:4,autoResumeEnabled:true,autoResumeVacancyPercent:25},{location});pending.catch(()=>{});await waitForLocationLock();
+          await blocker.query(sql);await blocker.query('COMMIT');assert.equal(await pending,null);
+          assert.equal((await pool.query('SELECT resumed_at FROM queue_day_pauses')).rows[0].resumed_at,null);assert.equal(await count('events'),1);assert.equal((await pool.query('SELECT revision::text FROM resource_ledger_scopes')).rows[0].revision,'2');
+        } finally {await blocker.query('ROLLBACK');blocker.release();if(pending)await pending.catch(()=>{});}
+      }
+    });
+    await t.test('automatic intake holds current policy through commit and rolls pause events and revisions back on failure or caller rollback',async () => {
+      for(const action of ['maybeAutoPauseQueueDay','maybeAutoResumeQueueDay']) {
+        await reset();await automaticPolicy();await automaticWaiting();let reached;const locked=new Promise(resolve=>{reached=resolve;});let release;const unblock=new Promise(resolve=>{release=resolve;});
+        const automation=automatic({pool,withTransaction:callback=>withTransaction(client=>callback({query:async(...args)=>{const result=await client.query(...args);if(String(args[0]).includes('INSERT INTO resource_ledger_scopes')){reached();await unblock;}return result;}}))});
+        if(action==='maybeAutoResumeQueueDay'){await automatic().maybeAutoPauseQueueDay(tenant,{location});await pool.query("UPDATE tickets SET status='cancelled' WHERE id=1");}
+        const pending=automation[action](tenant,{location});pending.catch(()=>{});
+        try {await Promise.race([locked,pending.then(()=>{throw new Error('automatic revision barrier missing');})]);
+          await assert.rejects(pool.query('SELECT id FROM tenants WHERE id=1 FOR UPDATE NOWAIT'),{code:'55P03'});release();await pending;
+        } finally {release();await pending.catch(()=>{});}
+        await reset();await automaticPolicy();await automaticWaiting();
+        if(action==='maybeAutoResumeQueueDay'){await automatic().maybeAutoPauseQueueDay(tenant,{location});await pool.query("UPDATE tickets SET status='cancelled' WHERE id=1");}
+        const pauses=(await pool.query('SELECT * FROM queue_day_pauses')).rows;const revision=(await pool.query('SELECT revision::text FROM resource_ledger_scopes')).rows[0]?.revision;const events=await count('events');const pushesBefore=automaticPushes;
+        failEvent=true;await assert.rejects(automatic()[action](tenant,{location}),/event failed/);assert.deepEqual((await pool.query('SELECT * FROM queue_day_pauses')).rows,pauses);assert.equal((await pool.query('SELECT revision::text FROM resource_ledger_scopes')).rows[0]?.revision,revision);assert.equal(await count('events'),events);assert.equal(automaticPushes,pushesBefore);
+        failEvent=false;await assert.rejects(withTransaction(async client=>{await automatic()[action](tenant,{location,client});throw new Error('caller abort');}),/caller abort/);
+        assert.deepEqual((await pool.query('SELECT * FROM queue_day_pauses')).rows,pauses);assert.equal((await pool.query('SELECT revision::text FROM resource_ledger_scopes')).rows[0]?.revision,revision);assert.equal(await count('events'),events);assert.equal(automaticPushes,pushesBefore);
+      }
     });
     await t.test('subscription suspension and paid issuance serialize on the accepted subscription row',async () => {
       for(const first of ['suspend','paid']) {

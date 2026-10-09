@@ -2,7 +2,13 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 
 const db = require("../src/config/db");
-db.withTransaction = async fn => fn({ query: async () => ({ rows: [{ id: 1, timezone: "Asia/Manila", queue_lifecycle_mode: "legacy" }] }) });
+function transactionFixture(threshold=5) {
+  return async fn => fn({ query: async sql => ({ rows: sql.includes("FROM tenants")
+    ? [{is_active:true,auto_pause_enabled:true,auto_pause_threshold:threshold,auto_resume_enabled:true,auto_resume_vacancy_percent:25}]
+    : [{ id: 1, is_active:true,timezone: "Asia/Manila", queue_lifecycle_mode: "legacy" }] }) });
+}
+db.withTransaction = transactionFixture();
+require("../src/repositories/queueEvents").createQueueEvent=async()=>({_id:"1"});
 
 const helpers = require("../src/services/queueAutomationHelpers");
 
@@ -39,7 +45,7 @@ test("maybeAutoPauseQueueDay creates a pause when threshold is reached", async (
   pauses.findActivePause = async () => null;
   tickets.listWaitingTickets = async () => [{ _id: 1 }, { _id: 2 }, { _id: 3 }];
   pauses.createPause = async () => ({ _id: 99, pauseMode: "auto_threshold" });
-  db.withTransaction = async fn => fn({ query: async () => ({ rows: [{ id: 1, timezone: "Asia/Manila", queue_lifecycle_mode: "legacy" }] }) });
+  db.withTransaction = transactionFixture(3);
 
   const result = await helpers.maybeAutoPauseQueueDay(
     { _id: 10, autoPauseEnabled: true, autoPauseThreshold: 3 },
@@ -60,7 +66,7 @@ test("maybeAutoResumeQueueDay returns true when auto-threshold pause can be resu
   pauses.findActivePause = async () => ({ _id: 5, pauseMode: "auto_threshold", pauseReason: "Auto" });
   pauses.resumePause = async () => ({});
   tickets.listWaitingTickets = async () => [{ _id: 1 }];
-  db.withTransaction = async fn => fn({ query: async () => ({ rows: [{ id: 1, timezone: "Asia/Manila", queue_lifecycle_mode: "legacy" }] }) });
+  db.withTransaction = transactionFixture(3);
 
   const result = await helpers.maybeAutoResumeQueueDay(
     {
