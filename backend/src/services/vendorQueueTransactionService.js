@@ -20,6 +20,7 @@ async function withVendorQueueTransaction({ pool, tenant, location, actorUserId,
   let actorContext;
   return resourceLedger.withScopeTransaction({
     pool, tenantId: String(tenant._id), locationId: String(location._id), actorUserId: String(actorUserId),
+    locationKeyShareCompatible: lockTenantActivity,
     authorize: async (client, scope) => {
       // Staff access changes take tenant before membership; use the same order.
       if (lockTenantActivity) await client.query("SELECT id FROM tenants WHERE id=$1 FOR SHARE", [scope.tenantId]);

@@ -160,8 +160,8 @@ const handlers = { reserve, cancelReservation, allocate, release };
 // Domain adapters must enter here before taking booking/ticket/pool locks.
 // The authorize callback rechecks server-owned scope and actor permissions under
 // the location lock, including retries; returning anything except true denies.
-async function withScopeTransaction({ pool, tenantId, locationId, actorUserId, authorize }, callback) {
-  return runScopeTransaction({ pool, tenantId, locationId, actorId: id(actorUserId), authorize }, callback);
+async function withScopeTransaction({ pool, tenantId, locationId, actorUserId, authorize, locationKeyShareCompatible = false }, callback) {
+  return runScopeTransaction({ pool, tenantId, locationId, actorId: id(actorUserId), authorize, locationKeyShareCompatible }, callback);
 }
 
 // Public admission has an optional customer identity and receives no ledger
@@ -195,7 +195,7 @@ async function withCarryOverExpiryTransaction({ pool, tenantId, locationId, tick
     authorize: async () => true, ticketExpiryId: id(ticketId) }, callback);
 }
 
-async function runScopeTransaction({ pool, tenantId, locationId, actorId, authorize, customerCancellationLookupCode = null, ticketExpiryId = null }, callback) {
+async function runScopeTransaction({ pool, tenantId, locationId, actorId, authorize, customerCancellationLookupCode = null, ticketExpiryId = null, locationKeyShareCompatible = false }, callback) {
   const scope = [id(tenantId), id(locationId)];
   if (typeof authorize !== "function" || typeof callback !== "function") {
     fail("Scoped transactions require authorization and a domain callback.", 400);
@@ -234,7 +234,9 @@ async function runScopeTransaction({ pool, tenantId, locationId, actorId, author
   });
   try {
     await client.query("BEGIN");
-    const branch = await client.query("SELECT id FROM store_locations WHERE tenant_id=$1 AND id=$2 FOR UPDATE", scope);
+    // Both modes serialize branch writers; the latter also permits FK key-share readers.
+    const branchLock = locationKeyShareCompatible === true ? "FOR NO KEY UPDATE" : "FOR UPDATE";
+    const branch = await client.query(`SELECT id FROM store_locations WHERE tenant_id=$1 AND id=$2 ${branchLock}`, scope);
     if (!branch.rows.length) fail("Location not found.", 404);
     if (await authorize(client, Object.freeze({ tenantId: scope[0], locationId: scope[1], actorUserId: actorId })) !== true) {
       fail("Resource operation is not authorized.", 403);

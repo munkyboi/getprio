@@ -52,10 +52,12 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
       CREATE TABLE tenant_subscriptions(id BIGINT PRIMARY KEY,tenant_id BIGINT,status TEXT,plan_slug TEXT,updated_at TIMESTAMPTZ);
       CREATE TABLE tenants(id BIGINT PRIMARY KEY,is_active BOOLEAN,auto_pause_enabled BOOLEAN DEFAULT FALSE,auto_pause_threshold INTEGER,auto_resume_enabled BOOLEAN DEFAULT FALSE,auto_resume_vacancy_percent INTEGER,queue_prefix TEXT DEFAULT 'Q');
       CREATE TABLE tenant_memberships(id BIGINT PRIMARY KEY,user_id BIGINT,tenant_id BIGINT,role TEXT,is_active BOOLEAN);
-      CREATE TABLE tenant_membership_locations(tenant_membership_id BIGINT,location_id BIGINT);
+      CREATE TABLE tenant_membership_locations(tenant_membership_id BIGINT,location_id BIGINT,assignment_source TEXT DEFAULT 'explicit',assigned_by_user_id BIGINT,UNIQUE(tenant_membership_id,location_id));
       CREATE TABLE service_counters(id BIGINT,tenant_id BIGINT,location_id BIGINT,is_active BOOLEAN);
       CREATE TABLE service_counter_assignments(user_id BIGINT,counter_id BIGINT);
       CREATE TABLE store_locations(id BIGINT PRIMARY KEY,tenant_id BIGINT,is_active BOOLEAN,service_timing_enabled BOOLEAN,UNIQUE(id,tenant_id));
+      ALTER TABLE tenant_membership_locations ADD FOREIGN KEY(tenant_membership_id) REFERENCES tenant_memberships(id) ON DELETE CASCADE,
+        ADD FOREIGN KEY(location_id) REFERENCES store_locations(id) ON DELETE CASCADE,ADD FOREIGN KEY(assigned_by_user_id) REFERENCES users(id) ON DELETE SET NULL;
       CREATE TABLE location_resource_pools(id BIGINT PRIMARY KEY,tenant_id BIGINT,location_id BIGINT,capacity INTEGER,revision INTEGER,tracking_enabled BOOLEAN,UNIQUE(id,tenant_id,location_id));
       CREATE TABLE service_resource_requirements(tenant_id BIGINT,location_id BIGINT,service_id BIGINT,pool_id BIGINT,units_required INTEGER,revision INTEGER);
       CREATE TABLE bookings(id BIGINT PRIMARY KEY,tenant_id BIGINT,location_id BIGINT,status TEXT,pending_expires_at TIMESTAMPTZ,payment_proof_object_key TEXT,queue_ticket_id BIGINT,fulfillment_outcome_reason TEXT,refund_eligible BOOLEAN,fulfillment_resolved_at TIMESTAMPTZ,updated_at TIMESTAMPTZ,customer_user_id BIGINT,customer_email TEXT,customer_phone TEXT);
@@ -510,6 +512,8 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
         try {
           await Promise.race([locked,pending.then(()=>{throw new Error(`tenant activity barrier missing for ${action}`);})]);
           await assert.rejects(pool.query('SELECT id FROM tenants WHERE id=1 FOR UPDATE NOWAIT'),{code:'55P03'});
+          await assert.rejects(pool.query('SELECT id FROM store_locations WHERE id=10 FOR NO KEY UPDATE NOWAIT'),{code:'55P03'});
+          await assert.rejects(pool.query('SELECT id FROM store_locations WHERE id=10 FOR UPDATE NOWAIT'),{code:'55P03'});
           const sql='UPDATE tenants SET is_active=FALSE WHERE id=1';deactivation=pool.query(sql);deactivation.catch(()=>{});
           const deadline=Date.now()+3000;let waiting=false;
           while(Date.now()<deadline) {
@@ -543,13 +547,13 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
         } finally {await blocker.query('ROLLBACK');blocker.release();if(pending)await pending.catch(()=>{});}
       }
     });
-    await t.test('staff access changes and activity-gated vendor actions take tenant before membership in both orderings',async () => {
+    await t.test('staff status and FK-backed assignment changes serialize with activity-gated vendor actions in both orderings',async () => {
       const {createStaffAccessEmailService}=require('../src/services/staffAccessEmailService');
       const staffUsers={findUserById:async(id,{client})=>{
         const row=(await client.query('SELECT role,is_active FROM tenant_memberships WHERE user_id=$1 AND tenant_id=1',[id])).rows[0];
         return {_id:String(id),tenantMemberships:row?[{tenantId:'1',role:row.role,isActive:row.is_active}]:[]};
       },listUsersByTenantId:async()=>[]};
-      for(const action of activeVendorActions)for(const first of ['staff','queue']) {
+      for(const action of activeVendorActions)for(const kind of ['status','assignment'])for(const first of ['staff','queue']) {
         await prepareActiveVendorAction(action);await pool.query('INSERT INTO tenant_membership_locations VALUES(2,10)');
         const run=()=>action==='start'?record('1','start','2'):action==='walkin'?walkin({actorUserId:'2'}):action==='call'?call({actorUserId:'2'}):action==='confirm'?confirm('LOOKUP-1',{actorUserId:'2'}):restore('1',{actorUserId:'2'});
         let reached;const locked=new Promise(resolve=>{reached=resolve;});let release;const unblock=new Promise(resolve=>{release=resolve;});
@@ -561,7 +565,7 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
           }};
           return callback(wrapped);
         })},userRepository:staffUsers,locationRepository:require('../src/repositories/tenantMembershipLocations')});
-        const change=()=>staffService.change({tenant,userId:'2',actorId:'1'},async({client})=>client.query('UPDATE tenant_memberships SET is_active=FALSE WHERE user_id=2 AND tenant_id=1'));
+        const change=()=>staffService.change({tenant,userId:'2',actorId:'1'},async({client})=>kind==='status'?client.query('UPDATE tenant_memberships SET is_active=FALSE WHERE user_id=2 AND tenant_id=1'):require('../src/repositories/tenantMembershipLocations').replaceUserLocationAssignments({userId:'2',tenantId:'1',locationIds:['10'],assignedByUserId:'1'},{client}));
         if(first==='queue')vendorEventBarrier={reached,release:unblock};
         const leading=first==='staff'?change():run();leading.catch(()=>{});let trailing;
         try {
@@ -575,9 +579,10 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
           assert.equal(waiting,true,'the competing transaction must wait at tenant, before membership');
           if(first==='staff')await pool.query('SELECT id FROM tenant_memberships WHERE id=2 FOR UPDATE NOWAIT');
           release();await leading;
-          if(first==='staff')await assert.rejects(trailing,{statusCode:403});else await trailing;
-          assert.equal((await pool.query('SELECT is_active FROM tenant_memberships WHERE id=2')).rows[0].is_active,false);
-          assert.equal(await count('events'),first==='staff'?0:1);assert.equal(await count('resource_allocations'),first==='queue'&&action==='start'?1:0);
+          if(first==='staff'&&kind==='status')await assert.rejects(trailing,{statusCode:403});else await trailing;
+          assert.equal((await pool.query('SELECT is_active FROM tenant_memberships WHERE id=2')).rows[0].is_active,kind==='assignment');
+          assert.equal(await count('events'),first==='staff'&&kind==='status'?0:1);assert.equal(await count('resource_allocations'),(first==='queue'||kind==='assignment')&&action==='start'?1:0);
+          if(kind==='assignment')assert.equal((await pool.query('SELECT count(*)::int AS n FROM tenant_membership_locations WHERE tenant_membership_id=2 AND location_id=10')).rows[0].n,1);
         } finally {release();await leading.catch(()=>{});if(trailing)await trailing.catch(()=>{});vendorEventBarrier=null;}
       }
     });
