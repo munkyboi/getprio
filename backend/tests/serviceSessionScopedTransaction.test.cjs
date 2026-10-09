@@ -1439,6 +1439,16 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
         } finally {await blocker.query('ROLLBACK');blocker.release();if(pending)await pending.catch(()=>{});}
       }
     });
+    await t.test('legacy reopen rejects owner demotion to assigned staff while waiting for the location lock',async () => {
+      await reset();const lifecycle=legacyLifecycle({pool,withTransaction});await lifecycle.closeQueueDay(tenant,{location,actorUserId:'1'});
+      await pool.query('INSERT INTO tenant_membership_locations VALUES(1,10)');const blocker=await pool.connect();let pending;
+      try {await blocker.query('BEGIN');await blocker.query('SELECT id FROM store_locations WHERE id=10 FOR UPDATE');
+        pending=lifecycle.reopenQueueDay(tenant,{location,actorUserId:'1'});pending.catch(()=>{});await waitForLocationLock();
+        await blocker.query("UPDATE tenant_memberships SET role='staff' WHERE id=1");await blocker.query('COMMIT');
+        await assert.rejects(pending,{statusCode:403});assert.equal((await pool.query('SELECT closed FROM intake_state')).rows[0].closed,true);
+        assert.equal((await pool.query('SELECT revision::text FROM resource_ledger_scopes')).rows[0].revision,'2');assert.equal(await count('events'),1);
+      } finally {await blocker.query('ROLLBACK');blocker.release();if(pending)await pending.catch(()=>{});}
+    });
     await t.test('legacy lifecycle event failure rolls intake ticket outcomes and revision back',async () => {
       for(const action of ['pauseQueueDay','resumeQueueDay','closeQueueDay','reopenQueueDay']) {
         await reset();const lifecycle=legacyLifecycle({pool,withTransaction});

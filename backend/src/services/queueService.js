@@ -1088,7 +1088,7 @@ async function cancelTicket(tenant, lookupCode, options = {}) {
   return { ticket, snapshot };
 }
 
-async function lockLegacyIntakeLocation(client, tenant, location, options) {
+async function lockLegacyIntakeLocation(client, tenant, location, options, permission = "tenant.queue.operate") {
   if (options.actorUserId == null) throw Object.assign(new Error("Vendor authorization is required."), { statusCode: 403 });
   for (const value of [tenant._id, location._id, options.actorUserId]) {
     if (!/^[1-9]\d{0,18}$/u.test(String(value)) || !Number.isSafeInteger(Number(value))) {
@@ -1105,7 +1105,7 @@ async function lockLegacyIntakeLocation(client, tenant, location, options) {
   if (!current.is_active || !business?.is_active) throw Object.assign(new Error("This business or location is inactive."), { statusCode: 409 });
   const actor = await readAuthorizedVendorQueueActor(client, {
     actorUserId: String(options.actorUserId), tenantId: String(tenant._id), locationId: String(location._id)
-  }, "tenant.queue.operate", { forShare: true });
+  }, permission, { forShare: true });
   if (!actor) throw Object.assign(new Error("Queue operation is not authorized."), { statusCode: 403 });
   await client.query("INSERT INTO resource_ledger_scopes(tenant_id,location_id) VALUES($1,$2) ON CONFLICT DO NOTHING", [tenant._id, location._id]);
   return { ...location, timezone: current.timezone, queueLifecycleMode: current.queue_lifecycle_mode };
@@ -1307,7 +1307,7 @@ async function reopenQueueDay(tenant, options = {}) {
   let queueDateKey;
   let reopenedTicketsForPush = [];
   await db.withTransaction(async (client) => {
-    location = await lockLegacyIntakeLocation(client, tenant, location, options);
+    location = await lockLegacyIntakeLocation(client, tenant, location, options, "tenant.queue.reopen");
     queueDateKey = options.queueDateKey || getDateKey(new Date(), location.timezone);
 
     const activeClosure = await queueDayClosureRepository.findActiveClosure(
