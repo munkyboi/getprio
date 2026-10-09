@@ -144,6 +144,8 @@ async function transitionOpen(queueDayId, data, options = {}) {
          updated_at = NOW()
      WHERE id = $1
        AND state = 'unopened'
+       AND $3::TIMESTAMPTZ <= clock_timestamp()
+       AND $4::TIMESTAMPTZ > clock_timestamp()
        AND ($6::INTEGER IS NULL OR version = $6)
      RETURNING ${QUEUE_DAY_COLUMNS}`,
     values
