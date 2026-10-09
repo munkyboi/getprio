@@ -396,7 +396,7 @@ async function blockBoundPaidTicket(payment, tenant, location, providerPaymentId
 }
 
 function boundPaidDayAvailable(day, tenant, location) {
-  return !!(day && day.state === "open" && day.intakeMode === "accepting"
+  return !!(day?.state === "open" && day.intakeMode === "accepting"
     && new Date(day.currentClosesAt) > new Date() && String(day.tenantId) === String(tenant._id)
     && String(day.locationId) === String(location?._id) && tenant.isActive && location?.isActive
     && location.queueLifecycleMode === "enforced");
