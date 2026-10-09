@@ -529,6 +529,12 @@ function getQueueUpdateBody(tenant, ticket, action) {
       return `${tenantName} confirmed your arrival for ${ticketNumber}.`;
     case "called":
       return `${tenantName} is calling ${ticketNumber}.`;
+    case "service_started":
+      return `${tenantName} started service for ${ticketNumber}.`;
+    case "service_completed":
+      return `${tenantName} completed service for ${ticketNumber}.`;
+    case "service_interrupted":
+      return `${tenantName} interrupted service for ${ticketNumber}. Contact the vendor about the next step.`;
     case "served":
       return `${tenantName} marked ${ticketNumber} as served.`;
     case "skipped":

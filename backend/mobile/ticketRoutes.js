@@ -127,7 +127,10 @@ async function formatMobileTicket(ticket, environment, { developerMetrics: provi
       : (tenant?.publicProfileDisplayName || tenant?.name || ticket.tenantName || null),
     external_reference: isDeveloperTicket ? ticket.externalReference : null,
     ...(isDeveloperTicket && ticket.verificationCode ? { verification_code: ticket.verificationCode } : {}),
-    ...(isDeveloperTicket && ticket.customerConfirmedAt ? { customer_confirmed_at: ticket.customerConfirmedAt } : {}),
+    customer_confirmed_at: ticket.customerConfirmedAt || null,
+    service_started_at: ticket.serviceStartedAt || null,
+    service_ended_at: ticket.serviceEndedAt || null,
+    service_outcome: ticket.serviceOutcome || null,
     status: ticket.status,
     status_reason: ticket.statusReason,
     profile: {

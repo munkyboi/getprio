@@ -194,6 +194,8 @@ test("authenticated mobile tickets expose only owned, environment-scoped queue r
   const tickets = [
     {
       _id: "101", tenantId: "tenant-1", locationId: "location-1", userId: "customer-7",
+      customerConfirmedAt: "2026-09-16T00:00:30.000Z", serviceStartedAt: "2026-09-16T00:00:40.000Z",
+      serviceEndedAt: "2026-09-16T00:00:50.000Z", serviceOutcome: "completed",
       ticketNumber: "PRI-101", status: "waiting", statusReason: null, dateKey: "20260916",
       developerProjectId: null, developerEnvironment: null, externalReference: null,
       createdAt: "2026-09-16T00:00:00.000Z", updatedAt: "2026-09-16T00:01:00.000Z"
@@ -240,6 +242,20 @@ test("authenticated mobile tickets expose only owned, environment-scoped queue r
     assert.equal(productionBody.tickets[0].queue_position.people_ahead, 0);
     assert.equal(productionBody.tickets[1].called_counter.name, "Counter 2");
     assert.equal(production.headers.get("cache-control"), "no-store");
+    const assertServiceProgress = (ticket) => {
+      assert.equal(ticket.customer_confirmed_at, tickets[0].customerConfirmedAt);
+      assert.equal(ticket.service_started_at, tickets[0].serviceStartedAt);
+      assert.equal(ticket.service_ended_at, tickets[0].serviceEndedAt);
+      assert.equal(ticket.service_outcome, "completed");
+      assert.equal(ticket.service_started_by_user_id, undefined);
+    };
+    assertServiceProgress(productionBody.tickets[0]);
+    for (const field of ["customer_confirmed_at", "service_started_at", "service_ended_at", "service_outcome"]) {
+      assert.equal(productionBody.tickets[1][field], null);
+    }
+    const detail = await fetch(`http://127.0.0.1:${server.address().port}/api/v1/mobile/tickets/101`);
+    assert.equal(detail.status, 200);
+    assertServiceProgress((await detail.json()).ticket);
 
     const sandbox = await fetch(`http://127.0.0.1:${server.address().port}/api/v1/mobile/tickets`, { headers: { "x-forwarded-host": "sandbox.getprio.online" } });
     assert.equal(sandbox.status, 200);
