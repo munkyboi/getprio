@@ -396,7 +396,11 @@ async function assertIntakeOpenWithClient(client, tenant, location, options = {}
     if (!queueDay) {
       throw stateError("The queue has not been opened by staff.", "QUEUE_DAY_UNOPENED");
     }
-    if (new Date(queueDay.currentClosesAt) <= (options.now || new Date())) {
+    if (options.useDatabaseTime) assertSafeQueueIdentity(queueDay._id);
+    const now = options.useDatabaseTime
+      ? (await client.query("SELECT clock_timestamp() AS now")).rows[0].now
+      : (options.now || new Date());
+    if (new Date(queueDay.currentClosesAt) <= now) {
       if (options.reconcileOverdue) {
         await closeLockedQueueDay(client, tenant, location, queueDay, {
           source: "request_reconciliation",
@@ -418,10 +422,9 @@ async function assertIntakeOpen(tenant, location, options = {}) {
   }
   let result;
   try {
-    result = await db.withTransaction((client) =>
+    result = await withRequestReconciliationTransaction(tenant, location, client =>
       assertIntakeOpenWithClient(client, tenant, location, {
-        ...options,
-        reconcileOverdue: true
+        reconcileOverdue: true, useDatabaseTime: true
       })
     );
   } catch (error) {
@@ -631,9 +634,42 @@ async function closeLatestQueueDay(client, tenant, location, options) {
   });
 }
 
-// Trusted reconciliation callers retain their existing transaction boundary.
-async function closeQueueDay(tenant, location, options = {}) {
-  return db.withTransaction(client => closeLatestQueueDay(client, tenant, location, options));
+function assertSafeQueueIdentity(value) {
+  if (!/^[1-9]\d{0,18}$/u.test(String(value)) || !Number.isSafeInteger(Number(value))) {
+    throw stateError("Queue identity requires reconciliation.", "QUEUE_IDENTITY_INVALID", 400);
+  }
+}
+
+async function withRequestReconciliationTransaction(tenant, location, callback) {
+  assertSafeQueueIdentity(tenant._id);
+  assertSafeQueueIdentity(location._id);
+  return withQueueDayReconciliationTransaction({ pool: db.pool, tenantId: tenant._id, locationId: location._id }, async client => {
+    const branch = (await client.query("SELECT queue_lifecycle_mode FROM store_locations WHERE id=$1 AND tenant_id=$2", [location._id, tenant._id])).rows[0];
+    if (branch.queue_lifecycle_mode !== "enforced") {
+      throw stateError("Queue lifecycle mode changed. Refresh and try again.", "QUEUE_LIFECYCLE_NOT_ENFORCED");
+    }
+    const result = await callback(client);
+    if (result?.overdue || result?.idempotent === false) {
+      await client.query("UPDATE resource_ledger_scopes SET revision=revision+1 WHERE tenant_id=$1 AND location_id=$2", [tenant._id, location._id]);
+    }
+    return result;
+  });
+}
+
+// Trusted snapshot reconciliation closes only the currently overdue day.
+async function closeQueueDay(tenant, location) {
+  return withRequestReconciliationTransaction(tenant, location, async client => {
+    const queueDay = await getAuthoritativeQueueDay(tenant._id, location._id, { client, state: "open", forUpdate: true });
+    if (!queueDay) return null;
+    assertSafeQueueIdentity(queueDay._id);
+    const now = (await client.query("SELECT clock_timestamp() AS now")).rows[0].now;
+    if (queueDay.state !== "open" || new Date(queueDay.currentClosesAt) > now) {
+      return { queueDay, outcomes: null, idempotent: true };
+    }
+    return closeLockedQueueDay(client, tenant, location, queueDay, {
+      source: "request_reconciliation", reason: "effective_hours_ended"
+    });
+  });
 }
 
 async function closeVendorQueueDay(tenant, location, options = {}) {
