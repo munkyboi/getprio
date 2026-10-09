@@ -106,6 +106,10 @@ test("repository mapping helpers and update paths preserve defaults and normaliz
         return { rows: [{ id: 1, tenant_id: 1, name: "Main", slug: "main", is_primary: true, timezone: "Asia/Manila", is_active: true }] };
       }
 
+      if (String(sql).includes("SELECT id FROM store_locations") && String(sql).includes("FOR UPDATE")) {
+        return { rows: [{ id: values[0] }] };
+      }
+
       if (String(sql).includes("FROM store_locations WHERE id = $1 LIMIT 1")) {
         return { rows: [{ id: 1, tenant_id: 1, name: "Main", slug: "main", is_primary: true, timezone: "Asia/Manila", is_active: true }] };
       }
@@ -143,10 +147,10 @@ test("repository mapping helpers and update paths preserve defaults and normaliz
     }
   };
 
-  const users = requireWithMocks("../src/repositories/users.js", { "../config/db": { pool: client } });
-  const tenants = requireWithMocks("../src/repositories/tenants.js", { "../config/db": { pool: client }, "./storeLocations": requireWithMocks("../src/repositories/storeLocations.js", { "../config/db": { pool: client } }) });
-  const storeLocations = requireWithMocks("../src/repositories/storeLocations.js", { "../config/db": { pool: client } });
-  const vendorServices = requireWithMocks("../src/repositories/vendorServices.js", { "../config/db": { pool: client } });
+  const users = requireWithMocks("../src/repositories/users.js", { "../config/db": { pool: client, withTransaction: async callback => callback(client) } });
+  const tenants = requireWithMocks("../src/repositories/tenants.js", { "../config/db": { pool: client, withTransaction: async callback => callback(client) }, "./storeLocations": requireWithMocks("../src/repositories/storeLocations.js", { "../config/db": { pool: client, withTransaction: async callback => callback(client) } }) });
+  const storeLocations = requireWithMocks("../src/repositories/storeLocations.js", { "../config/db": { pool: client, withTransaction: async callback => callback(client) } });
+  const vendorServices = requireWithMocks("../src/repositories/vendorServices.js", { "../config/db": { pool: client, withTransaction: async callback => callback(client) } });
 
   const user = await users.findUserById(1, { client });
   assert.equal(user._id, "1");
@@ -203,7 +207,7 @@ test("public vendor detail selects and returns the configured display name", asy
     }
   };
   const tenants = requireWithMocks("../src/repositories/tenants.js", {
-    "../config/db": { pool: client }
+    "../config/db": { pool: client, withTransaction: async callback => callback(client) }
   });
 
   const vendor = await tenants.findPublicVendorProfileBySlug(

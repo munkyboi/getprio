@@ -8,7 +8,7 @@ Vendor waiting cancellation rechecks waiting status and scope, then cancels the 
 
 Ordinary selected services keep direct Serve and customer confirmation rules even when an unrelated pool at the location is enabled. A disabled mapped pool alone does not activate that ticket. Explicit service starts share this ticket-specific gate. Missing/invalid service identity in a tracked location remains unknown and requires reconciliation instead of silently bypassing allocation. Public lookup-code cancellation uses its own location-first customer ownership adapter, described in [Customer ticket cancellation](customer-ticket-cancellation-resource-writer.md). Tracking and writer coverage remain disabled. Snapshot/producer/inference/capture contracts and customer estimates are unchanged; no ready inventory or activation/backfill.
 
-Queue Day-bound paid issuance is covered in [Bound paid queue issuance](bound-paid-queue-resource-writer.md). Vendor walk-in issuance is covered in [Vendor walk-in issuance](vendor-walkin-resource-writer.md). Skipped restoration is covered in [Vendor skipped-ticket restoration](vendor-restore-resource-writer.md). Calling/confirmation are covered separately in [Vendor call and confirmation](vendor-call-confirm-resource-writer.md); calling still does not allocate.
+Versioned location-bound legacy paid issuance is covered in [Legacy paid queue issuance](location-bound-legacy-paid-resource-writer.md). Queue Day-bound paid issuance is covered in [Bound paid queue issuance](bound-paid-queue-resource-writer.md). Vendor walk-in issuance is covered in [Vendor walk-in issuance](vendor-walkin-resource-writer.md). Skipped restoration is covered in [Vendor skipped-ticket restoration](vendor-restore-resource-writer.md). Calling/confirmation are covered separately in [Vendor call and confirmation](vendor-call-confirm-resource-writer.md); calling still does not allocate.
 
 ## Remaining writer inventory
 
@@ -16,8 +16,8 @@ This inventory is source evidence for further slices, not a coverage-complete ce
 
 | Path | Remaining work |
 | --- | --- |
-| `queueService.createTicket` non-vendor paths, `queueJoinPaymentService.activatePaidPayment` | Zero-fee public/customer/developer and legacy unbound paid issuance remain. Enforced Queue Day-bound paid fulfillment now has location-first locking and atomic issuance/revisions; channel authorization and unknown/ordinary plans remain distinct. |
-| `queueService.closeQueueDay`, `queueDayLifecycleService.closeTicketOutcomes` | Manual/system closure and terminal protection cleanup; retain actual occupancy and explicit timing. |
+| `queueService.createTicket` non-vendor paths, `queueJoinPaymentService.activatePaidPayment` | Zero-fee public/customer/developer and historical unversioned paid issuance remain. Enforced Queue Day-bound and versioned location-bound legacy paid fulfillment now have location-first locking and atomic issuance/revisions; channel authorization and unknown/ordinary plans remain distinct. |
+| `queueService.closeQueueDay`, `queueDayLifecycleService.closeTicketOutcomes` | Legacy manual close/reopen/pause/resume now serialize intake with versioned paid issuance. Full manual/system closure authorization, revisions and terminal protection cleanup remain; retain actual occupancy and explicit timing. |
 | `queueDayLifecycleService.expirePendingCarryOvers` | Scope-first system expiry and terminal booking/protection updates, without releasing active occupancy. |
 | `accountDeletionService.cancelWaitingTickets` | Deletion-authorized cancellation, multiple affected scopes and protection cleanup; preserve deletion transaction/revocation policy. Anonymization alone is distinct from this operational cancellation. |
 | `resourceConfigurationService.saveConfiguration` and related catalog/settings writers | Existing branch lock helps draft serialization, but complete revisions, authorization revalidation and activation reconciliation remain unproven. |

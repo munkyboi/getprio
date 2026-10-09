@@ -108,7 +108,7 @@ async function createPayment(data, options = {}) {
       )
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
       ON CONFLICT (tenant_id, otp_id) DO UPDATE
-      SET metadata = queue_join_payments.metadata || EXCLUDED.metadata
+      SET metadata = queue_join_payments.metadata || (EXCLUDED.metadata - 'locationBindingVersion')
       RETURNING ${PAYMENT_COLUMNS}
     `,
     [
