@@ -299,7 +299,7 @@ export default function JoinQueuePage() {
             customerName: prefill.name
           });
           navigate(
-            buildJoinedQueuePathWithTicket(tenantSlugValue, data.ticket.lookupCode, locationSlug),
+            buildJoinedQueuePathWithTicket(tenantSlugValue, data.ticket.lookupCode, data.payment?.locationSlug ?? locationSlug),
             {
               replace: true,
               state: joinedQueueNavigationState

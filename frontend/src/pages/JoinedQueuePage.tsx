@@ -487,7 +487,7 @@ export default function JoinedQueuePage() {
             message: "Your ticket has been issued.",
             title: "Joined queue"
           });
-          navigate(buildJoinedQueuePathWithTicket(tenantSlugValue, data.ticket.lookupCode, locationSlug), {
+          navigate(buildJoinedQueuePathWithTicket(tenantSlugValue, data.ticket.lookupCode, data.payment.locationSlug ?? locationSlug), {
             replace: true
           });
           return;

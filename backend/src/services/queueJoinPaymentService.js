@@ -60,6 +60,7 @@ function formatPayment(payment) {
     tenantId: payment.tenantId,
     tenantName: payment.tenantName,
     tenantSlug: payment.tenantSlug,
+    locationSlug: payment.locationSlug || payment.payload?.locationSlug || null,
     otpId: payment.otpId,
     planSlug: payment.planSlug,
     provider: payment.provider,
@@ -534,6 +535,7 @@ async function withPaidPaymentTransaction(observed, callback) {
     if (!branch.rows.length) throw Object.assign(new Error("Queue payment location not found."), { statusCode: 404 });
     const payment = await lockPaidPayment(observed, client);
     const boundLocation = await storeLocationRepository.findLocationById(advisoryDay.locationId, { client });
+    await client.query("SELECT id FROM tenants WHERE id=$1 FOR SHARE", [observed.tenantId]);
     await client.query("INSERT INTO resource_ledger_scopes (tenant_id,location_id) VALUES ($1,$2) ON CONFLICT DO NOTHING", scope);
     const result = await callback(payment, { client, boundLocation });
     if (!result.alreadyIssued) await client.query("UPDATE resource_ledger_scopes SET revision=revision+1 WHERE tenant_id=$1 AND location_id=$2", scope);
@@ -562,7 +564,7 @@ async function activatePaidPayment(observed, providerPaymentId, paymentAttribute
   });
 
   return {
-    payment: result.payment,
+    payment: { ...result.payment, locationSlug: result.location?.slug || result.payment.payload?.locationSlug },
     ticket: result.ticket,
     snapshot,
     ticketBlocked: Boolean(result.ticketBlocked)
@@ -578,14 +580,15 @@ async function syncQueueJoinPayment({ tenant, paymentId }) {
   }
 
   if (payment.status === "paid" && payment.ticketLookupCode) {
-    const snapshot = await publishSnapshot(tenant, {
+    const activated = payment.queueDayId ? await activatePaidPayment(payment, payment.providerPaymentId, {}) : null;
+    const snapshot = activated?.snapshot || await publishSnapshot(tenant, {
       lookupCode: payment.ticketLookupCode,
       locationSlug: payment.payload?.locationSlug
     });
     return {
       synced: true,
       paid: true,
-      payment: formatPayment(payment),
+      payment: formatPayment(activated?.payment || payment),
       ticket: snapshot.focusTicket
         ? {
             id: snapshot.focusTicket.id,
@@ -674,7 +677,8 @@ async function handlePayMongoPaidCheckout(resource, event, options = {}) {
     options
   );
 
-  if (!eventRecord) {
+  // A durable receipt must not suppress retry of a bound issuance that rolled back.
+  if (!eventRecord && (!existingPayment.queueDayId || existingPayment.ticketId || existingPayment.ticketIssuanceStatus === "refund_pending")) {
     return {
       handled: true,
       duplicate: true

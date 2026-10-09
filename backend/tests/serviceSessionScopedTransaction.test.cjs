@@ -33,7 +33,7 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
   const {Pool}=require('pg');
   const pool=new Pool({connectionString:databaseUrl,options:`-c search_path=${schema}`,application_name:schema,max:8});
   const tenant={_id:'1'}; const location={_id:'10'};
-  let failEvent=false; let failBooking=false; let failWebhook=false; let failReconciliation=false; let snapshots=0; let pushes=0; let failAllowance=false; let dueRead=0; let dayReads=0; let failPayment=false; let subscriptionUnavailable=false; let paidDeadlineRace=false; let paidDeadlineObserved=false; let verifyPaidUserLock=false;
+  let failEvent=false; let failBooking=false; let failWebhook=false; let failReconciliation=false; let snapshots=0; let pushes=0; let failAllowance=false; let dueRead=0; let dayReads=0; let failPayment=false; let subscriptionUnavailable=false; let paidDeadlineRace=false; let paidDeadlineObserved=false; let verifyPaidUserLock=false; let verifyPaidTenantLock=false; const billingEvents=new Set();
   const noop=async () => {};
   async function readTicket(id,{client=pool}={}) {
     const r=(await client.query('SELECT * FROM tickets WHERE id=$1',[id])).rows[0];
@@ -114,6 +114,7 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
       '../repositories/queueEvents':{createQueueEvent:async (data,{client}) => {
         const r=await client.query('INSERT INTO events(ticket_id,event_type,metadata,actor_role) VALUES($1,$2,$3,$4) RETURNING id',[data.ticketId,data.eventType,JSON.stringify(data.metadata),data.actorRole]);
         if (verifyPaidUserLock && data.eventType==='ticket_created') await assert.rejects(pool.query('SELECT id FROM users WHERE id=1 FOR UPDATE NOWAIT'),{code:'55P03'});
+        if (verifyPaidTenantLock && data.eventType==='ticket_created') await assert.rejects(pool.query('SELECT id FROM tenants WHERE id=1 FOR UPDATE NOWAIT'),{code:'55P03'});
         if (failEvent) throw new Error('event failed'); return {_id:String(r.rows[0].id)};
       }},
       './developerWebhookService':{enqueueQueueEvent:async ({event},{client}) => {
@@ -140,7 +141,7 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
         INSERT INTO vendor_services VALUES(1000,1,'Court play',60,TRUE); INSERT INTO location_services VALUES(1000,1,10,TRUE);
         INSERT INTO store_hours(location_id,weekday,opens_at,closes_at,is_closed) SELECT 10,n,'00:00','00:00',FALSE FROM generate_series(0,6) n`);
       await pool.query('INSERT INTO location_resource_pools(id,tenant_id,location_id,capacity,revision,tracking_enabled) VALUES(100,1,10,$1,1,$2)',[capacity,enabled]);
-      failEvent=false; failBooking=false; failWebhook=false; failReconciliation=false; snapshots=0; pushes=0; failAllowance=false; dueRead=0; dayReads=0; failPayment=false; subscriptionUnavailable=false; paidDeadlineRace=false; paidDeadlineObserved=false; verifyPaidUserLock=false; queueClosed=false;
+      failEvent=false; failBooking=false; failWebhook=false; failReconciliation=false; snapshots=0; pushes=0; failAllowance=false; dueRead=0; dayReads=0; failPayment=false; subscriptionUnavailable=false; paidDeadlineRace=false; paidDeadlineObserved=false; verifyPaidUserLock=false; verifyPaidTenantLock=false; billingEvents.clear(); queueClosed=false;
       delete location.queueLifecycleMode;
     }
     async function ticket(id,{plan=true,booking=false,channel='vendor'}={}) {
@@ -251,7 +252,7 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
     const paidService=loadService({
       '../config/db':{pool,withTransaction},
       '../config/env':{},
-      '../repositories/queueJoinPayments':{...realPayments,findPaymentByProviderId:async (id,options={})=>realPayments.findPaymentByProviderId(id,{...options,client:options.client || pool}),markPaidWithTicket:async (...args)=>{
+      '../repositories/queueJoinPayments':{...realPayments,findPaymentById:async (id,options={})=>realPayments.findPaymentById(id,{...options,client:options.client || pool}),findPaymentByProviderId:async (id,options={})=>realPayments.findPaymentByProviderId(id,{...options,client:options.client || pool}),markPaidWithTicket:async (...args)=>{
         const result=await realPayments.markPaidWithTicket(...args); if(failPayment) throw new Error('payment failed'); return result;
       }},
       '../repositories/queueDays':paidDays,
@@ -263,7 +264,9 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
         const row=(await client.query('SELECT * FROM store_locations WHERE id=$1',[id])).rows[0];
         return row && {_id:String(row.id),tenantId:String(row.tenant_id),isActive:row.is_active,queueLifecycleMode:row.queue_lifecycle_mode,timezone:row.timezone,slug:row.slug};
       }},
-      '../repositories/billing':{recordBillingEvent:async ()=>({_id:'1'})},
+      '../repositories/billing':{recordBillingEvent:async input=>{
+        if(billingEvents.has(input.providerEventId)) return null; billingEvents.add(input.providerEventId); return {_id:'1'};
+      }},
       './queueFeeService':{assertTenantCanAcceptCustomerJoins:async (_tenant,{client})=>{
         assert.ok(client); if(subscriptionUnavailable) throw Object.assign(new Error('subscription unavailable'),{code:'SUBSCRIPTION_REQUIRED'});
       }},
@@ -1090,6 +1093,44 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
           assert.equal((await pool.query('SELECT state FROM payment_allowance')).rows[0].state,'released');
         } finally {await blocker.query('ROLLBACK'); blocker.release(); if(pending) await pending.catch(()=>{});}
       }
+    });
+    await t.test('the same durable billing event retries a rolled-back paid ticket issuance',async () => {
+      for(const failure of ['event','webhook']) {
+        await reset(); await payment(); failEvent=failure==='event'; failWebhook=failure==='webhook';
+        await assert.rejects(paid(),new RegExp(`${failure} failed`)); assert.equal(billingEvents.size,1);
+        assert.equal((await realPayments.findPaymentById('1',{client:pool})).status,'pending');
+        failEvent=false; failWebhook=false; await paid();
+        assert.equal(await count('tickets'),1); assert.equal(await count('events'),1); assert.equal(await count('webhooks'),1);
+        assert.equal((await realPayments.findPaymentById('1',{client:pool})).ticketIssuanceStatus,'issued');
+        assert.equal((await pool.query('SELECT state FROM payment_allowance')).rows[0].state,'consumed');
+        await paid(); assert.equal(await count('tickets'),1); assert.equal(await count('events'),1);
+      }
+    });
+    await t.test('paid issuance serializes tenant policy updates and rechecks the committed threshold',async () => {
+      await reset(); await payment(); verifyPaidTenantLock=true; await paid();
+      for(const sql of ["UPDATE tenants SET auto_pause_enabled=TRUE,auto_pause_threshold=1 WHERE id=1", "UPDATE tenants SET auto_pause_threshold=1 WHERE id=1"]) {
+        await reset(); await payment(); await ticket('1'); await pool.query("UPDATE tickets SET status='waiting'");
+        if(!sql.includes('enabled')) await pool.query('UPDATE tenants SET auto_pause_enabled=TRUE,auto_pause_threshold=10 WHERE id=1');
+        const blocker=await pool.connect(); let pending;
+        try {
+          await blocker.query('BEGIN'); await blocker.query(sql); pending=paid(); pending.catch(()=>{});
+          const deadline=Date.now()+3000; let waiting=false;
+          while(Date.now()<deadline) {
+            waiting=(await pool.query("SELECT 1 FROM pg_stat_activity WHERE application_name=$1 AND wait_event_type='Lock' AND query LIKE 'SELECT id FROM tenants%'",[schema])).rows.length>0;
+            if(waiting) break; await new Promise(resolve=>setTimeout(resolve,10));
+          }
+          assert.equal(waiting,true,'paid issuance must wait for current tenant policy');
+          await blocker.query('COMMIT'); await pending;
+          assert.equal(await count('tickets'),1); assert.equal((await realPayments.findPaymentById('1',{client:pool})).ticketIssuanceStatus,'refund_pending');
+        } finally {await blocker.query('ROLLBACK'); blocker.release(); if(pending) await pending.catch(()=>{});}
+      }
+    });
+    await t.test('paid responses and later sync use the bound branch current slug after a rename',async () => {
+      await reset(); await payment(); await pool.query("UPDATE store_locations SET slug='renamed' WHERE id=10");
+      const result=await paid(); assert.equal(result.payment.locationSlug,'renamed');
+      const repeated=await paidService.syncQueueJoinPayment({tenant,paymentId:'1'});
+      assert.equal(repeated.payment.locationSlug,'renamed'); assert.equal(repeated.paid,true);
+      assert.equal(await count('tickets'),1); assert.equal(await count('events'),1);
     });
     await t.test('paid admission waits for the location before payment and revalidates provider/day binding',async () => {
       for(const sql of ["UPDATE queue_join_payments SET provider_checkout_session_id='CHANGED' WHERE id=1","UPDATE queue_join_payments SET queue_day_id=998 WHERE id=1"]) {
