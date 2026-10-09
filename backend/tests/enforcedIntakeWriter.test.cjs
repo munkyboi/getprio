@@ -3,22 +3,13 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { randomUUID } = require('node:crypto');
+const { loadModuleWithMocks } = require('./helpers/loadModuleWithMocks.cjs');
 const databaseUrl = process.env.RESOURCE_LEDGER_TEST_DATABASE_URL;
 
 function loadLifecycle(database) {
   const target = require.resolve('../src/services/queueDayLifecycleService');
-  const mocks = { '../config/db': database, '../config/env': { waitTimePredictionCaptureEnabled: false } };
-  const saved = new Map();
-  try {
-    for (const [name, exports] of Object.entries(mocks)) {
-      const id = require.resolve(path.resolve(path.dirname(target), name));
-      saved.set(id, require.cache[id]); require.cache[id] = { id, filename: id, loaded: true, exports };
-    }
-    delete require.cache[target]; return require(target);
-  } finally {
-    delete require.cache[target];
-    for (const [id, original] of saved) { if (original) require.cache[id] = original; else delete require.cache[id]; }
-  }
+  return loadModuleWithMocks(target, { '../config/db': database,
+    '../config/env': { waitTimePredictionCaptureEnabled: false } });
 }
 
 test('enforced intake and extensions use location-first PostgreSQL transactions', { skip: !databaseUrl }, async t => {

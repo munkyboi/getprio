@@ -4,21 +4,12 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const {randomUUID} = require('node:crypto');
+const {loadModuleWithMocks} = require('./helpers/loadModuleWithMocks.cjs');
 const ledger = require('../src/repositories/resourceLedger');
 const databaseUrl = process.env.RESOURCE_LEDGER_TEST_DATABASE_URL;
 function loadService(mocks, filename = 'ticketServiceTimingService') {
   const target = require.resolve(`../src/services/${filename}`);
-  const saved = new Map();
-  try {
-    for (const [name,exports] of Object.entries(mocks)) {
-      const id=require.resolve(path.resolve(path.dirname(target),name));
-      saved.set(id,require.cache[id]); require.cache[id]={id,filename:id,loaded:true,exports};
-    }
-    delete require.cache[target]; return require(target);
-  } finally {
-    delete require.cache[target];
-    for (const [id,original] of saved) { if (original) require.cache[id]=original; else delete require.cache[id]; }
-  }
+  return loadModuleWithMocks(target, mocks);
 }
 test('staff assignment lookup preserves exact scoped identifiers', async () => {
   const ids=['9007199254740993','9007199254740995','9007199254740997'];
