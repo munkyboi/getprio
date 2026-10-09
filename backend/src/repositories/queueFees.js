@@ -75,7 +75,7 @@ async function findQueueFeeByPlan(planSlug, options = {}) {
   const queryClient = buildQueryClient(options.client);
   await ensureDefaults({ client: queryClient });
   const result = await queryClient.query(
-    `SELECT ${FEE_COLUMNS} FROM queue_fee_settings WHERE plan_slug = $1 LIMIT 1`,
+    `SELECT ${FEE_COLUMNS} FROM queue_fee_settings WHERE plan_slug = $1 LIMIT 1 ${options.forShare ? "FOR SHARE" : ""}`,
     [planSlug]
   );
 

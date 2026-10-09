@@ -557,3 +557,14 @@ test(`free ticket completes after commit when joined push ${pending ? "stays pen
 });
 
 }
+
+test('zero-fee joins reject a missing requested branch rather than issuing at the primary branch', async () => {
+  let created=false;
+  const service=requireWithMocks('../src/services/queueJoinPaymentService.js', {
+    '../repositories/storeLocations':{findLocationByTenantAndSlug:async()=>null},
+    './queueFeeService':{assertTenantCanAcceptCustomerJoins:async()=>({}),getQueueFeeForTenant:async()=>({enabled:false,amountCents:0})},
+    './queueService':{createTicket:async()=>{created=true;}}
+  });
+  await assert.rejects(service.handleDirectJoin({tenant:{_id:'1'},payload:{locationSlug:'removed',joinChannel:'qr'}}),{statusCode:404});
+  assert.equal(created,false);
+});

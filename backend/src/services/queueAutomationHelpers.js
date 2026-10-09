@@ -96,7 +96,7 @@ async function maybeAutoResumeQueueDay(tenant, options = {}) {
   if (!location || resumeWaitingCount === null) return null;
   const resumed = await withAutomaticIntakeLock(tenant, location, options, async (client, queueDateKey) => {
     const pause = await queueDayPauseRepository.findActivePause(tenant._id, location._id, queueDateKey, { client });
-    if (!pause || pause.pauseMode !== "auto_threshold") return false;
+    if (pause?.pauseMode !== "auto_threshold") return false;
     const waiting = await ticketRepository.listWaitingTickets(tenant._id, { client, locationId: location._id, dateKey: queueDateKey });
     if (waiting.length > resumeWaitingCount) return false;
     await queueDayPauseRepository.resumePause(pause._id, null, { client });
