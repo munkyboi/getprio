@@ -126,7 +126,7 @@ test("reopening clears prior closure metadata before a later re-close", async ()
   assert.match(query.sql, /close_source = NULL/);
   assert.match(query.sql, /closure_note = NULL/);
   assert.match(query.sql, /close_source = 'manual'/);
-  assert.match(query.sql, /current_closes_at > NOW\(\)/);
+  assert.match(query.sql, /current_closes_at > clock_timestamp\(\)/);
 });
 
 test("daily sequence allocation is serialized on the open accepting Queue Day", async () => {
