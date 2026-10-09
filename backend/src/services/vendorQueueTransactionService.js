@@ -21,7 +21,8 @@ async function withVendorQueueTransaction({ pool, tenant, location, actorUserId,
   return resourceLedger.withScopeTransaction({
     pool, tenantId: String(tenant._id), locationId: String(location._id), actorUserId: String(actorUserId),
     authorize: async (client, scope) => {
-      actorContext = await readAuthorizedVendorQueueActor(client, scope, permission);
+      // Keep accepted access grants stable until the queue transaction commits.
+      actorContext = await readAuthorizedVendorQueueActor(client, scope, permission, { forShare: true });
       return Boolean(actorContext);
     }
   }, (client, ledger) => callback(client, ledger, actorContext));
