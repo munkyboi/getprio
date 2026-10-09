@@ -291,7 +291,7 @@ async function assertWaitingIntakeCapacityAvailable(tenant, location, options = 
   }
 
   const error = new Error(options.issuance
-    ? `This queue is already at its intake threshold of ${tenant.autoPauseThreshold} waiting tickets. Resume or clear space before adding a walk-in.`
+    ? `This queue is already at its intake threshold of ${tenant.autoPauseThreshold} waiting tickets. Resume or clear space before adding another ticket.`
     : `This queue is already at its intake threshold of ${tenant.autoPauseThreshold} waiting tickets. Resume or clear space before restoring a missed ticket.`
   );
   error.statusCode = 409;
@@ -305,6 +305,14 @@ async function publishSnapshot(tenant, options = {}) {
     locationId: options.location?._id || snapshot.location?.id || null
   });
   return snapshot;
+}
+
+async function recordCreatedTicketEvent(client, ticket, options = {}) {
+  const actor = buildQueueEventActor(options);
+  return appendQueueEvent(client, ticket, "ticket_created", {
+    toStatus: ticket.status, ...actor,
+    metadata: { joinChannel: ticket.joinChannel }, developerWebhook: options.developerWebhook
+  });
 }
 
 async function createTicket({
@@ -1610,6 +1618,8 @@ module.exports = {
   createTicket,
   createTicketForTenantInTransaction,
   assertQueueIntakeOpen,
+  assertWaitingIntakeCapacityAvailable,
+  recordCreatedTicketEvent,
   getQueueSnapshot,
   callNextTicket,
   confirmCurrentTicket,
