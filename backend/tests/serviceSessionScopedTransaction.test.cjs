@@ -493,6 +493,88 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
       await ticket('2');await assert.rejects(record('2','start','2'),{statusCode:409});
       assert.equal(await count('resource_allocations'),1);
     });
+    const activeVendorActions=['start','walkin','call','confirm','restore'];
+    async function prepareActiveVendorAction(action) {
+      await reset();
+      if(action==='restore')await skipped();
+      else if(action!=='walkin')await ticket('1');
+      if(action==='call')await pool.query("UPDATE tickets SET status='waiting'");
+    }
+    const runActiveVendorAction=action => action==='start'?record('1','start'):action==='walkin'?walkin():action==='call'?call():action==='confirm'?confirm():restore();
+    await t.test('new vendor service and open-queue actions hold tenant activity until commit',async () => {
+      for(const action of activeVendorActions) {
+        await prepareActiveVendorAction(action);
+        let reached;const locked=new Promise(resolve=>{reached=resolve;});let release;const unblock=new Promise(resolve=>{release=resolve;});
+        vendorEventBarrier={reached,release:unblock};
+        const pending=runActiveVendorAction(action);pending.catch(()=>{});let deactivation;
+        try {
+          await Promise.race([locked,pending.then(()=>{throw new Error(`tenant activity barrier missing for ${action}`);})]);
+          await assert.rejects(pool.query('SELECT id FROM tenants WHERE id=1 FOR UPDATE NOWAIT'),{code:'55P03'});
+          const sql='UPDATE tenants SET is_active=FALSE WHERE id=1';deactivation=pool.query(sql);deactivation.catch(()=>{});
+          const deadline=Date.now()+3000;let waiting=false;
+          while(Date.now()<deadline) {
+            waiting=(await pool.query("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE application_name=$1 AND wait_event_type='Lock' AND query=$2) AS waiting",[schema,sql])).rows[0].waiting;
+            if(waiting)break;await new Promise(resolve=>setTimeout(resolve,10));
+          }
+          assert.equal(waiting,true,`${action} must keep tenant deactivation behind its commit`);
+          assert.equal(await count('events'),0);assert.equal(await count('resource_allocations'),0);
+          release();await pending;await deactivation;vendorEventBarrier=null;
+          assert.equal(await count('events'),1);assert.equal(await count('resource_allocations'),action==='start'?1:0);
+          assert.equal((await pool.query('SELECT is_active FROM tenants WHERE id=1')).rows[0].is_active,false);
+          await assert.rejects(runActiveVendorAction(action),{statusCode:409});
+        } finally {release();await pending.catch(()=>{});if(deactivation)await deactivation.catch(()=>{});vendorEventBarrier=null;}
+      }
+    });
+    await t.test('new vendor service and open-queue actions reread tenant deactivation after the tenant lock wait',async () => {
+      for(const action of activeVendorActions) {
+        await prepareActiveVendorAction(action);const blocker=await pool.connect();let pending;
+        try {
+          await blocker.query('BEGIN');await blocker.query('UPDATE tenants SET is_active=FALSE WHERE id=1');
+          pending=runActiveVendorAction(action);pending.catch(()=>{});
+          const deadline=Date.now()+3000;let waiting=false;
+          while(Date.now()<deadline) {
+            waiting=(await pool.query("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE application_name=$1 AND wait_event_type='Lock' AND query LIKE 'SELECT l.%' AND query LIKE '%FOR SHARE OF t%') AS waiting",[schema])).rows[0].waiting;
+            if(waiting)break;await new Promise(resolve=>setTimeout(resolve,10));
+          }
+          assert.equal(waiting,true,`${action} must wait for the changing tenant activity row`);
+          await blocker.query('COMMIT');await assert.rejects(pending,{statusCode:409});
+          assert.equal(await count('events'),0);assert.equal(await count('resource_allocations'),0);assert.equal(await count('resource_ledger_scopes'),0);
+          assert.equal(await count('tickets'),action==='walkin'?0:1);
+        } finally {await blocker.query('ROLLBACK');blocker.release();if(pending)await pending.catch(()=>{});}
+      }
+    });
+    await t.test('tenant activity share locks allow simultaneous service starts at distinct branches',async () => {
+      await reset();await pool.query('UPDATE store_locations SET tenant_id=1 WHERE id=20');
+      await ticket('1');await ticket('2',{plan:false});await pool.query('UPDATE tickets SET location_id=20 WHERE id=2');
+      let reached;const locked=new Promise(resolve=>{reached=resolve;});let release;const unblock=new Promise(resolve=>{release=resolve;});let arrivals=0;
+      vendorEventBarrier={reached:()=>{if(++arrivals===2)reached();},release:unblock};
+      const pending=Promise.all([record('1','start'),record('2','start','1',{_id:'20'})]);pending.catch(()=>{});let timer;
+      try {
+        await Promise.race([locked,pending.then(()=>{throw new Error('distinct branch barrier missing');}),new Promise((_resolve,reject)=>{timer=setTimeout(()=>reject(new Error('shared tenant activity must permit distinct branches')),3000);})]);
+        release();await pending;assert.equal(await count('events'),2);assert.equal(await count('resource_allocations'),1);assert.equal(await count('resource_ledger_scopes'),2);
+      } finally {clearTimeout(timer);release();await pending.catch(()=>{});vendorEventBarrier=null;}
+    });
+    await t.test('tenant activity locks release on action rollback',async () => {
+      for(const action of activeVendorActions) {
+        await prepareActiveVendorAction(action);failEvent=true;await assert.rejects(runActiveVendorAction(action),/event failed/);
+        await pool.query('SELECT id FROM tenants WHERE id=1 FOR UPDATE NOWAIT');
+        assert.equal(await count('events'),0);assert.equal(await count('resource_allocations'),0);assert.equal(await count('resource_ledger_scopes'),0);
+        assert.equal(await count('tickets'),action==='walkin'?0:1);
+      }
+    });
+    await t.test('explicit completion and interruption can release occupancy while tenant deactivation is uncommitted',async () => {
+      for(const action of ['complete','interrupt']) {
+        await reset();await ticket('1');await record('1','start');const blocker=await pool.connect();let pending;
+        try {
+          await blocker.query('BEGIN');await blocker.query('UPDATE tenants SET is_active=FALSE WHERE id=1');
+          pending=record('1',action);pending.catch(()=>{});let timer;
+          try {await Promise.race([pending,new Promise((_resolve,reject)=>{timer=setTimeout(()=>reject(new Error('explicit release must not wait for tenant activity')),3000);})]);}
+          finally {clearTimeout(timer);}
+          assert.equal((await pool.query('SELECT outcome FROM resource_allocations')).rows[0].outcome,action==='complete'?'completed':'terminated');
+          await blocker.query('COMMIT');assert.equal((await pool.query('SELECT is_active FROM tenants WHERE id=1')).rows[0].is_active,false);
+        } finally {await blocker.query('ROLLBACK');blocker.release();if(pending)await pending.catch(()=>{});}
+      }
+    });
     await t.test('start rejects wrong scope, disabled timing, unconfirmed tickets and stale or unknown plans',async () => {
       await reset(); await ticket('1',{plan:false}); await assert.rejects(record('1','start'),{statusCode:409});
       await assert.rejects(record('1','start','1',{_id:'20'}),{statusCode:404});

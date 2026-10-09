@@ -78,7 +78,8 @@ async function recordTicketService(tenant, ticketId, action, options) {
     pool: db.pool, tenant, location, actorUserId: options.actorUserId
   }, async (client, ledger) => {
     const branch = await client.query(`SELECT l.service_timing_enabled,l.is_active,t.is_active AS tenant_active
-      FROM store_locations l JOIN tenants t ON t.id=l.tenant_id WHERE l.id=$1 AND l.tenant_id=$2`, [location._id, tenant._id]);
+      FROM store_locations l JOIN tenants t ON t.id=l.tenant_id WHERE l.id=$1 AND l.tenant_id=$2
+      ${action === "start" ? "FOR SHARE OF t" : ""}`, [location._id, tenant._id]);
     if (!branch.rows[0]) reject("Location not found.", 404);
     const current = await tickets.findTicketByIdForUpdate(ticketId, { client });
     if (!current || String(current.tenantId) !== String(tenant._id)
