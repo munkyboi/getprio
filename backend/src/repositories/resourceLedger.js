@@ -164,6 +164,13 @@ async function withScopeTransaction({ pool, tenantId, locationId, actorUserId, a
   return runScopeTransaction({ pool, tenantId, locationId, actorId: id(actorUserId), authorize }, callback);
 }
 
+// Public admission has an optional customer identity and receives no ledger
+// command capability. Issuance can create waiting work, never occupancy.
+async function withTicketIssuanceTransaction({ pool, tenantId, locationId, actorUserId, authorize }, callback) {
+  return runScopeTransaction({ pool, tenantId, locationId,
+    actorId: actorUserId == null ? null : id(actorUserId), authorize }, client => callback(client));
+}
+
 // Customer ownership is rechecked by the adapter under the location lock. Guest
 // callers have no actor ID; this capability can only cancel this ticket's unused
 // booking protection, never reserve, allocate, release, or run system expiry.
@@ -320,4 +327,4 @@ async function executeCommand(options) {
   return withScopeTransaction({ ...options, authorize: async () => true },
     async (_client, ledger) => ledger.executeCommand(options));
 }
-module.exports = { executeCommand, withScopeTransaction, withSystemExpiryTransaction, withCustomerTicketCancellationTransaction };
+module.exports = { executeCommand, withScopeTransaction, withTicketIssuanceTransaction, withSystemExpiryTransaction, withCustomerTicketCancellationTransaction };

@@ -344,6 +344,9 @@ async function createZeroFeeTicket({ tenant, payload, queueFee }) {
   const location = payload.locationSlug
     ? await storeLocationRepository.findLocationByTenantAndSlug(tenant._id, payload.locationSlug)
     : null;
+  if (payload.locationSlug && !location) {
+    throw Object.assign(new Error("Location not found. Restart your join at the current branch."), { statusCode: 404 });
+  }
   const result = await require("./queueService").createTicket({
     tenant,
     location: location || undefined,

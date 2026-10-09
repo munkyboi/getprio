@@ -2,6 +2,7 @@ const ticketServicePlanService = require("./ticketServicePlanService");
 const storeHoursService = require("./storeHoursService");
 const { withVendorQueueTransaction } = require("./vendorQueueTransactionService");
 const { withCustomerTicketCancellation } = require("./customerTicketCancellationService");
+const { withCustomerQueueIssuance } = require("./customerQueueIssuanceService");
 const ticketResourceOutcomeService = require("./ticketResourceOutcomeService");
 const db = require("../config/db");
 const env = require("../config/env");
@@ -406,6 +407,18 @@ async function createTicket({
       await assertWaitingIntakeCapacityAvailable(operationTenant, resolvedLocation, { client, queueDateKey: scope.dateKey, issuance: true });
       return { ...await persist(client), changed: true };
     });
+  } else if (developerProjectId == null && ["online", "qr"].includes(joinChannel)) {
+    transactionResult = await withOpenCustomerQueueIssuance(tenant, resolvedLocation, userId, async (client, scope) => {
+      resolvedLocation = scope.location;
+      operationTenant = scope.tenant;
+      vendorDateKey = scope.dateKey;
+      await assertQueueIntakeOpen(operationTenant, resolvedLocation, { client, queueDateKey: scope.dateKey });
+      if (resolvedLocation.queueLifecycleMode !== "enforced") {
+        await storeHoursService.assertLocationOpenForCustomerJoin(resolvedLocation, { client, now: scope.admissionTime });
+      }
+      await assertWaitingIntakeCapacityAvailable(operationTenant, resolvedLocation, { client, queueDateKey: scope.dateKey, issuance: true });
+      return { ...await persist(client), changed: true };
+    });
   } else {
     await assertQueueIntakeOpen(tenant, resolvedLocation);
     transactionResult = await db.withTransaction(persist);
@@ -632,6 +645,37 @@ async function withOpenVendorQueueTransaction(tenant, location, options, permiss
     const outcome = action.outcome;
     if (outcome?.changed) await client.query("UPDATE resource_ledger_scopes SET revision=revision+1 WHERE tenant_id=$1 AND location_id=$2", [tenant._id, location._id]);
     return outcome;
+  });
+  if (overdueError) throw overdueError;
+  return result;
+}
+
+async function withOpenCustomerQueueIssuance(tenant, location, userId, callback) {
+  let overdueError;
+  const result = await withCustomerQueueIssuance({ pool: db.pool, tenant, location, userId }, async (client, current) => {
+    const currentLocation = current.location;
+    await client.query("SELECT location_id FROM store_hours WHERE location_id=$1 FOR SHARE", [currentLocation._id]);
+    const admissionTime = new Date();
+    const requestedDateKey = getDateKey(admissionTime, currentLocation.timezone);
+    let queueDay;
+    try {
+      queueDay = await assertQueueDayOpen(current.tenant, currentLocation, { client, queueDateKey: requestedDateKey });
+    } catch (error) {
+      if (error.code !== "QUEUE_DAY_OVERDUE") throw error;
+      overdueError = error;
+      await client.query("UPDATE resource_ledger_scopes SET revision=revision+1 WHERE tenant_id=$1 AND location_id=$2", [tenant._id, location._id]);
+      return null;
+    }
+    const dateKey = queueDay?.businessDate ? String(queueDay.businessDate).replaceAll("-", "") : requestedDateKey;
+    const action = await executeOpenVendorQueueAction(client, current.tenant, {
+      ...current, dateKey, admissionTime, requestedDateKey
+    }, callback);
+    if (action.overdueError) {
+      overdueError = action.overdueError;
+      return null;
+    }
+    if (action.outcome?.changed) await client.query("UPDATE resource_ledger_scopes SET revision=revision+1 WHERE tenant_id=$1 AND location_id=$2", [tenant._id, location._id]);
+    return action.outcome;
   });
   if (overdueError) throw overdueError;
   return result;
