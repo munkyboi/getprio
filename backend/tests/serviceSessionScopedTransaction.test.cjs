@@ -33,7 +33,7 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
   const {Pool}=require('pg');
   const pool=new Pool({connectionString:databaseUrl,options:`-c search_path=${schema}`,application_name:schema,max:8});
   const tenant={_id:'1'}; const location={_id:'10'};
-  let failEvent=false; let failBooking=false; let failWebhook=false; let failReconciliation=false; let snapshots=0; let pushes=0; let failAllowance=false; let dueRead=0; let dayReads=0; let failPayment=false; let subscriptionUnavailable=false; let paidDeadlineRace=false; let paidDeadlineObserved=false;
+  let failEvent=false; let failBooking=false; let failWebhook=false; let failReconciliation=false; let snapshots=0; let pushes=0; let failAllowance=false; let dueRead=0; let dayReads=0; let failPayment=false; let subscriptionUnavailable=false; let paidDeadlineRace=false; let paidDeadlineObserved=false; let verifyPaidUserLock=false;
   const noop=async () => {};
   async function readTicket(id,{client=pool}={}) {
     const r=(await client.query('SELECT * FROM tickets WHERE id=$1',[id])).rows[0];
@@ -61,7 +61,7 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
         service_outcome TEXT,status_reason TEXT,updated_at TIMESTAMPTZ,served_at TIMESTAMPTZ,unserved_at TIMESTAMPTZ,service_priority_band TEXT,rejoin_deadline_at TIMESTAMPTZ,
         lookup_code TEXT,user_id BIGINT,customer_email TEXT,customer_phone TEXT,UNIQUE(id,tenant_id,location_id));
       CREATE TABLE ticket_service_plans(ticket_id BIGINT PRIMARY KEY,tenant_id BIGINT,location_id BIGINT,source TEXT,booking_id BIGINT,items JSONB);
-      CREATE TABLE events(id BIGSERIAL PRIMARY KEY,ticket_id BIGINT,event_type TEXT,metadata JSONB);
+      CREATE TABLE events(id BIGSERIAL PRIMARY KEY,ticket_id BIGINT,event_type TEXT,metadata JSONB,actor_role TEXT);
       CREATE TABLE webhooks(event_id BIGINT);
       CREATE TABLE queue_ticket_segments(ticket_id BIGINT,ended_at TIMESTAMPTZ,segment_outcome TEXT,outcome_reason TEXT,queue_day_id BIGINT,display_number TEXT,sequence INTEGER,priority_band TEXT,UNIQUE(ticket_id,queue_day_id));
       CREATE TABLE queue_day_state(state TEXT,closes_at TIMESTAMPTZ DEFAULT clock_timestamp()-interval '1 second',intake_mode TEXT DEFAULT 'accepting',next_sequence INTEGER DEFAULT 1);
@@ -112,7 +112,8 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
         if (failBooking) throw new Error('booking failed');
       }},
       '../repositories/queueEvents':{createQueueEvent:async (data,{client}) => {
-        const r=await client.query('INSERT INTO events(ticket_id,event_type,metadata) VALUES($1,$2,$3) RETURNING id',[data.ticketId,data.eventType,JSON.stringify(data.metadata)]);
+        const r=await client.query('INSERT INTO events(ticket_id,event_type,metadata,actor_role) VALUES($1,$2,$3,$4) RETURNING id',[data.ticketId,data.eventType,JSON.stringify(data.metadata),data.actorRole]);
+        if (verifyPaidUserLock && data.eventType==='ticket_created') await assert.rejects(pool.query('SELECT id FROM users WHERE id=1 FOR UPDATE NOWAIT'),{code:'55P03'});
         if (failEvent) throw new Error('event failed'); return {_id:String(r.rows[0].id)};
       }},
       './developerWebhookService':{enqueueQueueEvent:async ({event},{client}) => {
@@ -139,7 +140,7 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
         INSERT INTO vendor_services VALUES(1000,1,'Court play',60,TRUE); INSERT INTO location_services VALUES(1000,1,10,TRUE);
         INSERT INTO store_hours(location_id,weekday,opens_at,closes_at,is_closed) SELECT 10,n,'00:00','00:00',FALSE FROM generate_series(0,6) n`);
       await pool.query('INSERT INTO location_resource_pools(id,tenant_id,location_id,capacity,revision,tracking_enabled) VALUES(100,1,10,$1,1,$2)',[capacity,enabled]);
-      failEvent=false; failBooking=false; failWebhook=false; failReconciliation=false; snapshots=0; pushes=0; failAllowance=false; dueRead=0; dayReads=0; failPayment=false; subscriptionUnavailable=false; paidDeadlineRace=false; paidDeadlineObserved=false; queueClosed=false;
+      failEvent=false; failBooking=false; failWebhook=false; failReconciliation=false; snapshots=0; pushes=0; failAllowance=false; dueRead=0; dayReads=0; failPayment=false; subscriptionUnavailable=false; paidDeadlineRace=false; paidDeadlineObserved=false; verifyPaidUserLock=false; queueClosed=false;
       delete location.queueLifecycleMode;
     }
     async function ticket(id,{plan=true,booking=false,channel='vendor'}={}) {
@@ -999,6 +1000,7 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
       assert.equal(ticketRow.current_queue_day_id,'999'); assert.equal(ticketRow.status,'waiting'); assert.equal(ticketRow.service_started_at,null);
       assert.equal((await pool.query('SELECT revision::text FROM resource_ledger_scopes')).rows[0].revision,'2');
       assert.equal(await count('resource_allocations'),0); assert.equal(await count('resource_ledger_commands'),0);
+      assert.equal((await pool.query('SELECT actor_role FROM events')).rows[0].actor_role,null);
     });
     await t.test('bound paid admission blocks unavailable days, scope and subscription without issuing or releasing occupancy',async () => {
       for(const sql of [
@@ -1058,6 +1060,36 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
       assert.equal((await realPayments.findPaymentById('1',{client:pool})).status,'pending');
       assert.equal((await pool.query('SELECT state FROM payment_allowance')).rows[0].state,'held');
       assert.equal(await count('events'),0); assert.equal(await count('lifecycle_notifications'),0);
+    });
+    await t.test('authenticated paid issuance holds the customer lock through event insertion and records the customer role',async () => {
+      await reset(); await payment(); verifyPaidUserLock=true;
+      await pool.query("UPDATE queue_join_payments SET payload=payload || '{\"userId\":\"1\"}'::jsonb");
+      await paid();
+      assert.equal((await pool.query('SELECT actor_role FROM events')).rows[0].actor_role,'customer');
+      assert.equal((await pool.query('SELECT user_id::text FROM tickets')).rows[0].user_id,'1');
+      await pool.query('SELECT id FROM users WHERE id=1 FOR UPDATE NOWAIT');
+    });
+    await t.test('paid issuance waits for account deletion or suspension and blocks after their committed update',async () => {
+      for(const field of ['deletion_requested_at','platform_access_suspended_at']) {
+        await reset(); await payment();
+        await pool.query("UPDATE queue_join_payments SET payload=payload || '{\"userId\":\"1\"}'::jsonb");
+        const blocker=await pool.connect(); let pending;
+        try {
+          await blocker.query('BEGIN'); await blocker.query(`UPDATE users SET ${field}=clock_timestamp() WHERE id=1`);
+          pending=paid(); pending.catch(()=>{});
+          const deadline=Date.now()+3000; let waiting=false;
+          while(Date.now()<deadline) {
+            waiting=(await pool.query("SELECT 1 FROM pg_stat_activity WHERE application_name=$1 AND wait_event_type='Lock' AND query LIKE 'SELECT id FROM users%'",[schema])).rows.length>0;
+            if(waiting) break;
+            await new Promise(resolve=>setTimeout(resolve,10));
+          }
+          assert.equal(waiting,true,'paid admission must wait for the user row');
+          await blocker.query('COMMIT'); await pending;
+          assert.equal(await count('tickets'),0); assert.equal(await count('events'),0);
+          assert.equal((await realPayments.findPaymentById('1',{client:pool})).ticketIssuanceStatus,'refund_pending');
+          assert.equal((await pool.query('SELECT state FROM payment_allowance')).rows[0].state,'released');
+        } finally {await blocker.query('ROLLBACK'); blocker.release(); if(pending) await pending.catch(()=>{});}
+      }
     });
     await t.test('paid admission waits for the location before payment and revalidates provider/day binding',async () => {
       for(const sql of ["UPDATE queue_join_payments SET provider_checkout_session_id='CHANGED' WHERE id=1","UPDATE queue_join_payments SET queue_day_id=998 WHERE id=1"]) {

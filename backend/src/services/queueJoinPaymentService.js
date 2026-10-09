@@ -408,7 +408,7 @@ async function boundPaidCustomerAvailable(payment, client) {
   if (typeof userId === "number" && !Number.isSafeInteger(userId)) return false;
   if (!/^[1-9]\d{0,18}$/u.test(String(userId)) || BigInt(userId) > 9223372036854775807n) return false;
   const result = await client.query(`SELECT id FROM users WHERE id=$1
-    AND deletion_requested_at IS NULL AND platform_access_suspended_at IS NULL`, [userId]);
+    AND deletion_requested_at IS NULL AND platform_access_suspended_at IS NULL FOR SHARE`, [userId]);
   return result.rows.length > 0;
 }
 
@@ -435,7 +435,7 @@ async function issueBoundPaidTicket(payment, tenant, location, providerPaymentId
     if (String(ticket.currentQueueDayId) !== String(payment.queueDayId)) {
       throw Object.assign(new Error("Paid ticket admission changed."), { code: "QUEUE_STATE_CHANGED", statusCode: 409 });
     }
-    await recordCreatedTicketEvent(options.client, ticket, { actorUserId: payment.payload?.userId, actorRole: "customer", source: "public" });
+    await recordCreatedTicketEvent(options.client, ticket, { actorUserId: payment.payload?.userId, actorRole: payment.payload?.userId ? "customer" : null, source: "public" });
     const updated = await paymentRepository.markPaidWithTicket(payment._id, {
       providerPaymentId, paidAt: normalizeProviderTimestamp(paymentAttributes?.paid_at), ticketId: ticket._id,
       ticketLookupCode: ticket.lookupCode, metadata: { paidAmount: paymentAttributes?.amount || payment.amountCents, paidCurrency: paymentAttributes?.currency || payment.currency }
