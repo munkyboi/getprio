@@ -34,7 +34,7 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
   const pool=new Pool({connectionString:databaseUrl,options:`-c search_path=${schema}`,application_name:schema,max:8});
   const tenant={_id:'1'}; const location={_id:'10'};
   let failEvent=false; let failBooking=false; let failWebhook=false; let failReconciliation=false; let snapshots=0; let pushes=0; let failAllowance=false; let dueRead=0; let dayReads=0; let failPayment=false; let subscriptionUnavailable=false; let paidDeadlineRace=false; let paidDeadlineObserved=false; let verifyPaidUserLock=false; let verifyPaidTenantLock=false; const billingEvents=new Set(); let paidEventBarrier=null; let intakeBarrier=null;
-  let automaticPushes=0;
+  let automaticPushes=0;let failCarryOverOutbox=false;
   const noop=async () => {};
   async function readTicket(id,{client=pool}={}) {
     const r=(await client.query('SELECT * FROM tickets WHERE id=$1',[id])).rows[0];
@@ -65,7 +65,9 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
         service_outcome TEXT,status_reason TEXT,updated_at TIMESTAMPTZ,served_at TIMESTAMPTZ,unserved_at TIMESTAMPTZ,service_priority_band TEXT,rejoin_deadline_at TIMESTAMPTZ,
         lookup_code TEXT,user_id BIGINT,customer_email TEXT,customer_phone TEXT,UNIQUE(id,tenant_id,location_id));
       CREATE TABLE ticket_service_plans(ticket_id BIGINT PRIMARY KEY,tenant_id BIGINT,location_id BIGINT,source TEXT,booking_id BIGINT,items JSONB);
-      CREATE TABLE events(id BIGSERIAL PRIMARY KEY,ticket_id BIGINT,event_type TEXT,metadata JSONB,actor_role TEXT,source TEXT);
+      CREATE TABLE events(id BIGSERIAL PRIMARY KEY,ticket_id BIGINT,event_type TEXT,metadata JSONB,actor_role TEXT,source TEXT,tenant_id BIGINT,location_id BIGINT,event_key TEXT);
+      CREATE UNIQUE INDEX events_expiry_key ON events(event_key) WHERE event_key IS NOT NULL;
+      CREATE TABLE carry_over_outbox(idempotency_key TEXT PRIMARY KEY,event_id BIGINT,ticket_id BIGINT,channel TEXT,payload JSONB);
       CREATE TABLE queue_day_pauses(id BIGSERIAL PRIMARY KEY,tenant_id BIGINT,location_id BIGINT,queue_date_key TEXT,pause_reason TEXT,pause_mode TEXT,paused_by_user_id BIGINT,resumed_by_user_id BIGINT,paused_at TIMESTAMPTZ,resumed_at TIMESTAMPTZ,created_at TIMESTAMPTZ DEFAULT NOW(),updated_at TIMESTAMPTZ DEFAULT NOW());
       CREATE UNIQUE INDEX queue_day_pauses_active_scope_idx ON queue_day_pauses(tenant_id,location_id,queue_date_key) WHERE resumed_at IS NULL;
       CREATE TABLE webhooks(event_id BIGINT);
@@ -138,7 +140,7 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
     async function reset(capacity=4,enabled=true) {
       await pool.query(`TRUNCATE resource_ledger_commands,resource_allocations,resource_ledger_reservations,resource_ledger_scopes,
         ticket_service_plans,tickets,booking_bundle_items,bookings,service_resource_requirements,location_resource_pools,
-        store_locations,tenant_membership_locations,service_counter_assignments,service_counters,tenant_memberships,tenants,users,events,webhooks,booking_audit,queue_ticket_segments,queue_day_state,intake_state,queue_day_pauses,lifecycle_notifications,counters,vendor_services,location_services,store_hours,allowance_audit,queue_email_slots,queue_email_journeys,queue_join_payments,payment_allowance,tenant_subscriptions,queue_fee_settings RESTART IDENTITY CASCADE`);
+        store_locations,tenant_membership_locations,service_counter_assignments,service_counters,tenant_memberships,tenants,users,events,carry_over_outbox,webhooks,booking_audit,queue_ticket_segments,queue_day_state,intake_state,queue_day_pauses,lifecycle_notifications,counters,vendor_services,location_services,store_hours,allowance_audit,queue_email_slots,queue_email_journeys,queue_join_payments,payment_allowance,tenant_subscriptions,queue_fee_settings RESTART IDENTITY CASCADE`);
       await pool.query(`INSERT INTO users(id,roles,deletion_requested_at,platform_access_suspended_at,email,phone) VALUES(1,'{}',NULL,NULL,'owner@example.com','09171234567'),(2,'{}',NULL,NULL,'other@example.com','09179876543');
         INSERT INTO tenant_subscriptions VALUES(1,1,'active','free',clock_timestamp());
         INSERT INTO tenants(id,is_active) VALUES(1,TRUE),(2,TRUE);
@@ -149,7 +151,7 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
         INSERT INTO vendor_services VALUES(1000,1,'Court play',60,TRUE); INSERT INTO location_services VALUES(1000,1,10,TRUE);
         INSERT INTO store_hours(location_id,weekday,opens_at,closes_at,is_closed) SELECT 10,n,'00:00','00:00',FALSE FROM generate_series(0,6) n`);
       await pool.query('INSERT INTO location_resource_pools(id,tenant_id,location_id,capacity,revision,tracking_enabled) VALUES(100,1,10,$1,1,$2)',[capacity,enabled]);
-      automaticPushes=0; failEvent=false; failBooking=false; failWebhook=false; failReconciliation=false; snapshots=0; pushes=0; failAllowance=false; dueRead=0; dayReads=0; failPayment=false; subscriptionUnavailable=false; paidDeadlineRace=false; paidDeadlineObserved=false; verifyPaidUserLock=false; verifyPaidTenantLock=false; billingEvents.clear(); paidEventBarrier=null; intakeBarrier=null; queueClosed=false;
+      automaticPushes=0; failCarryOverOutbox=false; failEvent=false; failBooking=false; failWebhook=false; failReconciliation=false; snapshots=0; pushes=0; failAllowance=false; dueRead=0; dayReads=0; failPayment=false; subscriptionUnavailable=false; paidDeadlineRace=false; paidDeadlineObserved=false; verifyPaidUserLock=false; verifyPaidTenantLock=false; billingEvents.clear(); paidEventBarrier=null; intakeBarrier=null; queueClosed=false;
       delete location.queueLifecycleMode;
     }
     async function ticket(id,{plan=true,booking=false,channel='vendor'}={}) {
@@ -1563,6 +1565,99 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
         failEvent=true;await assert.rejects(automatic()[action](tenant,{location}),/event failed/);assert.deepEqual((await pool.query('SELECT * FROM queue_day_pauses')).rows,pauses);assert.equal((await pool.query('SELECT revision::text FROM resource_ledger_scopes')).rows[0]?.revision,revision);assert.equal(await count('events'),events);assert.equal(automaticPushes,pushesBefore);
         failEvent=false;await assert.rejects(withTransaction(async client=>{await automatic()[action](tenant,{location,client});throw new Error('caller abort');}),/caller abort/);
         assert.deepEqual((await pool.query('SELECT * FROM queue_day_pauses')).rows,pauses);assert.equal((await pool.query('SELECT revision::text FROM resource_ledger_scopes')).rows[0]?.revision,revision);assert.equal(await count('events'),events);assert.equal(automaticPushes,pushesBefore);
+      }
+    });
+    function carryExpiry(database={pool}) {
+      const filename=path.resolve(__dirname,'../src/services/queueCarryOverExpiryService.js');const compiled=new (require('node:module').Module)(filename);
+      const injected={'../config/db':database,'../repositories/queueEvents':{createLifecycleEvent:async(data,{client})=>{
+        const event=(await client.query("INSERT INTO events(ticket_id,event_type,metadata,source,tenant_id,location_id,event_key) VALUES($1,$2,'{}',$3,$4,$5,$6) ON CONFLICT(event_key) WHERE event_key IS NOT NULL DO NOTHING RETURNING id::text,event_key",[data.ticketId,data.eventType,data.source,data.tenantId,data.locationId,data.eventKey])).rows[0];
+        if(failEvent)throw new Error('event failed');return event?{_id:event.id,eventKey:event.event_key}:null;
+      }},'../repositories/queueNotificationOutbox':{enqueue:async(data,{client})=>{
+        await client.query('INSERT INTO carry_over_outbox VALUES($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING',[data.idempotencyKey,data.queueEventId,data.ticketId,data.channel,JSON.stringify(data.payload)]);
+        if(failCarryOverOutbox)throw new Error('outbox failed');
+      }}};
+      compiled.require=request=>Object.hasOwn(injected,request)?injected[request]:require(path.resolve(path.dirname(filename),request));compiled._compile(fs.readFileSync(filename,'utf8'),filename);return compiled.exports;
+    }
+    async function pendingCarryOver(id='1',{booking=true}={}) {
+      await ticket(id,{booking});await pool.query("UPDATE tickets SET status='pending_carry_over',carry_over_expires_at=clock_timestamp()-interval '1 minute',user_id=1,notify_by_email=TRUE WHERE id=$1",[id]);
+    }
+    await t.test('carry-over expiry cancels frozen linked protection and commits ticket booking intents receipts and revisions once',async()=>{
+      await reset();await pendingCarryOver();await pool.query('UPDATE location_resource_pools SET tracking_enabled=FALSE;DELETE FROM service_resource_requirements');
+      const before=(await pool.query('SELECT revision::text FROM resource_ledger_scopes')).rows[0].revision;
+      assert.deepEqual((await Promise.all([carryExpiry().expirePendingCarryOvers(),carryExpiry().expirePendingCarryOvers()])).sort(),[0,1]);
+      assert.equal((await readTicket('1')).status,'expired');assert.deepEqual((await pool.query('SELECT status,fulfillment_outcome_reason,refund_eligible FROM bookings')).rows[0],{status:'unfulfilled',fulfillment_outcome_reason:'carry_over_window_expired',refund_eligible:true});
+      assert.equal((await pool.query('SELECT state FROM resource_ledger_reservations')).rows[0].state,'cancelled');
+      const receipt=(await pool.query("SELECT operation_key,actor_user_id,result FROM resource_ledger_commands WHERE command='cancelReservation'")).rows[0];assert.match(receipt.operation_key,/^ticket:1:reservation:[1-9]\d*:carry-over-expiry$/);assert.equal(receipt.actor_user_id,null);
+      assert.equal((await pool.query('SELECT revision::text FROM resource_ledger_scopes')).rows[0].revision,String(Number(before)+2));
+      assert.deepEqual((await pool.query("SELECT tenant_id::text,location_id::text,source,event_type FROM events WHERE event_type='ticket_expired'")).rows,[{tenant_id:'1',location_id:'10',source:'system',event_type:'ticket_expired'}]);
+      assert.deepEqual((await pool.query('SELECT channel FROM carry_over_outbox ORDER BY channel')).rows.map(r=>r.channel),['email','fcm','web_push']);assert.equal(await count('resource_allocations'),0);
+      assert.equal(await carryExpiry().expirePendingCarryOvers(),0);assert.equal(await count('events'),1);assert.equal(await count('carry_over_outbox'),3);
+      const reservationId=(await pool.query('SELECT id::text FROM resource_ledger_reservations')).rows[0].id;
+      const replay=await ledger.withCarryOverExpiryTransaction({pool,tenantId:'1',locationId:'10',ticketId:'1'},async(_client,capability)=>capability.executeCommand({command:'cancelReservation',payload:{reservationId},operationKey:receipt.operation_key}));
+      assert.deepEqual(replay,receipt.result);assert.equal((await pool.query('SELECT revision::text FROM resource_ledger_scopes')).rows[0].revision,String(Number(before)+2));
+    });
+    await t.test('carry-over expiry preserves terminal bookings and leaves service history allocation or converted protection for reconciliation',async()=>{
+      for(const status of ['completed','canceled','reviewed','disputed']) {
+        await reset();await pendingCarryOver();await pool.query('UPDATE bookings SET status=$1',[status]);await pool.query('UPDATE store_locations SET is_active=FALSE WHERE id=10');
+        assert.equal(await carryExpiry().expirePendingCarryOvers(),1);assert.equal((await pool.query('SELECT status FROM bookings')).rows[0].status,status);assert.equal((await pool.query('SELECT state FROM resource_ledger_reservations')).rows[0].state,'cancelled');
+      }
+      for(const kind of ['service','allocation','converted']) {
+        await reset();await pendingCarryOver();
+        if(kind==='service')await pool.query('UPDATE tickets SET service_started_at=clock_timestamp()');
+        else if(kind==='converted')await pool.query("UPDATE resource_ledger_reservations SET state='converted'");
+        else {await pool.query("UPDATE tickets SET status='called'");await record('1','start');await pool.query("UPDATE tickets SET status='pending_carry_over',service_started_at=NULL");}
+        const before=(await pool.query('SELECT revision::text FROM resource_ledger_scopes')).rows[0].revision;const events=await count('events');
+        assert.equal(await carryExpiry().expirePendingCarryOvers(),0);assert.equal((await readTicket('1')).status,'pending_carry_over');assert.equal((await pool.query('SELECT revision::text FROM resource_ledger_scopes')).rows[0].revision,before);assert.equal(await count('events'),events);assert.equal(await count('carry_over_outbox'),0);
+        if(kind==='allocation')assert.equal((await pool.query('SELECT released_at FROM resource_allocations')).rows[0].released_at,null);
+        if(kind==='converted')assert.equal((await pool.query('SELECT state FROM resource_ledger_reservations')).rows[0].state,'converted');
+      }
+    });
+    await t.test('carry-over expiry leaves captured protection with an inconsistent booking link for reconciliation',async()=>{
+      await reset();await pendingCarryOver();await pool.query('UPDATE bookings SET queue_ticket_id=NULL');
+      const before=(await pool.query('SELECT revision::text FROM resource_ledger_scopes')).rows[0].revision;
+      assert.equal(await carryExpiry().expirePendingCarryOvers(),0);assert.equal((await readTicket('1')).status,'pending_carry_over');assert.equal((await pool.query('SELECT state FROM resource_ledger_reservations')).rows[0].state,'protected');assert.equal(await count('events'),0);assert.equal((await pool.query('SELECT revision::text FROM resource_ledger_scopes')).rows[0].revision,before);
+      await pool.query('UPDATE bookings SET queue_ticket_id=1');assert.equal(await carryExpiry().expirePendingCarryOvers(),1);
+    });
+    await t.test('carry-over expiry rereads status deadline and scope after waiting for the location lock',async()=>{
+      for(const sql of ["UPDATE tickets SET status='waiting' WHERE id=1", "UPDATE tickets SET carry_over_expires_at=clock_timestamp()+interval '1 day' WHERE id=1", "INSERT INTO store_locations(id,tenant_id,is_active) VALUES(30,1,TRUE);UPDATE tickets SET location_id=30 WHERE id=1"]) {
+        await reset();await pendingCarryOver('1',{booking:false});const blocker=await pool.connect();let pending;
+        try {await blocker.query('BEGIN');await blocker.query('SELECT id FROM store_locations WHERE id=10 FOR UPDATE');pending=carryExpiry().expirePendingCarryOvers();pending.catch(()=>{});await waitForLocationLock();
+          await blocker.query(sql);await blocker.query('COMMIT');assert.equal(await pending,0);assert.equal(await count('events'),0);assert.equal(await count('carry_over_outbox'),0);assert.equal((await pool.query('SELECT revision::text FROM resource_ledger_scopes')).rows[0].revision,'1');
+        } finally {await blocker.query('ROLLBACK');blocker.release();if(pending)await pending.catch(()=>{});}
+      }
+    });
+    await t.test('carry-over expiry event outbox and final revision failures roll every ticket outcome and protection receipt back',async()=>{
+      for(const kind of ['event','outbox','revision']) {
+        await reset();await pendingCarryOver();const before=(await pool.query('SELECT revision::text FROM resource_ledger_scopes')).rows[0].revision;
+        const failingPool={query:(...args)=>pool.query(...args),connect:async()=>{const client=await pool.connect();return {release:()=>client.release(),query:async(...args)=>{
+          if(kind==='revision'&&String(args[0]).startsWith('UPDATE resource_ledger_scopes')&&!String(args[0]).includes('RETURNING'))throw new Error('revision failed');return client.query(...args);
+        }};}};
+        failEvent=kind==='event';failCarryOverOutbox=kind==='outbox';await assert.rejects(carryExpiry({pool:failingPool}).expirePendingCarryOvers(),new RegExp(`${kind} failed`));
+        assert.equal((await readTicket('1')).status,'pending_carry_over');assert.equal((await pool.query('SELECT status FROM bookings')).rows[0].status,'confirmed');assert.equal((await pool.query('SELECT state FROM resource_ledger_reservations')).rows[0].state,'protected');assert.equal((await pool.query('SELECT revision::text FROM resource_ledger_scopes')).rows[0].revision,before);assert.equal(await count('events'),0);assert.equal(await count('carry_over_outbox'),0);assert.equal((await pool.query("SELECT count(*)::int n FROM resource_ledger_commands WHERE command='cancelReservation'")).rows[0].n,0);
+        failEvent=false;failCarryOverOutbox=false;assert.equal(await carryExpiry().expirePendingCarryOvers(),1);
+      }
+    });
+    await t.test('carry-over expiry bounds advisory batches and expires each tenant location with its own revision',async()=>{
+      await reset();await pendingCarryOver('1',{booking:false});await pendingCarryOver('2',{booking:false});await pendingCarryOver('3',{booking:false});await pool.query('UPDATE tickets SET tenant_id=2,location_id=20 WHERE id=3;UPDATE ticket_service_plans SET tenant_id=2,location_id=20 WHERE ticket_id=3');
+      assert.equal(await carryExpiry().expirePendingCarryOvers(2),2);assert.equal((await readTicket('3')).status,'pending_carry_over');assert.equal(await carryExpiry().expirePendingCarryOvers(),1);
+      assert.deepEqual((await pool.query('SELECT tenant_id::text,location_id::text,revision::text FROM resource_ledger_scopes ORDER BY tenant_id')).rows,[{tenant_id:'1',location_id:'10',revision:'3'},{tenant_id:'2',location_id:'20',revision:'2'}]);assert.equal(await count('events'),3);assert.equal(await count('carry_over_outbox'),9);
+      await reset();await pendingCarryOver('9007199254740993',{booking:false});await assert.rejects(carryExpiry().expirePendingCarryOvers(),{statusCode:400});assert.equal(await count('resource_ledger_scopes'),0);assert.equal(await count('events'),0);
+    });
+    await t.test('ticket-expiry capability rejects premature unrelated keys payloads commands and occupancy',async()=>{
+      for(const options of [
+        {command:'reserve',payload:{bookingItemId:'1'},operationKey:'ticket:1:reservation:1:carry-over-expiry'},
+        {command:'allocate',payload:{ticketId:'1'},operationKey:'ticket:1:reservation:1:carry-over-expiry'},
+        {command:'release',payload:{allocationId:'1',outcome:'completed'},operationKey:'ticket:1:reservation:1:carry-over-expiry'},
+        {command:'cancelReservation',payload:{reservationId:'1'},operationKey:'booking:1:reservation:1:expiry:cancel'},
+        {command:'cancelReservation',payload:{reservationId:'1'},operationKey:'ticket:1:reservation:1:customer-cancel'},
+        {command:'cancelReservation',payload:{reservationId:'1'},operationKey:'ticket:2:reservation:1:carry-over-expiry'},
+        {command:'cancelReservation',payload:{reservationId:'1'},operationKey:'ticket:1:reservation:2:carry-over-expiry'}]) {
+        await reset();await pendingCarryOver();await assert.rejects(ledger.withCarryOverExpiryTransaction({pool,tenantId:'1',locationId:'10',ticketId:'1'},async(_client,capability)=>capability.executeCommand(options)),{statusCode:403});
+        assert.equal((await pool.query('SELECT state FROM resource_ledger_reservations')).rows[0].state,'protected');
+      }
+      for(const sql of [null,"UPDATE tickets SET status='expired',status_reason='carry_over_window_expired',terminal_at=clock_timestamp(),carry_over_expires_at=clock_timestamp()+interval '1 day'", "UPDATE tickets SET status='expired',status_reason='carry_over_window_expired',terminal_at=clock_timestamp(),service_started_at=clock_timestamp()", "UPDATE tickets SET status='expired',status_reason='carry_over_window_expired',terminal_at=clock_timestamp();UPDATE bookings SET queue_ticket_id=NULL"]) {
+        await reset();await pendingCarryOver();if(sql)await pool.query(sql);const binding=(await pool.query('SELECT id::text FROM resource_ledger_reservations')).rows[0].id;
+        await assert.rejects(ledger.withCarryOverExpiryTransaction({pool,tenantId:'1',locationId:'10',ticketId:'1'},async(_client,capability)=>capability.executeCommand({command:'cancelReservation',payload:{reservationId:binding},operationKey:`ticket:1:reservation:${binding}:carry-over-expiry`})),{statusCode:403});assert.equal((await pool.query('SELECT state FROM resource_ledger_reservations')).rows[0].state,'protected');
       }
     });
     await t.test('subscription suspension and paid issuance serialize on the accepted subscription row',async () => {

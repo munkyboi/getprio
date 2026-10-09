@@ -188,7 +188,14 @@ async function withSystemExpiryTransaction({ pool, tenantId, locationId }, callb
     authorize: async () => true }, callback);
 }
 
-async function runScopeTransaction({ pool, tenantId, locationId, actorId, authorize, customerCancellationLookupCode = null }, callback) {
+// Separate trusted maintenance boundary for a selected carry-over ticket. It
+// cannot use the unarrived booking-expiry capability or release occupancy.
+async function withCarryOverExpiryTransaction({ pool, tenantId, locationId, ticketId }, callback) {
+  return runScopeTransaction({ pool, tenantId, locationId, actorId: null,
+    authorize: async () => true, ticketExpiryId: id(ticketId) }, callback);
+}
+
+async function runScopeTransaction({ pool, tenantId, locationId, actorId, authorize, customerCancellationLookupCode = null, ticketExpiryId = null }, callback) {
   const scope = [id(tenantId), id(locationId)];
   if (typeof authorize !== "function" || typeof callback !== "function") {
     fail("Scoped transactions require authorization and a domain callback.", 400);
@@ -208,7 +215,7 @@ async function runScopeTransaction({ pool, tenantId, locationId, actorId, author
         }
         // Poison the enclosing transaction even when a domain callback catches a
         // semantic conflict: it must not commit a partial reservation replacement.
-        const operation = executeLockedCommand(client, scope, actorId, options, customerCancellationLookupCode);
+        const operation = executeLockedCommand(client, scope, actorId, options, customerCancellationLookupCode, ticketExpiryId);
         pending = operation;
         try {
           return await operation;
@@ -280,19 +287,44 @@ async function assertSystemExpiryBinding(client, scope, operationKey, data) {
   if (!eligible.rows.length) fail("System expiry requires an expired unarrived booking without payment proof.", 403);
 }
 
-async function executeLockedCommand(client, scope, actorId, { operationKey, command, payload }, customerCancellationLookupCode) {
+async function assertCarryOverExpiryBinding(client, scope, ticketId, data) {
+  const eligible = await client.query(`SELECT t.id FROM tickets t JOIN bookings b
+    ON (b.queue_ticket_id,b.tenant_id,b.location_id)=(t.id,t.tenant_id,t.location_id)
+    JOIN resource_ledger_reservations r ON (r.booking_id,r.tenant_id,r.location_id)=(b.id,b.tenant_id,b.location_id)
+    WHERE t.tenant_id=$1 AND t.location_id=$2 AND t.id=$3 AND r.id=$4
+      AND t.status='expired' AND t.status_reason='carry_over_window_expired'
+      AND t.carry_over_expires_at <= t.terminal_at AND t.terminal_at <= clock_timestamp()
+      AND t.service_started_at IS NULL
+      AND NOT EXISTS (SELECT 1 FROM resource_allocations a WHERE (a.tenant_id,a.location_id,a.ticket_id)=(t.tenant_id,t.location_id,t.id))
+      AND NOT EXISTS (SELECT 1 FROM resource_ledger_reservations converted JOIN bookings linked
+        ON (linked.id,linked.tenant_id,linked.location_id)=(converted.booking_id,converted.tenant_id,converted.location_id)
+        LEFT JOIN ticket_service_plans p ON (p.booking_id,p.tenant_id,p.location_id)=(linked.id,linked.tenant_id,linked.location_id) AND p.source='booking'
+        WHERE converted.tenant_id=t.tenant_id AND converted.location_id=t.location_id
+          AND (linked.queue_ticket_id=t.id OR p.ticket_id=t.id)
+          AND (converted.state='converted' OR (converted.state='protected' AND linked.queue_ticket_id IS DISTINCT FROM t.id)))`, [...scope, ticketId, data.reservationId]);
+  if (!eligible.rows.length) fail("Carry-over expiry requires this expired unstarted ticket's linked protection.", 403);
+}
+
+async function executeLockedCommand(client, scope, actorId, { operationKey, command, payload }, customerCancellationLookupCode, ticketExpiryId) {
   if (typeof operationKey !== "string" || !operationKey.trim() || operationKey.length > 120) fail("Invalid operation key.", 400);
   const customerKey = customerCancellationLookupCode && operationKey.match(/^ticket:([1-9]\d*):reservation:([1-9]\d*):customer-cancel$/u);
   if (customerCancellationLookupCode && (command !== "cancelReservation" || !customerKey)) {
     fail("Customer ticket cancellation may only cancel its linked protection.", 403);
   }
-  if (actorId === null && !customerCancellationLookupCode && (command !== "cancelReservation"
+  const ticketExpiryKey = ticketExpiryId && operationKey.match(/^ticket:([1-9]\d*):reservation:([1-9]\d*):carry-over-expiry$/u);
+  if (ticketExpiryId && (command !== "cancelReservation" || !ticketExpiryKey || ticketExpiryKey[1] !== ticketExpiryId)) {
+    fail("Carry-over expiry may only cancel the selected ticket's reservations.", 403);
+  }
+  if (actorId === null && !customerCancellationLookupCode && !ticketExpiryId && (command !== "cancelReservation"
     || !/^booking:[1-9]\d*:reservation:[1-9]\d*:expiry:cancel$/u.test(operationKey))) {
     fail("System expiry may only cancel booking reservations with an expiry operation key.", 403);
   }
   const data = normalizedCommand(command, payload);
   if (customerCancellationLookupCode) {
     await assertCustomerCancellationBinding(client, scope, customerCancellationLookupCode, customerKey, data);
+  } else if (ticketExpiryId) {
+    if (ticketExpiryKey[2] !== data.reservationId) fail("Ticket expiry reservation key does not match its payload.", 403);
+    await assertCarryOverExpiryBinding(client, scope, ticketExpiryId, data);
   } else if (actorId === null) {
     await assertSystemExpiryBinding(client, scope, operationKey, data);
   }
@@ -327,4 +359,4 @@ async function executeCommand(options) {
   return withScopeTransaction({ ...options, authorize: async () => true },
     async (_client, ledger) => ledger.executeCommand(options));
 }
-module.exports = { executeCommand, withScopeTransaction, withTicketIssuanceTransaction, withSystemExpiryTransaction, withCustomerTicketCancellationTransaction };
+module.exports = { executeCommand, withScopeTransaction, withTicketIssuanceTransaction, withSystemExpiryTransaction, withCustomerTicketCancellationTransaction, withCarryOverExpiryTransaction };
