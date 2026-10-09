@@ -476,11 +476,13 @@ async function issueLocationBoundLegacyPaidTicket(payment, tenant, location, pro
     return block();
   }
   if (!await boundPaidCustomerAvailable(payment, options.client)) return block();
-  const dateKey = getDateKey(new Date(), location.timezone);
+  let dateKey;
   try {
-    await assertQueueIntakeOpen(tenant, location, { client: options.client, queueDateKey: dateKey });
     await options.client.query("SELECT location_id FROM store_hours WHERE location_id=$1 FOR SHARE", [location._id]);
-    if (!(await storeHoursService.getOpenStatus(location, { client: options.client })).isOpen) return block();
+    const admissionTime = new Date();
+    dateKey = getDateKey(admissionTime, location.timezone);
+    await assertQueueIntakeOpen(tenant, location, { client: options.client, queueDateKey: dateKey });
+    if (!(await storeHoursService.getOpenStatus(location, { client: options.client, now: admissionTime })).isOpen) return block();
     await assertWaitingIntakeCapacityAvailable(tenant, location, { client: options.client, queueDateKey: dateKey, issuance: true });
   } catch (error) {
     if (!["QUEUE_DAY_CLOSED", "QUEUE_INTAKE_PAUSED", "QUEUE_INTAKE_THRESHOLD_REACHED"].includes(error.code)) throw error;
@@ -494,7 +496,7 @@ function getStoredPaymentLocationId(payment) {
 }
 
 function hasStoredPaymentScope(payment) {
-  return Boolean(payment.queueDayId || getStoredPaymentLocationId(payment));
+  return Boolean(payment.queueDayId || payment.metadata?.locationBindingVersion != null);
 }
 
 async function issueTicketForPaidPayment(payment, providerPaymentId, paymentAttributes, options = {}) {

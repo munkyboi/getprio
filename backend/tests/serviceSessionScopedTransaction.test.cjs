@@ -75,10 +75,10 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
       CREATE TABLE allowance_audit(ticket_id BIGINT,resource_key TEXT);
       CREATE TABLE queue_email_journeys(id BIGSERIAL PRIMARY KEY,tenant_id BIGINT,ticket_id BIGINT UNIQUE,mode TEXT,otp_chain_id TEXT,email_opted_out_at TIMESTAMPTZ);
       CREATE TABLE queue_email_slots(journey_id BIGINT,slot_key TEXT,status TEXT DEFAULT 'unused',logical_message_key TEXT,sent_at TIMESTAMPTZ,UNIQUE(journey_id,slot_key));
-      CREATE TABLE queue_join_payments(id BIGINT PRIMARY KEY,tenant_id BIGINT,otp_id BIGINT,plan_slug TEXT DEFAULT 'free',provider TEXT DEFAULT 'paymongo',
+      CREATE TABLE queue_join_payments(id BIGSERIAL PRIMARY KEY,tenant_id BIGINT,otp_id BIGINT,plan_slug TEXT DEFAULT 'free',provider TEXT DEFAULT 'paymongo',
         provider_checkout_session_id TEXT,provider_payment_id TEXT,status TEXT DEFAULT 'pending',amount_cents INTEGER DEFAULT 100,currency TEXT DEFAULT 'PHP',checkout_url TEXT,
         payload JSONB DEFAULT '{}',metadata JSONB DEFAULT '{}',ticket_id BIGINT,ticket_lookup_code TEXT,queue_day_id BIGINT,queue_day_version_at_checkout INTEGER,
-        ticket_issuance_status TEXT DEFAULT 'pending',ticket_issuance_reason TEXT,ticket_issuance_attempted_at TIMESTAMPTZ,paid_at TIMESTAMPTZ,created_at TIMESTAMPTZ DEFAULT clock_timestamp(),updated_at TIMESTAMPTZ);
+        ticket_issuance_status TEXT DEFAULT 'pending',ticket_issuance_reason TEXT,ticket_issuance_attempted_at TIMESTAMPTZ,paid_at TIMESTAMPTZ,created_at TIMESTAMPTZ DEFAULT clock_timestamp(),updated_at TIMESTAMPTZ,UNIQUE(tenant_id,otp_id));
       CREATE TABLE payment_allowance(reservation_key TEXT PRIMARY KEY,state TEXT,ticket_id BIGINT);
       ALTER TABLE store_locations ADD COLUMN slug TEXT DEFAULT 'main';
       ALTER TABLE location_resource_pools ADD COLUMN name TEXT DEFAULT 'Court';
@@ -1193,6 +1193,43 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
       await reset(); await legacyPayment(); queueClosed=true; failAllowance=true;
       await assert.rejects(paid(),/allowance failed/);
       assert.equal((await realPayments.findPaymentById('1',{client:pool})).status,'pending'); assert.equal(await count('resource_ledger_scopes'),0);
+    });
+    await t.test('checkout upsert cannot promote historical payload IDs or replace an existing trusted binding',async () => {
+      await reset(); await pool.query("SELECT setval('queue_join_payments_id_seq',10)");
+      const create=input=>realPayments.createPayment({tenantId:'1',otpId:'123',planSlug:'free',provider:'paymongo',amountCents:100,...input},{client:pool});
+      const old=await create({payload:{locationId:'11',locationSlug:'old'},metadata:{source:'historical'},queueDayId:'999',queueDayVersionAtCheckout:2});
+      const reused=await create({payload:{locationId:'10',locationSlug:'main'},metadata:{locationBindingVersion:1,source:'retry'},queueDayId:'998',queueDayVersionAtCheckout:3});
+      assert.equal(reused._id,old._id); assert.equal(reused.payload.locationId,'11'); assert.equal(reused.metadata.locationBindingVersion,undefined);
+      assert.equal(reused.queueDayId,'999'); assert.equal(reused.queueDayVersionAtCheckout,2); assert.equal(reused.metadata.source,'retry');
+      const fresh=await realPayments.createPayment({tenantId:'1',otpId:'124',planSlug:'free',provider:'paymongo',amountCents:100,payload:{locationId:'10',locationSlug:'main'},metadata:{locationBindingVersion:1}},{client:pool});
+      const frozen=await realPayments.createPayment({tenantId:'1',otpId:'124',planSlug:'free',provider:'paymongo',amountCents:200,payload:{locationId:'11',locationSlug:'changed'},metadata:{locationBindingVersion:2}},{client:pool});
+      assert.equal(frozen._id,fresh._id); assert.equal(frozen.payload.locationId,'10'); assert.equal(frozen.metadata.locationBindingVersion,1); assert.equal(frozen.amountCents,100);
+    });
+    await t.test('legacy paid hours lock crossing midnight uses one post-lock instant for hours and ticket date',async () => {
+      await reset(); await legacyPayment(); const blocker=await pool.connect(); let pending;
+      const NativeDate=Date; let admissionClock='2026-10-08T15:59:59Z';
+      try {
+        await blocker.query('BEGIN'); await blocker.query('UPDATE store_hours SET is_closed=FALSE WHERE location_id=10');
+        global.Date=class extends NativeDate {constructor(...args) {super(...(args.length ? args : [admissionClock]));}};
+        pending=paid(); pending.catch(()=>{});
+        const deadline=NativeDate.now()+3000; let waiting=false;
+        while(NativeDate.now()<deadline) {
+          waiting=(await pool.query("SELECT 1 FROM pg_stat_activity WHERE application_name=$1 AND wait_event_type='Lock' AND query LIKE 'SELECT location_id FROM store_hours%'",[schema])).rows.length>0;
+          if(waiting) break; await new Promise(resolve=>setTimeout(resolve,10));
+        }
+        assert.equal(waiting,true,'paid admission must wait for the hours lock');
+        admissionClock='2026-10-08T16:00:01Z'; await blocker.query('COMMIT'); await pending;
+        assert.equal((await pool.query('SELECT date_key FROM tickets')).rows[0].date_key,'20261009');
+        assert.equal((await realPayments.findPaymentById('1',{client:pool})).ticketIssuanceStatus,'issued');
+      } finally {await blocker.query('ROLLBACK'); blocker.release(); if(pending) await pending.catch(()=>{}); global.Date=NativeDate;}
+    });
+    await t.test('versioned legacy payments with missing IDs or unsupported versions require reconciliation',async () => {
+      for(const sql of ["UPDATE queue_join_payments SET payload=payload-'locationId'", "UPDATE queue_join_payments SET metadata='{\"locationBindingVersion\":2}'"]) {
+        await reset(); await legacyPayment(); await pool.query(sql); await assert.rejects(paid(),{statusCode:409});
+        assert.equal(await count('tickets'),0); assert.equal(await count('resource_ledger_scopes'),0);
+        assert.equal((await realPayments.findPaymentById('1',{client:pool})).status,'pending');
+        assert.equal((await pool.query('SELECT state FROM payment_allowance')).rows[0].state,'held');
+      }
     });
     await t.test('unversioned historical payload location IDs do not become stored checkout authority',async () => {
       await reset(); await legacyPayment();
