@@ -2523,6 +2523,12 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
       await reset();await pool.query('DELETE FROM location_services WHERE tenant_id=1; DELETE FROM store_locations WHERE tenant_id=1; UPDATE tenants SET is_active=FALSE WHERE id=1');
       const branch=await createBranch({name:'Only',slug:'only',isActive:false});assert.equal(branch.isActive,false);assert.equal((await realLocations.listHoursByLocationId(branch._id,{client:pool})).length,7);assert.deepEqual(await revisions(),[{location_id:branch._id,revision:2}]);
     });
+    await t.test('branch creation retains quota defaults for missing plan and missing subscription',async () => {
+      await reset();await pool.query("UPDATE tenant_subscriptions SET plan_slug='missing',entitlements=$1 WHERE id=1",[{locations:2}]);
+      await createBranch();assert.equal(await count('store_locations'),3);
+      await reset();await pool.query('DELETE FROM tenant_subscriptions');await assert.rejects(createBranch(),{statusCode:403});assert.equal(await count('store_locations'),2);
+      await pool.query('DELETE FROM location_services WHERE tenant_id=1; DELETE FROM store_locations WHERE tenant_id=1');await createBranch();assert.equal(await count('store_locations'),2);
+    });
     await t.test('branch creation holds actual subscription and plan quota rows through commit',async () => {
       await reset();await locationQuota();let entered;let release;let policyChange;const ready=new Promise(resolve=>{entered=resolve;});const barrier=new Promise(resolve=>{release=resolve;});
       const writer=locationWriter({pool},{createLocation:async(...args)=>{entered();await barrier;return realLocations.createLocation(...args);}});const pending=createBranch(undefined,writer);pending.catch(()=>{});const observer=await pool.connect();

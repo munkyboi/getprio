@@ -9,7 +9,7 @@ async function readLocationCreationLimit(tenantId, { client }) {
   if (!subscription) return 1;
   await client.query("SELECT slug FROM subscription_plans WHERE slug=$1 FOR SHARE NOWAIT", [subscription.planSlug]);
   const plan = await plans.findPlanBySlug(subscription.planSlug, { client });
-  return { ...(plan?.entitlements || {}), ...(subscription.entitlements || {}) }.locations || 1;
+  return { ...plan?.entitlements, ...subscription.entitlements }.locations || 1;
 }
 
 module.exports = { readLocationCreationLimit };
