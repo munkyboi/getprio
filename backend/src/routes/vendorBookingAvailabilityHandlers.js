@@ -232,21 +232,11 @@ async function handleCreateAvailabilityBlock({ req, res, getAuthorizedTenant, as
   res.status(201).json({ block: formatAvailabilityBlock(block) });
 }
 
-async function handleUpdateAvailabilityBlock({ req, res, getAuthorizedTenant, assertTenantPermission, getLocationForTenant, storeLocationRepository, vendorAvailabilityRepository, vendorServiceRepository }) {
+async function handleUpdateAvailabilityBlock({ req, res, getAuthorizedTenant, assertTenantPermission, availabilityUpdateService }) {
   const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
   assertTenantPermission(req.user, tenant._id, "tenant.availability.manage");
-  const block = await vendorAvailabilityRepository.findBlockByTenantAndId(tenant._id, req.params.blockId);
-  if (!block) { const error = new Error("Availability block not found."); error.statusCode = 404; throw error; }
-  const payload = await normalizeAvailabilityBlockPayload(
-    tenant,
-    req.body || {},
-    block,
-    vendorServiceRepository,
-    getLocationForTenant,
-    storeLocationRepository
-  );
-  const updatedBlock = await vendorAvailabilityRepository.updateBlock(block._id, payload);
-  res.json({ block: formatAvailabilityBlock(updatedBlock) });
+  const entry = await availabilityUpdateService.updateAvailabilityEntry(tenant, req.params.blockId, req.body || {}, "block", { actorUserId: req.user._id });
+  res.json({ block: formatAvailabilityBlock(entry) });
 }
 
 async function handleDeleteAvailabilityBlock({ req, res, getAuthorizedTenant, assertTenantPermission, availabilityDeletionService }) {
@@ -264,20 +254,11 @@ async function handleCreateAvailabilityException({ req, res, getAuthorizedTenant
   res.status(201).json({ exception: formatAvailabilityException(exception) });
 }
 
-async function handleUpdateAvailabilityException({ req, res, getAuthorizedTenant, assertTenantPermission, getLocationForTenant, vendorAvailabilityRepository, vendorServiceRepository }) {
+async function handleUpdateAvailabilityException({ req, res, getAuthorizedTenant, assertTenantPermission, availabilityUpdateService }) {
   const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
   assertTenantPermission(req.user, tenant._id, "tenant.availability.manage");
-  const exception = await vendorAvailabilityRepository.findExceptionByTenantAndId(tenant._id, req.params.exceptionId);
-  if (!exception) { const error = new Error("Availability exception not found."); error.statusCode = 404; throw error; }
-  const payload = await normalizeAvailabilityExceptionPayload(
-    tenant,
-    req.body || {},
-    exception,
-    vendorServiceRepository,
-    getLocationForTenant
-  );
-  const updatedException = await vendorAvailabilityRepository.updateException(exception._id, payload);
-  res.json({ exception: formatAvailabilityException(updatedException) });
+  const entry = await availabilityUpdateService.updateAvailabilityEntry(tenant, req.params.exceptionId, req.body || {}, "exception", { actorUserId: req.user._id });
+  res.json({ exception: formatAvailabilityException(entry) });
 }
 
 async function handleDeleteAvailabilityException({ req, res, getAuthorizedTenant, assertTenantPermission, availabilityDeletionService }) {

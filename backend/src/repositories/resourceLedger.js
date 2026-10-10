@@ -160,8 +160,8 @@ const handlers = { reserve, cancelReservation, allocate, release };
 // Domain adapters must enter here before taking booking/ticket/pool locks.
 // The authorize callback rechecks server-owned scope and actor permissions under
 // the location lock, including retries; returning anything except true denies.
-async function withScopeTransaction({ pool, tenantId, locationId, actorUserId, authorize, locationKeyShareCompatible = false }, callback) {
-  return runScopeTransaction({ pool, tenantId, locationId, actorId: id(actorUserId), authorize, locationKeyShareCompatible }, callback);
+async function withScopeTransaction({ pool, tenantId, locationId, actorUserId, authorize, locationKeyShareCompatible = false, additionalLocationIds = [] }, callback) {
+  return runScopeTransaction({ pool, tenantId, locationId, actorId: id(actorUserId), authorize, locationKeyShareCompatible, additionalLocationIds }, callback);
 }
 
 // Public admission has an optional customer identity and receives no ledger
@@ -206,8 +206,10 @@ async function withQueueDayReconciliationTransaction({ pool, tenantId, locationI
     } }, client => callback(client));
 }
 
-async function runScopeTransaction({ pool, tenantId, locationId, actorId, authorize, customerCancellationLookupCode = null, ticketExpiryId = null, locationKeyShareCompatible = false }, callback) {
+async function runScopeTransaction({ pool, tenantId, locationId, actorId, authorize, customerCancellationLookupCode = null, ticketExpiryId = null, locationKeyShareCompatible = false, additionalLocationIds = [] }, callback) {
   const scope = [id(tenantId), id(locationId)];
+  if (!Array.isArray(additionalLocationIds)) fail("Invalid additional locations.", 400);
+  const branchIds = [...new Set([scope[1], ...additionalLocationIds.map(id)])];
   if (typeof authorize !== "function" || typeof callback !== "function") {
     fail("Scoped transactions require authorization and a domain callback.", 400);
   }
@@ -247,8 +249,11 @@ async function runScopeTransaction({ pool, tenantId, locationId, actorId, author
     await client.query("BEGIN");
     // Both modes serialize branch writers; the latter also permits FK key-share readers.
     const branchLock = locationKeyShareCompatible === true ? "FOR NO KEY UPDATE" : "FOR UPDATE";
-    const branch = await client.query(`SELECT id FROM store_locations WHERE tenant_id=$1 AND id=$2 ${branchLock}`, scope);
-    if (!branch.rows.length) fail("Location not found.", 404);
+    // Lock every branch before domain rows, in database ID order, for branch moves.
+    const branch = branchIds.length === 1
+      ? await client.query(`SELECT id FROM store_locations WHERE tenant_id=$1 AND id=$2 ${branchLock}`, scope)
+      : await client.query(`SELECT id FROM store_locations WHERE tenant_id=$1 AND id=ANY($2::bigint[]) ORDER BY id ${branchLock}`, [scope[0], branchIds]);
+    if (branch.rows.length !== branchIds.length) fail("Location not found.", 404);
     if (await authorize(client, Object.freeze({ tenantId: scope[0], locationId: scope[1], actorUserId: actorId })) !== true) {
       fail("Resource operation is not authorized.", 403);
     }

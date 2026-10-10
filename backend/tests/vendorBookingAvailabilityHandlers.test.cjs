@@ -25,6 +25,21 @@ async function createBlockWithPayloadValidation(dependencies) {
   } });
 }
 
+async function updateAvailabilityWithPayloadValidation(dependencies, type) {
+  const isBlock = type === "block";
+  const handler = isBlock ? handleUpdateAvailabilityBlock : handleUpdateAvailabilityException;
+  return handler({ ...dependencies, availabilityUpdateService: {
+    updateAvailabilityEntry: async (tenant, id, body) => {
+      const repository = dependencies.vendorAvailabilityRepository;
+      const current = await repository[isBlock ? "findBlockByTenantAndId" : "findExceptionByTenantAndId"](tenant._id, id);
+      const normalizer = require("../src/services/availabilityPayloadService")[isBlock ? "normalizeAvailabilityBlockPayload" : "normalizeAvailabilityExceptionPayload"];
+      const payload = await normalizer(tenant, body, current, dependencies.vendorServiceRepository,
+        dependencies.getLocationForTenant, dependencies.storeLocationRepository);
+      return repository[isBlock ? "updateBlock" : "updateException"](id, payload);
+    }
+  } });
+}
+
 test("vendor booking handler lists bookings through injected repositories", async () => {
   const response = { body: null, json(payload) { this.body = payload; } };
   let capturedOptions = null;
@@ -101,7 +116,7 @@ test("vendor availability handler creates blocks and updates exceptions", async 
   assert.equal(createResponse.body.block.weekday, 1);
 
   const updateResponse = { body: null, json(payload) { this.body = payload; } };
-  await handleUpdateAvailabilityException({
+  await updateAvailabilityWithPayloadValidation({
     req: { user: {}, params: { tenantSlug: "tenant", exceptionId: "exception-1" }, query: {}, body: { exceptionDate: "2026-07-01", isAvailable: false } },
     res: updateResponse,
     getAuthorizedTenant: async () => ({ _id: 1 }),
@@ -112,7 +127,7 @@ test("vendor availability handler creates blocks and updates exceptions", async 
       updateException: async (_id, payload) => ({ _id: "exception-1", tenantId: 1, locationId: 2, ...payload })
     },
     vendorServiceRepository: { findServiceByTenantAndSlug: async () => null, normalizeServiceSlug: (value) => value }
-  });
+  }, "exception");
 
   assert.equal(updateResponse.body.exception.id, "exception-1");
 });
@@ -241,7 +256,7 @@ test("vendor availability handler can update a service-specific weekly rule back
   const updateResponse = { body: null, json(payload) { this.body = payload; } };
   let capturedPayload = null;
 
-  await handleUpdateAvailabilityBlock({
+  await updateAvailabilityWithPayloadValidation({
     req: {
       user: {},
       params: { tenantSlug: "tenant", blockId: "block-1" },
@@ -293,7 +308,7 @@ test("vendor availability handler can update a service-specific weekly rule back
       },
       normalizeServiceSlug: (value) => value
     }
-  });
+  }, "block");
 
   assert.equal(capturedPayload.serviceId, null);
   assert.equal(updateResponse.body.block.serviceId, null);
@@ -399,4 +414,27 @@ test("availability service slugs preserve normalization and handle long separato
     assert.equal(payload.serviceId, expected ? "1000" : null);
   }
   assert.deepEqual(lookups, ["court-play"]);
+});
+
+test("availability editing forwards authenticated actor and preserves both response shapes", async () => {
+  for (const [type, handler, idKey] of [["block", handleUpdateAvailabilityBlock, "blockId"], ["exception", handleUpdateAvailabilityException, "exceptionId"]]) {
+    const body = { actorUserId: "999", locationId: "20", capacity: 3 };
+    const response = { json(value) { this.body = value; } };
+    await handler({ req: { user: { _id: "1" }, params: { tenantSlug: "demo", [idKey]: "5" }, body }, res: response,
+      getAuthorizedTenant: async () => ({ _id: "1" }), assertTenantPermission: () => {},
+      availabilityUpdateService: { updateAvailabilityEntry: async (...args) => {
+        assert.deepEqual(args, [{ _id: "1" }, "5", body, type, { actorUserId: "1" }]);
+        return { _id: "5", tenantId: "1", locationId: "10", capacity: 3 };
+      } }
+    });
+    assert.equal(response.body[type].id, "5"); assert.equal(response.body[type].locationId, "10");
+  }
+});
+
+test("partial exception validation preserves the database calendar date across local time zones", async () => {
+  const { normalizeAvailabilityExceptionPayload } = require("../src/services/availabilityPayloadService");
+  const payload = await normalizeAvailabilityExceptionPayload({ _id: "1" }, { capacity: 3 }, {
+    locationId: "10", exceptionDate: new Date(2026, 9, 10), startsAt: "", endsAt: "", isAvailable: false
+  }, {}, async () => { throw new Error("no location change"); });
+  assert.equal(payload.exceptionDate, "2026-10-10"); assert.equal(payload.capacity, 3);
 });
