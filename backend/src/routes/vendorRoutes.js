@@ -30,6 +30,7 @@ const vendorMediaUploadService = require("../services/vendorMediaUploadService")
 const locationPaymentQrUploadService = require("../services/locationPaymentQrUploadService");
 const bookingService = require("../services/bookingService");
 const resourceConfigurationService = require("../services/resourceConfigurationService");
+const locationHoursService = require("../services/locationHoursService");
 const { recordTicketService } = require("../services/ticketServiceTimingService");
 const entitlementAdmissionService = require("../services/entitlementAdmissionService");
 const ratingService = require("../services/ratingService");
@@ -625,7 +626,7 @@ router.patch(
     assertTenantPermission(req.user, tenant._id, "tenant.location.manage");
     const location = await getLocationForTenant(tenant, req.params.locationSlug);
     const hours = Array.isArray(req.body.hours) ? req.body.hours : [];
-    await storeLocationRepository.replaceHours(location._id, hours);
+    await locationHoursService.replaceLocationHours(tenant, location, hours, { actorUserId: req.user._id });
     const updatedLocation = await storeLocationRepository.findLocationById(location._id);
 
     res.json({ location: await formatLocation(updatedLocation, tenant) });
