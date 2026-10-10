@@ -2072,6 +2072,74 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
       }
       assert.fail('catalog write must wait for tenant authorization lock');
     }
+    await pool.query("CREATE SEQUENCE catalog_service_ids START 10000; ALTER TABLE vendor_services ALTER COLUMN id SET DEFAULT nextval('catalog_service_ids'); ALTER TABLE vendor_services ADD UNIQUE(tenant_id,slug)");
+    const createCatalog=(body={name:'New service',durationMinutes:30},writer=catalogWriter(),selected=tenant,actor='1')=>
+      writer.createVendorService(selected,body,{actorUserId:actor});
+    await t.test('catalog creation commits mappings and all branch revisions preserving admitted work',async () => {
+      await reset();await targetBranch();await ticket('1',{booking:true});await record('1','start');
+      const tables=['bookings','resource_ledger_reservations','resource_allocations','ticket_service_plans'];
+      const before=await Promise.all(tables.map(table=>pool.query(`SELECT * FROM ${table}`)));
+      const current=await revisions();
+      const result=await createCatalog({name:'New service',durationMinutes:30,tenantId:'2',actorUserId:'2',locationServices:[{locationSlug:'main',capacity:2}]});
+      assert.equal(result.service.tenantId,'1');assert.equal(result.locationServices[0].serviceId,result.service._id);
+      const mapping=(await pool.query('SELECT * FROM location_services WHERE service_id=$1',[result.service._id])).rows[0];assert.equal(mapping.location_id,'10');assert.equal(mapping.capacity,2);
+      assert.deepEqual(await revisions(),[{location_id:'10',revision:current[0].revision+1},{location_id:'30',revision:2}]);
+      for(let i=0;i<tables.length;i++)assert.deepEqual((await pool.query(`SELECT * FROM ${tables[i]}`)).rows,before[i].rows);
+    });
+    await t.test('catalog creation denies current revoked deleted suspended staff and foreign mapping access',async () => {
+      for(const sql of ['UPDATE tenant_memberships SET is_active=FALSE WHERE id=1','UPDATE users SET deletion_requested_at=NOW() WHERE id=1','UPDATE users SET platform_access_suspended_at=NOW() WHERE id=1',"UPDATE tenant_memberships SET role='staff' WHERE id=1"]) {
+        await reset();await pool.query(sql);await assert.rejects(createCatalog(),{statusCode:403});assert.equal(await count('vendor_services'),1);assert.equal(await count('resource_ledger_scopes'),0);
+      }
+      await reset();await pool.query("UPDATE store_locations SET slug='foreign' WHERE id=20");
+      await assert.rejects(createCatalog({name:'New service',durationMinutes:30,locationServices:[{locationSlug:'foreign'}]}),{statusCode:404});
+      await assert.rejects(createCatalog({name:'New service',durationMinutes:1}),{statusCode:400});assert.equal(await count('vendor_services'),1);assert.equal(await count('resource_ledger_scopes'),0);
+    });
+    await t.test('catalog creation rolls service mappings and revisions back on mapping or final revision failure',async () => {
+      for(const failure of ['mapping','revision']) {
+        await reset();await targetBranch();
+        const faultPool={connect:async ()=>{const client=await pool.connect();return {release:()=>client.release(),query:async (sql,args)=>{
+          if((failure==='mapping' && /INSERT INTO location_services/.test(sql)) || (failure==='revision' && /UPDATE resource_ledger_scopes/.test(sql)))throw new Error('injected catalog create failure');return client.query(sql,args);
+        }};}};
+        await assert.rejects(createCatalog({name:'New service',durationMinutes:30,locationServices:[{locationSlug:'main'}]},catalogWriter({}, {pool:faultPool})),/injected catalog create failure/);
+        assert.equal(await count('vendor_services'),1);assert.equal((await pool.query('SELECT 1 FROM location_services WHERE service_id>=10000')).rows.length,0);assert.equal(await count('resource_ledger_scopes'),0);
+      }
+    });
+    await t.test('catalog duplicate creation rolls back the losing writer without duplicate revisions',async () => {
+      await reset();await targetBranch();const results=await Promise.allSettled([createCatalog(),createCatalog()]);
+      assert.equal(results.filter(result=>result.status==='fulfilled').length,1);assert.equal(results.find(result=>result.status==='rejected').reason.code,'23505');
+      assert.equal(await count('vendor_services'),2);assert.deepEqual(await revisions(),[{location_id:'10',revision:2},{location_id:'30',revision:2}]);
+    });
+    await t.test('catalog creation preserves exact adjacent tenant and generated service identifiers in mappings',async () => {
+      await reset();await targetBranch();const selected='9007199254740993';const neighbor='9007199254740992';
+      await pool.query('INSERT INTO tenants(id,is_active) VALUES($1,TRUE)',[selected]);
+      for(const table of ['tenant_memberships','store_locations','vendor_services'])await pool.query(`UPDATE ${table} SET tenant_id=$1 WHERE tenant_id=1`,[selected]);
+      await pool.query("SELECT setval('catalog_service_ids',$1,FALSE)",[selected]);
+      await pool.query('INSERT INTO tenants(id,is_active) VALUES($1,TRUE)',[neighbor]);
+      const result=await createCatalog({name:'Exact service',durationMinutes:30,locationServices:[{locationSlug:'main'}]},catalogWriter(),{_id:selected});
+      assert.equal(result.service._id,selected);assert.equal(result.service.tenantId,selected);assert.equal(result.locationServices[0].tenantId,selected);
+      assert.equal((await pool.query('SELECT tenant_id::text FROM vendor_services WHERE id=$1',[result.service._id])).rows[0].tenant_id,selected);
+      assert.equal((await pool.query('SELECT 1 FROM vendor_services WHERE tenant_id=$1',[neighbor])).rows.length,0);
+      await pool.query("SELECT setval('catalog_service_ids',10000,FALSE)");
+    });
+    await t.test('catalog creation supports inactive vendors and no-branch administration',async () => {
+      await reset();await pool.query('UPDATE tenants SET is_active=FALSE WHERE id=1; UPDATE store_locations SET is_active=FALSE WHERE tenant_id=1');
+      const result=await createCatalog();assert.equal(result.service.isActive,true);assert.equal((await revisions()).length,1);
+      await reset();await pool.query('DELETE FROM location_services WHERE tenant_id=1; DELETE FROM store_locations WHERE tenant_id=1');
+      await createCatalog();assert.equal(await count('resource_ledger_scopes'),0);
+    });
+    await t.test('catalog creation rechecks grants and detects new branches after lock contention',async () => {
+      for(const changed of ['grant','branch']) {
+        await reset();const blocker=await pool.connect();let pending;
+        try {
+          await blocker.query('BEGIN');await blocker.query('SELECT id FROM tenants WHERE id=1 FOR UPDATE');
+          pending=createCatalog();pending.catch(()=>{});await waitForCatalogTenant();
+          if(changed==='grant')await blocker.query('UPDATE tenant_memberships SET is_active=FALSE WHERE id=1');
+          else await blocker.query("INSERT INTO store_locations(id,tenant_id,is_active,slug) VALUES(30,1,TRUE,'new')");
+          const denied=assert.rejects(pending,{statusCode:changed==='grant'?403:409});await blocker.query('COMMIT');await denied;
+        } finally {await blocker.query('ROLLBACK');blocker.release();if(pending)await pending.catch(()=>{});}
+        assert.equal(await count('vendor_services'),1);assert.equal(await count('resource_ledger_scopes'),0);
+      }
+    });
     await t.test('catalog deactivation advances all tenant branches and preserves bookings protection occupancy and service timing',async () => {
       await reset();await targetBranch();await ticket('1',{booking:true});await record('1','start');
       await pool.query('UPDATE tenants SET is_active=FALSE WHERE id=1; UPDATE store_locations SET is_active=FALSE WHERE tenant_id=1');
@@ -2291,6 +2359,33 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
       await pool.query("INSERT INTO tenant_entitlement_overrides(subscription_id,policy_key,value,reason) VALUES(1,'feature.booking','true','Test override')");
       await pool.query('INSERT INTO entitlement_rollout_anomalies(tenant_id,blocking) VALUES(1,FALSE)');
     }
+    await t.test('catalog creation uses real enforced admission and fails closed on policy contention',async () => {
+      await reset();await assert.rejects(createCatalog(undefined,enforcedWriter()),{statusCode:403});assert.equal(await count('vendor_services'),1);
+      await enableBookingOverride();const blocker=await pool.connect();
+      try {
+        await blocker.query('BEGIN');await blocker.query('SELECT id FROM tenant_subscriptions WHERE id=1 FOR UPDATE');
+        await assert.rejects(createCatalog(undefined,enforcedWriter()),{statusCode:409,code:'ENTITLEMENT_POLICY_BUSY'});assert.equal(await count('vendor_services'),1);assert.equal(await count('resource_ledger_scopes'),0);
+      } finally {await blocker.query('ROLLBACK');blocker.release();}
+      const result=await createCatalog(undefined,enforcedWriter());assert.equal(result.service.tenantId,'1');assert.deepEqual(await revisions(),[{location_id:'10',revision:2}]);
+    });
+    await t.test('catalog creation holds actual override policy through service and revision commit',async () => {
+      await reset();await enableBookingOverride();let entered;let release;let revocation;
+      const ready=new Promise(resolve=>{entered=resolve;});const barrier=new Promise(resolve=>{release=resolve;});
+      const writer=enforcedWriter({createService:async (...args)=>{entered();await barrier;return realServices.createService(...args);}});
+      const pending=createCatalog(undefined,writer);pending.catch(()=>{});
+      try {
+        await Promise.race([ready,pending.then(()=>{throw new Error('catalog creation barrier missing');})]);
+        revocation=actualOverrides.revoke({overrideId:'1',tenantId:'1',actorId:'2'},{client:pool});revocation.catch(()=>{});
+        const deadline=Date.now()+3000;let waiting=false;
+        while(Date.now()<deadline) {
+          waiting=(await pool.query("SELECT 1 FROM pg_stat_activity WHERE application_name=$1 AND wait_event_type='Lock' AND query LIKE 'UPDATE tenant_entitlement_overrides%'",[schema])).rows.length>0;
+          if(waiting)break;await new Promise(resolve=>setTimeout(resolve,10));
+        }
+        assert.equal(waiting,true,'actual override revocation must wait for catalog creation commit');
+      } finally {release();const settled=await Promise.allSettled([pending,revocation]);const failed=settled.find(result=>result.status==='rejected');if(failed)throw failed.reason;}
+      assert.equal(await count('vendor_services'),2);assert.deepEqual(await revisions(),[{location_id:'10',revision:2}]);
+      await assert.rejects(createCatalog({name:'Denied later',durationMinutes:30},enforcedWriter()),{statusCode:403});assert.equal(await count('vendor_services'),2);
+    });
     await t.test('real enforced admission preserves adjacent large tenant identities for deny and allow decisions',async () => {
       await reset();const selected='9007199254740993';const neighbor='9007199254740992';
       for(const id of [selected,neighbor]) {

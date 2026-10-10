@@ -1,8 +1,4 @@
-const {
-  formatVendorService,
-  normalizeLocationServicesPayload,
-  normalizeServicePayload
-} = require("./vendorRouteHelpers");
+const { formatVendorService } = require("./vendorRouteHelpers");
 
 async function handleListServices({ req, res, getAuthorizedTenant, assertTenantPermission, vendorServiceRepository, locationServiceRepository }) {
   const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
@@ -12,22 +8,11 @@ async function handleListServices({ req, res, getAuthorizedTenant, assertTenantP
   res.json({ services: services.map(formatVendorService), locationServices });
 }
 
-async function handleCreateService({ req, res, getAuthorizedTenant, assertTenantPermission, entitlementAdmissionService, vendorServiceRepository, locationServiceRepository }) {
+async function handleCreateService({ req, res, getAuthorizedTenant, assertTenantPermission, serviceDeactivationService }) {
   const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
   assertTenantPermission(req.user, tenant._id, "tenant.service.manage");
-  await entitlementAdmissionService.admit({ tenantId: tenant._id, featureKey: "booking" });
-  const service = await vendorServiceRepository.createService({
-    tenantId: tenant._id,
-    ...normalizeServicePayload(req.body || {})
-  });
-  const locationServices = await normalizeLocationServicesPayload(req.body || {}, service, tenant);
-  for (const locationService of locationServices) {
-    await locationServiceRepository.upsertLocationService({
-      ...locationService,
-      serviceId: service._id
-    });
-  }
-  res.status(201).json({ service: formatVendorService(service), locationServices });
+  const result = await serviceDeactivationService.createVendorService(tenant, req.body || {}, { actorUserId: req.user._id });
+  res.status(201).json({ service: formatVendorService(result.service), locationServices: result.locationServices });
 }
 
 async function handleUpdateService({ req, res, getAuthorizedTenant, assertTenantPermission, serviceDeactivationService }) {

@@ -649,7 +649,7 @@ router.get(
 );
 router.get("/tenant/:tenantSlug/services/slug-availability", asyncHandler((req, res) => handleCheckServiceSlugAvailability({ req, res, getAuthorizedTenant, assertTenantPermission, vendorServiceRepository })));
 
-router.post("/tenant/:tenantSlug/services", asyncHandler((req, res) => handleCreateService({ req, res, getAuthorizedTenant, assertTenantPermission, entitlementAdmissionService, vendorServiceRepository, locationServiceRepository })));
+router.post("/tenant/:tenantSlug/services", asyncHandler((req, res) => handleCreateService({ req, res, getAuthorizedTenant, assertTenantPermission, serviceDeactivationService })));
 
 router.patch("/tenant/:tenantSlug/services/:serviceSlug", asyncHandler((req, res) => handleUpdateService({ req, res, getAuthorizedTenant, assertTenantPermission, serviceDeactivationService })));
 
