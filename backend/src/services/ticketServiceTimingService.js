@@ -74,7 +74,7 @@ async function recordTicketService(tenant, ticketId, action, options) {
   if (!Object.prototype.hasOwnProperty.call(eventTypes, action)) reject("Unknown service action.", 400);
   const location = options.location;
   if (!location) reject("Location not found.", 404);
-  const { ticket, resolvedQueueStatus } = await withVendorQueueTransaction({
+  const { ticket, resolvedQueueStatus, changed } = await withVendorQueueTransaction({
     pool: db.pool, tenant, location, actorUserId: options.actorUserId, lockTenantActivity: action === "start"
   }, async (client, ledger) => {
     const branch = await client.query(`SELECT l.service_timing_enabled,l.is_active,t.is_active AS tenant_active
@@ -92,15 +92,17 @@ async function recordTicketService(tenant, ticketId, action, options) {
     const updated = await tickets.findTicketById(ticketId, { client });
     await recordEvent(client, updated, eventTypes[action], options, current.status);
     await client.query("UPDATE resource_ledger_scopes SET revision=revision+1 WHERE tenant_id=$1 AND location_id=$2", [tenant._id, location._id]);
-    return { ticket: updated, resolvedQueueStatus: await resolveCalledTicket(client, current, updated, options) };
+    return { ticket: updated, changed: true, resolvedQueueStatus: await resolveCalledTicket(client, current, updated, options) };
   });
+  if (changed) {
+    await pushNotificationService.notifyCustomerQueueUpdate({ tenant, ticket, action: eventTypes[action] })
+      .catch((error) => console.warn("[service-timing-push-skipped]", error.message));
+  }
   if (resolvedQueueStatus) {
     await automation.maybeAutoResumeQueueDay(tenant, { location, queueDateKey: ticket.dateKey });
     await notificationService.notifyJourneyLifecycle({ ticket, tenant,
       slot: resolvedQueueStatus === "served" ? "final" : "exception", action: resolvedQueueStatus });
     await automation.maybeNotifyUpcomingTickets(tenant, { location });
-    pushNotificationService.notifyCustomerQueueUpdate({ tenant, ticket, action: resolvedQueueStatus })
-      .catch((error) => console.warn("[service-timing-push-skipped]", error.message));
   }
   return { ticket, snapshot: await queue.publishSnapshot(tenant, { location }) };
 }

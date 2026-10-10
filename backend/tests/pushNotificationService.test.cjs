@@ -332,6 +332,29 @@ test("push service sends customer queue notifications with ticket links", async 
   assert.equal(notifications[2].body, "You joined the queue at Demo Tenant. Your ticket number is D001.");
   assert.equal(notifications[2].eventType, "customer_queue_joined");
   assert.equal(notifications[2].url, "/ticket/demo?ticket=ABC12345");
+  const serviceBodies = {
+    service_started: "Demo Tenant started service for D001.",
+    service_completed: "Demo Tenant completed service for D001.",
+    service_interrupted: "Demo Tenant interrupted service for D001. Contact the vendor about the next step."
+  };
+  for (const [action, body] of Object.entries(serviceBodies)) {
+    await service.notifyCustomerQueueUpdate({
+      tenant: { slug: "demo", name: "Demo Tenant" },
+      ticket: { _id: "ticket-1", userId: "user-1", ticketNumber: "D001", lookupCode: "ABC12345", status: "unserved" },
+      action
+    });
+    const payload = notifications.at(-1);
+    assert.equal(payload.body, body);
+    assert.equal(payload.eventType, `customer_queue_${action}`);
+    assert.equal(payload.route, "ticket");
+    assert.equal(payload.ticketRef, "ABC12345");
+    assert.equal(payload.url, "/ticket/demo?ticket=ABC12345");
+    assert.equal(payload.tag, `customer-queue-ticket-1-${action}`);
+    assert.ok(payload.notificationId);
+    assert.equal(payload.status, undefined);
+    assert.equal(payload.serviceOutcome, undefined);
+  }
+
 });
 
 test("queue lifecycle push targets the affected location and explains terminal expiration", async () => {

@@ -233,6 +233,9 @@ async function buildQueueSnapshot(tenant, options = {}, getTenantUsage) {
       customerDisplayName: lookupTicket.customerDisplayName || null,
       status: lookupTicket.status,
       customerConfirmedAt: lookupTicket.customerConfirmedAt || null,
+      serviceStartedAt: lookupTicket.serviceStartedAt || null,
+      serviceEndedAt: lookupTicket.serviceEndedAt || null,
+      serviceOutcome: lookupTicket.serviceOutcome || null,
       statusReason: lookupTicket.statusReason || null,
       isCarriedOver: Boolean(
         lookupTicket.servicePriorityBand === "carry_over" ||

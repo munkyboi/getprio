@@ -87,6 +87,9 @@ test("queue snapshot helpers prefer a ticket location when lookup code resolves"
     customerName: "Jane",
     status: "waiting",
     customerConfirmedAt: new Date("2026-06-30T00:05:00Z"),
+    serviceStartedAt: new Date("2026-06-30T00:06:00Z"),
+    serviceEndedAt: new Date("2026-06-30T00:16:00Z"),
+    serviceOutcome: "interrupted",
     servicePriorityBand: "carry_over",
     carryOverCount: 1,
     createdAt: new Date("2026-06-30T00:00:00Z")
@@ -113,6 +116,9 @@ test("queue snapshot helpers prefer a ticket location when lookup code resolves"
   assert.equal(result.location.slug, "branch");
   assert.equal(result.focusTicket.lookupCode, "ABC123");
   assert.equal(result.focusTicket.position, null);
+  assert.equal(result.focusTicket.serviceStartedAt.toISOString(), "2026-06-30T00:06:00.000Z");
+  assert.equal(result.focusTicket.serviceEndedAt.toISOString(), "2026-06-30T00:16:00.000Z");
+  assert.equal(result.focusTicket.serviceOutcome, "interrupted");
   assert.equal(result.focusTicket.isCarriedOver, true);
   assert.equal(result.focusTicket.carryOverCount, 1);
   assert.equal(result.focusTicket.servicePriorityBand, "carry_over");

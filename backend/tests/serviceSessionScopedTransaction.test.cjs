@@ -26,6 +26,7 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
   const pool=new Pool({connectionString:databaseUrl,options:`-c search_path=${schema}`,application_name:schema,max:8});
   const tenant={_id:'1'}; const location={_id:'10'};
   let failEvent=false; let failBooking=false; let failWebhook=false; let failReconciliation=false; let snapshots=0; let pushes=0; let failAllowance=false; let dueRead=0; let dayReads=0; let failPayment=false; let subscriptionUnavailable=false; let paidDeadlineRace=false; let paidDeadlineObserved=false; let verifyPaidUserLock=false; let verifyPaidTenantLock=false; const billingEvents=new Set(); let paidEventBarrier=null; let intakeBarrier=null;
+  const servicePushes=[]; const servicePushCommitChecks=[]; let failServicePush=false;
   let automaticPushes=0;let failCarryOverOutbox=false;let vendorEventBarrier=null;
   const noop=async () => {};
   async function readTicket(id,{client=pool}={}) {
@@ -129,7 +130,15 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
       './queueService':{publishSnapshot:async () => {snapshots++; return {}; }},
       './queueAutomationHelpers':{maybeAutoResumeQueueDay:noop,maybeAutoPauseQueueDay:noop,maybeNotifyUpcomingTickets:noop},
       './notificationService':{notifyJourneyLifecycle:noop},
-      './pushNotificationService':{notifyCustomerQueueUpdate:async () => {pushes++; }}
+      './pushNotificationService':{notifyCustomerQueueUpdate:async ({ticket,action}) => {
+        if (!action.startsWith('service_')) {pushes++;return;}
+        const committed=await readTicket(ticket._id);
+        servicePushes.push(action);
+        servicePushCommitChecks.push(action==='service_started'
+          ? Boolean(committed.serviceStartedAt)
+          : Boolean(committed.serviceEndedAt) && committed.serviceOutcome===ticket.serviceOutcome);
+        if (failServicePush) throw new Error('provider unavailable');
+      }}
     };
     const service=loadService(mocks);
     const record=(id,action,actor='1',selected=location) => service.recordTicketService(tenant,id,action,{location:selected,actorUserId:actor});
@@ -147,6 +156,7 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
         INSERT INTO vendor_services VALUES(1000,1,'Court play',60,TRUE); INSERT INTO location_services VALUES(1000,1,10,TRUE);
         INSERT INTO store_hours(location_id,weekday,opens_at,closes_at,is_closed) SELECT 10,n,'00:00','00:00',FALSE FROM generate_series(0,6) n`);
       await pool.query('INSERT INTO location_resource_pools(id,tenant_id,location_id,capacity,revision,tracking_enabled) VALUES(100,1,10,$1,1,$2)',[capacity,enabled]);
+      servicePushes.length=0; failServicePush=false;
       automaticPushes=0; failCarryOverOutbox=false; vendorEventBarrier=null; failEvent=false; failBooking=false; failWebhook=false; failReconciliation=false; snapshots=0; pushes=0; failAllowance=false; dueRead=0; dayReads=0; failPayment=false; subscriptionUnavailable=false; paidDeadlineRace=false; paidDeadlineObserved=false; verifyPaidUserLock=false; verifyPaidTenantLock=false; billingEvents.clear(); paidEventBarrier=null; intakeBarrier=null; queueClosed=false;
       delete location.queueLifecycleMode;
     }
@@ -354,8 +364,9 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
       assert.equal((await readTicket('1')).status,'served');
       assert.equal((await pool.query('SELECT status FROM bookings')).rows[0].status,'completed');
       assert.equal((await pool.query('SELECT t.service_ended_at=a.released_at AND t.served_at=a.released_at AS exact FROM tickets t JOIN resource_allocations a ON a.ticket_id=t.id')).rows[0].exact,true);
-      assert.equal((await pool.query('SELECT outcome FROM resource_allocations')).rows[0].outcome,'completed'); assert.equal(pushes,1);
-      await record('1','complete'); assert.equal(await count('booking_audit'),1); assert.equal(pushes,1);
+      assert.equal((await pool.query('SELECT outcome FROM resource_allocations')).rows[0].outcome,'completed');
+      assert.deepEqual(servicePushes,['service_started','service_completed']);
+      await record('1','complete'); assert.equal(await count('booking_audit'),1); assert.equal(servicePushes.length,2);
     });
     await t.test('start retry and competing completion/interruption create one explicit release',async () => {
       await reset(); await ticket('1');
@@ -368,6 +379,7 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
       const current=await readTicket('1'); await record('1',current.serviceOutcome==='completed'?'complete':'interrupt');
       assert.equal(await count('events'),3);
       await assert.rejects(record('1','start'),{statusCode:409});
+      assert.deepEqual(servicePushes,['service_started',`service_${current.serviceOutcome}`]);
     });
     await t.test('overdue occupancy survives queue closure until explicit interruption',async () => {
       await reset(1); await ticket('1'); await ticket('2'); await record('1','start');
@@ -377,12 +389,14 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
       await record('1','interrupt'); const allocation=(await pool.query('SELECT * FROM resource_allocations')).rows[0];
       assert.equal(allocation.outcome,'terminated'); assert.equal(allocation.reason,'Staff explicitly interrupted service.');
       assert.equal((await readTicket('1')).status,'unserved');
+      assert.deepEqual(servicePushes,['service_started','service_interrupted']);
       await record('2','start'); assert.equal(await count('resource_allocations'),2);
     });
     await t.test('event and booking failures roll timing, conversion, release, receipts and revision back',async () => {
       await reset(); await ticket('1',{booking:true}); failEvent=true;
       await assert.rejects(record('1','start'),/event failed/);
       assert.equal((await readTicket('1')).serviceStartedAt,null); assert.equal(await count('resource_allocations'),0);
+      assert.deepEqual(servicePushes,[]);
       assert.equal((await pool.query('SELECT state FROM resource_ledger_reservations')).rows[0].state,'protected');
       assert.equal(await count('resource_ledger_commands'),1); assert.equal((await pool.query('SELECT revision::text FROM resource_ledger_scopes')).rows[0].revision,'2');
       failEvent=false; await record('1','start'); failBooking=true;
@@ -392,7 +406,24 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
       assert.equal((await pool.query('SELECT released_at FROM resource_allocations')).rows[0].released_at,null);
       assert.equal((await pool.query('SELECT status FROM bookings')).rows[0].status,'confirmed');
       assert.equal(await count('resource_ledger_commands'),2); assert.equal(await count('events'),1); assert.equal(await count('webhooks'),1); assert.equal(await count('booking_audit'),0);
-      assert.equal((await pool.query('SELECT revision::text FROM resource_ledger_scopes')).rows[0].revision,revision); assert.equal(pushes,0);
+      assert.equal((await pool.query('SELECT revision::text FROM resource_ledger_scopes')).rows[0].revision,revision);
+      assert.deepEqual(servicePushes,['service_started']);
+    });
+    await t.test('terminal queue tickets still notify explicit completion without rewriting queue status',async () => {
+      await reset(); await ticket('1'); await record('1','start');
+      await pool.query("UPDATE tickets SET status='unserved' WHERE id=1");
+      await record('1','complete'); await record('1','complete');
+      assert.equal((await readTicket('1')).status,'unserved');
+      assert.equal((await readTicket('1')).serviceOutcome,'completed');
+      assert.deepEqual(servicePushes,['service_started','service_completed']);
+    });
+    await t.test('push failure preserves committed service and repeated actions do not redeliver',async () => {
+      await reset(); await ticket('1'); failServicePush=true;
+      await record('1','start'); await record('1','start');
+      assert.ok((await readTicket('1')).serviceStartedAt);
+      await record('1','interrupt'); await record('1','interrupt');
+      assert.equal((await readTicket('1')).serviceOutcome,'interrupted');
+      assert.deepEqual(servicePushes,['service_started','service_interrupted']);
     });
     await t.test('staff assignment and current actor access are checked under the location lock',async () => {
       await reset(); await ticket('1'); await assert.rejects(record('1','start','2'),{statusCode:403});
@@ -2004,5 +2035,7 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
         } finally {await blocker.query('ROLLBACK'); blocker.release(); if(pending) await pending.catch(()=>{});}
       }
     });
+    assert.ok(servicePushCommitChecks.length>0);
+    assert.ok(servicePushCommitChecks.every(Boolean),'push must observe committed service facts through a separate connection');
   } finally {await pool.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`); await pool.end();}
 });

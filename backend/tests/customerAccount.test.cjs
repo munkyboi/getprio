@@ -224,6 +224,10 @@ test("customer account overview and history expose owned tickets only", async ()
       _id: "ticket-1",
       lookupCode: "ABC12345",
       ticketNumber: "DMO-001",
+      customerConfirmedAt: "2026-10-09T04:00:00Z",
+      serviceStartedAt: "2026-10-09T04:01:00Z",
+      serviceEndedAt: "2026-10-09T04:10:00Z",
+      serviceOutcome: "interrupted",
       tenantName: "Demo Tenant",
       tenantSlug: "demo",
       locationName: "Main",
@@ -278,6 +282,10 @@ test("customer account overview and history expose owned tickets only", async ()
     assert.deepEqual(overview.ticketStats, { joined: 75, served: 1 });
     assert.equal(overview.tickets.length, 1);
     assert.equal(overview.tickets[0].ticketNumber, "DMO-001");
+    assert.equal(overview.tickets[0].serviceStartedAt, "2026-10-09T04:01:00Z");
+    assert.equal(overview.tickets[0].customerConfirmedAt, "2026-10-09T04:00:00Z");
+    assert.equal(overview.tickets[0].serviceEndedAt, "2026-10-09T04:10:00Z");
+    assert.equal(overview.tickets[0].serviceOutcome, "interrupted");
 
     const historyResponse = await fetch(`${baseUrl}/history?limit=500`, {
       headers: { Authorization: "Bearer token" }
@@ -286,6 +294,7 @@ test("customer account overview and history expose owned tickets only", async ()
     const history = await historyResponse.json();
     assert.equal(history.tickets.length, 1);
     assert.equal(history.tickets[0].lookupCode, "ABC12345");
+    assert.equal(history.tickets[0].serviceOutcome, "interrupted");
   } finally {
     await stopServer(server);
   }
