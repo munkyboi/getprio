@@ -104,6 +104,11 @@ async function normalizeAvailabilityBlockPayload(tenant, body, existingBlock, ve
   };
 }
 
+function calendarDate(value) {
+  if (!(value instanceof Date)) return value;
+  return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
+}
+
 async function normalizeAvailabilityExceptionPayload(tenant, body, existingException, vendorServiceRepository, getTenantLocation) {
   const location = body.locationSlug ? await getTenantLocation(tenant, body.locationSlug) : null;
   const hasServiceSlug = Object.hasOwn(body, "serviceSlug");
@@ -112,7 +117,7 @@ async function normalizeAvailabilityExceptionPayload(tenant, body, existingExcep
     : null;
   const exceptionDate = Object.hasOwn(body, "exceptionDate")
     ? String(body.exceptionDate || "")
-    : existingException?.exceptionDate;
+    : calendarDate(existingException?.exceptionDate);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(exceptionDate || "")) {
     const error = new Error("exceptionDate must use YYYY-MM-DD format.");
     error.statusCode = 400;

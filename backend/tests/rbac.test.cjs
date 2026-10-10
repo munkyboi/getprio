@@ -464,6 +464,15 @@ test("vendor availability is manageable by vendor admins but denied to staff", a
       if (type === "block") createdBlock = entry; else createdException = entry;
       return entry;
     } },
+    "../services/availabilityUpdateService": { updateAvailabilityEntry: async (tenant, id, body, type, options) => {
+      assert.deepEqual(options, { actorUserId: "user-1" });
+      const current = type === "block" ? blocks[0] : { _id: id, tenantId: "tenant-1", locationId: "location-1", serviceId: null,
+        exceptionDate: "2026-07-01", isAvailable: false, reason: "Holiday" };
+      const normalizer = require("../src/services/availabilityPayloadService")[type === "block" ? "normalizeAvailabilityBlockPayload" : "normalizeAvailabilityExceptionPayload"];
+      const payload = await normalizer(tenant, body, current, { findServiceByTenantAndSlug: async () => ({ _id: "service-1" }) },
+        async () => ({ _id: "location-1", slug: "main" }), { listHoursByLocationId: async () => [{ weekday: 2, opensAt: "09:00", closesAt: "17:00", isClosed: false }] });
+      return { ...current, ...payload };
+    } },
     "../services/availabilityDeletionService": { deleteAvailabilityEntry: async (tenant, entryId, type, options) => {
       assert.equal(tenant._id, "tenant-1"); assert.equal(type, "exception");
       assert.deepEqual(options, { actorUserId: "user-1" }); deletedExceptionId=entryId;
@@ -608,6 +617,13 @@ test("vendor availability is manageable by vendor admins but denied to staff", a
     });
     assert.equal(createExceptionResponse.status, 201);
     assert.equal(createdException.exceptionDate, "2026-07-01");
+
+    for (const [kind, id] of [["blocks", "block-1"], ["exceptions", "exception-1"]]) {
+      const deniedUpdate = await fetch(`${baseUrl}/tenant/demo/availability/${kind}/${id}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json", "x-test-tenant-role": "staff" }, body: JSON.stringify({ locationSlug: "main" })
+      });
+      assert.equal(deniedUpdate.status, 403);
+    }
 
     for (const body of [{ locationSlug: "main", isAvailable: true }, { isAvailable: false }]) {
       const updateExceptionResponse = await fetch(`${baseUrl}/tenant/demo/availability/exceptions/exception-1`, {

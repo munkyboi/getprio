@@ -32,6 +32,7 @@ const bookingService = require("../services/bookingService");
 const resourceConfigurationService = require("../services/resourceConfigurationService");
 const locationHoursService = require("../services/locationHoursService");
 const availabilityCreationService = require("../services/availabilityCreationService");
+const availabilityUpdateService = require("../services/availabilityUpdateService");
 const availabilityDeletionService = require("../services/availabilityDeletionService");
 const { recordTicketService } = require("../services/ticketServiceTimingService");
 const entitlementAdmissionService = require("../services/entitlementAdmissionService");
@@ -932,10 +933,7 @@ router.patch(
       res,
       getAuthorizedTenant,
       assertTenantPermission,
-      getLocationForTenant,
-      storeLocationRepository,
-      vendorAvailabilityRepository,
-      vendorServiceRepository
+      availabilityUpdateService
     })
   )
 );
@@ -975,9 +973,7 @@ router.patch(
       res,
       getAuthorizedTenant,
       assertTenantPermission,
-      getLocationForTenant,
-      vendorAvailabilityRepository,
-      vendorServiceRepository
+      availabilityUpdateService
     })
   )
 );

@@ -90,7 +90,13 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
         payload JSONB DEFAULT '{}',metadata JSONB DEFAULT '{}',ticket_id BIGINT,ticket_lookup_code TEXT,queue_day_id BIGINT,queue_day_version_at_checkout INTEGER,
         ticket_issuance_status TEXT DEFAULT 'pending',ticket_issuance_reason TEXT,ticket_issuance_attempted_at TIMESTAMPTZ,paid_at TIMESTAMPTZ,created_at TIMESTAMPTZ DEFAULT clock_timestamp(),updated_at TIMESTAMPTZ,UNIQUE(tenant_id,otp_id));
       CREATE TABLE payment_allowance(reservation_key TEXT PRIMARY KEY,state TEXT,ticket_id BIGINT);
-      ALTER TABLE store_locations ADD COLUMN slug TEXT DEFAULT 'main';
+      ALTER TABLE store_locations ADD COLUMN slug TEXT DEFAULT 'main', ADD COLUMN queue_join_id UUID,
+        ADD COLUMN name TEXT, ADD COLUMN image_url TEXT, ADD COLUMN address_line1 TEXT, ADD COLUMN address_line2 TEXT,
+        ADD COLUMN city TEXT, ADD COLUMN province TEXT, ADD COLUMN postal_code TEXT, ADD COLUMN country TEXT,
+        ADD COLUMN contact_email TEXT, ADD COLUMN contact_phone TEXT, ADD COLUMN payment_method_label TEXT,
+        ADD COLUMN payment_bank_name TEXT, ADD COLUMN payment_account_display_name TEXT, ADD COLUMN payment_account_identifier_display TEXT,
+        ADD COLUMN payment_qr_image_url TEXT, ADD COLUMN payment_qr_active BOOLEAN, ADD COLUMN customer_self_check_in_enabled BOOLEAN,
+        ADD COLUMN is_primary BOOLEAN DEFAULT FALSE, ADD COLUMN created_at TIMESTAMPTZ, ADD COLUMN updated_at TIMESTAMPTZ;
       ALTER TABLE location_resource_pools ADD COLUMN name TEXT DEFAULT 'Court';
       ALTER TABLE ticket_service_plans ADD COLUMN execution_mode TEXT, ADD COLUMN created_by_user_id BIGINT;
       ALTER TABLE users ADD COLUMN display_name TEXT;
@@ -1905,6 +1911,144 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
         assert.equal(Number((await pool.query('SELECT revision FROM resource_ledger_scopes')).rows[0].revision),3);
         assert.equal(await count('resource_ledger_commands'),0);
       }
+    });
+    const updateWriter=(overrides={},database={pool})=>loadService({
+      '../config/db':database,'../repositories/vendorAvailability':{...realAvailability,...overrides},
+      '../repositories/storeLocations':realLocations,'../repositories/vendorServices':realServices
+    },'availabilityUpdateService');
+    const editAvailability=(entry,type,body={},actor='1',writer=updateWriter())=>
+      writer.updateAvailabilityEntry(tenant,entry._id,body,type,{actorUserId:actor});
+    async function targetBranch() {
+      await pool.query("INSERT INTO store_locations(id,tenant_id,is_active,slug) VALUES(30,1,TRUE,'other')");
+      await pool.query("INSERT INTO store_hours(location_id,weekday,opens_at,closes_at,is_closed) SELECT 30,n,'00:00','00:00',FALSE FROM generate_series(0,6) n");
+    }
+    const revisions=async ()=>(await pool.query('SELECT location_id::text,revision::int FROM resource_ledger_scopes ORDER BY location_id')).rows;
+    await t.test('multi-branch scope entry denies foreign branches before granting a domain transaction',async () => {
+      await reset();let entered=false;
+      await assert.rejects(ledger.withScopeTransaction({pool,tenantId:'1',locationId:'10',actorUserId:'1',additionalLocationIds:['20'],
+        authorize:async ()=>true},async ()=>{entered=true;}),{statusCode:404});
+      assert.equal(entered,false);assert.equal(await count('resource_ledger_scopes'),0);
+      await assert.rejects(ledger.withScopeTransaction({pool,tenantId:'1',locationId:'10',actorUserId:'1',additionalLocationIds:['10','10'],
+        authorize:async ()=>false},async ()=>{entered=true;}),{statusCode:403});
+      assert.equal(entered,false);assert.equal(await count('resource_ledger_scopes'),0);
+    });
+    await t.test('availability editing rereads partial values and preserves booking protection and occupancy',async () => {
+      for(const type of Object.keys(availabilityKinds)) {
+        await reset();await ticket('1',{booking:true});await record('1','start');const entry=await addAvailability(type);
+        const before={};for(const table of ['bookings','resource_ledger_reservations','resource_allocations','resource_ledger_commands']) before[table]=(await pool.query(`SELECT * FROM ${table}`)).rows;
+        const revision=(await revisions())[0].revision;
+        await pool.query('UPDATE tenants SET is_active=FALSE WHERE id=1; UPDATE store_locations SET is_active=FALSE WHERE id=10');
+        const changed=await editAvailability(entry,type,{capacity:3,actorUserId:'2',tenantId:'2',locationId:'20'});
+        assert.equal(changed.locationId,'10');assert.equal(changed.capacity,3);assert.equal(changed.startsAt,entry.startsAt);
+        assert.equal(changed[type==='block'?'notes':'reason'],entry[type==='block'?'notes':'reason']);
+        assert.deepEqual(await revisions(),[{location_id:'10',revision:revision+1}]);
+        for(const table of Object.keys(before)) assert.deepEqual((await pool.query(`SELECT * FROM ${table}`)).rows,before[table]);
+        assert.ok((await readTicket('1')).serviceStartedAt);assert.equal((await readTicket('1')).serviceEndedAt,null);
+      }
+    });
+    await t.test('availability moves commit source and destination revisions together without moving occupancy',async () => {
+      for(const type of Object.keys(availabilityKinds)) {
+        await reset();await targetBranch();await ticket('1',{booking:true});await record('1','start');const entry=await addAvailability(type);
+        const allocations=(await pool.query('SELECT * FROM resource_allocations')).rows;const reservations=(await pool.query('SELECT * FROM resource_ledger_reservations')).rows;
+        const prior=(await revisions())[0].revision;await pool.query('UPDATE store_locations SET is_active=FALSE WHERE id=30');
+        const moved=await editAvailability(entry,type,{locationSlug:'other',capacity:4});assert.equal(moved.locationId,'30');
+        assert.deepEqual(await revisions(),[{location_id:'10',revision:prior+1},{location_id:'30',revision:2}]);
+        assert.deepEqual((await pool.query('SELECT * FROM resource_allocations')).rows,allocations);
+        assert.deepEqual((await pool.query('SELECT * FROM resource_ledger_reservations')).rows,reservations);
+      }
+    });
+    await t.test('availability editing rejects invalid current grants foreign scope and unsafe identities',async () => {
+      for(const type of Object.keys(availabilityKinds)) for(const sql of [
+        'UPDATE tenant_memberships SET is_active=FALSE WHERE id=1','UPDATE users SET deletion_requested_at=clock_timestamp() WHERE id=1',
+        'UPDATE users SET platform_access_suspended_at=clock_timestamp() WHERE id=1',
+        "UPDATE tenant_memberships SET role='staff' WHERE id=1; INSERT INTO tenant_membership_locations VALUES(1,10)"
+      ]) {
+        await reset();const entry=await addAvailability(type);await pool.query(sql);
+        await assert.rejects(editAvailability(entry,type,{capacity:3}),{statusCode:403});
+        assert.equal((await realAvailability[type==='block'?'findBlockByTenantAndId':'findExceptionByTenantAndId']('1',entry._id,{client:pool})).capacity,2);
+        assert.equal(await count('resource_ledger_scopes'),0);
+      }
+      await reset();const entry=await addAvailability('block');await pool.query("UPDATE store_locations SET slug='foreign' WHERE id=20");
+      await assert.rejects(editAvailability(entry,'block',{locationSlug:'foreign'}),{statusCode:404});
+      await assert.rejects(updateWriter().updateAvailabilityEntry({_id:'2'},entry._id,{},'block',{actorUserId:'1'}),{statusCode:404});
+      await assert.rejects(editAvailability({_id:'9007199254740993'},'block'),{statusCode:400});
+      await assert.rejects(editAvailability(entry,'unsupported'),{statusCode:400});assert.equal(await count('resource_ledger_scopes'),0);
+    });
+    await t.test('availability editing rechecks grants entry movement destination hours service and slug after contention',async () => {
+      for(const change of ['grant','entry','deleted','hours','service','slug']) {
+        await reset();await targetBranch();const entry=await addAvailability('block');const blocker=await pool.connect();let pending;
+        try {
+          await blocker.query('BEGIN');await blocker.query('SELECT id FROM store_locations WHERE id=10 FOR UPDATE');
+          pending=editAvailability(entry,'block',{locationSlug:'other',serviceSlug:'court-play'});
+          const denied=assert.rejects(pending,{statusCode:change==='grant'?403:change==='entry'?409:change==='hours'?400:404});await waitForLocationLock();
+          if(change==='grant') await blocker.query('UPDATE tenant_memberships SET is_active=FALSE WHERE id=1');
+          if(change==='entry') await blocker.query('UPDATE vendor_availability_blocks SET location_id=30 WHERE id=$1',[entry._id]);
+          if(change==='deleted') await blocker.query('DELETE FROM vendor_availability_blocks WHERE id=$1',[entry._id]);
+          if(change==='hours') await blocker.query("UPDATE store_hours SET opens_at='10:00' WHERE location_id=30 AND weekday=1");
+          if(change==='service') await blocker.query("UPDATE vendor_services SET slug='renamed' WHERE id=1000");
+          if(change==='slug') await blocker.query("UPDATE store_locations SET slug='renamed' WHERE id=30");
+          await blocker.query('COMMIT');await denied;
+        } finally {await blocker.query('ROLLBACK');blocker.release();if(pending)await pending.catch(()=>{});}
+        assert.equal(await count('resource_ledger_scopes'),0);
+      }
+    });
+    await t.test('availability editing holds both branches entry retained service and access and rolls all writes back',async () => {
+      for(const type of Object.keys(availabilityKinds)) {
+        await reset();await targetBranch();const entry=await addAvailability(type);const method=type==='block'?'updateBlock':'updateException';
+        await realAvailability[method](entry._id,{serviceId:'1000'},{client:pool});
+        const writer=updateWriter({[method]:async (...args)=>{
+          for(const sql of ['SELECT id FROM store_locations WHERE id=10 FOR UPDATE NOWAIT','SELECT id FROM store_locations WHERE id=30 FOR UPDATE NOWAIT',
+            'SELECT id FROM tenants WHERE id=1 FOR UPDATE NOWAIT','SELECT id FROM users WHERE id=1 FOR UPDATE NOWAIT',
+            'SELECT id FROM tenant_memberships WHERE id=1 FOR UPDATE NOWAIT','SELECT id FROM vendor_services WHERE id=1000 FOR UPDATE NOWAIT',
+            `SELECT id FROM ${availabilityKinds[type].table} WHERE id=${entry._id} FOR UPDATE NOWAIT`]) await assert.rejects(pool.query(sql),{code:'55P03'});
+          await realAvailability[method](...args);throw new Error('availability post-edit failure');
+        }});
+        await assert.rejects(editAvailability(entry,type,{locationSlug:'other',capacity:3},'1',writer),/availability post-edit failure/);
+        const current=await realAvailability[type==='block'?'findBlockByTenantAndId':'findExceptionByTenantAndId']('1',entry._id,{client:pool});
+        assert.equal(current.locationId,'10');assert.equal(current.capacity,2);assert.equal(await count('resource_ledger_scopes'),0);
+      }
+    });
+    await t.test('availability move rolls entry and both revisions back after the final revision update fails',async () => {
+      for(const type of Object.keys(availabilityKinds)) {
+        await reset();await targetBranch();const entry=await addAvailability(type);
+        const faultPool={query:(...args)=>pool.query(...args),connect:async ()=>{
+          const client=await pool.connect();return {release:()=>client.release(),query:async (sql,args)=>{
+            const result=await client.query(sql,args);
+            if(sql.startsWith('UPDATE resource_ledger_scopes SET revision=revision+1')) throw new Error('final move revision failure');
+            return result;
+          }};
+        }};
+        await assert.rejects(editAvailability(entry,type,{locationSlug:'other'},'1',updateWriter({},{pool:faultPool})),/final move revision failure/);
+        const current=await realAvailability[type==='block'?'findBlockByTenantAndId':'findExceptionByTenantAndId']('1',entry._id,{client:pool});
+        assert.equal(current.locationId,'10');assert.equal(await count('resource_ledger_scopes'),0);
+      }
+    });
+    await t.test('concurrent partial availability edits preserve each committed field and increment once per save',async () => {
+      for(const type of Object.keys(availabilityKinds)) {
+        await reset();const entry=await addAvailability(type);const field=type==='block'?'notes':'reason';
+        await Promise.all([editAvailability(entry,type,{capacity:3}),editAvailability(entry,type,{[field]:'Updated'})]);
+        const current=await realAvailability[type==='block'?'findBlockByTenantAndId':'findExceptionByTenantAndId']('1',entry._id,{client:pool});
+        assert.equal(current.capacity,3);assert.equal(current[field],'Updated');assert.deepEqual(await revisions(),[{location_id:'10',revision:3}]);
+      }
+    });
+    await t.test('opposing availability branch moves acquire sorted locks and commit both revisions without deadlock',async () => {
+      for(const type of Object.keys(availabilityKinds)) {
+        await reset();await targetBranch();const first=await addAvailability(type);const second=await addAvailability(type);
+        await realAvailability[type==='block'?'updateBlock':'updateException'](second._id,{locationId:'30'},{client:pool});
+        const moved=await Promise.all([editAvailability(first,type,{locationSlug:'other'}),editAvailability(second,type,{locationSlug:'main'})]);
+        assert.equal(moved[0].locationId,'30');assert.equal(moved[1].locationId,'10');
+        assert.deepEqual(await revisions(),[{location_id:'10',revision:3},{location_id:'30',revision:3}]);
+        assert.equal(await count('resource_ledger_commands'),0);
+      }
+    });
+    await t.test('availability editing retains or explicitly clears service and preserves overnight and exception validation',async () => {
+      await reset();const entry=await addAvailability('block');await realAvailability.updateBlock(entry._id,{serviceId:'1000'},{client:pool});
+      assert.equal((await editAvailability(entry,'block',{capacity:3})).serviceId,'1000');
+      assert.equal((await editAvailability(entry,'block',{serviceSlug:''})).serviceId,null);
+      await pool.query("UPDATE store_hours SET opens_at='06:00',closes_at='03:00' WHERE location_id=10 AND weekday=1");
+      assert.equal((await editAvailability(entry,'block',{startsAt:'07:00',endsAt:'02:00',endsNextDay:true})).endsNextDay,true);
+      const before=await revisions();await assert.rejects(editAvailability(entry,'block',{capacity:101}),{statusCode:400});assert.deepEqual(await revisions(),before);
+      const exception=await addAvailability('exception');await assert.rejects(editAvailability(exception,'exception',{exceptionDate:'bad'}),{statusCode:400});assert.deepEqual(await revisions(),before);
     });
     function legacyLifecycle(database, target='queueService', actualPauses=false) {
       const injected={...queueMocks,'../config/db':database,'./queueHelpers':require('../src/services/queueHelpers'),
