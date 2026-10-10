@@ -400,12 +400,10 @@ async function handleUpdateAvailabilityBlock({ req, res, getAuthorizedTenant, as
   res.json({ block: formatAvailabilityBlock(updatedBlock) });
 }
 
-async function handleDeleteAvailabilityBlock({ req, res, getAuthorizedTenant, assertTenantPermission, vendorAvailabilityRepository }) {
+async function handleDeleteAvailabilityBlock({ req, res, getAuthorizedTenant, assertTenantPermission, availabilityDeletionService }) {
   const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
   assertTenantPermission(req.user, tenant._id, "tenant.availability.manage");
-  const block = await vendorAvailabilityRepository.findBlockByTenantAndId(tenant._id, req.params.blockId);
-  if (!block) { const error = new Error("Availability block not found."); error.statusCode = 404; throw error; }
-  await vendorAvailabilityRepository.deleteBlock(block._id);
+  const block = await availabilityDeletionService.deleteAvailabilityEntry(tenant, req.params.blockId, "block", { actorUserId: req.user._id });
   res.json({ block: formatAvailabilityBlock(block) });
 }
 
@@ -440,12 +438,10 @@ async function handleUpdateAvailabilityException({ req, res, getAuthorizedTenant
   res.json({ exception: formatAvailabilityException(updatedException) });
 }
 
-async function handleDeleteAvailabilityException({ req, res, getAuthorizedTenant, assertTenantPermission, vendorAvailabilityRepository }) {
+async function handleDeleteAvailabilityException({ req, res, getAuthorizedTenant, assertTenantPermission, availabilityDeletionService }) {
   const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
   assertTenantPermission(req.user, tenant._id, "tenant.availability.manage");
-  const exception = await vendorAvailabilityRepository.findExceptionByTenantAndId(tenant._id, req.params.exceptionId);
-  if (!exception) { const error = new Error("Availability exception not found."); error.statusCode = 404; throw error; }
-  await vendorAvailabilityRepository.deleteException(exception._id);
+  await availabilityDeletionService.deleteAvailabilityEntry(tenant, req.params.exceptionId, "exception", { actorUserId: req.user._id });
   res.status(204).send();
 }
 
