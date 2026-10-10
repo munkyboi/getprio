@@ -13,3 +13,5 @@ Availability creation and deletion share payload/entry helpers without changing 
 Catalog/settings/default-hours writers, protection cleanup and activation reconciliation remain uncovered. Resource tracking and writer coverage stay disabled; the producer remains `not_ready`. No migration, dashboard/mobile UI, customer estimate, inference or capture/export changes are included.
 
 Local validation: full isolated PostgreSQL backend coverage passed 1,128 tests with seven opt-in skips (1,135 total), zero failures. The focused PostgreSQL/handler/HTTP suite passed 172 tests before the final additional tenant-isolation case. Changed-source ESLint, backend typecheck and diff checks passed.
+
+Sonar follow-up: initialize affected scope rows with one ordered bulk insert instead of awaiting separate inserts in a loop. Both scope rows and revisions remain in the same transaction.
