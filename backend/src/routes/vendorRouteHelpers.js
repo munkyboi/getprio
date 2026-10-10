@@ -460,18 +460,18 @@ function formatVendorService(service) {
   };
 }
 
-async function normalizeLocationServicesPayload(body, existingService, tenant) {
+async function normalizeLocationServicesPayload(body, existingService, tenant, options = {}) {
   if (!Array.isArray(body.locationServices)) {
     return [];
   }
 
-  const locations = await Promise.all(
+  const locations = await Promise.allSettled(
     body.locationServices.map(async (entry) => {
       const locationSlug = normalizeRequestText(entry?.locationSlug);
       if (!locationSlug) {
         return null;
       }
-      const location = await storeLocationRepository.findLocationByTenantAndSlug(tenant._id, locationSlug);
+      const location = await storeLocationRepository.findLocationByTenantAndSlug(tenant._id, locationSlug, options);
       if (!location) {
         const error = new Error(`Location not found for slug ${locationSlug}.`);
         error.statusCode = 404;
@@ -491,7 +491,9 @@ async function normalizeLocationServicesPayload(body, existingService, tenant) {
     })
   );
 
-  return locations.filter(Boolean);
+  const failed = locations.find(result => result.status === "rejected");
+  if (failed) throw failed.reason;
+  return locations.map(result => result.value).filter(Boolean);
 }
 
 module.exports = {

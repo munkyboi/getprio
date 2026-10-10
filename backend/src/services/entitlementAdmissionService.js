@@ -13,14 +13,14 @@ function isEnforced(featureKey, controls = releaseControls) {
   return Boolean(controls[FEATURE_FLAGS[featureKey]]);
 }
 
-async function admit({ tenantId, featureKey, mode = "create", controls, client }) {
+async function admit({ tenantId, featureKey, mode = "create", controls, client, lockPolicy = false }) {
   if (["read", "history", "ongoing", "wind_down"].includes(mode)) {
     return { allowed: true, enforced: isEnforced(featureKey, controls) };
   }
   if (!isEnforced(featureKey, controls)) {
     return { allowed: true, enforced: false };
   }
-  const policy = await resolveTenantPolicy(tenantId, { client });
+  const policy = await resolveTenantPolicy(tenantId, { client, controls, lockPolicy });
   if (policy.lifecycle.state !== "active") assertFeature(policy, featureKey);
   if (policy.authority?.served !== "new") {
     return { allowed: true, enforced: false, bypassed: "legacy_authority", policy };

@@ -171,6 +171,44 @@ async function withTicketIssuanceTransaction({ pool, tenantId, locationId, actor
     actorId: actorUserId == null ? null : id(actorUserId), authorize }, client => callback(client));
 }
 
+// Tenant-wide catalog writes lock existing branches in the same order as branch
+// moves. This exposes no reservation/allocation capability to the catalog writer.
+async function withTenantCatalogTransaction({ pool, tenantId, actorUserId, authorize }, callback) {
+  const scope = Object.freeze({ tenantId: id(tenantId), actorUserId: id(actorUserId), locationId: null });
+  if (typeof authorize !== "function" || typeof callback !== "function") fail("Catalog transactions require authorization and a domain callback.", 400);
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const branches = await client.query("SELECT id::text FROM store_locations WHERE tenant_id=$1 ORDER BY store_locations.id FOR NO KEY UPDATE", [scope.tenantId]);
+    // Creation takes a tenant FK key-share lock; hold its target through commit.
+    const tenant = await client.query("SELECT id FROM tenants WHERE id=$1 FOR UPDATE", [scope.tenantId]);
+    if (!tenant.rows[0]) fail("Vendor not found.", 404);
+    if (await authorize(client, scope) !== true) fail("Resource operation is not authorized.", 403);
+    const branchIds = branches.rows.map(row => row.id);
+    const current = await client.query("SELECT id::text FROM store_locations WHERE tenant_id=$1 ORDER BY store_locations.id", [scope.tenantId]);
+    if (JSON.stringify(branchIds) !== JSON.stringify(current.rows.map(row => row.id))) fail("Vendor locations changed. Reload before editing.");
+    const result = await callback(client, branchIds);
+    const completion = await client.query("COMMIT");
+    if (completion.command !== "COMMIT") fail("Resource catalog transaction did not commit.");
+    return result;
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function advanceBranchRevisions(client, tenantId, locationIds) {
+  const tenant = id(tenantId);
+  const branches = [...new Set(locationIds.map(id))];
+  if (!branches.length) return;
+  await client.query(`INSERT INTO resource_ledger_scopes (tenant_id,location_id)
+    SELECT $1::bigint,location_id FROM unnest($2::bigint[]) AS branches(location_id)
+    ORDER BY location_id ON CONFLICT DO NOTHING`, [tenant, branches]);
+  await client.query("UPDATE resource_ledger_scopes SET revision=revision+1 WHERE tenant_id=$1 AND location_id=ANY($2::bigint[])", [tenant, branches]);
+}
+
 // Customer ownership is rechecked by the adapter under the location lock. Guest
 // callers have no actor ID; this capability can only cancel this ticket's unused
 // booking protection, never reserve, allocate, release, or run system expiry.
@@ -377,4 +415,4 @@ async function executeCommand(options) {
   return withScopeTransaction({ ...options, authorize: async () => true },
     async (_client, ledger) => ledger.executeCommand(options));
 }
-module.exports = { executeCommand, withScopeTransaction, withTicketIssuanceTransaction, withSystemExpiryTransaction, withCustomerTicketCancellationTransaction, withCarryOverExpiryTransaction, withQueueDayReconciliationTransaction };
+module.exports = { withTenantCatalogTransaction, advanceBranchRevisions, executeCommand, withScopeTransaction, withTicketIssuanceTransaction, withSystemExpiryTransaction, withCustomerTicketCancellationTransaction, withCarryOverExpiryTransaction, withQueueDayReconciliationTransaction };

@@ -1,3 +1,4 @@
+const serviceDeactivationService = require("../services/serviceDeactivationService");
 const ticketServicePlanService = require("../services/ticketServicePlanService");
 const { projectOperationalBooking } = require("./vendorBookingReadModel");
 const permissions = require("../services/permissions");
@@ -650,9 +651,9 @@ router.get("/tenant/:tenantSlug/services/slug-availability", asyncHandler((req, 
 
 router.post("/tenant/:tenantSlug/services", asyncHandler((req, res) => handleCreateService({ req, res, getAuthorizedTenant, assertTenantPermission, entitlementAdmissionService, vendorServiceRepository, locationServiceRepository })));
 
-router.patch("/tenant/:tenantSlug/services/:serviceSlug", asyncHandler((req, res) => handleUpdateService({ req, res, getAuthorizedTenant, assertTenantPermission, entitlementAdmissionService, vendorServiceRepository, locationServiceRepository })));
+router.patch("/tenant/:tenantSlug/services/:serviceSlug", asyncHandler((req, res) => handleUpdateService({ req, res, getAuthorizedTenant, assertTenantPermission, serviceDeactivationService })));
 
-router.delete("/tenant/:tenantSlug/services/:serviceSlug", asyncHandler((req, res) => handleDeleteService({ req, res, getAuthorizedTenant, assertTenantPermission, vendorServiceRepository })));
+router.delete("/tenant/:tenantSlug/services/:serviceSlug", asyncHandler((req, res) => handleDeleteService({ req, res, getAuthorizedTenant, assertTenantPermission, serviceDeactivationService })));
 
 router.get(
   "/tenant/:tenantSlug/bookings",

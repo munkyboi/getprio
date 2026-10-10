@@ -1,4 +1,5 @@
 const db = require("../config/db");
+const { advanceBranchRevisions } = require("../repositories/resourceLedger");
 const availability = require("../repositories/vendorAvailability");
 const locations = require("../repositories/storeLocations");
 const { normalizeAvailabilityForLocation, readAvailabilityEntry } = require("./availabilityWriterHelpers");
@@ -35,10 +36,7 @@ async function updateAvailabilityEntry(tenant, entryId, body, type, { actorUserI
     const payload = await normalizeAvailabilityForLocation({ tenant, location: target, body, existing: current, type, client });
     const entry = await availability[operation.update](current._id, payload, { client });
     const branchIds = [...new Set([current.locationId, payload.locationId])];
-    await client.query(`INSERT INTO resource_ledger_scopes (tenant_id,location_id)
-      SELECT $1::bigint,location_id FROM unnest($2::bigint[]) AS branches(location_id)
-      ORDER BY location_id ON CONFLICT DO NOTHING`, [tenant._id, branchIds]);
-    await client.query("UPDATE resource_ledger_scopes SET revision=revision+1 WHERE tenant_id=$1 AND location_id=ANY($2::bigint[])", [tenant._id, branchIds]);
+    await advanceBranchRevisions(client, String(tenant._id), branchIds);
     return entry;
   });
 }
