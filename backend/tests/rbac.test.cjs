@@ -225,6 +225,9 @@ test("vendor location payment QR settings are private vendor-managed configurati
 
   const vendorRouter = requireWithMocks("../src/routes/vendorRoutes.js", {
     "../services/staffAccessEmailService": { change: async (_context, mutate) => mutate({ client: {} }) },
+    "../services/locationCreationService": { createVendorLocation: async (tenant, body, options) => {
+      assert.equal(tenant._id,"tenant-1");assert.equal(options.actorUserId,"user-1");return {_id:"location-2",...body,tenantId:tenant._id,timezone:"Asia/Manila",isActive:true};
+    } },
     "../middleware/auth": buildAuthMock(),
     "../middleware/asyncHandler": buildAsyncHandlerMock(),
     "../repositories/tenants": {
@@ -372,6 +375,11 @@ test("vendor location payment QR settings are private vendor-managed configurati
     assert.equal(uploadResponse.status, 201);
     const uploadBody = await uploadResponse.json();
     assert.equal(uploadBody.asset.publicUrl, "https://cdn.example.test/payment-qrs/main/test.png");
+
+    const deniedCreate = await fetch(`${baseUrl}/tenant/demo/locations`, { method:"POST",headers:{"Content-Type":"application/json","x-test-tenant-role":"staff"},body:JSON.stringify({name:"New branch"}) });
+    assert.equal(deniedCreate.status,403);
+    const created = await fetch(`${baseUrl}/tenant/demo/locations`, { method:"POST",headers:{"Content-Type":"application/json","x-test-tenant-role":"admin"},body:JSON.stringify({name:"New branch",slug:"new",tenantId:"other",actorUserId:"spoof"}) });
+    assert.equal(created.status,201);assert.equal((await created.json()).location.slug,"new");
 
     const listResponse = await fetch(`${baseUrl}/tenant/demo/locations`, {
       headers: {

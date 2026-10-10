@@ -2463,6 +2463,78 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
       assert.equal((await deactivate()).isActive,false);assert.equal(await count('resource_ledger_scopes'),0);
     });
 
+    await pool.query("CREATE SEQUENCE location_creation_ids START 50; ALTER TABLE store_locations ALTER COLUMN id SET DEFAULT nextval('location_creation_ids'); ALTER TABLE store_locations ADD CONSTRAINT creation_slug_unique UNIQUE(tenant_id,slug); CREATE TABLE platform_settings(key TEXT PRIMARY KEY,value TEXT); INSERT INTO platform_settings VALUES('default_timezone','Pacific/Auckland')");
+    const locationWriter=(database={pool},overrides={})=>loadService({'../config/db':database,'../repositories/storeLocations':{...realLocations,...overrides}},'locationCreationService');
+    const createBranch=(body={name:'New branch',slug:'new'},writer=locationWriter(),selected=tenant,actor='1')=>writer.createVendorLocation(selected,body,{actorUserId:actor});
+    async function locationQuota(limit=3) {await pool.query("UPDATE subscription_plans SET entitlements=$1 WHERE slug='free'",[{locations:limit}]);}
+    await t.test('branch creation atomically commits closed default hours primary replacement and revisions without changing admitted work',async () => {
+      await reset();await locationQuota();await pool.query('UPDATE store_locations SET is_primary=TRUE WHERE id=10');await ticket('1',{booking:true});await record('1','start');
+      const tables=['bookings','resource_ledger_reservations','resource_allocations','ticket_service_plans'];const before=await Promise.all(tables.map(table=>pool.query(`SELECT * FROM ${table}`)));const revision=(await revisions())[0].revision;
+      const branch=await createBranch({name:'New branch',slug:'new',isPrimary:true,tenantId:'2',actorUserId:'2'});
+      assert.equal(branch.tenantId,'1');assert.equal(branch.timezone,'Pacific/Auckland');assert.equal(branch.isPrimary,true);assert.equal((await realLocations.findLocationById('10',{client:pool})).isPrimary,false);
+      const hours=await realLocations.listHoursByLocationId(branch._id,{client:pool});assert.equal(hours.length,7);assert.ok(hours.every(hour=>hour.isClosed && !hour.opensAt && !hour.closesAt));
+      assert.deepEqual(await revisions(),[{location_id:'10',revision:revision+1},{location_id:branch._id,revision:2}]);
+      for(let i=0;i<tables.length;i++)assert.deepEqual((await pool.query(`SELECT * FROM ${tables[i]}`)).rows,before[i].rows);
+    });
+    await t.test('branch creation rejects current grants invalid payload and quota without partial writes',async () => {
+      for(const sql of ['UPDATE tenant_memberships SET is_active=FALSE WHERE id=1','UPDATE users SET deletion_requested_at=NOW() WHERE id=1','UPDATE users SET platform_access_suspended_at=NOW() WHERE id=1',"UPDATE tenant_memberships SET role='staff' WHERE id=1"]) {
+        await reset();await locationQuota();await pool.query(sql);await assert.rejects(createBranch(),{statusCode:403});assert.equal(await count('store_locations'),2);assert.equal(await count('resource_ledger_scopes'),0);
+      }
+      await reset();await locationQuota(1);await assert.rejects(createBranch(),{statusCode:403});
+      await assert.rejects(createBranch({name:'New',slug:'new',timezone:'Invalid/Zone'}),{statusCode:400});assert.equal(await count('store_locations'),2);assert.equal(await count('resource_ledger_scopes'),0);
+    });
+    await t.test('branch creation rolls primary changes branch hours and all revisions back on hours or final revision failure',async () => {
+      for(const failure of ['hours','revision']) {
+        await reset();await locationQuota();await pool.query('UPDATE store_locations SET is_primary=TRUE WHERE id=10');
+        const oldHours=(await pool.query('SELECT * FROM store_hours WHERE location_id=10')).rows;
+        const faultPool={connect:async()=>{const client=await pool.connect();return {release:()=>client.release(),query:async(sql,args)=>{
+          if((failure==='hours' && /INSERT INTO store_hours/.test(sql)) || (failure==='revision' && /UPDATE resource_ledger_scopes/.test(sql)))throw new Error('branch creation fault');return client.query(sql,args);
+        }};}};
+        await assert.rejects(createBranch({name:'New',slug:'new',isPrimary:true},locationWriter({pool:faultPool})),/branch creation fault/);
+        assert.equal(await count('store_locations'),2);assert.equal((await realLocations.findLocationById('10',{client:pool})).isPrimary,true);assert.deepEqual((await pool.query('SELECT * FROM store_hours WHERE location_id=10')).rows,oldHours);assert.equal(await count('resource_ledger_scopes'),0);
+      }
+    });
+    await t.test('two branch creations serialize the final active seat and duplicate slugs roll back safely',async () => {
+      await reset();await locationQuota(2);const result=await Promise.allSettled([createBranch({name:'A',slug:'a'}),createBranch({name:'B',slug:'b'})]);assert.equal(result.filter(item=>item.status==='fulfilled').length,1);
+      assert.ok([403,409].includes(result.find(item=>item.status==='rejected').reason.statusCode));assert.equal((await pool.query('SELECT 1 FROM store_locations WHERE tenant_id=1 AND is_active')).rows.length,2);
+      await assert.rejects(createBranch({name:'C',slug:'c'}),{statusCode:403});assert.equal((await revisions()).length,2);
+      await reset();await locationQuota();await createBranch();const before=await revisions();await assert.rejects(createBranch(),{code:'23505'});assert.deepEqual(await revisions(),before);assert.equal(await count('store_locations'),3);
+    });
+    await t.test('branch creation waits for branch locks and rechecks revoked grants',async () => {
+      await reset();await locationQuota();const blocker=await pool.connect();let pending;
+      try {await blocker.query('BEGIN');await blocker.query('SELECT id FROM store_locations WHERE id=10 FOR UPDATE');pending=createBranch();pending.catch(()=>{});await waitForLocationLock();await blocker.query('UPDATE tenant_memberships SET is_active=FALSE WHERE id=1');const denied=assert.rejects(pending,{statusCode:403});await blocker.query('COMMIT');await denied;}
+      finally {await blocker.query('ROLLBACK');blocker.release();if(pending)await pending.catch(()=>{});}
+      assert.equal(await count('store_locations'),2);assert.equal(await count('resource_ledger_scopes'),0);
+    });
+    await t.test('branch creation preserves exact adjacent tenant quota and generated branch hours identifiers',async () => {
+      await reset();await locationQuota(5);const selected='9007199254740993';const neighbor='9007199254740992';
+      await pool.query('INSERT INTO tenants(id,is_active) VALUES($1,TRUE),($2,TRUE)',[selected,neighbor]);await pool.query("INSERT INTO tenant_memberships(id,user_id,tenant_id,role,is_active) VALUES(3,1,$1,'owner',TRUE)",[selected]);
+      await pool.query("INSERT INTO tenant_subscriptions(id,tenant_id,status,plan_slug,entitlements,updated_at) VALUES(2,$1,'active','free',$3,NOW()),(3,$2,'active','free',$4,NOW())",[selected,neighbor,{locations:1},{locations:5}]);
+      await pool.query("INSERT INTO store_locations(id,tenant_id,is_active,slug) VALUES($1,$2,TRUE,'existing')",[neighbor,selected]);await assert.rejects(createBranch(undefined,locationWriter(),{_id:selected}),{statusCode:403});
+      await pool.query('UPDATE tenant_subscriptions SET entitlements=$1 WHERE id=2',[{locations:2}]);await pool.query("SELECT setval('location_creation_ids',$1,FALSE)",[selected]);
+      const branch=await createBranch({name:'Exact',slug:'exact',tenantId:neighbor},locationWriter(),{_id:selected});assert.equal(branch._id,selected);assert.equal(branch.tenantId,selected);
+      const hours=await realLocations.listHoursByLocationId(selected,{client:pool});assert.equal(hours.length,7);assert.ok(hours.every(hour=>hour.locationId===selected));assert.equal((await pool.query('SELECT 1 FROM store_locations WHERE tenant_id=$1',[neighbor])).rows.length,0);
+      assert.deepEqual((await pool.query('SELECT location_id::text FROM resource_ledger_scopes WHERE tenant_id=$1 ORDER BY location_id',[selected])).rows,[{location_id:neighbor},{location_id:selected}]);await pool.query("SELECT setval('location_creation_ids',50,FALSE)");
+    });
+    await t.test('active branch creation fails closed on held quota policy and inactive administration supports no existing branches',async () => {
+      await reset();await locationQuota();const blocker=await pool.connect();
+      try {await blocker.query('BEGIN');await blocker.query('SELECT id FROM tenant_subscriptions WHERE id=1 FOR UPDATE');await assert.rejects(createBranch(),{statusCode:409,code:'LOCATION_POLICY_BUSY'});assert.equal(await count('store_locations'),2);await createBranch({name:'Inactive',slug:'inactive',isActive:false});}
+      finally {await blocker.query('ROLLBACK');blocker.release();}
+      await reset();await pool.query('DELETE FROM location_services WHERE tenant_id=1; DELETE FROM store_locations WHERE tenant_id=1; UPDATE tenants SET is_active=FALSE WHERE id=1');
+      const branch=await createBranch({name:'Only',slug:'only',isActive:false});assert.equal(branch.isActive,false);assert.equal((await realLocations.listHoursByLocationId(branch._id,{client:pool})).length,7);assert.deepEqual(await revisions(),[{location_id:branch._id,revision:2}]);
+    });
+    await t.test('branch creation holds actual subscription and plan quota rows through commit',async () => {
+      await reset();await locationQuota();let entered;let release;let policyChange;const ready=new Promise(resolve=>{entered=resolve;});const barrier=new Promise(resolve=>{release=resolve;});
+      const writer=locationWriter({pool},{createLocation:async(...args)=>{entered();await barrier;return realLocations.createLocation(...args);}});const pending=createBranch(undefined,writer);pending.catch(()=>{});const observer=await pool.connect();
+      try {await Promise.race([ready,pending.then(()=>{throw new Error('branch creation barrier missing');})]);
+        for(const sql of ['SELECT id FROM tenant_subscriptions WHERE id=1 FOR UPDATE NOWAIT',"SELECT slug FROM subscription_plans WHERE slug='free' FOR UPDATE NOWAIT"]) {await observer.query('BEGIN');await assert.rejects(observer.query(sql),{code:'55P03'});await observer.query('ROLLBACK');}
+        policyChange=pool.query("UPDATE tenant_subscriptions SET entitlements='{\"locations\":1}' WHERE id=1");policyChange.catch(()=>{});
+        const deadline=Date.now()+3000;let waiting=false;while(Date.now()<deadline) {waiting=(await pool.query("SELECT 1 FROM pg_stat_activity WHERE application_name=$1 AND wait_event_type='Lock' AND query LIKE 'UPDATE tenant_subscriptions SET entitlements%'",[schema])).rows.length>0;if(waiting)break;await new Promise(resolve=>setTimeout(resolve,10));}assert.equal(waiting,true);
+      } finally {release();const settled=await Promise.allSettled([pending,policyChange]);try {await observer.query('ROLLBACK');}finally{observer.release();}const failed=settled.find(item=>item.status==='rejected');if(failed)throw failed.reason;}
+      await assert.rejects(createBranch({name:'Later',slug:'later'}),{statusCode:403});assert.equal(await count('store_locations'),3);
+    });
+    await pool.query('ALTER TABLE store_locations DROP CONSTRAINT creation_slug_unique');
+
     function legacyLifecycle(database, target='queueService', actualPauses=false) {
       const injected={...queueMocks,'../config/db':database,'./queueHelpers':require('../src/services/queueHelpers'),
         '../repositories/tickets':{...queueMocks['../repositories/tickets'],listWaitingTickets:realTickets.listWaitingTickets,reopenTicketsFromClosure:realTickets.reopenTicketsFromClosure,restoreCarriedOverTicketsFromClosure:realTickets.restoreCarriedOverTicketsFromClosure,
