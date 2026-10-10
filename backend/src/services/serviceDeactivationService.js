@@ -28,7 +28,7 @@ async function deactivateVendorService(tenant, serviceSlug, { actorUserId }) {
 
 async function updateVendorService(tenant, serviceSlug, body, { actorUserId }) {
   return withCatalogService(tenant, serviceSlug, actorUserId, async (client, branchIds, service) => {
-    await admission.admit({ tenantId: tenant._id, featureKey: "booking", client });
+    await admission.admit({ tenantId: tenant._id, featureKey: "booking", client, lockPolicy: true });
     const payload = normalizeServicePayload(body, service);
     const mappings = await normalizeLocationServicesPayload(body, service, tenant, { client });
     const updated = await services.updateService(service._id, payload, { client });

@@ -159,8 +159,8 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
         ticket_service_plans,tickets,booking_bundle_items,bookings,service_resource_requirements,location_resource_pools,
         store_locations,tenant_membership_locations,service_counter_assignments,service_counters,tenant_memberships,tenants,users,events,carry_over_outbox,webhooks,booking_audit,platform_membership_effects,queue_ticket_segments,queue_day_state,intake_state,queue_day_pauses,lifecycle_notifications,counters,vendor_services,location_services,vendor_availability_blocks,vendor_availability_exceptions,store_hours,allowance_audit,queue_email_slots,queue_email_journeys,queue_join_payments,payment_allowance,tenant_subscriptions,queue_fee_settings RESTART IDENTITY CASCADE`);
       await pool.query(`INSERT INTO users(id,roles,deletion_requested_at,platform_access_suspended_at,email,phone) VALUES(1,'{}',NULL,NULL,'owner@example.com','09171234567'),(2,'{}',NULL,NULL,'other@example.com','09179876543');
-        INSERT INTO tenant_subscriptions VALUES(1,1,'active','free',clock_timestamp());
         INSERT INTO tenants(id,is_active) VALUES(1,TRUE),(2,TRUE);
+        INSERT INTO tenant_subscriptions VALUES(1,1,'active','free',clock_timestamp());
         INSERT INTO tenant_memberships VALUES(1,1,1,'owner',TRUE),(2,2,1,'staff',TRUE);
         INSERT INTO store_locations(id,tenant_id,is_active,service_timing_enabled) VALUES(10,1,TRUE,TRUE),(20,2,TRUE,TRUE);
         INSERT INTO service_resource_requirements VALUES(1,10,1000,100,1,1);
@@ -2259,6 +2259,100 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
       assert.deepEqual(await revisions(),[{location_id:'10',revision:5},{location_id:'30',revision:5}]);
       await deactivate();await writer.updateVendorService(tenant,'court-play',{description:'Inactive edit'},{actorUserId:'1'});
       assert.equal((await realServices.findServiceByTenantAndId('1','1000',{client:pool})).isActive,false);
+    });
+    await pool.query(`ALTER TABLE tenant_subscriptions ADD COLUMN current_period_start TIMESTAMPTZ,ADD COLUMN current_period_end TIMESTAMPTZ,
+      ADD COLUMN entitlements JSONB DEFAULT '{}',ADD COLUMN entitlement_model_version INTEGER DEFAULT 2,
+      ADD COLUMN entitlement_comparison_hash TEXT,ADD COLUMN created_at TIMESTAMPTZ DEFAULT NOW(),
+      ADD FOREIGN KEY(tenant_id) REFERENCES tenants(id);
+      CREATE TABLE subscription_plans(slug TEXT PRIMARY KEY,policy_revision INTEGER DEFAULT 1,entitlements JSONB DEFAULT '{}');
+      CREATE TABLE plan_feature_entitlements(plan_slug TEXT REFERENCES subscription_plans(slug),feature_key TEXT,enabled BOOLEAN,PRIMARY KEY(plan_slug,feature_key));
+      CREATE TABLE plan_allowances(plan_slug TEXT REFERENCES subscription_plans(slug),allowance_key TEXT,monthly_limit INTEGER,PRIMARY KEY(plan_slug,allowance_key));
+      CREATE TABLE tenant_entitlement_overrides(id BIGSERIAL PRIMARY KEY,subscription_id BIGINT REFERENCES tenant_subscriptions(id),policy_key TEXT,value JSONB,reason TEXT,expires_at TIMESTAMPTZ,revoked_at TIMESTAMPTZ,revoked_by_user_id BIGINT REFERENCES users(id));
+      CREATE TABLE entitlement_rollout_anomalies(id BIGSERIAL PRIMARY KEY,tenant_id BIGINT REFERENCES tenants(id),blocking BOOLEAN,resolved_at TIMESTAMPTZ);
+      CREATE TABLE subscription_transitions(id BIGSERIAL PRIMARY KEY,tenant_id BIGINT REFERENCES tenants(id),from_subscription_id BIGINT REFERENCES tenant_subscriptions(id),
+        from_plan_slug TEXT REFERENCES subscription_plans(slug),to_plan_slug TEXT REFERENCES subscription_plans(slug),transition_type TEXT,status TEXT,reason TEXT,
+        effective_at TIMESTAMPTZ,created_by_user_id BIGINT REFERENCES users(id),metadata JSONB);
+      INSERT INTO subscription_plans VALUES('free',1,'{}');
+      INSERT INTO plan_feature_entitlements VALUES('free','booking',FALSE);
+      INSERT INTO plan_allowances VALUES('free','serviceBookings',100)`);
+    const enforcedControls={entitlementResolverAuthority:true,entitlementBookingEnforcement:true};
+    const policyRepository=loadService({'../config/db':{pool}},'../repositories/entitlementResolver');
+    const actualResolver=loadService({'../repositories/entitlementResolver':policyRepository,'../config/releaseControls':enforcedControls},'entitlementResolver');
+    const actualAdmission=loadService({'./entitlementResolver':actualResolver,'../config/releaseControls':enforcedControls},'entitlementAdmissionService');
+    const enforcedWriter=(overrides={},database={pool})=>catalogWriter(overrides,database,{'../services/entitlementAdmissionService':actualAdmission});
+    const actualOverrides=loadService({'../config/db':{pool}},'../repositories/entitlementOverrides');
+    const actualLifecycle=loadService({'../config/db':{pool}},'subscriptionLifecycleService');
+    async function enableBookingOverride() {
+      await pool.query("INSERT INTO tenant_entitlement_overrides(subscription_id,policy_key,value,reason) VALUES(1,'feature.booking','true','Test override')");
+      await pool.query('INSERT INTO entitlement_rollout_anomalies(tenant_id,blocking) VALUES(1,FALSE)');
+    }
+    await t.test('real enforced admission preserves adjacent large tenant identities for deny and allow decisions',async () => {
+      await reset();const selected='9007199254740993';const neighbor='9007199254740992';
+      for(const id of [selected,neighbor]) {
+        await pool.query('INSERT INTO tenants(id,is_active) VALUES($1,TRUE)',[id]);
+        await pool.query("INSERT INTO store_locations(id,tenant_id,is_active,slug) VALUES($1,$1,TRUE,'large')",[id]);
+        await pool.query("INSERT INTO vendor_services(id,tenant_id,name,duration_minutes,is_active,slug) VALUES($1,$1,'Large',60,TRUE,'large')",[id]);
+        await pool.query("INSERT INTO tenant_subscriptions(id,tenant_id,status,plan_slug,entitlement_model_version,updated_at) VALUES($1,$1,'active','free',2,clock_timestamp())",[id]);
+      }
+      await pool.query("INSERT INTO tenant_memberships VALUES(3,1,$1,'owner',TRUE)",[selected]);
+      await pool.query("INSERT INTO tenant_entitlement_overrides(subscription_id,policy_key,value,reason) VALUES($1,'feature.booking','true','Neighbor policy')",[neighbor]);
+      await assert.rejects(saveInactive({},enforcedWriter(),{_id:selected},'large'),{statusCode:403});
+      assert.equal(await count('resource_ledger_scopes'),0);
+      await pool.query("INSERT INTO tenant_entitlement_overrides(subscription_id,policy_key,value,reason) VALUES($1,'feature.booking','true','Selected policy')",[selected]);
+      await pool.query("UPDATE tenant_subscriptions SET status='suspended' WHERE tenant_id=$1",[neighbor]);
+      const result=await saveInactive({},enforcedWriter(),{_id:selected},'large');assert.equal(result.service._id,selected);assert.equal(result.service.isActive,false);
+      assert.equal((await realServices.findServiceByTenantAndId(neighbor,neighbor,{client:pool})).isActive,true);
+    });
+    await t.test('real enforced policy admission holds subscription override plan feature allowance and anomaly state through catalog commit',async () => {
+      await reset();await enableBookingOverride();let entered;let release;
+      const ready=new Promise(resolve=>{entered=resolve;});const barrier=new Promise(resolve=>{release=resolve;});
+      const writer=enforcedWriter({updateService:async (...args)=>{entered();await barrier;return realServices.updateService(...args);}});
+      const pending=saveInactive({},writer);pending.catch(()=>{});await ready;const observer=await pool.connect();let revocation;let suspension;
+      try {
+        for(const sql of ['SELECT id FROM tenant_subscriptions WHERE id=1 FOR UPDATE NOWAIT','SELECT id FROM tenant_entitlement_overrides WHERE id=1 FOR UPDATE NOWAIT',
+          "SELECT slug FROM subscription_plans WHERE slug='free' FOR UPDATE NOWAIT","SELECT feature_key FROM plan_feature_entitlements WHERE plan_slug='free' FOR UPDATE NOWAIT",
+          "SELECT allowance_key FROM plan_allowances WHERE plan_slug='free' FOR UPDATE NOWAIT",'SELECT id FROM entitlement_rollout_anomalies WHERE tenant_id=1 FOR UPDATE NOWAIT']) {
+          await observer.query('BEGIN');await assert.rejects(observer.query(sql),{code:'55P03'});await observer.query('ROLLBACK');
+        }
+        revocation=actualOverrides.revoke({overrideId:'1',tenantId:'1',actorId:'2'});revocation.catch(()=>{});
+        suspension=(async ()=>{const client=await pool.connect();try {await client.query('BEGIN');const result=await actualLifecycle.suspendSubscription('1',{reason:'Suspend policy',actorId:'2'},{client});await client.query('COMMIT');return result;}catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}})();suspension.catch(()=>{});
+        const deadline=Date.now()+3000;let waiting=0;
+        while(Date.now()<deadline) {
+          waiting=Number((await pool.query("SELECT count(*) AS n FROM pg_stat_activity WHERE application_name=$1 AND wait_event_type='Lock' AND (query LIKE 'UPDATE tenant_entitlement_overrides%' OR query LIKE 'SELECT * FROM tenant_subscriptions%')",[schema])).rows[0].n);
+          if(waiting===2)break;await new Promise(resolve=>setTimeout(resolve,10));
+        }
+        assert.equal(waiting,2,'policy revocation and actual subscription suspension must wait for catalog commit');
+      } finally {release();await pending;await revocation;await suspension;await observer.query('ROLLBACK');observer.release();}
+      assert.deepEqual(await revisions(),[{location_id:'10',revision:2}]);
+      const before=await revisions();await assert.rejects(saveInactive({},enforcedWriter()),{statusCode:403});assert.deepEqual(await revisions(),before);
+    });
+    await t.test('subscription-first suspension contention fails catalog admission closed without a tenant FK lock cycle',async () => {
+      await reset();await enableBookingOverride();const suspender=await pool.connect();
+      try {
+        await suspender.query('BEGIN');await suspender.query('SELECT id FROM tenant_subscriptions WHERE id=1 FOR UPDATE');
+        await assert.rejects(saveInactive({},enforcedWriter()),{statusCode:409,code:'ENTITLEMENT_POLICY_BUSY'});
+        await suspender.query("SET LOCAL lock_timeout='2s'");
+        const result=await actualLifecycle.suspendSubscription('1',{reason:'Suspend policy',actorId:'2'},{client:suspender});assert.equal(result.status,'suspended');
+        await suspender.query('COMMIT');
+      } finally {await suspender.query('ROLLBACK');suspender.release();}
+      assert.equal((await realServices.findServiceByTenantAndId('1','1000',{client:pool})).isActive,true);assert.equal(await count('resource_ledger_scopes'),0);
+      await assert.rejects(saveInactive({},enforcedWriter()),{statusCode:403});
+    });
+    await t.test('real enforced policy lock failure and final catalog rollback release accepted policy rows',async () => {
+      await reset();await enableBookingOverride();const revoker=await pool.connect();
+      try {
+        await revoker.query('BEGIN');await actualOverrides.revoke({overrideId:'1',tenantId:'1',actorId:'2'},{client:revoker});
+        await assert.rejects(saveInactive({},enforcedWriter()),{statusCode:409,code:'ENTITLEMENT_POLICY_BUSY'});
+        await revoker.query('COMMIT');
+      } finally {await revoker.query('ROLLBACK');revoker.release();}
+      await assert.rejects(saveInactive({},enforcedWriter()),{statusCode:403});
+      await reset();await enableBookingOverride();
+      const faultPool={connect:async ()=>{const client=await pool.connect();return {release:()=>client.release(),query:async (sql,args)=>{
+        const result=await client.query(sql,args);if(sql.startsWith('UPDATE resource_ledger_scopes SET revision=revision+1')) throw new Error('policy catalog rollback');return result;
+      }};}};
+      await assert.rejects(saveInactive({},enforcedWriter({}, {pool:faultPool})),/policy catalog rollback/);
+      assert.equal((await realServices.findServiceByTenantAndId('1','1000',{client:pool})).isActive,true);assert.equal(await count('resource_ledger_scopes'),0);
+      const observer=await pool.connect();try {await observer.query('BEGIN');await observer.query('SELECT id FROM tenant_subscriptions WHERE id=1 FOR UPDATE NOWAIT');await observer.query('SELECT id FROM tenant_entitlement_overrides WHERE id=1 FOR UPDATE NOWAIT');}finally{await observer.query('ROLLBACK');observer.release();}
     });
     await t.test('catalog deactivation supports vendors with no branches without creating ledger state',async () => {
       await reset();await pool.query('DELETE FROM store_locations WHERE id=10');
