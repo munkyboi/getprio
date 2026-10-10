@@ -65,21 +65,21 @@ async function getOptionalServiceForTenant(tenant, serviceSlug, vendorServiceRep
 
 async function normalizeAvailabilityBlockPayload(tenant, body, existingBlock, vendorServiceRepository, getTenantLocation, storeLocationRepository) {
   const location = body.locationSlug ? await getTenantLocation(tenant, body.locationSlug) : null;
-  const hasServiceSlug = Object.prototype.hasOwnProperty.call(body, "serviceSlug");
+  const hasServiceSlug = Object.hasOwn(body, "serviceSlug");
   const service = hasServiceSlug
     ? await getOptionalServiceForTenant(tenant, body.serviceSlug, vendorServiceRepository)
     : null;
-  const startsAt = Object.prototype.hasOwnProperty.call(body, "startsAt") ? String(body.startsAt || "") : existingBlock?.startsAt;
-  const endsAt = Object.prototype.hasOwnProperty.call(body, "endsAt") ? String(body.endsAt || "") : existingBlock?.endsAt;
-  const endsNextDay = Object.prototype.hasOwnProperty.call(body, "endsNextDay") ? body.endsNextDay === true : Boolean(existingBlock?.endsNextDay);
+  const startsAt = Object.hasOwn(body, "startsAt") ? String(body.startsAt || "") : existingBlock?.startsAt;
+  const endsAt = Object.hasOwn(body, "endsAt") ? String(body.endsAt || "") : existingBlock?.endsAt;
+  const endsNextDay = Object.hasOwn(body, "endsNextDay") ? body.endsNextDay === true : Boolean(existingBlock?.endsNextDay);
   assertTimeRange(startsAt, endsAt, { endsNextDay });
-  const weekday = Object.prototype.hasOwnProperty.call(body, "weekday") ? Number(body.weekday) : existingBlock?.weekday;
+  const weekday = Object.hasOwn(body, "weekday") ? Number(body.weekday) : existingBlock?.weekday;
   if (!Number.isInteger(weekday) || weekday < 0 || weekday > 6) {
     const error = new Error("weekday must be between 0 and 6.");
     error.statusCode = 400;
     throw error;
   }
-  const capacity = Object.prototype.hasOwnProperty.call(body, "capacity") ? Number(body.capacity) : existingBlock?.capacity || 1;
+  const capacity = Object.hasOwn(body, "capacity") ? Number(body.capacity) : existingBlock?.capacity || 1;
   if (!Number.isInteger(capacity) || capacity < 1 || capacity > 100) {
     const error = new Error("capacity must be between 1 and 100.");
     error.statusCode = 400;
@@ -99,18 +99,18 @@ async function normalizeAvailabilityBlockPayload(tenant, body, existingBlock, ve
     endsAt,
     endsNextDay,
     capacity,
-    isActive: Object.prototype.hasOwnProperty.call(body, "isActive") ? Boolean(body.isActive) : existingBlock?.isActive ?? true,
+    isActive: Object.hasOwn(body, "isActive") ? Boolean(body.isActive) : existingBlock?.isActive ?? true,
     notes
   };
 }
 
 async function normalizeAvailabilityExceptionPayload(tenant, body, existingException, vendorServiceRepository, getTenantLocation) {
   const location = body.locationSlug ? await getTenantLocation(tenant, body.locationSlug) : null;
-  const hasServiceSlug = Object.prototype.hasOwnProperty.call(body, "serviceSlug");
+  const hasServiceSlug = Object.hasOwn(body, "serviceSlug");
   const service = hasServiceSlug
     ? await getOptionalServiceForTenant(tenant, body.serviceSlug, vendorServiceRepository)
     : null;
-  const exceptionDate = Object.prototype.hasOwnProperty.call(body, "exceptionDate")
+  const exceptionDate = Object.hasOwn(body, "exceptionDate")
     ? String(body.exceptionDate || "")
     : existingException?.exceptionDate;
   if (!/^\d{4}-\d{2}-\d{2}$/.test(exceptionDate || "")) {
@@ -118,12 +118,12 @@ async function normalizeAvailabilityExceptionPayload(tenant, body, existingExcep
     error.statusCode = 400;
     throw error;
   }
-  const startsAt = Object.prototype.hasOwnProperty.call(body, "startsAt") ? String(body.startsAt || "") : existingException?.startsAt || null;
-  const endsAt = Object.prototype.hasOwnProperty.call(body, "endsAt") ? String(body.endsAt || "") : existingException?.endsAt || null;
+  const startsAt = Object.hasOwn(body, "startsAt") ? String(body.startsAt || "") : existingException?.startsAt || null;
+  const endsAt = Object.hasOwn(body, "endsAt") ? String(body.endsAt || "") : existingException?.endsAt || null;
   if (startsAt || endsAt) {
     assertTimeRange(startsAt, endsAt);
   }
-  const capacity = Object.prototype.hasOwnProperty.call(body, "capacity") ? Number(body.capacity) : existingException?.capacity || null;
+  const capacity = Object.hasOwn(body, "capacity") ? Number(body.capacity) : existingException?.capacity || null;
   if (capacity != null && (!Number.isInteger(capacity) || capacity < 1 || capacity > 100)) {
     const error = new Error("capacity must be between 1 and 100.");
     error.statusCode = 400;
@@ -137,7 +137,7 @@ async function normalizeAvailabilityExceptionPayload(tenant, body, existingExcep
     exceptionDate,
     startsAt,
     endsAt,
-    isAvailable: Object.prototype.hasOwnProperty.call(body, "isAvailable") ? Boolean(body.isAvailable) : existingException?.isAvailable ?? false,
+    isAvailable: Object.hasOwn(body, "isAvailable") ? Boolean(body.isAvailable) : existingException?.isAvailable ?? false,
     capacity,
     reason
   };
