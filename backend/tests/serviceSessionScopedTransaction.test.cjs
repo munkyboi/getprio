@@ -73,7 +73,9 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
       CREATE TABLE booking_audit(ticket_id BIGINT,metadata JSONB);
       CREATE TABLE platform_membership_effects(kind TEXT,user_id BIGINT);
       CREATE TABLE counters(tenant_id BIGINT,location_id BIGINT,key TEXT,date_key TEXT,value INTEGER,PRIMARY KEY(tenant_id,location_id,key,date_key));
-      CREATE TABLE vendor_services(id BIGINT PRIMARY KEY,tenant_id BIGINT,name TEXT,duration_minutes INTEGER,is_active BOOLEAN);
+      CREATE TABLE vendor_services(id BIGINT PRIMARY KEY,tenant_id BIGINT,name TEXT,duration_minutes INTEGER,is_active BOOLEAN,
+        slug TEXT,description TEXT,image_url TEXT,allow_booking_quantity BOOLEAN,booking_quantity_label TEXT,manual_payment_required BOOLEAN,
+        booking_capacity_scope TEXT,price_amount_cents INTEGER,currency TEXT,price_display TEXT,sort_order INTEGER,created_at TIMESTAMPTZ,updated_at TIMESTAMPTZ);
       CREATE TABLE location_services(service_id BIGINT,tenant_id BIGINT,location_id BIGINT,is_active BOOLEAN);
       CREATE TABLE vendor_availability_blocks(id BIGSERIAL PRIMARY KEY,tenant_id BIGINT,location_id BIGINT,service_id BIGINT,
         weekday INTEGER,starts_at TIME,ends_at TIME,ends_next_day BOOLEAN DEFAULT FALSE,capacity INTEGER,is_active BOOLEAN,notes TEXT,created_at TIMESTAMPTZ DEFAULT NOW(),updated_at TIMESTAMPTZ DEFAULT NOW());
@@ -157,7 +159,7 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
         INSERT INTO store_locations(id,tenant_id,is_active,service_timing_enabled) VALUES(10,1,TRUE,TRUE),(20,2,TRUE,TRUE);
         INSERT INTO service_resource_requirements VALUES(1,10,1000,100,1,1);
         INSERT INTO queue_day_state(state) VALUES('open'); INSERT INTO intake_state(paused) VALUES(FALSE);
-        INSERT INTO vendor_services VALUES(1000,1,'Court play',60,TRUE); INSERT INTO location_services VALUES(1000,1,10,TRUE);
+        INSERT INTO vendor_services(id,tenant_id,name,duration_minutes,is_active,slug) VALUES(1000,1,'Court play',60,TRUE,'court-play'); INSERT INTO location_services VALUES(1000,1,10,TRUE);
         INSERT INTO store_hours(location_id,weekday,opens_at,closes_at,is_closed) SELECT 10,n,'00:00','00:00',FALSE FROM generate_series(0,6) n`);
       await pool.query('INSERT INTO location_resource_pools(id,tenant_id,location_id,capacity,revision,tracking_enabled) VALUES(100,1,10,$1,1,$2)',[capacity,enabled]);
       servicePushes.length=0; failServicePush=false;
@@ -1815,6 +1817,92 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
         assert.equal(results.find(result=>result.status==='rejected').reason.statusCode,404);
         assert.equal(await count(availabilityKinds[type].table),0);
         assert.equal(Number((await pool.query('SELECT revision FROM resource_ledger_scopes')).rows[0].revision),2);
+        assert.equal(await count('resource_ledger_commands'),0);
+      }
+    });
+    const realServices=loadService({'../config/db':{pool}},'../repositories/vendorServices');
+    const creationWriter=(overrides={})=>loadService({
+      '../config/db':{pool},'../repositories/vendorAvailability':{...realAvailability,...overrides},
+      '../repositories/storeLocations':realLocations,'../repositories/vendorServices':realServices
+    },'availabilityCreationService');
+    const creationBody=type=>type==='block'
+      ? {weekday:1,startsAt:'09:00',endsAt:'17:00',capacity:2,notes:'Rule'}
+      : {exceptionDate:'2026-10-10',isAvailable:false,reason:'Closure'};
+    const createAvailability=(type,body=creationBody(type),actor='1',selected=location,writer=creationWriter())=>
+      writer.createAvailabilityEntry(tenant,selected,body,type,{actorUserId:actor});
+    await t.test('availability creation advances one branch revision and preserves bookings protection and occupancy',async () => {
+      for(const type of Object.keys(availabilityKinds)) {
+        await reset();await ticket('1',{booking:true});await record('1','start');
+        const before={};for(const table of ['bookings','resource_ledger_reservations','resource_allocations','resource_ledger_commands']) before[table]=(await pool.query(`SELECT * FROM ${table}`)).rows;
+        const revision=Number((await pool.query('SELECT revision FROM resource_ledger_scopes')).rows[0].revision);
+        await pool.query('UPDATE tenants SET is_active=FALSE WHERE id=1; UPDATE store_locations SET is_active=FALSE WHERE id=10');
+        const entry=await createAvailability(type,{...creationBody(type),serviceSlug:'court-play',tenantId:'2',locationId:'20',actorUserId:'2'});
+        assert.equal(entry.tenantId,'1');assert.equal(entry.locationId,'10');assert.equal(entry.serviceId,'1000');
+        assert.equal(await count(availabilityKinds[type].table),1);
+        assert.equal(Number((await pool.query('SELECT revision FROM resource_ledger_scopes')).rows[0].revision),revision+1);
+        for(const table of Object.keys(before)) assert.deepEqual((await pool.query(`SELECT * FROM ${table}`)).rows,before[table]);
+        assert.ok((await readTicket('1')).serviceStartedAt);assert.equal((await readTicket('1')).serviceEndedAt,null);
+      }
+    });
+    await t.test('availability creation denies invalid current grants and foreign branches without writes',async () => {
+      for(const type of Object.keys(availabilityKinds)) for(const sql of [
+        'UPDATE tenant_memberships SET is_active=FALSE WHERE id=1',
+        'UPDATE users SET deletion_requested_at=clock_timestamp() WHERE id=1',
+        'UPDATE users SET platform_access_suspended_at=clock_timestamp() WHERE id=1',
+        "UPDATE tenant_memberships SET role='staff' WHERE id=1; INSERT INTO tenant_membership_locations VALUES(1,10)"
+      ]) {
+        await reset();await pool.query(sql);await assert.rejects(createAvailability(type),{statusCode:403});
+        assert.equal(await count(availabilityKinds[type].table),0);assert.equal(await count('resource_ledger_scopes'),0);
+      }
+      await reset();await assert.rejects(createAvailability('block',creationBody('block'),'1',{_id:'20'}),{statusCode:404});
+      assert.equal(await count('resource_ledger_scopes'),0);
+    });
+    await t.test('availability creation validates current hours and service after branch contention',async () => {
+      for(const change of ['hours','service','grant']) {
+        await reset();const blocker=await pool.connect();let pending;
+        try {
+          await blocker.query('BEGIN');await blocker.query('SELECT id FROM store_locations WHERE id=10 FOR UPDATE');
+          pending=createAvailability('block',{...creationBody('block'),serviceSlug:'court-play'});
+          const denied=assert.rejects(pending,{statusCode:change==='hours'?400:change==='service'?404:403});await waitForLocationLock();
+          if(change==='hours') await blocker.query("UPDATE store_hours SET opens_at='10:00' WHERE location_id=10 AND weekday=1");
+          if(change==='service') await blocker.query("UPDATE vendor_services SET slug='renamed' WHERE id=1000");
+          if(change==='grant') await blocker.query('UPDATE tenant_memberships SET is_active=FALSE WHERE id=1');
+          await blocker.query('COMMIT');await denied;
+        } finally {await blocker.query('ROLLBACK');blocker.release();if(pending)await pending.catch(()=>{});}
+        assert.equal(await count('vendor_availability_blocks'),0);assert.equal(await count('resource_ledger_scopes'),0);
+      }
+    });
+    await t.test('availability creation holds branch service and access grants and rolls a failed insert back',async () => {
+      for(const type of Object.keys(availabilityKinds)) {
+        await reset();const method=type==='block'?'createBlock':'createException';
+        const writer=creationWriter({[method]:async (...args)=>{
+          for(const sql of ['SELECT id FROM store_locations WHERE id=10 FOR UPDATE NOWAIT','SELECT id FROM tenants WHERE id=1 FOR UPDATE NOWAIT','SELECT id FROM users WHERE id=1 FOR UPDATE NOWAIT','SELECT id FROM tenant_memberships WHERE id=1 FOR UPDATE NOWAIT','SELECT id FROM vendor_services WHERE id=1000 FOR UPDATE NOWAIT']) await assert.rejects(pool.query(sql),{code:'55P03'});
+          await realAvailability[method](...args);throw new Error('availability post-create failure');
+        }});
+        await assert.rejects(createAvailability(type,{...creationBody(type),serviceSlug:'court-play'},'1',location,writer),/availability post-create failure/);
+        assert.equal(await count(availabilityKinds[type].table),0);assert.equal(await count('resource_ledger_scopes'),0);
+        await createAvailability(type);assert.equal(await count(availabilityKinds[type].table),1);
+      }
+    });
+    await t.test('availability creation preserves shared service overnight and date exception validation',async () => {
+      await reset();
+      const shared=await createAvailability('block',{...creationBody('block'),serviceSlug:''});assert.equal(shared.serviceId,null);
+      await pool.query("UPDATE store_hours SET opens_at='06:00',closes_at='03:00' WHERE location_id=10 AND weekday=1");
+      const overnight=await createAvailability('block',{...creationBody('block'),startsAt:'07:00',endsAt:'02:00',endsNextDay:true});assert.equal(overnight.endsNextDay,true);
+      const revision=Number((await pool.query('SELECT revision FROM resource_ledger_scopes')).rows[0].revision);
+      for(const [type,body,statusCode] of [
+        ['block',{...creationBody('block'),capacity:101},400],['block',{...creationBody('block'),weekday:7},400],
+        ['block',{...creationBody('block'),serviceSlug:'missing'},404],['exception',{exceptionDate:'bad'},400],
+        ['exception',{...creationBody('exception'),startsAt:'17:00',endsAt:'09:00'},400]
+      ]) await assert.rejects(createAvailability(type,body),{statusCode});
+      assert.equal(Number((await pool.query('SELECT revision FROM resource_ledger_scopes')).rows[0].revision),revision);
+      const exception=await createAvailability('exception');assert.equal(exception.capacity,null);assert.equal(exception.startsAt,'');assert.equal(exception.isAvailable,false);
+    });
+    await t.test('competing availability creations serialize and each committed entry advances the revision',async () => {
+      for(const type of Object.keys(availabilityKinds)) {
+        await reset();const entries=await Promise.all([createAvailability(type),createAvailability(type)]);
+        assert.notEqual(entries[0]._id,entries[1]._id);assert.equal(await count(availabilityKinds[type].table),2);
+        assert.equal(Number((await pool.query('SELECT revision FROM resource_ledger_scopes')).rows[0].revision),3);
         assert.equal(await count('resource_ledger_commands'),0);
       }
     });

@@ -5,11 +5,25 @@ const {
   handleListBookings,
   handleListAvailability,
   handleCreateAvailabilityBlock,
+  handleCreateAvailabilityException,
   handleDeleteAvailabilityBlock,
   handleDeleteAvailabilityException,
   handleUpdateAvailabilityBlock,
   handleUpdateAvailabilityException
 } = require("../src/routes/vendorBookingAvailabilityHandlers");
+
+// Keep payload-contract tests at the injected creation boundary; transaction behavior has real PostgreSQL coverage.
+async function createBlockWithPayloadValidation(dependencies) {
+  return handleCreateAvailabilityBlock({ ...dependencies, availabilityCreationService: {
+    createAvailabilityEntry: async (tenant, location, body, type) => {
+      assert.equal(type, "block");
+      const payload = await require("../src/services/availabilityPayloadService").normalizeAvailabilityBlockPayload(
+        tenant, { ...body, locationSlug: location.slug }, null, dependencies.vendorServiceRepository,
+        async () => location, dependencies.storeLocationRepository);
+      return dependencies.vendorAvailabilityRepository.createBlock({ tenantId: tenant._id, ...payload });
+    }
+  } });
+}
 
 test("vendor booking handler lists bookings through injected repositories", async () => {
   const response = { body: null, json(payload) { this.body = payload; } };
@@ -73,7 +87,7 @@ test("vendor booking handler lists bookings through injected repositories", asyn
 
 test("vendor availability handler creates blocks and updates exceptions", async () => {
   const createResponse = { statusCode: null, body: null, status(code) { this.statusCode = code; return this; }, json(payload) { this.body = payload; } };
-  await handleCreateAvailabilityBlock({
+  await createBlockWithPayloadValidation({
     req: { user: {}, params: { tenantSlug: "tenant" }, query: {}, body: { locationSlug: "main", weekday: 1, startsAt: "09:00", endsAt: "10:00", capacity: 2 } },
     res: createResponse,
     getAuthorizedTenant: async () => ({ _id: 1 }),
@@ -107,7 +121,7 @@ test("vendor availability handler accepts an overnight weekly rule only within t
   const response = { statusCode: null, body: null, status(code) { this.statusCode = code; return this; }, json(payload) { this.body = payload; } };
   let savedPayload = null;
 
-  await handleCreateAvailabilityBlock({
+  await createBlockWithPayloadValidation({
     req: {
       user: {},
       params: { tenantSlug: "tenant" },
@@ -145,7 +159,7 @@ test("vendor availability handler accepts an overnight weekly rule only within t
 
 test("vendor availability handler rejects weekly availability outside the location's business hours", async () => {
   await assert.rejects(
-    () => handleCreateAvailabilityBlock({
+    () => createBlockWithPayloadValidation({
       req: {
         user: {},
         params: { tenantSlug: "tenant" },
@@ -173,7 +187,7 @@ test("vendor availability handler treats explicit All services as a shared weekl
   const createCalls = [];
   let serviceLookupCount = 0;
 
-  await handleCreateAvailabilityBlock({
+  await createBlockWithPayloadValidation({
     req: {
       user: {},
       params: { tenantSlug: "tenant" },
@@ -345,4 +359,44 @@ test("availability exception deletion preserves the empty 204 response and authe
     } }
   });
   assert.equal(statusCode,204); assert.equal(sent,true);
+});
+
+test("availability creation handler forwards only the authenticated actor and server-selected scope", async () => {
+  const tenant = { _id: "1" }; const location = { _id: "10", slug: "main" };
+  const body = { locationSlug: "main", tenantId: "2", locationId: "20", actorUserId: "999" };
+  const response = { status(code) { assert.equal(code, 201); return this; }, json(value) { this.body = value; } };
+  await handleCreateAvailabilityBlock({ req: { user: { _id: "1" }, params: { tenantSlug: "demo" }, body, query: {} },
+    res: response, getAuthorizedTenant: async () => tenant, assertTenantPermission: () => {}, getLocationForTenant: async () => location,
+    availabilityCreationService: { createAvailabilityEntry: async (...args) => {
+      assert.deepEqual(args, [tenant, location, body, "block", { actorUserId: "1" }]);
+      return { _id: "5", tenantId: "1", locationId: "10", weekday: 1, startsAt: "09:00", endsAt: "17:00", capacity: 2 };
+    } }
+  });
+  assert.equal(response.body.block.id, "5"); assert.equal(response.body.block.locationId, "10");
+});
+
+test("availability exception creation preserves 201 and forwards authenticated scope", async () => {
+  const response = { status(code) { assert.equal(code, 201); return this; }, json(value) { this.body = value; } };
+  await handleCreateAvailabilityException({ req: { user: { _id: "1" }, params: { tenantSlug: "demo" }, body: { actorUserId: "999" }, query: { location: "main" } },
+    res: response, getAuthorizedTenant: async () => ({ _id: "1" }), assertTenantPermission: () => {},
+    getLocationForTenant: async (_tenant, slug) => { assert.equal(slug, "main"); return { _id: "10" }; },
+    availabilityCreationService: { createAvailabilityEntry: async (tenant, location, body, type, options) => {
+      assert.equal(tenant._id, "1"); assert.equal(location._id, "10"); assert.equal(type, "exception");
+      assert.deepEqual(options, { actorUserId: "1" }); assert.equal(body.actorUserId, "999");
+      return { _id: "6", tenantId: "1", locationId: "10", exceptionDate: "2026-10-10", isAvailable: false, capacity: null };
+    } }
+  });
+  assert.equal(response.body.exception.id, "6"); assert.equal(response.body.exception.capacity, null);
+});
+
+test("availability service slugs preserve normalization and handle long separator input", async () => {
+  const { normalizeAvailabilityBlockPayload } = require("../src/services/availabilityPayloadService");
+  const lookups = [];
+  for (const [input, expected] of [[" ---Court___Play--- ", "court-play"], ["-".repeat(100000), null]]) {
+    const payload = await normalizeAvailabilityBlockPayload({ _id: "1" }, {
+      locationSlug: "main", serviceSlug: input, weekday: 1, startsAt: "09:00", endsAt: "17:00"
+    }, null, { findServiceByTenantAndSlug: async (_tenant, slug) => { lookups.push(slug); return { _id: "1000" }; } }, async () => ({ _id: "10" }));
+    assert.equal(payload.serviceId, expected ? "1000" : null);
+  }
+  assert.deepEqual(lookups, ["court-play"]);
 });
