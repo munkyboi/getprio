@@ -117,7 +117,7 @@ async function findBlockByTenantAndId(tenantId, blockId, options = {}) {
       SELECT ${BLOCK_COLUMNS}
       FROM vendor_availability_blocks
       WHERE tenant_id = $1 AND id = $2
-      LIMIT 1
+      LIMIT 1${options.forUpdate ? " FOR UPDATE" : ""}
     `,
     [Number(tenantId), Number(blockId)]
   );
@@ -226,7 +226,7 @@ async function findExceptionByTenantAndId(tenantId, exceptionId, options = {}) {
       SELECT ${EXCEPTION_COLUMNS}
       FROM vendor_availability_exceptions
       WHERE tenant_id = $1 AND id = $2
-      LIMIT 1
+      LIMIT 1${options.forUpdate ? " FOR UPDATE" : ""}
     `,
     [Number(tenantId), Number(exceptionId)]
   );

@@ -453,6 +453,10 @@ test("vendor availability is manageable by vendor admins but denied to staff", a
             }
           : null
     },
+    "../services/availabilityDeletionService": { deleteAvailabilityEntry: async (tenant, entryId, type, options) => {
+      assert.equal(tenant._id, "tenant-1"); assert.equal(type, "exception");
+      assert.deepEqual(options, { actorUserId: "user-1" }); deletedExceptionId=entryId;
+    } },
     "../repositories/vendorAvailability": {
       listAvailabilityByLocation: async () => ({ blocks, exceptions: [] }),
       findBlockByTenantAndId: async (_tenantId, blockId) => blocks.find((block) => block._id === blockId) || null,
@@ -586,6 +590,11 @@ test("vendor availability is manageable by vendor admins but denied to staff", a
     });
     assert.equal(createExceptionResponse.status, 201);
     assert.equal(createdException.exceptionDate, "2026-07-01");
+
+    const deniedDelete = await fetch(`${baseUrl}/tenant/demo/availability/exceptions/exception-1`, {
+      method: "DELETE", headers: { "x-test-tenant-role": "staff" }
+    });
+    assert.equal(deniedDelete.status, 403); assert.equal(deletedExceptionId, null);
 
     const deleteExceptionResponse = await fetch(`${baseUrl}/tenant/demo/availability/exceptions/exception-1`, {
       method: "DELETE",

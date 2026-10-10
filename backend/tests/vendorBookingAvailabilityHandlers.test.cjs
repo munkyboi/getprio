@@ -6,6 +6,7 @@ const {
   handleListAvailability,
   handleCreateAvailabilityBlock,
   handleDeleteAvailabilityBlock,
+  handleDeleteAvailabilityException,
   handleUpdateAvailabilityBlock,
   handleUpdateAvailabilityException
 } = require("../src/routes/vendorBookingAvailabilityHandlers");
@@ -284,38 +285,20 @@ test("vendor availability handler can update a service-specific weekly rule back
   assert.equal(updateResponse.body.block.serviceId, null);
 });
 
-test("vendor availability handler deletes weekly rules instead of just deactivating them", async () => {
+test("vendor availability deletion passes authenticated scope and preserves the weekly response", async () => {
   const response = { body: null, json(payload) { this.body = payload; } };
-  const calls = [];
-
   await handleDeleteAvailabilityBlock({
-    req: { user: {}, params: { tenantSlug: "tenant", blockId: "block-1" }, query: {} },
+    req: { user: { _id: "admin-1" }, params: { tenantSlug: "tenant", blockId: "block-1" }, body: { actorUserId: "spoofed" } },
     res: response,
-    getAuthorizedTenant: async () => ({ _id: 1 }),
+    getAuthorizedTenant: async () => ({ _id: "tenant-1" }),
     assertTenantPermission: () => {},
-    vendorAvailabilityRepository: {
-      findBlockByTenantAndId: async () => ({
-        _id: "block-1",
-        tenantId: 1,
-        locationId: 2,
-        serviceId: null,
-        weekday: 1,
-        startsAt: "09:00",
-        endsAt: "17:00",
-        capacity: 2,
-        isActive: true,
-        notes: "Morning"
-      }),
-      updateBlock: async () => {
-        throw new Error("delete must not soft-disable the weekly rule");
-      },
-      deleteBlock: async (blockId) => {
-        calls.push(["deleteBlock", blockId]);
-      }
-    }
+    availabilityDeletionService: { deleteAvailabilityEntry: async (tenant, id, type, options) => {
+      assert.equal(tenant._id, "tenant-1"); assert.equal(id, "block-1"); assert.equal(type, "block");
+      assert.deepEqual(options, { actorUserId: "admin-1" });
+      return { _id: id, tenantId: "tenant-1", locationId: "branch-1", serviceId: null, weekday: 1,
+        startsAt: "09:00", endsAt: "17:00", capacity: 2, isActive: true, notes: "Morning" };
+    } }
   });
-
-  assert.deepEqual(calls, [["deleteBlock", "block-1"]]);
   assert.equal(response.body.block.id, "block-1");
 });
 
@@ -348,4 +331,18 @@ test("vendor availability handler returns a capacity summary", async () => {
   assert.equal(response.body.summary.hasServiceSpecificCapacity, true);
   assert.equal(response.body.summary.sharedBlocks, 1);
   assert.equal(response.body.summary.serviceSpecificBlocks, 1);
+});
+
+test("availability exception deletion preserves the empty 204 response and authenticated actor", async () => {
+  let statusCode; let sent=false;
+  await handleDeleteAvailabilityException({
+    req: { user: { _id: "admin-1" }, params: { tenantSlug: "tenant", exceptionId: "exception-1" } },
+    res: { status(code) { statusCode=code; return this; }, send() { sent=true; } },
+    getAuthorizedTenant: async () => ({ _id: "tenant-1" }), assertTenantPermission: () => {},
+    availabilityDeletionService: { deleteAvailabilityEntry: async (tenant, id, type, options) => {
+      assert.equal(tenant._id, "tenant-1"); assert.equal(id, "exception-1"); assert.equal(type, "exception");
+      assert.deepEqual(options, { actorUserId: "admin-1" });
+    } }
+  });
+  assert.equal(statusCode,204); assert.equal(sent,true);
 });

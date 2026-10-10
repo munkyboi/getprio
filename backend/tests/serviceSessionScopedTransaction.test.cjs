@@ -75,6 +75,10 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
       CREATE TABLE counters(tenant_id BIGINT,location_id BIGINT,key TEXT,date_key TEXT,value INTEGER,PRIMARY KEY(tenant_id,location_id,key,date_key));
       CREATE TABLE vendor_services(id BIGINT PRIMARY KEY,tenant_id BIGINT,name TEXT,duration_minutes INTEGER,is_active BOOLEAN);
       CREATE TABLE location_services(service_id BIGINT,tenant_id BIGINT,location_id BIGINT,is_active BOOLEAN);
+      CREATE TABLE vendor_availability_blocks(id BIGSERIAL PRIMARY KEY,tenant_id BIGINT,location_id BIGINT,service_id BIGINT,
+        weekday INTEGER,starts_at TIME,ends_at TIME,ends_next_day BOOLEAN DEFAULT FALSE,capacity INTEGER,is_active BOOLEAN,notes TEXT,created_at TIMESTAMPTZ DEFAULT NOW(),updated_at TIMESTAMPTZ DEFAULT NOW());
+      CREATE TABLE vendor_availability_exceptions(id BIGSERIAL PRIMARY KEY,tenant_id BIGINT,location_id BIGINT,service_id BIGINT,
+        exception_date DATE,starts_at TIME,ends_at TIME,is_available BOOLEAN,capacity INTEGER,reason TEXT,created_at TIMESTAMPTZ DEFAULT NOW(),updated_at TIMESTAMPTZ DEFAULT NOW());
       CREATE TABLE store_hours(id BIGSERIAL PRIMARY KEY,location_id BIGINT,weekday INTEGER,opens_at TIME,closes_at TIME,is_closed BOOLEAN,created_at TIMESTAMPTZ,updated_at TIMESTAMPTZ);
       CREATE TABLE allowance_audit(ticket_id BIGINT,resource_key TEXT);
       CREATE TABLE queue_email_journeys(id BIGSERIAL PRIMARY KEY,tenant_id BIGINT,ticket_id BIGINT UNIQUE,mode TEXT,otp_chain_id TEXT,email_opted_out_at TIMESTAMPTZ);
@@ -145,7 +149,7 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
     async function reset(capacity=4,enabled=true) {
       await pool.query(`TRUNCATE resource_ledger_commands,resource_allocations,resource_ledger_reservations,resource_ledger_scopes,
         ticket_service_plans,tickets,booking_bundle_items,bookings,service_resource_requirements,location_resource_pools,
-        store_locations,tenant_membership_locations,service_counter_assignments,service_counters,tenant_memberships,tenants,users,events,carry_over_outbox,webhooks,booking_audit,platform_membership_effects,queue_ticket_segments,queue_day_state,intake_state,queue_day_pauses,lifecycle_notifications,counters,vendor_services,location_services,store_hours,allowance_audit,queue_email_slots,queue_email_journeys,queue_join_payments,payment_allowance,tenant_subscriptions,queue_fee_settings RESTART IDENTITY CASCADE`);
+        store_locations,tenant_membership_locations,service_counter_assignments,service_counters,tenant_memberships,tenants,users,events,carry_over_outbox,webhooks,booking_audit,platform_membership_effects,queue_ticket_segments,queue_day_state,intake_state,queue_day_pauses,lifecycle_notifications,counters,vendor_services,location_services,vendor_availability_blocks,vendor_availability_exceptions,store_hours,allowance_audit,queue_email_slots,queue_email_journeys,queue_join_payments,payment_allowance,tenant_subscriptions,queue_fee_settings RESTART IDENTITY CASCADE`);
       await pool.query(`INSERT INTO users(id,roles,deletion_requested_at,platform_access_suspended_at,email,phone) VALUES(1,'{}',NULL,NULL,'owner@example.com','09171234567'),(2,'{}',NULL,NULL,'other@example.com','09179876543');
         INSERT INTO tenant_subscriptions VALUES(1,1,'active','free',clock_timestamp());
         INSERT INTO tenants(id,is_active) VALUES(1,TRUE),(2,TRUE);
@@ -1729,6 +1733,90 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
         await revoker.query('COMMIT');await denied;
       } finally {await revoker.query('ROLLBACK');revoker.release();if(pending)await pending.catch(()=>{});}
       assert.equal(await count('resource_ledger_scopes'),0);
+    });
+    const realAvailability=loadService({'../config/db':{pool}},'../repositories/vendorAvailability');
+    const deletionWriter=(overrides={})=>loadService({
+      '../config/db':{pool},'../repositories/vendorAvailability':{...realAvailability,...overrides}
+    },'availabilityDeletionService');
+    const availabilityKinds={block:{table:'vendor_availability_blocks',remove:'deleteBlock'},exception:{table:'vendor_availability_exceptions',remove:'deleteException'}};
+    const addAvailability=type=>realAvailability[type==='block'?'createBlock':'createException']({
+      tenantId:'1',locationId:'10',serviceId:null,weekday:1,startsAt:'09:00',endsAt:'17:00',endsNextDay:false,
+      capacity:2,isActive:true,notes:'Rule',exceptionDate:'2026-10-10',isAvailable:false,reason:'Closure'
+    },{client:pool});
+    const deleteAvailability=(entry,type,actor='1',writer=deletionWriter())=>writer.deleteAvailabilityEntry(tenant,entry._id,type,{actorUserId:actor});
+    await t.test('availability deletion advances one revision and preserves bookings protection and actual occupancy',async () => {
+      for(const type of Object.keys(availabilityKinds)) {
+        await reset();await ticket('1',{booking:true});await record('1','start');const entry=await addAvailability(type);
+        const allocations=(await pool.query('SELECT * FROM resource_allocations')).rows;
+        const reservations=(await pool.query('SELECT * FROM resource_ledger_reservations')).rows;
+        const booking=(await pool.query('SELECT * FROM bookings')).rows;
+        const revision=Number((await pool.query('SELECT revision FROM resource_ledger_scopes')).rows[0].revision);
+        await pool.query('UPDATE tenants SET is_active=FALSE WHERE id=1; UPDATE store_locations SET is_active=FALSE WHERE id=10');
+        const removed=await deleteAvailability(entry,type);assert.equal(removed._id,entry._id);
+        assert.equal(await count(availabilityKinds[type].table),0);
+        assert.equal(Number((await pool.query('SELECT revision FROM resource_ledger_scopes')).rows[0].revision),revision+1);
+        assert.deepEqual((await pool.query('SELECT * FROM resource_allocations')).rows,allocations);
+        assert.deepEqual((await pool.query('SELECT * FROM resource_ledger_reservations')).rows,reservations);
+        assert.deepEqual((await pool.query('SELECT * FROM bookings')).rows,booking);
+        await assert.rejects(deleteAvailability(entry,type),{statusCode:404});
+        assert.equal(Number((await pool.query('SELECT revision FROM resource_ledger_scopes')).rows[0].revision),revision+1);
+      }
+    });
+    await t.test('availability deletion denies current revoked deleted suspended and assigned staff access',async () => {
+      for(const type of Object.keys(availabilityKinds)) for(const sql of [
+        'UPDATE tenant_memberships SET is_active=FALSE WHERE id=1',
+        'UPDATE users SET deletion_requested_at=clock_timestamp() WHERE id=1',
+        'UPDATE users SET platform_access_suspended_at=clock_timestamp() WHERE id=1',
+        "UPDATE tenant_memberships SET role='staff' WHERE id=1; INSERT INTO tenant_membership_locations VALUES(1,10)"
+      ]) {
+        await reset();const entry=await addAvailability(type);await pool.query(sql);
+        await assert.rejects(deleteAvailability(entry,type),{statusCode:403});
+        assert.equal(await count(availabilityKinds[type].table),1);assert.equal(await count('resource_ledger_scopes'),0);
+      }
+      await reset();const entry=await addAvailability('block');
+      await assert.rejects(deletionWriter().deleteAvailabilityEntry({_id:'2'},entry._id,'block',{actorUserId:'1'}),{statusCode:404});
+      await assert.rejects(deletionWriter().deleteAvailabilityEntry(tenant,'9007199254740993','block',{actorUserId:'1'}),{statusCode:400});
+      assert.equal(await count('resource_ledger_scopes'),0);
+    });
+    await t.test('availability deletion rechecks revocation and branch movement after branch contention',async () => {
+      for(const type of Object.keys(availabilityKinds)) for(const move of [false,true]) {
+        await reset();const entry=await addAvailability(type);const blocker=await pool.connect();let pending;
+        try {
+          await blocker.query('BEGIN');await blocker.query('SELECT id FROM store_locations WHERE id=10 FOR UPDATE');
+          pending=deleteAvailability(entry,type);const denied=assert.rejects(pending,{statusCode:move?409:403});await waitForLocationLock();
+          if(move) {
+            await blocker.query('INSERT INTO store_locations(id,tenant_id,is_active) VALUES(30,1,TRUE)');
+            await blocker.query(`UPDATE ${availabilityKinds[type].table} SET location_id=30 WHERE id=$1`,[entry._id]);
+          } else await blocker.query('UPDATE tenant_memberships SET is_active=FALSE WHERE id=1');
+          await blocker.query('COMMIT');await denied;
+        } finally {await blocker.query('ROLLBACK');blocker.release();if(pending)await pending.catch(()=>{});}
+        assert.equal(await count(availabilityKinds[type].table),1);assert.equal(await count('resource_ledger_scopes'),0);
+      }
+    });
+    await t.test('availability deletion holds entry and grants then rolls deletion and revision back on failure',async () => {
+      for(const type of Object.keys(availabilityKinds)) {
+        await reset();const entry=await addAvailability(type);const operation=availabilityKinds[type];
+        const writer=deletionWriter({[operation.remove]:async (...args)=>{
+          for(const sql of ['SELECT id FROM store_locations WHERE id=10 FOR UPDATE NOWAIT','SELECT id FROM tenants WHERE id=1 FOR UPDATE NOWAIT','SELECT id FROM users WHERE id=1 FOR UPDATE NOWAIT','SELECT id FROM tenant_memberships WHERE id=1 FOR UPDATE NOWAIT',`SELECT id FROM ${operation.table} WHERE id=${entry._id} FOR UPDATE NOWAIT`]) {
+            await assert.rejects(pool.query(sql),{code:'55P03'});
+          }
+          await realAvailability[operation.remove](...args);throw new Error('availability post-delete failure');
+        }});
+        await assert.rejects(deleteAvailability(entry,type,'1',writer),/availability post-delete failure/);
+        assert.equal(await count(operation.table),1);assert.equal(await count('resource_ledger_scopes'),0);
+        await deleteAvailability(entry,type);assert.equal(await count(operation.table),0);
+      }
+    });
+    await t.test('competing availability deletions commit once and retain one scoped revision change',async () => {
+      for(const type of Object.keys(availabilityKinds)) {
+        await reset();const entry=await addAvailability(type);
+        const results=await Promise.allSettled([deleteAvailability(entry,type),deleteAvailability(entry,type)]);
+        assert.equal(results.filter(result=>result.status==='fulfilled').length,1);
+        assert.equal(results.find(result=>result.status==='rejected').reason.statusCode,404);
+        assert.equal(await count(availabilityKinds[type].table),0);
+        assert.equal(Number((await pool.query('SELECT revision FROM resource_ledger_scopes')).rows[0].revision),2);
+        assert.equal(await count('resource_ledger_commands'),0);
+      }
     });
     function legacyLifecycle(database, target='queueService', actualPauses=false) {
       const injected={...queueMocks,'../config/db':database,'./queueHelpers':require('../src/services/queueHelpers'),
