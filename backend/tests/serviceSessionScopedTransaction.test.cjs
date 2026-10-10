@@ -2050,9 +2050,17 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
       const before=await revisions();await assert.rejects(editAvailability(entry,'block',{capacity:101}),{statusCode:400});assert.deepEqual(await revisions(),before);
       const exception=await addAvailability('exception');await assert.rejects(editAvailability(exception,'exception',{exceptionDate:'bad'}),{statusCode:400});assert.deepEqual(await revisions(),before);
     });
-    await pool.query('ALTER TABLE store_locations ADD CONSTRAINT catalog_tenant_fk FOREIGN KEY(tenant_id) REFERENCES tenants(id)');
-    const catalogWriter=(overrides={},database={pool})=>loadService({
-      '../config/db':database,'../repositories/vendorServices':{...realServices,...overrides}
+    await pool.query(`ALTER TABLE store_locations ADD CONSTRAINT catalog_tenant_fk FOREIGN KEY(tenant_id) REFERENCES tenants(id);
+      ALTER TABLE location_services ADD COLUMN id BIGSERIAL,ADD COLUMN capacity INTEGER DEFAULT 1,ADD COLUMN sort_order INTEGER DEFAULT 0,
+        ADD COLUMN price_amount_cents INTEGER,ADD COLUMN price_display TEXT,ADD COLUMN group_funded_enabled BOOLEAN DEFAULT FALSE,
+        ADD COLUMN group_funded_min_required_contributors INTEGER,ADD COLUMN group_funded_max_required_contributors INTEGER,
+        ADD COLUMN group_funded_default_required_contributors INTEGER,ADD COLUMN group_funded_min_contribution_amount_cents INTEGER,
+        ADD COLUMN group_funded_max_contribution_amount_cents INTEGER,ADD COLUMN group_funded_min_deadline_hours INTEGER,
+        ADD COLUMN group_funded_max_deadline_days INTEGER,ADD COLUMN group_funded_allow_public_campaigns BOOLEAN DEFAULT FALSE,
+        ADD COLUMN created_at TIMESTAMPTZ DEFAULT NOW(),ADD COLUMN updated_at TIMESTAMPTZ DEFAULT NOW(),ADD UNIQUE(location_id,service_id)`);
+    const catalogWriter=(overrides={},database={pool},extra={})=>loadService({
+      '../config/db':database,'../repositories/vendorServices':{...realServices,...overrides},
+      '../services/entitlementAdmissionService':{admit:async ({client,featureKey})=>{assert.ok(client);assert.equal(featureKey,'booking');}},...extra
     },'serviceDeactivationService');
     const deactivate=(slug='court-play',actor='1',writer=catalogWriter(),selected=tenant)=>
       writer.deactivateVendorService(selected,slug,{actorUserId:actor});
@@ -2187,6 +2195,70 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
       const result=await deactivate('large','1',catalogWriter(),{_id:selected});assert.equal(result._id,selected);assert.equal(result.tenantId,selected);assert.equal(result.isActive,false);
       assert.equal((await realServices.findServiceByTenantAndId(neighboring,neighboring,{client:pool})).isActive,true);
       assert.deepEqual(await revisions(),[{location_id:selected,revision:2}]);
+    });
+    const saveInactive=(body={},writer=catalogWriter(),selected=tenant,slug='court-play',actor='1')=>
+      writer.updateVendorService(selected,slug,{...body,isActive:false},{actorUserId:actor});
+    await t.test('dashboard inactive PATCH saves service metadata mappings and all revisions atomically while preserving admitted work',async () => {
+      await reset();await targetBranch();await ticket('1',{booking:true});await record('1','start');
+      const tables=['bookings','booking_bundle_items','resource_ledger_reservations','resource_allocations','resource_ledger_commands','tickets','ticket_service_plans'];
+      const before={};for(const table of tables) before[table]=(await pool.query(`SELECT * FROM ${table}`)).rows;
+      const prior=(await revisions())[0].revision;
+      const result=await saveInactive({name:'Court play updated',description:'Updated service',durationMinutes:45,priceAmountCents:5000,
+        locationServices:[{locationSlug:'main',capacity:3},{locationSlug:'other',capacity:2,isActive:false}]});
+      assert.equal(result.service.isActive,false);assert.equal(result.service.name,'Court play updated');assert.equal(result.service.durationMinutes,45);
+      assert.deepEqual(result.locationServices.map(item=>[item.locationId,item.capacity]),[['10',3],['30',2]]);
+      assert.deepEqual((await pool.query('SELECT location_id::text,capacity FROM location_services ORDER BY location_id')).rows,[{location_id:'10',capacity:3},{location_id:'30',capacity:2}]);
+      assert.deepEqual(await revisions(),[{location_id:'10',revision:prior+1},{location_id:'30',revision:2}]);
+      for(const table of tables) assert.deepEqual((await pool.query(`SELECT * FROM ${table}`)).rows,before[table],table);
+      const after=await revisions();await deactivate();assert.deepEqual(await revisions(),after);
+      const partial=await saveInactive({description:'Another update'});assert.equal(partial.service.name,'Court play updated');assert.equal(partial.service.durationMinutes,45);
+      assert.deepEqual(await revisions(),[{location_id:'10',revision:prior+2},{location_id:'30',revision:3}]);
+    });
+    await t.test('inactive PATCH rejects current grants foreign mappings validation and entitlement denial without partial edits',async () => {
+      for(const scenario of ['grant','foreign','invalid','entitlement']) {
+        await reset();let writer=catalogWriter();let body={};
+        if(scenario==='grant') await pool.query('UPDATE tenant_memberships SET is_active=FALSE WHERE id=1');
+        if(scenario==='foreign') {await pool.query("UPDATE store_locations SET slug='foreign' WHERE id=20");body={locationServices:[{locationSlug:'main'},{locationSlug:'foreign'}]};}
+        if(scenario==='invalid') body={durationMinutes:4};
+        if(scenario==='entitlement') writer=catalogWriter({}, {pool},{'../services/entitlementAdmissionService':{admit:async ({client})=>{assert.ok(client);throw Object.assign(new Error('Booking not allowed'),{statusCode:403});}}});
+        await assert.rejects(saveInactive(body,writer),{statusCode:scenario==='foreign'?404:scenario==='invalid'?400:403});
+        assert.equal((await realServices.findServiceByTenantAndId('1','1000',{client:pool})).isActive,true);assert.equal(await count('resource_ledger_scopes'),0);
+      }
+    });
+    await t.test('inactive PATCH rolls service mappings and all revisions back after final revision failure',async () => {
+      await reset();await targetBranch();const before=(await pool.query('SELECT * FROM location_services')).rows;
+      const faultPool={connect:async ()=>{const client=await pool.connect();return {release:()=>client.release(),query:async (sql,args)=>{
+        const result=await client.query(sql,args);if(sql.startsWith('UPDATE resource_ledger_scopes SET revision=revision+1')) throw new Error('inactive PATCH revision failure');return result;
+      }};}};
+      await assert.rejects(saveInactive({name:'Changed',locationServices:[{locationSlug:'main',capacity:4},{locationSlug:'other',capacity:5}]},catalogWriter({}, {pool:faultPool})),/inactive PATCH revision failure/);
+      assert.equal((await realServices.findServiceByTenantAndId('1','1000',{client:pool})).isActive,true);
+      assert.deepEqual((await pool.query('SELECT * FROM location_services')).rows,before);assert.deepEqual(await revisions(),[]);
+    });
+    await t.test('inactive PATCH keeps large tenant branch service and mapping identities exact',async () => {
+      await reset();const large='9007199254740993';const neighbor='9007199254740992';
+      for(const id of [large,neighbor]) {
+        await pool.query('INSERT INTO tenants(id,is_active) VALUES($1,TRUE)',[id]);
+        await pool.query("INSERT INTO store_locations(id,tenant_id,is_active,slug) VALUES($1,$1,TRUE,'large')",[id]);
+        await pool.query("INSERT INTO vendor_services(id,tenant_id,name,duration_minutes,is_active,slug) VALUES($1,$1,'Large',60,TRUE,'large')",[id]);
+      }
+      await pool.query("INSERT INTO tenant_memberships VALUES(3,1,$1,'admin',TRUE)",[large]);
+      const result=await saveInactive({locationServices:[{locationSlug:'large',capacity:3}]},catalogWriter(),{_id:large},'large');
+      assert.equal(result.service._id,large);assert.equal(result.service.isActive,false);assert.equal(result.locationServices[0].locationId,large);
+      assert.equal((await realServices.findServiceByTenantAndId(neighbor,neighbor,{client:pool})).isActive,true);
+      assert.deepEqual((await pool.query('SELECT tenant_id::text,location_id::text,service_id::text FROM location_services WHERE tenant_id=$1',[large])).rows,[{tenant_id:large,location_id:large,service_id:large}]);
+    });
+    await t.test('service PATCH activation and concurrent partial edits use current locked metadata and advance all branches',async () => {
+      await reset();await targetBranch();await deactivate();
+      const writer=catalogWriter();const revived=await writer.updateVendorService(tenant,'court-play',{isActive:true},{actorUserId:'1'});
+      assert.equal(revived.service.isActive,true);
+      const updates=await Promise.all([
+        writer.updateVendorService(tenant,'court-play',{name:'Changed name'},{actorUserId:'1'}),
+        writer.updateVendorService(tenant,'court-play',{description:'Changed description'},{actorUserId:'1'})
+      ]);assert.equal(updates.every(result=>result.service.isActive),true);
+      const current=await realServices.findServiceByTenantAndId('1','1000',{client:pool});assert.equal(current.name,'Changed name');assert.equal(current.description,'Changed description');
+      assert.deepEqual(await revisions(),[{location_id:'10',revision:5},{location_id:'30',revision:5}]);
+      await deactivate();await writer.updateVendorService(tenant,'court-play',{description:'Inactive edit'},{actorUserId:'1'});
+      assert.equal((await realServices.findServiceByTenantAndId('1','1000',{client:pool})).isActive,false);
     });
     await t.test('catalog deactivation supports vendors with no branches without creating ledger state',async () => {
       await reset();await pool.query('DELETE FROM store_locations WHERE id=10');

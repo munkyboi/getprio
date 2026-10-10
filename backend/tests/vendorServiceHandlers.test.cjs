@@ -1,7 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
-const { handleListServices, handleCreateService, handleDeleteService } = require("../src/routes/vendorServiceHandlers");
+const { handleListServices, handleCreateService, handleUpdateService, handleDeleteService } = require("../src/routes/vendorServiceHandlers");
 
 test("vendor service handler lists and creates services", async () => {
   const admissions = [];
@@ -172,4 +172,16 @@ test("vendor service handler deactivates services through the authenticated doma
     }
   });
   assert.equal(response.body.service.isActive, false);
+});
+
+test("service PATCH forwards authenticated scope and retains service and mapping response contracts", async () => {
+  const response={json(payload){this.body=payload;}};
+  const body={name:"Updated",isActive:false,actorUserId:"spoofed",tenantId:"foreign"};
+  await handleUpdateService({req:{user:{_id:"actor-1"},params:{tenantSlug:"tenant",serviceSlug:"consultation"},body},res:response,
+    getAuthorizedTenant:async ()=>({_id:"1"}),assertTenantPermission:()=>{},
+    serviceDeactivationService:{updateVendorService:async (tenant,slug,payload,options)=>{
+      assert.equal(tenant._id,"1");assert.equal(slug,"consultation");assert.equal(payload,body);assert.deepEqual(options,{actorUserId:"actor-1"});
+      return {service:{_id:"8",slug,name:payload.name,isActive:false},locationServices:[{locationId:"10",serviceId:"8",capacity:2}]};
+    }}});
+  assert.equal(response.body.service.isActive,false);assert.equal(response.body.service.name,"Updated");assert.equal(response.body.locationServices[0].capacity,2);
 });

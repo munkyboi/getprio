@@ -147,7 +147,7 @@ async function findLocationByTenantAndSlug(tenantId, slug, options = {}) {
       WHERE tenant_id = $1 AND slug = $2
       LIMIT 1
     `,
-    [Number(tenantId), normalizeSlug(slug)]
+    [tenantId, normalizeSlug(slug)]
   );
 
   return mapLocation(result.rows[0]);

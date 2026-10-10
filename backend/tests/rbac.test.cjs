@@ -707,6 +707,10 @@ test("vendor service catalog is manageable by vendor admins but denied to staff"
       listAssignedCounterIdsByUserIds: async () => new Map()
     },
     "../services/serviceDeactivationService": {
+      updateVendorService: async (tenant, slug, body, options) => {
+        assert.equal(tenant._id, "tenant-1"); assert.equal(options.actorUserId, "user-1"); assert.equal(body.isActive,false);
+        return {service:{...services.find(item=>item.slug===slug),...body,isActive:false},locationServices:[]};
+      },
       deactivateVendorService: async (tenant, slug, options) => {
         assert.equal(tenant._id, "tenant-1"); assert.equal(options.actorUserId, "user-1");
         const service = services.find(item => item.slug === slug);
@@ -807,6 +811,14 @@ test("vendor service catalog is manageable by vendor admins but denied to staff"
     assert.equal(createBody.service.manualPaymentRequired, true);
     assert.equal(createdService.priceDisplay, "₱500");
 
+    const toggleResponse = await fetch(`${baseUrl}/tenant/demo/services/haircut`, {
+      method: "PATCH", headers: { "x-test-tenant-role": "owner", "Content-Type": "application/json" },
+      body: JSON.stringify({isActive:false,name:"Updated haircut",durationMinutes:45})
+    });
+    assert.equal(toggleResponse.status,200);const toggled=await toggleResponse.json();assert.equal(toggled.service.isActive,false);assert.equal(toggled.service.name,"Updated haircut");assert.deepEqual(toggled.locationServices,[]);
+    const deniedToggle = await fetch(`${baseUrl}/tenant/demo/services/haircut`, {
+      method:"PATCH",headers:{"x-test-tenant-role":"staff","Content-Type":"application/json"},body:JSON.stringify({isActive:false})
+    });assert.equal(deniedToggle.status,403);
     const deactivateResponse = await fetch(`${baseUrl}/tenant/demo/services/haircut`, {
       method: "DELETE",
       headers: {

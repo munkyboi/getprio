@@ -30,31 +30,11 @@ async function handleCreateService({ req, res, getAuthorizedTenant, assertTenant
   res.status(201).json({ service: formatVendorService(service), locationServices });
 }
 
-async function handleUpdateService({ req, res, getAuthorizedTenant, assertTenantPermission, entitlementAdmissionService, vendorServiceRepository, locationServiceRepository }) {
+async function handleUpdateService({ req, res, getAuthorizedTenant, assertTenantPermission, serviceDeactivationService }) {
   const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
   assertTenantPermission(req.user, tenant._id, "tenant.service.manage");
-  await entitlementAdmissionService.admit({ tenantId: tenant._id, featureKey: "booking" });
-  const service = await vendorServiceRepository.findServiceByTenantAndSlug(
-    tenant._id,
-    req.params.serviceSlug
-  );
-  if (!service) {
-    const error = new Error("Service not found.");
-    error.statusCode = 404;
-    throw error;
-  }
-  const updatedService = await vendorServiceRepository.updateService(
-    service._id,
-    normalizeServicePayload(req.body || {}, service)
-  );
-  const locationServices = await normalizeLocationServicesPayload(req.body || {}, updatedService, tenant);
-  for (const locationService of locationServices) {
-    await locationServiceRepository.upsertLocationService({
-      ...locationService,
-      serviceId: updatedService._id
-    });
-  }
-  res.json({ service: formatVendorService(updatedService), locationServices });
+  const result = await serviceDeactivationService.updateVendorService(tenant, req.params.serviceSlug, req.body || {}, { actorUserId: req.user._id });
+  res.json({ service: formatVendorService(result.service), locationServices: result.locationServices });
 }
 
 async function handleDeleteService({ req, res, getAuthorizedTenant, assertTenantPermission, serviceDeactivationService }) {

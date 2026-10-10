@@ -141,9 +141,9 @@ async function upsertLocationService(data, options = {}) {
       RETURNING ${LOCATION_SERVICE_COLUMNS}
     `,
     [
-      Number(data.tenantId),
-      Number(data.locationId),
-      Number(data.serviceId),
+      data.tenantId,
+      data.locationId,
+      data.serviceId,
       Number(data.capacity || 1),
       data.isActive !== false,
       Number(data.sortOrder || 0),
