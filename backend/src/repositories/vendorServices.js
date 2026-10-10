@@ -169,7 +169,7 @@ async function createService(data, options = {}) {
       RETURNING ${SERVICE_COLUMNS}
     `,
     [
-      Number(data.tenantId),
+      data.tenantId,
       data.name,
       normalizeServiceSlug(data.slug || data.name),
       data.description || null,

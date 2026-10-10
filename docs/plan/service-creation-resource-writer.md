@@ -1,0 +1,9 @@
+# Vendor service creation resource writer
+
+Vendor service POST now uses the tenant catalog transaction shared with PATCH and DELETE. Numeric branch locks, tenant FK target and current actor grants precede enforced booking admission and writes. Admission holds applicable policy through commit; contention returns a reload conflict. Payload validation and tenant location lookup use the accepted transaction client before creation. Service, explicit location-service mappings and one revision per existing branch commit together. Generated and tenant IDs remain exact PostgreSQL identifiers.
+
+The authenticated actor and selected tenant come from server context; body fields cannot replace scope. Existing 201 response shape and normalized service/mapping semantics remain. Inactive/no-branch administration remains supported under current permissions and booking admission. Duplicate slugs retain the existing database conflict behavior. Any mapping or final revision failure rolls back creation. Existing bookings, plans, protection, allocations and explicit service timing are unchanged.
+
+Verification includes real isolated PostgreSQL mapping/revision commit and rollback, duplicate contention, current revoked/deleted/suspended/staff denial, foreign mapping and invalid payload rejection, branch-set changes while awaiting tenant, exact adjacent large tenant/generated service IDs, actual enforced denial/policy lock contention and override revocation waiting until commit. Handler and HTTP tests cover authenticated forwarding and existing responses.
+
+This slice does not cover internal catalog writers, branch/default-hours/settings, protection cleanup or resource activation reconciliation. Tracking and writer coverage remain disabled; producer stays not_ready. No schema, UI, mobile, customer estimate, inference, capture or export changes. Live authenticated vendor service-form execution is unverified.

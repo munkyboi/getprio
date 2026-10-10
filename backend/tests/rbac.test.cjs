@@ -707,6 +707,11 @@ test("vendor service catalog is manageable by vendor admins but denied to staff"
       listAssignedCounterIdsByUserIds: async () => new Map()
     },
     "../services/serviceDeactivationService": {
+      createVendorService: async (tenant, body, options) => {
+        assert.equal(tenant._id, "tenant-1"); assert.equal(options.actorUserId, "user-1");
+        createdService = { _id: "service-2", ...require("../src/routes/vendorRouteHelpers").normalizeServicePayload(body), tenantId: tenant._id, createdAt: new Date(), updatedAt: new Date() };
+        return { service: createdService, locationServices: [] };
+      },
       updateVendorService: async (tenant, slug, body, options) => {
         assert.equal(tenant._id, "tenant-1"); assert.equal(options.actorUserId, "user-1"); assert.equal(body.isActive,false);
         return {service:{...services.find(item=>item.slug===slug),...body,isActive:false},locationServices:[]};
