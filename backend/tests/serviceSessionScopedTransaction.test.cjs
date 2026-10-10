@@ -1922,7 +1922,7 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
       await pool.query("INSERT INTO store_locations(id,tenant_id,is_active,slug) VALUES(30,1,TRUE,'other')");
       await pool.query("INSERT INTO store_hours(location_id,weekday,opens_at,closes_at,is_closed) SELECT 30,n,'00:00','00:00',FALSE FROM generate_series(0,6) n");
     }
-    const revisions=async ()=>(await pool.query('SELECT location_id::text,revision::int FROM resource_ledger_scopes ORDER BY location_id')).rows;
+    const revisions=async ()=>(await pool.query('SELECT location_id::text,revision::int FROM resource_ledger_scopes ORDER BY resource_ledger_scopes.location_id')).rows;
     await t.test('multi-branch scope entry denies foreign branches before granting a domain transaction',async () => {
       await reset();let entered=false;
       await assert.rejects(ledger.withScopeTransaction({pool,tenantId:'1',locationId:'10',actorUserId:'1',additionalLocationIds:['20'],
@@ -2050,6 +2050,149 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
       const before=await revisions();await assert.rejects(editAvailability(entry,'block',{capacity:101}),{statusCode:400});assert.deepEqual(await revisions(),before);
       const exception=await addAvailability('exception');await assert.rejects(editAvailability(exception,'exception',{exceptionDate:'bad'}),{statusCode:400});assert.deepEqual(await revisions(),before);
     });
+    await pool.query('ALTER TABLE store_locations ADD CONSTRAINT catalog_tenant_fk FOREIGN KEY(tenant_id) REFERENCES tenants(id)');
+    const catalogWriter=(overrides={},database={pool})=>loadService({
+      '../config/db':database,'../repositories/vendorServices':{...realServices,...overrides}
+    },'serviceDeactivationService');
+    const deactivate=(slug='court-play',actor='1',writer=catalogWriter(),selected=tenant)=>
+      writer.deactivateVendorService(selected,slug,{actorUserId:actor});
+    async function waitForCatalogTenant() {
+      const deadline=Date.now()+3000;
+      while(Date.now()<deadline) {
+        if((await pool.query("SELECT 1 FROM pg_stat_activity WHERE application_name=$1 AND wait_event_type='Lock' AND query LIKE 'SELECT id FROM tenants%'",[schema])).rows.length) return;
+        await new Promise(resolve=>setTimeout(resolve,10));
+      }
+      assert.fail('catalog write must wait for tenant authorization lock');
+    }
+    await t.test('catalog deactivation advances all tenant branches and preserves bookings protection occupancy and service timing',async () => {
+      await reset();await targetBranch();await ticket('1',{booking:true});await record('1','start');
+      await pool.query('UPDATE tenants SET is_active=FALSE WHERE id=1; UPDATE store_locations SET is_active=FALSE WHERE tenant_id=1');
+      const tables=['bookings','booking_bundle_items','resource_ledger_reservations','resource_allocations','resource_ledger_commands','tickets','ticket_service_plans','service_resource_requirements','location_services'];
+      const before={};for(const table of tables) before[table]=(await pool.query(`SELECT * FROM ${table}`)).rows;
+      const prior=(await revisions())[0].revision;const result=await deactivate();assert.equal(result.isActive,false);
+      assert.deepEqual(await revisions(),[{location_id:'10',revision:prior+1},{location_id:'30',revision:2}]);
+      for(const table of tables) assert.deepEqual((await pool.query(`SELECT * FROM ${table}`)).rows,before[table],table);
+      const after=await revisions();await deactivate();assert.deepEqual(await revisions(),after);
+      assert.equal((await pool.query('SELECT writer_coverage_complete FROM resource_ledger_scopes')).rows.every(row=>row.writer_coverage_complete===false),true);
+    });
+    await t.test('catalog deactivation rejects revoked deleted suspended staff and foreign tenant scope without writes',async () => {
+      for(const sql of ['UPDATE tenant_memberships SET is_active=FALSE WHERE id=1',
+        'UPDATE users SET deletion_requested_at=clock_timestamp() WHERE id=1',
+        'UPDATE users SET platform_access_suspended_at=clock_timestamp() WHERE id=1',
+        "UPDATE tenant_memberships SET role='staff' WHERE id=1"]) {
+        await reset();await pool.query(sql);await assert.rejects(deactivate(),{statusCode:403});
+        assert.equal((await realServices.findServiceByTenantAndId('1','1000',{client:pool})).isActive,true);assert.equal(await count('resource_ledger_scopes'),0);
+      }
+      await reset();await assert.rejects(deactivate('court-play','1',catalogWriter(),{_id:'2'}),{statusCode:403});
+      await assert.rejects(deactivate('court-play','1',catalogWriter(),{_id:'90071992547409930'}),{statusCode:404});
+      await assert.rejects(deactivate('court-play','1',catalogWriter(),{_id:'invalid'}),{statusCode:400});
+      await assert.rejects(deactivate('court-play','invalid'),{statusCode:400});
+      await pool.query("INSERT INTO tenant_memberships VALUES(3,1,2,'admin',TRUE)");
+      await assert.rejects(deactivate('court-play','1',catalogWriter(),{_id:'2'}),{statusCode:404});
+      assert.equal(await count('resource_ledger_scopes'),0);
+    });
+    await t.test('catalog deactivation rereads grants and service identity after branch contention',async () => {
+      for(const change of ['grant','renamed','deleted','inactive']) {
+        await reset();const blocker=await pool.connect();let pending;
+        try {
+          await blocker.query('BEGIN');await blocker.query('SELECT id FROM store_locations WHERE id=10 FOR UPDATE');
+          pending=deactivate();const completion=change==='inactive'?pending:assert.rejects(pending,{statusCode:change==='grant'?403:404});
+          pending.catch(()=>{});await waitForLocationLock();
+          if(change==='grant') await blocker.query('UPDATE tenant_memberships SET is_active=FALSE WHERE id=1');
+          if(change==='renamed') await blocker.query("UPDATE vendor_services SET slug='renamed' WHERE id=1000");
+          if(change==='deleted') await blocker.query('DELETE FROM vendor_services WHERE id=1000');
+          if(change==='inactive') await blocker.query('UPDATE vendor_services SET is_active=FALSE WHERE id=1000');
+          await blocker.query('COMMIT');await completion;
+        } finally {await blocker.query('ROLLBACK');blocker.release();if(pending)await pending.catch(()=>{});}
+        assert.equal(await count('resource_ledger_scopes'),0);
+      }
+    });
+    await t.test('catalog tenant wait permits tenant-first revocation with a branch foreign-key assignment',async () => {
+      await reset();const revoker=await pool.connect();let pending;
+      try {
+        await revoker.query('BEGIN');await revoker.query('SELECT id FROM tenants WHERE id=1 FOR UPDATE');
+        pending=deactivate();const denied=assert.rejects(pending,{statusCode:403});await waitForCatalogTenant();
+        await revoker.query('UPDATE tenant_memberships SET is_active=FALSE WHERE id=1');
+        await revoker.query("SET LOCAL lock_timeout='2s'");await revoker.query('INSERT INTO tenant_membership_locations VALUES(1,10)');
+        await revoker.query('COMMIT');await denied;
+      } finally {await revoker.query('ROLLBACK');revoker.release();if(pending)await pending.catch(()=>{});}
+      assert.equal((await realServices.findServiceByTenantAndId('1','1000',{client:pool})).isActive,true);assert.equal(await count('resource_ledger_scopes'),0);
+    });
+    await t.test('catalog deactivation rejects a branch added while waiting for tenant lock and rolls back',async () => {
+      await reset();const creator=await pool.connect();let pending;
+      try {
+        await creator.query('BEGIN');await creator.query('SELECT id FROM tenants WHERE id=1 FOR UPDATE');
+        pending=deactivate();const denied=assert.rejects(pending,{statusCode:409});await waitForCatalogTenant();
+        await creator.query("INSERT INTO store_locations(id,tenant_id,is_active,slug) VALUES(30,1,TRUE,'new')");
+        await creator.query('COMMIT');await denied;
+      } finally {await creator.query('ROLLBACK');creator.release();if(pending)await pending.catch(()=>{});}
+      assert.equal((await realServices.findServiceByTenantAndId('1','1000',{client:pool})).isActive,true);assert.equal(await count('resource_ledger_scopes'),0);
+    });
+    await t.test('catalog deactivation holds numeric ordered branches tenant grants service and prevents branch creation until completion',async () => {
+      await reset();await targetBranch();await pool.query("INSERT INTO store_locations(id,tenant_id,is_active,slug) VALUES(2,1,TRUE,'first')");
+      const observer=await pool.connect();let insertion;let entered;let release;
+      const ready=new Promise(resolve=>{entered=resolve;});const barrier=new Promise(resolve=>{release=resolve;});
+      const writer=catalogWriter({deactivateService:async (...args)=>{entered();await barrier;return realServices.deactivateService(...args);}});
+      const pending=deactivate('court-play','1',writer);pending.catch(()=>{});await ready;
+      try {
+        for(const sql of ['SELECT id FROM store_locations WHERE id=2 FOR UPDATE NOWAIT','SELECT id FROM store_locations WHERE id=10 FOR UPDATE NOWAIT',
+          'SELECT id FROM store_locations WHERE id=30 FOR UPDATE NOWAIT','SELECT id FROM tenants WHERE id=1 FOR UPDATE NOWAIT',
+          'SELECT id FROM users WHERE id=1 FOR UPDATE NOWAIT','SELECT id FROM tenant_memberships WHERE id=1 FOR UPDATE NOWAIT',
+          'SELECT id FROM vendor_services WHERE id=1000 FOR UPDATE NOWAIT']) {
+          await observer.query('BEGIN');await assert.rejects(observer.query(sql),{code:'55P03'});await observer.query('ROLLBACK');
+        }
+        await observer.query('BEGIN');await observer.query('SELECT id FROM store_locations WHERE id=20 FOR UPDATE NOWAIT');await observer.query('ROLLBACK');
+        insertion=pool.query("INSERT INTO store_locations(id,tenant_id,is_active,slug) VALUES(40,1,TRUE,'later')");insertion.catch(()=>{});
+        const deadline=Date.now()+3000;let waiting=false;
+        while(Date.now()<deadline) {
+          waiting=(await pool.query("SELECT 1 FROM pg_stat_activity WHERE application_name=$1 AND wait_event_type='Lock' AND query LIKE 'INSERT INTO store_locations%later%'",[schema])).rows.length>0;
+          if(waiting)break;await new Promise(resolve=>setTimeout(resolve,10));
+        }
+        assert.equal(waiting,true,'branch creation must wait on the held tenant foreign-key target');
+      } finally {release();await pending;await insertion;await observer.query('ROLLBACK');observer.release();}
+      assert.deepEqual(await revisions(),[{location_id:'2',revision:2},{location_id:'10',revision:2},{location_id:'30',revision:2}]);
+    });
+    await t.test('catalog deactivation rolls service and all scope revisions back after final revision failure',async () => {
+      await reset();await targetBranch();
+      const faultPool={connect:async ()=>{const client=await pool.connect();return {release:()=>client.release(),query:async (sql,args)=>{
+        const result=await client.query(sql,args);
+        if(sql.startsWith('UPDATE resource_ledger_scopes SET revision=revision+1')) throw new Error('catalog final revision failure');
+        return result;
+      }};}};
+      await assert.rejects(deactivate('court-play','1',catalogWriter({}, {pool:faultPool})),/catalog final revision failure/);
+      assert.equal((await realServices.findServiceByTenantAndId('1','1000',{client:pool})).isActive,true);assert.deepEqual(await revisions(),[]);
+      await deactivate();assert.deepEqual(await revisions(),[{location_id:'10',revision:2},{location_id:'30',revision:2}]);
+    });
+    await t.test('competing catalog deactivations commit one activity revision per existing branch',async () => {
+      await reset();await targetBranch();const results=await Promise.all([deactivate(),deactivate(),deactivate()]);
+      assert.equal(results.every(service=>service.isActive===false),true);
+      assert.deepEqual(await revisions(),[{location_id:'10',revision:2},{location_id:'30',revision:2}]);assert.equal(await count('resource_ledger_commands'),0);
+    });
+    await t.test('catalog and availability branch moves use compatible numeric lock order',async () => {
+      await reset();await targetBranch();await pool.query("INSERT INTO store_locations(id,tenant_id,is_active,slug) VALUES(2,1,TRUE,'first')");
+      await pool.query("INSERT INTO store_hours(location_id,weekday,opens_at,closes_at,is_closed) SELECT 2,n,'00:00','00:00',FALSE FROM generate_series(0,6) n");
+      const entry=await addAvailability('block');
+      const result=await Promise.all([deactivate(),editAvailability(entry,'block',{locationSlug:'first'})]);
+      assert.equal(result[0].isActive,false);assert.equal(result[1].locationId,'2');
+      assert.deepEqual(await revisions(),[{location_id:'2',revision:3},{location_id:'10',revision:3},{location_id:'30',revision:2}]);
+    });
+    await t.test('catalog tenant and service identities above JavaScript safe integer range remain exact',async () => {
+      await reset();const selected='9007199254740993';const neighboring='9007199254740992';
+      for(const tenantId of [selected,neighboring]) {
+        await pool.query('INSERT INTO tenants(id,is_active) VALUES($1,TRUE)',[tenantId]);
+        await pool.query("INSERT INTO store_locations(id,tenant_id,is_active,slug) VALUES($1,$1,TRUE,'large')",[tenantId]);
+        await pool.query("INSERT INTO vendor_services(id,tenant_id,name,duration_minutes,is_active,slug) VALUES($1,$1,'Large',60,TRUE,'large')",[tenantId]);
+      }
+      await pool.query("INSERT INTO tenant_memberships VALUES(3,1,$1,'owner',TRUE)",[selected]);
+      const result=await deactivate('large','1',catalogWriter(),{_id:selected});assert.equal(result._id,selected);assert.equal(result.tenantId,selected);assert.equal(result.isActive,false);
+      assert.equal((await realServices.findServiceByTenantAndId(neighboring,neighboring,{client:pool})).isActive,true);
+      assert.deepEqual(await revisions(),[{location_id:selected,revision:2}]);
+    });
+    await t.test('catalog deactivation supports vendors with no branches without creating ledger state',async () => {
+      await reset();await pool.query('DELETE FROM store_locations WHERE id=10');
+      assert.equal((await deactivate()).isActive,false);assert.equal(await count('resource_ledger_scopes'),0);
+    });
+
     function legacyLifecycle(database, target='queueService', actualPauses=false) {
       const injected={...queueMocks,'../config/db':database,'./queueHelpers':require('../src/services/queueHelpers'),
         '../repositories/tickets':{...queueMocks['../repositories/tickets'],listWaitingTickets:realTickets.listWaitingTickets,reopenTicketsFromClosure:realTickets.reopenTicketsFromClosure,restoreCarriedOverTicketsFromClosure:realTickets.restoreCarriedOverTicketsFromClosure,

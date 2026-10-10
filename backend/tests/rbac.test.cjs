@@ -706,6 +706,15 @@ test("vendor service catalog is manageable by vendor admins but denied to staff"
       listCountersByLocationId: async () => [],
       listAssignedCounterIdsByUserIds: async () => new Map()
     },
+    "../services/serviceDeactivationService": {
+      deactivateVendorService: async (tenant, slug, options) => {
+        assert.equal(tenant._id, "tenant-1"); assert.equal(options.actorUserId, "user-1");
+        const service = services.find(item => item.slug === slug);
+        if (!service) throw Object.assign(new Error("Service not found."), { statusCode: 404 });
+        deactivatedServiceId = service._id;
+        return { ...service, isActive: false };
+      }
+    },
     "../repositories/vendorServices": {
       normalizeServiceSlug: (value) => String(value || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, ""),
       listServicesByTenantId: async () => services,
@@ -804,6 +813,10 @@ test("vendor service catalog is manageable by vendor admins but denied to staff"
         "x-test-tenant-role": "owner"
       }
     });
+    const deniedDeactivation = await fetch(`${baseUrl}/tenant/demo/services/haircut`, {
+      method: "DELETE", headers: { "x-test-tenant-role": "staff" }
+    });
+    assert.equal(deniedDeactivation.status, 403);
     assert.equal(deactivateResponse.status, 200);
     assert.equal(deactivatedServiceId, "service-1");
     assert.equal((await deactivateResponse.json()).service.isActive, false);

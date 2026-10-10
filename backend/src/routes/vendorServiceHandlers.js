@@ -57,20 +57,11 @@ async function handleUpdateService({ req, res, getAuthorizedTenant, assertTenant
   res.json({ service: formatVendorService(updatedService), locationServices });
 }
 
-async function handleDeleteService({ req, res, getAuthorizedTenant, assertTenantPermission, vendorServiceRepository }) {
+async function handleDeleteService({ req, res, getAuthorizedTenant, assertTenantPermission, serviceDeactivationService }) {
   const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
   assertTenantPermission(req.user, tenant._id, "tenant.service.manage");
-  const service = await vendorServiceRepository.findServiceByTenantAndSlug(
-    tenant._id,
-    req.params.serviceSlug
-  );
-  if (!service) {
-    const error = new Error("Service not found.");
-    error.statusCode = 404;
-    throw error;
-  }
-  const deactivatedService = await vendorServiceRepository.deactivateService(service._id);
-  res.json({ service: formatVendorService(deactivatedService) });
+  const service = await serviceDeactivationService.deactivateVendorService(tenant, req.params.serviceSlug, { actorUserId: req.user._id });
+  res.json({ service: formatVendorService(service) });
 }
 
 async function handleCheckServiceSlugAvailability({ req, res, getAuthorizedTenant, assertTenantPermission, vendorServiceRepository }) {

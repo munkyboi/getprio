@@ -91,15 +91,20 @@ async function listServicesByTenantId(tenantId, options = {}) {
   return result.rows.map(mapVendorService);
 }
 
+function serviceRowLock(options) {
+  if (options.forUpdate) return " FOR UPDATE";
+  return options.forShare ? " FOR SHARE" : "";
+}
+
 async function findServiceByTenantAndSlug(tenantId, slug, options = {}) {
   const result = await buildQueryClient(options.client).query(
     `
       SELECT ${SERVICE_COLUMNS}
       FROM vendor_services
       WHERE tenant_id = $1 AND slug = $2
-      LIMIT 1${options.forShare ? " FOR SHARE" : ""}
+      LIMIT 1${serviceRowLock(options)}
     `,
-    [Number(tenantId), normalizeServiceSlug(slug)]
+    [tenantId, normalizeServiceSlug(slug)]
   );
 
   return mapVendorService(result.rows[0]);
@@ -107,7 +112,7 @@ async function findServiceByTenantAndSlug(tenantId, slug, options = {}) {
 
 async function findServiceByTenantAndId(tenantId, serviceId, options = {}) {
   const result = await buildQueryClient(options.client).query(`SELECT ${SERVICE_COLUMNS}
-    FROM vendor_services WHERE tenant_id=$1 AND id=$2 LIMIT 1${options.forShare ? " FOR SHARE" : ""}`, [tenantId,serviceId]);
+    FROM vendor_services WHERE tenant_id=$1 AND id=$2 LIMIT 1${serviceRowLock(options)}`, [tenantId,serviceId]);
   return mapVendorService(result.rows[0]);
 }
 
@@ -188,7 +193,7 @@ async function createService(data, options = {}) {
 async function updateService(serviceId, changes, options = {}) {
   const queryClient = buildQueryClient(options.client);
   const updates = [];
-  const values = [Number(serviceId)];
+  const values = [serviceId];
   const setters = {
     name: "name",
     slug: "slug",
@@ -226,7 +231,7 @@ async function updateService(serviceId, changes, options = {}) {
   if (!updates.length) {
     const result = await queryClient.query(
       `SELECT ${SERVICE_COLUMNS} FROM vendor_services WHERE id = $1 LIMIT 1`,
-      [Number(serviceId)]
+      [serviceId]
     );
     return mapVendorService(result.rows[0]);
   }

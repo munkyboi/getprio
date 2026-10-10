@@ -156,16 +156,19 @@ test("vendor service handler checks plan admission before creating a service", a
   assert.equal(createCalled, false);
 });
 
-test("vendor service handler deletes services through injected repository", async () => {
+test("vendor service handler deactivates services through the authenticated domain boundary", async () => {
   const response = { body: null, json(payload) { this.body = payload; } };
   await handleDeleteService({
-    req: { user: {}, params: { tenantSlug: "tenant", serviceSlug: "consultation" } },
+    req: { user: { _id: "actor-1" }, params: { tenantSlug: "tenant", serviceSlug: "consultation" } },
     res: response,
     getAuthorizedTenant: async () => ({ _id: 1 }),
     assertTenantPermission: () => {},
-    vendorServiceRepository: {
-      findServiceByTenantAndSlug: async () => ({ _id: 8, slug: "consultation" }),
-      deactivateService: async () => ({ _id: 8, slug: "consultation", isActive: false })
+    serviceDeactivationService: {
+      deactivateVendorService: async (tenant, slug, options) => {
+        assert.equal(tenant._id, 1); assert.equal(slug, "consultation");
+        assert.deepEqual(options, { actorUserId: "actor-1" });
+        return { _id: 8, slug: "consultation", isActive: false };
+      }
     }
   });
   assert.equal(response.body.service.isActive, false);
