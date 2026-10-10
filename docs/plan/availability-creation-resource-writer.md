@@ -10,4 +10,6 @@ Disposable PostgreSQL tests use actual availability, hours and service repositor
 
 Editing existing availability, catalog/settings/default-hours writers, protection cleanup and activation reconciliation remain uncovered. Resource tracking and writer coverage remain disabled; the operational producer stays `not_ready`. No migration, dashboard/mobile UI, customer estimate, inference or capture/export behavior changes.
 
-Local validation: full isolated PostgreSQL backend coverage passed 1,115 tests with seven opt-in skips (1,122 total), zero failures. The focused scoped PostgreSQL suite passed 137 tests. Changed-source ESLint, backend typecheck and diff checks passed.
+Local validation: full isolated PostgreSQL backend coverage passed 1,116 tests with seven opt-in skips (1,123 total), zero failures. The focused scoped PostgreSQL suite passed 137 tests. Changed-source ESLint, backend typecheck and diff checks passed.
+
+Review follow-up: replace the inherited boundary-dash trimming regex with linear scans and verify a 100,000-hyphen input. The existing exception PATCH route explicitly supplies its location resolver after payload validation extraction; HTTP coverage verifies updates with and without a location slug.

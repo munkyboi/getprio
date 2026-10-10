@@ -388,3 +388,15 @@ test("availability exception creation preserves 201 and forwards authenticated s
   });
   assert.equal(response.body.exception.id, "6"); assert.equal(response.body.exception.capacity, null);
 });
+
+test("availability service slugs preserve normalization and handle long separator input", async () => {
+  const { normalizeAvailabilityBlockPayload } = require("../src/services/availabilityPayloadService");
+  const lookups = [];
+  for (const [input, expected] of [[" ---Court___Play--- ", "court-play"], ["-".repeat(100000), null]]) {
+    const payload = await normalizeAvailabilityBlockPayload({ _id: "1" }, {
+      locationSlug: "main", serviceSlug: input, weekday: 1, startsAt: "09:00", endsAt: "17:00"
+    }, null, { findServiceByTenantAndSlug: async (_tenant, slug) => { lookups.push(slug); return { _id: "1000" }; } }, async () => ({ _id: "10" }));
+    assert.equal(payload.serviceId, expected ? "1000" : null);
+  }
+  assert.deepEqual(lookups, ["court-play"]);
+});

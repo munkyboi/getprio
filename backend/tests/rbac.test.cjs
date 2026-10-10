@@ -609,6 +609,15 @@ test("vendor availability is manageable by vendor admins but denied to staff", a
     assert.equal(createExceptionResponse.status, 201);
     assert.equal(createdException.exceptionDate, "2026-07-01");
 
+    for (const body of [{ locationSlug: "main", isAvailable: true }, { isAvailable: false }]) {
+      const updateExceptionResponse = await fetch(`${baseUrl}/tenant/demo/availability/exceptions/exception-1`, {
+        method: "PATCH", headers: { "Content-Type": "application/json", "x-test-tenant-role": "owner" }, body: JSON.stringify(body)
+      });
+      assert.equal(updateExceptionResponse.status, 200);
+      const updated = (await updateExceptionResponse.json()).exception;
+      assert.equal(updated.locationId, "location-1"); assert.equal(updated.isAvailable, body.isAvailable);
+    }
+
     const deniedDelete = await fetch(`${baseUrl}/tenant/demo/availability/exceptions/exception-1`, {
       method: "DELETE", headers: { "x-test-tenant-role": "staff" }
     });

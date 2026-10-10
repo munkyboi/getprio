@@ -975,6 +975,7 @@ router.patch(
       res,
       getAuthorizedTenant,
       assertTenantPermission,
+      getLocationForTenant,
       vendorAvailabilityRepository,
       vendorServiceRepository
     })
