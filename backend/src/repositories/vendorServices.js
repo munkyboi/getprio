@@ -97,7 +97,7 @@ async function findServiceByTenantAndSlug(tenantId, slug, options = {}) {
       SELECT ${SERVICE_COLUMNS}
       FROM vendor_services
       WHERE tenant_id = $1 AND slug = $2
-      LIMIT 1
+      LIMIT 1${options.forShare ? " FOR SHARE" : ""}
     `,
     [Number(tenantId), normalizeServiceSlug(slug)]
   );

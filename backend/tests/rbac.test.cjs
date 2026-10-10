@@ -453,6 +453,17 @@ test("vendor availability is manageable by vendor admins but denied to staff", a
             }
           : null
     },
+    "../services/availabilityCreationService": { createAvailabilityEntry: async (tenant, location, body, type, options) => {
+      assert.deepEqual(options, { actorUserId: "user-1" });
+      const normalizers = require("../src/services/availabilityPayloadService");
+      const payload = await normalizers[type === "block" ? "normalizeAvailabilityBlockPayload" : "normalizeAvailabilityExceptionPayload"](
+        tenant, { ...body, locationSlug: location.slug }, null,
+        { findServiceByTenantAndSlug: async () => ({ _id: "service-1" }) }, async () => location,
+        { listHoursByLocationId: async () => [{ weekday: 2, opensAt: "09:00", closesAt: "17:00", isClosed: false }] });
+      const entry = { _id: type === "block" ? "block-2" : "exception-2", tenantId: tenant._id, ...payload, createdAt: new Date(), updatedAt: new Date() };
+      if (type === "block") createdBlock = entry; else createdException = entry;
+      return entry;
+    } },
     "../services/availabilityDeletionService": { deleteAvailabilityEntry: async (tenant, entryId, type, options) => {
       assert.equal(tenant._id, "tenant-1"); assert.equal(type, "exception");
       assert.deepEqual(options, { actorUserId: "user-1" }); deletedExceptionId=entryId;
@@ -555,6 +566,13 @@ test("vendor availability is manageable by vendor admins but denied to staff", a
     });
     assert.equal(listResponse.status, 200);
     assert.equal((await listResponse.json()).blocks.length, 1);
+
+    for (const kind of ["blocks", "exceptions"]) {
+      const deniedCreate = await fetch(`${baseUrl}/tenant/demo/availability/${kind}`, {
+        method: "POST", headers: { "Content-Type": "application/json", "x-test-tenant-role": "staff" }, body: JSON.stringify({ locationSlug: "main" })
+      });
+      assert.equal(deniedCreate.status, 403); assert.equal(createdBlock, null); assert.equal(createdException, null);
+    }
 
     const createBlockResponse = await fetch(`${baseUrl}/tenant/demo/availability/blocks`, {
       method: "POST",

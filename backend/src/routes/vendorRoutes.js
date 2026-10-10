@@ -31,6 +31,7 @@ const locationPaymentQrUploadService = require("../services/locationPaymentQrUpl
 const bookingService = require("../services/bookingService");
 const resourceConfigurationService = require("../services/resourceConfigurationService");
 const locationHoursService = require("../services/locationHoursService");
+const availabilityCreationService = require("../services/availabilityCreationService");
 const availabilityDeletionService = require("../services/availabilityDeletionService");
 const { recordTicketService } = require("../services/ticketServiceTimingService");
 const entitlementAdmissionService = require("../services/entitlementAdmissionService");
@@ -918,9 +919,7 @@ router.post(
       getAuthorizedTenant,
       assertTenantPermission,
       getLocationForTenant,
-      storeLocationRepository,
-      vendorAvailabilityRepository,
-      vendorServiceRepository
+      availabilityCreationService
     })
   )
 );
@@ -963,8 +962,7 @@ router.post(
       getAuthorizedTenant,
       assertTenantPermission,
       getLocationForTenant,
-      vendorAvailabilityRepository,
-      vendorServiceRepository
+      availabilityCreationService
     })
   )
 );
