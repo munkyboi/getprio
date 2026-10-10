@@ -432,7 +432,7 @@ async function replaceHours(locationId, hours, options = {}) {
     intervalsByDay.set(weekday, [...existingRanges, ...ranges]);
   }
   const persist = async (queryClient) => {
-    const location = await queryClient.query("SELECT id FROM store_locations WHERE id = $1 FOR UPDATE", [Number(locationId)]);
+    const location = await queryClient.query("SELECT id FROM store_locations WHERE id = $1 FOR NO KEY UPDATE", [Number(locationId)]);
     if (!location.rows.length) throw Object.assign(new Error("Operating-hours location not found."), { statusCode: 404 });
     await queryClient.query(`DELETE FROM store_hours WHERE location_id = $1`, [Number(locationId)]);
 

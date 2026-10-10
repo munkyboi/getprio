@@ -1643,6 +1643,93 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
       assert.equal((await pool.query('SELECT count(*)::int AS n FROM store_hours WHERE is_closed')).rows[0].n,7);
       await paid(); assert.equal((await realPayments.findPaymentById('1',{client:pool})).ticketIssuanceStatus,'refund_pending'); assert.equal(await count('tickets'),0);
     });
+    const hoursWriter=(overrides={})=>loadService({
+      '../config/db':{pool},'../repositories/storeLocations':{...realLocations,...overrides}
+    },'locationHoursService');
+    const hoursSchedule=(opensAt='09:00',closesAt='17:00')=>Array.from({length:7},(_,weekday)=>({weekday,opensAt,closesAt,isClosed:false}));
+    const saveHours=(schedule=hoursSchedule(),actor='1',selected=location,writer=hoursWriter())=>
+      writer.replaceLocationHours(tenant,selected,schedule,{actorUserId:actor});
+    await t.test('operating-hours administration advances one scoped revision and preserves actual occupancy',async () => {
+      await reset();await ticket('1');await record('1','start');
+      const allocation=(await pool.query('SELECT * FROM resource_allocations')).rows[0];
+      const revision=Number((await pool.query('SELECT revision FROM resource_ledger_scopes')).rows[0].revision);
+      const commands=await count('resource_ledger_commands');
+      await pool.query('UPDATE tenants SET is_active=FALSE WHERE id=1; UPDATE store_locations SET is_active=FALSE WHERE id=10');
+      const hours=await saveHours();assert.equal(hours.length,7);
+      assert.ok(hours.every(hour=>hour.opensAt==='09:00' && hour.closesAt==='17:00'));
+      assert.equal(Number((await pool.query('SELECT revision FROM resource_ledger_scopes')).rows[0].revision),revision+1);
+      assert.deepEqual((await pool.query('SELECT * FROM resource_allocations')).rows[0],allocation);
+      assert.equal(await count('resource_ledger_commands'),commands);
+      assert.ok((await readTicket('1')).serviceStartedAt);assert.equal((await readTicket('1')).serviceEndedAt,null);
+    });
+    await t.test('operating-hours denies revoked deleted suspended staff and mismatched branch access before writes',async () => {
+      for(const sql of [
+        'UPDATE tenant_memberships SET is_active=FALSE WHERE id=1',
+        'UPDATE users SET deletion_requested_at=clock_timestamp() WHERE id=1',
+        'UPDATE users SET platform_access_suspended_at=clock_timestamp() WHERE id=1',
+        "UPDATE tenant_memberships SET role='staff' WHERE id=1; INSERT INTO tenant_membership_locations VALUES(1,10)"
+      ]) {
+        await reset();const before=await realLocations.listHoursByLocationId('10',{client:pool});await pool.query(sql);
+        await assert.rejects(saveHours(),{statusCode:403});
+        assert.deepEqual(await realLocations.listHoursByLocationId('10',{client:pool}),before);
+        assert.equal(await count('resource_ledger_scopes'),0);
+      }
+      await reset();await assert.rejects(saveHours(hoursSchedule(),'1',{_id:'20'}),{statusCode:404});
+      assert.equal(await count('resource_ledger_scopes'),0);
+    });
+    await t.test('operating-hours rechecks revocation after branch lock contention',async () => {
+      await reset();const before=await realLocations.listHoursByLocationId('10',{client:pool});const blocker=await pool.connect();let pending;
+      try {
+        await blocker.query('BEGIN');await blocker.query('SELECT id FROM store_locations WHERE id=10 FOR UPDATE');
+        pending=saveHours();const denied=assert.rejects(pending,{statusCode:403});await waitForLocationLock();
+        await blocker.query('UPDATE tenant_memberships SET is_active=FALSE WHERE id=1');await blocker.query('COMMIT');await denied;
+      } finally {await blocker.query('ROLLBACK');blocker.release();if(pending)await pending.catch(()=>{});}
+      assert.deepEqual(await realLocations.listHoursByLocationId('10',{client:pool}),before);assert.equal(await count('resource_ledger_scopes'),0);
+    });
+    await t.test('operating-hours holds accepted grants and rolls rebuilt calendar and scope back on failure',async () => {
+      await reset();const before=await realLocations.listHoursByLocationId('10',{client:pool});
+      const writer=hoursWriter({replaceHours:async (...args)=>{
+        await realLocations.replaceHours(...args);
+        for(const sql of ['SELECT id FROM tenants WHERE id=1 FOR UPDATE NOWAIT','SELECT id FROM users WHERE id=1 FOR UPDATE NOWAIT','SELECT id FROM tenant_memberships WHERE id=1 FOR UPDATE NOWAIT']) {
+          await assert.rejects(pool.query(sql),{code:'55P03'});
+        }
+        throw new Error('hours post-write failure');
+      }});
+      await assert.rejects(saveHours(hoursSchedule(),'1',location,writer),/hours post-write failure/);
+      assert.deepEqual(await realLocations.listHoursByLocationId('10',{client:pool}),before);assert.equal(await count('resource_ledger_scopes'),0);
+      await saveHours();assert.equal(Number((await pool.query('SELECT revision FROM resource_ledger_scopes')).rows[0].revision),2);
+    });
+    await t.test('operating-hours validation failure leaves calendar and existing ledger revision intact',async () => {
+      await reset();await saveHours();const before=await realLocations.listHoursByLocationId('10',{client:pool});
+      const overlapping=[{weekday:1,opensAt:'09:00',closesAt:'12:00'},{weekday:1,opensAt:'11:00',closesAt:'14:00'}];
+      await assert.rejects(saveHours(overlapping),{statusCode:400});
+      assert.deepEqual(await realLocations.listHoursByLocationId('10',{client:pool}),before);
+      assert.equal(Number((await pool.query('SELECT revision FROM resource_ledger_scopes')).rows[0].revision),2);
+    });
+    await t.test('competing hours saves serialize full calendars and retain monotonic revision',async () => {
+      await reset();await Promise.all([saveHours(hoursSchedule('09:00','17:00')),saveHours(hoursSchedule('10:00','18:00'))]);
+      const hours=await realLocations.listHoursByLocationId('10',{client:pool});assert.equal(hours.length,7);
+      assert.equal(new Set(hours.map(hour=>`${hour.opensAt}-${hour.closesAt}`)).size,1);
+      assert.equal(Number((await pool.query('SELECT revision FROM resource_ledger_scopes')).rows[0].revision),3);
+      assert.equal(await count('resource_ledger_commands'),0);assert.equal(await count('resource_allocations'),0);
+    });
+    await t.test('hours save waiting for tenant-first grant change permits its branch foreign-key assignment',async () => {
+      await reset();const revoker=await pool.connect();let pending;
+      try {
+        await revoker.query('BEGIN');await revoker.query('SELECT id FROM tenants WHERE id=1 FOR UPDATE');
+        pending=saveHours();const denied=assert.rejects(pending,{statusCode:403});
+        const deadline=Date.now()+3000;let waiting=false;
+        while(Date.now()<deadline) {
+          waiting=(await pool.query("SELECT 1 FROM pg_stat_activity WHERE application_name=$1 AND wait_event_type='Lock' AND query LIKE 'SELECT id FROM tenants%'",[schema])).rows.length>0;
+          if(waiting)break;await new Promise(resolve=>setTimeout(resolve,10));
+        }
+        assert.equal(waiting,true,'hours save must wait for current tenant grant state');
+        await revoker.query('UPDATE tenant_memberships SET is_active=FALSE WHERE id=1');
+        await revoker.query("SET LOCAL lock_timeout='2s'");await revoker.query('INSERT INTO tenant_membership_locations VALUES(1,10)');
+        await revoker.query('COMMIT');await denied;
+      } finally {await revoker.query('ROLLBACK');revoker.release();if(pending)await pending.catch(()=>{});}
+      assert.equal(await count('resource_ledger_scopes'),0);
+    });
     function legacyLifecycle(database, target='queueService', actualPauses=false) {
       const injected={...queueMocks,'../config/db':database,'./queueHelpers':require('../src/services/queueHelpers'),
         '../repositories/tickets':{...queueMocks['../repositories/tickets'],listWaitingTickets:realTickets.listWaitingTickets,reopenTicketsFromClosure:realTickets.reopenTicketsFromClosure,restoreCarriedOverTicketsFromClosure:realTickets.restoreCarriedOverTicketsFromClosure,

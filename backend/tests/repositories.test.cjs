@@ -106,7 +106,7 @@ test("repository mapping helpers and update paths preserve defaults and normaliz
         return { rows: [{ id: 1, tenant_id: 1, name: "Main", slug: "main", is_primary: true, timezone: "Asia/Manila", is_active: true }] };
       }
 
-      if (String(sql).includes("SELECT id FROM store_locations") && String(sql).includes("FOR UPDATE")) {
+      if (String(sql).includes("SELECT id FROM store_locations") && String(sql).includes("FOR NO KEY UPDATE")) {
         return { rows: [{ id: values[0] }] };
       }
 

@@ -134,7 +134,7 @@ test("store locations normalize slugs, reset primary flags, and replace hours", 
         };
       }
 
-      if (String(query).includes("SELECT id FROM store_locations") && String(query).includes("FOR UPDATE")) {
+      if (String(query).includes("SELECT id FROM store_locations") && String(query).includes("FOR NO KEY UPDATE")) {
         return { rows: [{ id: 8 }] };
       }
 
