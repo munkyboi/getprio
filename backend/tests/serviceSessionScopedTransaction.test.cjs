@@ -2141,8 +2141,9 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
       const observer=await pool.connect();let insertion;let entered;let release;
       const ready=new Promise(resolve=>{entered=resolve;});const barrier=new Promise(resolve=>{release=resolve;});
       const writer=catalogWriter({deactivateService:async (...args)=>{entered();await barrier;return realServices.deactivateService(...args);}});
-      const pending=deactivate('court-play','1',writer);pending.catch(()=>{});await Promise.race([ready,pending.then(()=>{throw new Error('writer completed before the lock barrier');})]);
+      const pending=deactivate('court-play','1',writer);pending.catch(()=>{});
       try {
+        await Promise.race([ready,pending.then(()=>{throw new Error('writer completed before the lock barrier');})]);
         for(const sql of ['SELECT id FROM store_locations WHERE id=2 FOR UPDATE NOWAIT','SELECT id FROM store_locations WHERE id=10 FOR UPDATE NOWAIT',
           'SELECT id FROM store_locations WHERE id=30 FOR UPDATE NOWAIT','SELECT id FROM tenants WHERE id=1 FOR UPDATE NOWAIT',
           'SELECT id FROM users WHERE id=1 FOR UPDATE NOWAIT','SELECT id FROM tenant_memberships WHERE id=1 FOR UPDATE NOWAIT',
@@ -2157,7 +2158,11 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
           if(waiting)break;await new Promise(resolve=>setTimeout(resolve,10));
         }
         assert.equal(waiting,true,'branch creation must wait on the held tenant foreign-key target');
-      } finally {release();await pending;await insertion;await observer.query('ROLLBACK');observer.release();}
+      } finally {
+        release();const settled=await Promise.allSettled([pending,insertion]);
+        try {await observer.query('ROLLBACK');} finally {observer.release();}
+        const failed=settled.find(result=>result.status==='rejected');if(failed)throw failed.reason;
+      }
       assert.deepEqual(await revisions(),[{location_id:'2',revision:2},{location_id:'10',revision:2},{location_id:'30',revision:2}]);
     });
     await t.test('catalog deactivation rolls service and all scope revisions back after final revision failure',async () => {
