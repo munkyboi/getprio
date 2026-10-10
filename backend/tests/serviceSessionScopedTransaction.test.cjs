@@ -2141,7 +2141,7 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
       const observer=await pool.connect();let insertion;let entered;let release;
       const ready=new Promise(resolve=>{entered=resolve;});const barrier=new Promise(resolve=>{release=resolve;});
       const writer=catalogWriter({deactivateService:async (...args)=>{entered();await barrier;return realServices.deactivateService(...args);}});
-      const pending=deactivate('court-play','1',writer);pending.catch(()=>{});await ready;
+      const pending=deactivate('court-play','1',writer);pending.catch(()=>{});await Promise.race([ready,pending.then(()=>{throw new Error('writer completed before the lock barrier');})]);
       try {
         for(const sql of ['SELECT id FROM store_locations WHERE id=2 FOR UPDATE NOWAIT','SELECT id FROM store_locations WHERE id=10 FOR UPDATE NOWAIT',
           'SELECT id FROM store_locations WHERE id=30 FOR UPDATE NOWAIT','SELECT id FROM tenants WHERE id=1 FOR UPDATE NOWAIT',
@@ -2307,14 +2307,14 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
       await reset();await enableBookingOverride();let entered;let release;
       const ready=new Promise(resolve=>{entered=resolve;});const barrier=new Promise(resolve=>{release=resolve;});
       const writer=enforcedWriter({updateService:async (...args)=>{entered();await barrier;return realServices.updateService(...args);}});
-      const pending=saveInactive({},writer);pending.catch(()=>{});await ready;const observer=await pool.connect();let revocation;let suspension;
+      const pending=saveInactive({},writer);pending.catch(()=>{});await Promise.race([ready,pending.then(()=>{throw new Error('writer completed before the lock barrier');})]);const observer=await pool.connect();let revocation;let suspension;
       try {
         for(const sql of ['SELECT id FROM tenant_subscriptions WHERE id=1 FOR UPDATE NOWAIT','SELECT id FROM tenant_entitlement_overrides WHERE id=1 FOR UPDATE NOWAIT',
           "SELECT slug FROM subscription_plans WHERE slug='free' FOR UPDATE NOWAIT","SELECT feature_key FROM plan_feature_entitlements WHERE plan_slug='free' FOR UPDATE NOWAIT",
           "SELECT allowance_key FROM plan_allowances WHERE plan_slug='free' FOR UPDATE NOWAIT",'SELECT id FROM entitlement_rollout_anomalies WHERE tenant_id=1 FOR UPDATE NOWAIT']) {
           await observer.query('BEGIN');await assert.rejects(observer.query(sql),{code:'55P03'});await observer.query('ROLLBACK');
         }
-        revocation=actualOverrides.revoke({overrideId:'1',tenantId:'1',actorId:'2'});revocation.catch(()=>{});
+        revocation=actualOverrides.revoke({overrideId:'1',tenantId:'1',actorId:'2'},{client:pool});revocation.catch(()=>{});
         suspension=(async ()=>{const client=await pool.connect();try {await client.query('BEGIN');const result=await actualLifecycle.suspendSubscription('1',{reason:'Suspend policy',actorId:'2'},{client});await client.query('COMMIT');return result;}catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}})();suspension.catch(()=>{});
         const deadline=Date.now()+3000;let waiting=0;
         while(Date.now()<deadline) {
@@ -2322,7 +2322,11 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
           if(waiting===2)break;await new Promise(resolve=>setTimeout(resolve,10));
         }
         assert.equal(waiting,2,'policy revocation and actual subscription suspension must wait for catalog commit');
-      } finally {release();await pending;await revocation;await suspension;await observer.query('ROLLBACK');observer.release();}
+      } finally {
+        release();const settled=await Promise.allSettled([pending,revocation,suspension]);
+        try {await observer.query('ROLLBACK');} finally {observer.release();}
+        const failed=settled.find(result=>result.status==='rejected');if(failed)throw failed.reason;
+      }
       assert.deepEqual(await revisions(),[{location_id:'10',revision:2}]);
       const before=await revisions();await assert.rejects(saveInactive({},enforcedWriter()),{statusCode:403});assert.deepEqual(await revisions(),before);
     });
