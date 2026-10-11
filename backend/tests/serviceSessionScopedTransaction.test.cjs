@@ -2513,7 +2513,7 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
     });
 
     await pool.query("CREATE SEQUENCE location_creation_ids START 50; ALTER TABLE store_locations ALTER COLUMN id SET DEFAULT nextval('location_creation_ids'); ALTER TABLE store_locations ADD CONSTRAINT creation_slug_unique UNIQUE(tenant_id,slug); CREATE TABLE platform_settings(key TEXT PRIMARY KEY,value TEXT); INSERT INTO platform_settings VALUES('default_timezone','Pacific/Auckland')");
-    const locationWriter=(database={pool},overrides={})=>loadService({'../config/db':database,'../repositories/storeLocations':{...realLocations,...overrides}},'locationCreationService');
+    const locationWriter=(database={pool},overrides={})=>loadService({'../config/db':database,'../repositories/storeLocations':{...realLocations,...overrides}},'locationCatalogService');
     const createBranch=(body={name:'New branch',slug:'new'},writer=locationWriter(),selected=tenant,actor='1')=>writer.createVendorLocation(selected,body,{actorUserId:actor});
     async function locationQuota(limit=3) {await pool.query("UPDATE subscription_plans SET entitlements=$1 WHERE slug='free'",[{locations:limit}]);}
     await t.test('branch creation atomically commits closed default hours primary replacement and revisions without changing admitted work',async () => {
@@ -2587,6 +2587,84 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
         const deadline=Date.now()+3000;let waiting=false;while(Date.now()<deadline) {waiting=(await pool.query("SELECT 1 FROM pg_stat_activity WHERE application_name=$1 AND wait_event_type='Lock' AND query LIKE 'UPDATE tenant_subscriptions SET entitlements%'",[schema])).rows.length>0;if(waiting)break;await new Promise(resolve=>setTimeout(resolve,10));}assert.equal(waiting,true);
       } finally {release();const settled=await Promise.allSettled([pending,policyChange]);try {await observer.query('ROLLBACK');}finally{observer.release();}const failed=settled.find(item=>item.status==='rejected');if(failed)throw failed.reason;}
       await assert.rejects(createBranch({name:'Later',slug:'later'}),{statusCode:403});assert.equal(await count('store_locations'),3);
+    });
+    const updateBranch=(body={},writer=locationWriter(),slug='main',selected=tenant,actor='1')=>writer.updateVendorLocation(selected,slug,body,{actorUserId:actor});
+    await t.test('branch settings commit exact partial updates primary replacement and revisions while preserving admitted work',async () => {
+      await reset();await targetBranch();await pool.query('UPDATE store_locations SET is_primary=TRUE WHERE id=30');await ticket('1',{booking:true});await record('1','start');
+      const tables=['bookings','resource_ledger_reservations','resource_allocations','ticket_service_plans','store_hours'];const before=await Promise.all(tables.map(table=>pool.query(`SELECT * FROM ${table} ORDER BY 1`)));const old=await revisions();
+      const branch=await updateBranch({name:' Main edited ',isPrimary:true,isActive:false,timezone:'Pacific/Auckland',customerSelfCheckInEnabled:false,serviceTimingEnabled:false,tenantId:'2',_id:'20',actorUserId:'2'});
+      assert.equal(branch._id,'10');assert.equal(branch.tenantId,'1');assert.equal(branch.name,'Main edited');assert.equal(branch.slug,'main');assert.equal(branch.timezone,'Pacific/Auckland');assert.equal(branch.isPrimary,true);assert.equal(branch.isActive,false);assert.equal(branch.customerSelfCheckInEnabled,false);assert.equal(branch.serviceTimingEnabled,false);
+      assert.equal((await realLocations.findLocationById('30',{client:pool})).isPrimary,false);assert.equal((await realLocations.findLocationById('20',{client:pool})).isActive,true);
+      assert.deepEqual(await revisions(),[{location_id:'10',revision:old[0].revision+1},{location_id:'30',revision:2}]);
+      for(let i=0;i<tables.length;i++)assert.deepEqual((await pool.query(`SELECT * FROM ${tables[i]} ORDER BY 1`)).rows,before[i].rows);
+    });
+    await t.test('branch PATCH rejects current grants scope tampering immutable slug and invalid settings atomically',async () => {
+      for(const sql of ['UPDATE tenant_memberships SET is_active=FALSE WHERE id=1','UPDATE users SET deletion_requested_at=NOW() WHERE id=1','UPDATE users SET platform_access_suspended_at=NOW() WHERE id=1',"UPDATE tenant_memberships SET role='staff' WHERE id=1"]) {
+        await reset();await pool.query(sql);await assert.rejects(updateBranch({name:'Denied'}),{statusCode:403});assert.equal(await count('resource_ledger_scopes'),0);
+      }
+      await reset();
+      for(const body of [{slug:'renamed'},{timezone:'Invalid/Zone'},{isActive:'true'},{isPrimary:1},{customerSelfCheckInEnabled:'false'},{serviceTimingEnabled:0},{paymentQrActive:true}])await assert.rejects(updateBranch(body),{statusCode:400});
+      await assert.rejects(updateBranch({name:'Foreign'},locationWriter(),'other'),{statusCode:404});assert.equal(await count('resource_ledger_scopes'),0);
+      assert.equal((await updateBranch({slug:'main',name:'Same slug'})).slug,'main');
+    });
+    await t.test('branch reactivation and creation serialize the last active seat',async () => {
+      await reset();await targetBranch();await pool.query('UPDATE store_locations SET is_active=FALSE WHERE id=30');await locationQuota(2);
+      const results=await Promise.allSettled([createBranch(),updateBranch({isActive:true},locationWriter(),'other')]);assert.equal(results.filter(item=>item.status==='fulfilled').length,1);assert.ok([403,409].includes(results.find(item=>item.status==='rejected').reason.statusCode));
+      assert.equal((await pool.query('SELECT id FROM store_locations WHERE tenant_id=1 AND is_active')).rows.length,2);
+      await reset();await locationQuota(1);await pool.query('UPDATE store_locations SET is_active=FALSE WHERE id=10');assert.equal((await updateBranch({isActive:true})).isActive,true);
+      assert.equal((await updateBranch({isActive:true,name:'Already active'})).name,'Already active');
+      await targetBranch();await pool.query('UPDATE store_locations SET is_active=FALSE WHERE id=30');await assert.rejects(updateBranch({isActive:true},locationWriter(),'other'),{statusCode:403});
+    });
+    await t.test('branch reactivation denies held quota policy while inactive and already active edits remain available',async () => {
+      await reset();await locationQuota();await pool.query('UPDATE store_locations SET is_active=FALSE WHERE id=10');const blocker=await pool.connect();
+      try {await blocker.query('BEGIN');await blocker.query('SELECT id FROM tenant_subscriptions WHERE id=1 FOR UPDATE');await assert.rejects(updateBranch({isActive:true}),{statusCode:409,code:'LOCATION_POLICY_BUSY'});assert.equal(await count('resource_ledger_scopes'),0);assert.equal((await updateBranch({name:'Inactive edit',isActive:false})).isActive,false);}
+      finally {await blocker.query('ROLLBACK');blocker.release();}
+      await updateBranch({isActive:true});await locationQuota(1);await targetBranch();assert.equal((await updateBranch({name:'Over limit edit'})).name,'Over limit edit');
+    });
+    await t.test('branch PATCH rolls primary metadata and all revisions back on final revision failure',async () => {
+      await reset();await targetBranch();await pool.query('UPDATE store_locations SET is_primary=TRUE WHERE id=30');const before=(await pool.query('SELECT * FROM store_locations ORDER BY id')).rows;
+      const faultPool={connect:async()=>{const client=await pool.connect();return {release:()=>client.release(),query:async(sql,args)=>{if(/UPDATE resource_ledger_scopes/.test(sql))throw new Error('branch update fault');return client.query(sql,args);}};}};
+      await assert.rejects(updateBranch({name:'Rollback',isPrimary:true,isActive:false},locationWriter({pool:faultPool})),/branch update fault/);assert.deepEqual((await pool.query('SELECT * FROM store_locations ORDER BY id')).rows,before);assert.equal(await count('resource_ledger_scopes'),0);
+    });
+    await t.test('branch PATCH rechecks grant slug deletion and active state after branch lock contention',async () => {
+      for(const change of ['grant','slug','delete','quota']) {
+        await reset();await targetBranch();await locationQuota(1);const blocker=await pool.connect();let pending;
+        try {await blocker.query('BEGIN');await blocker.query('SELECT id FROM store_locations WHERE id=30 FOR UPDATE');pending=updateBranch({isActive:true,name:'Waiting'},locationWriter(),'other');pending.catch(()=>{});await waitForLocationLock();
+          if(change==='grant')await blocker.query('UPDATE tenant_memberships SET is_active=FALSE WHERE id=1');
+          if(change==='slug')await blocker.query("UPDATE store_locations SET slug='changed' WHERE id=30");
+          if(change==='delete')await blocker.query('DELETE FROM store_locations WHERE id=30');
+          if(change==='quota')await blocker.query('UPDATE store_locations SET is_active=FALSE WHERE id=30');
+          const denied=assert.rejects(pending,{statusCode:change==='grant'||change==='quota'?403:404});await blocker.query('COMMIT');await denied;
+        }finally{await blocker.query('ROLLBACK');blocker.release();if(pending)await pending.catch(()=>{});}
+        assert.equal(await count('resource_ledger_scopes'),0);
+      }
+    });
+    await t.test('branch payment validation uses locked current fields and concurrent partial edits survive',async () => {
+      await reset();const blocker=await pool.connect();let pending;
+      try {await blocker.query('BEGIN');await blocker.query('SELECT id FROM store_locations WHERE id=10 FOR UPDATE');pending=updateBranch({paymentQrActive:true});pending.catch(()=>{});await waitForLocationLock();
+        await blocker.query("UPDATE store_locations SET payment_method_label='GCash',payment_account_display_name='Current owner',payment_qr_image_url='https://example.test/qr.png',city='Current city' WHERE id=10");await blocker.query('COMMIT');
+        const branch=await pending;assert.equal(branch.paymentAccountDisplayName,'Current owner');assert.equal(branch.city,'Current city');assert.equal(branch.paymentQrActive,true);
+      }finally{await blocker.query('ROLLBACK');blocker.release();if(pending)await pending.catch(()=>{});}
+      await Promise.all([updateBranch({name:'Concurrent name'}),updateBranch({contactPhone:'09170000000'})]);const current=await realLocations.findLocationById('10',{client:pool});assert.equal(current.name,'Concurrent name');assert.equal(current.contactPhone,'09170000000');
+    });
+    await t.test('branch PATCH keeps adjacent large branch identifiers exact for primary and no-op updates',async () => {
+      await reset();const selected='9007199254740993';const neighbor='9007199254740992';await pool.query("INSERT INTO store_locations(id,tenant_id,is_active,slug,is_primary) VALUES($1,1,FALSE,'exact',FALSE),($2,2,TRUE,'exact',TRUE)",[selected,neighbor]);
+      const branch=await updateBranch({name:'Exact',isPrimary:true},locationWriter(),'exact');assert.equal(branch._id,selected);assert.equal(branch.tenantId,'1');assert.equal((await updateBranch({},locationWriter(),'exact'))._id,selected);
+      const untouched=await realLocations.findLocationById(neighbor,{client:pool});assert.equal(untouched.isPrimary,true);assert.notEqual(untouched.name,'Exact');assert.deepEqual(await revisions(),[{location_id:'10',revision:3},{location_id:selected,revision:3}]);
+    });
+    await t.test('branch reactivation holds subscription plan and current grants until its mutation commits',async () => {
+      await reset();await locationQuota();await pool.query('UPDATE store_locations SET is_active=FALSE WHERE id=10');let entered;let release;const ready=new Promise(resolve=>{entered=resolve;});const barrier=new Promise(resolve=>{release=resolve;});
+      const writer=locationWriter({pool},{updateLocation:async(...args)=>{entered();await barrier;return realLocations.updateLocation(...args);}});const pending=updateBranch({isActive:true},writer);pending.catch(()=>{});const observer=await pool.connect();
+      try {await Promise.race([ready,pending.then(()=>{throw new Error('branch update barrier missing');})]);
+        for(const sql of ['SELECT id FROM tenant_subscriptions WHERE id=1 FOR UPDATE NOWAIT',"SELECT slug FROM subscription_plans WHERE slug='free' FOR UPDATE NOWAIT",'SELECT id FROM tenant_memberships WHERE id=1 FOR UPDATE NOWAIT']) {await observer.query('BEGIN');await assert.rejects(observer.query(sql),{code:'55P03'});await observer.query('ROLLBACK');}
+      }finally {release();const settled=await Promise.allSettled([pending]);try{await observer.query('ROLLBACK');}finally{observer.release();}if(settled[0].status==='rejected')throw settled[0].reason;}
+      assert.equal((await realLocations.findLocationById('10',{client:pool})).isActive,true);
+    });
+    await t.test('branch PATCH rejects payment details removed while waiting and permits inactive tenant administration',async () => {
+      await reset();await pool.query("UPDATE store_locations SET payment_method_label='GCash',payment_account_display_name='Owner',payment_qr_image_url='https://example.test/qr.png' WHERE id=10");const blocker=await pool.connect();let pending;
+      try {await blocker.query('BEGIN');await blocker.query('SELECT id FROM store_locations WHERE id=10 FOR UPDATE');pending=updateBranch({paymentQrActive:true});pending.catch(()=>{});await waitForLocationLock();await blocker.query("UPDATE store_locations SET payment_account_display_name='' WHERE id=10");const denied=assert.rejects(pending,{statusCode:400});await blocker.query('COMMIT');await denied;}
+      finally {await blocker.query('ROLLBACK');blocker.release();if(pending)await pending.catch(()=>{});}
+      assert.equal(await count('resource_ledger_scopes'),0);await pool.query('UPDATE tenants SET is_active=FALSE WHERE id=1; UPDATE store_locations SET is_active=FALSE WHERE id=10');assert.equal((await updateBranch({name:'Inactive admin'})).name,'Inactive admin');
     });
     await pool.query('ALTER TABLE store_locations DROP CONSTRAINT creation_slug_unique');
 

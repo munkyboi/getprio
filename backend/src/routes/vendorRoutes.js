@@ -31,7 +31,7 @@ const vendorMediaUploadService = require("../services/vendorMediaUploadService")
 const locationPaymentQrUploadService = require("../services/locationPaymentQrUploadService");
 const bookingService = require("../services/bookingService");
 const resourceConfigurationService = require("../services/resourceConfigurationService");
-const locationCreationService = require("../services/locationCreationService");
+const locationCatalogService = require("../services/locationCatalogService");
 const locationHoursService = require("../services/locationHoursService");
 const availabilityCreationService = require("../services/availabilityCreationService");
 const availabilityUpdateService = require("../services/availabilityUpdateService");
@@ -62,7 +62,6 @@ const {
   getAuthorizedTenant: getAuthorizedTenantHelper,
   getLocationForTenant,
   normalizeCounterSlug,
-  normalizeLocationPayload,
   normalizeRequestText
 } = require("./vendorRouteHelpers");
 const { handleCreateTicket } = require("./vendorQueueHandlers");
@@ -453,7 +452,7 @@ router.post(
   "/tenant/:tenantSlug/locations",
   asyncHandler((req, res) =>
     handleCreateLocation({
-      req, res, getAuthorizedTenant, assertTenantPermission, locationCreationService, formatLocation
+      req, res, getAuthorizedTenant, assertTenantPermission, locationCatalogService, formatLocation
     })
   )
 );
@@ -462,15 +461,7 @@ router.patch(
   "/tenant/:tenantSlug/locations/:locationSlug",
   asyncHandler((req, res) =>
     handleUpdateLocation({
-      req,
-      res,
-      getAuthorizedTenant,
-      assertTenantPermission,
-      billingService,
-      storeLocationRepository,
-      normalizeLocationPayload,
-      formatLocation,
-      getLocationForTenant
+      req, res, getAuthorizedTenant, assertTenantPermission, locationCatalogService, formatLocation
     })
   )
 );
