@@ -50,7 +50,7 @@ export class ArrivalBarcodeController {
       const wallReceived = this.wallNow();
       const remaining = expires - server - Math.max(0, this.now() - started, wallReceived - wallStarted);
       if (!/^QB[A-F0-9]{32}$/.test(credential.barcodeToken) || !Number.isFinite(remaining) ||
-          expires - issued !== 120000 || server < issued || remaining <= 0 || wallReceived < wallStarted) throw new Error("Barcode expired. Please retry.");
+          expires - issued !== 120000 || server < issued || remaining <= 0 || wallReceived < wallStarted) throw new Error("QR code expired. Please retry.");
       this.value = credential.barcodeToken;
       this.deadline = this.now() + remaining;
       this.wallDeadline = wallReceived + remaining;
@@ -59,7 +59,7 @@ export class ArrivalBarcodeController {
     } catch (error) {
       if (this.stopped || generation !== this.generation) return;
       this.options.onChange({ value: "", remainingSeconds: 0, loading: false,
-        error: error instanceof Error ? error.message : "Barcode unavailable. Please retry." });
+        error: error instanceof Error ? error.message : "QR code unavailable. Please retry." });
     }
   }
 
@@ -71,7 +71,7 @@ export class ArrivalBarcodeController {
     if (remaining <= 0 || wallTime < this.lastWallTime) {
       if (this.offline) {
         this.value = "";
-        this.options.onChange({ value: "", remainingSeconds: 0, loading: false, error: "Barcode expired. Reconnect to refresh." });
+        this.options.onChange({ value: "", remainingSeconds: 0, loading: false, error: "QR code expired. Reconnect to refresh." });
         return;
       }
       void this.refresh();
@@ -92,7 +92,7 @@ export class ArrivalBarcodeController {
     ++this.generation;
     this.cancelTimer?.();
     if (this.value && !this.stopped) this.tick();
-    else this.options.onChange({ value: "", remainingSeconds: 0, loading: false, error: "Reconnect to load an arrival barcode." });
+    else this.options.onChange({ value: "", remainingSeconds: 0, loading: false, error: "Reconnect to load an arrival QR code." });
   }
 
   pause() {
@@ -101,7 +101,7 @@ export class ArrivalBarcodeController {
     ++this.generation;
     this.cancelTimer?.();
     this.value = "";
-    this.options.onChange({ value: "", remainingSeconds: 0, loading: false, error: "Barcode paused. Reconnect or return to this page to refresh." });
+    this.options.onChange({ value: "", remainingSeconds: 0, loading: false, error: "QR code paused. Reconnect or return to this page to refresh." });
   }
 
   dispose() {

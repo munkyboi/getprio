@@ -25,7 +25,7 @@ export default function ArrivalQRCode({ value }: Readonly<{ value: string }>) {
     };
   }, [value]);
   return <div className="ticket-page-arrival-qr">
-    {image?.value === value ? <img src={image.url} alt="Current arrival QR barcode" width={232} height={232} /> :
-      <span>Preparing arrival QR barcode…</span>}
+    {image?.value === value ? <img src={image.url} alt="Current arrival QR code" width={232} height={232} /> :
+      <span>Preparing arrival QR code…</span>}
   </div>;
 }

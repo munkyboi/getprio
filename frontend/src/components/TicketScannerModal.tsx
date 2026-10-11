@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Alert, Button, Group, Modal, Stack, Text, TextInput } from "@mantine/core";
-import { IconBarcode, IconCamera, IconRefresh } from "@tabler/icons-react";
+import { IconQrcode, IconCamera, IconRefresh } from "@tabler/icons-react";
 import type { IScannerControls } from "@zxing/browser";
 
 type TicketScannerModalProps = {
@@ -112,33 +112,33 @@ export default function TicketScannerModal({
       title={
         <div>
           <Text className="neura-label">QUEUE CHECK-IN</Text>
-          <Text fw={800} size="xl">Confirm {ticketNumber || "called ticket"}</Text>
+          <Text fw={800} size="xl">Scan QR code for {ticketNumber || "called ticket"}</Text>
         </div>
       }
     >
       <Stack gap="md">
         <Text c="dimmed" size="sm">
-          Scan the barcode on the customer&apos;s ticket. Only the currently called ticket can be confirmed.
+          Scan the QR code on the customer&apos;s ticket. Only the currently called ticket can be confirmed.
         </Text>
 
         <div className="ticket-scanner-camera">
-          <video aria-label="Ticket barcode camera preview" autoPlay muted playsInline ref={videoRef} />
+          <video aria-label="Ticket QR code camera preview" autoPlay muted playsInline ref={videoRef} />
           <div className="ticket-scanner-guide" aria-hidden="true" />
           <Text className="ticket-scanner-status" size="xs">
-            {scanning ? "Point the barcode inside the frame" : lookupCode ? "Barcode captured" : "Camera stopped"}
+            {scanning ? "Point the QR code inside the frame" : lookupCode ? "Code captured" : "Camera stopped"}
           </Text>
         </div>
 
         {cameraError ? <Alert color="orange" icon={<IconCamera size={18} />}>{cameraError}</Alert> : null}
-        {error ? <Alert color="red" icon={<IconBarcode size={18} />}>{error}</Alert> : null}
+        {error ? <Alert color="red" icon={<IconQrcode size={18} />}>{error}</Alert> : null}
 
         <TextInput
           autoCapitalize="characters"
-          description="Enter the current barcode value, or the ticket code for tickets without rotating protection."
-          label="Barcode or ticket code"
+          description="Enter the value from the customer’s QR code, or their ticket code."
+          label="QR value or ticket code"
           maxLength={34}
           onChange={(event) => setLookupCode(event.currentTarget.value.toUpperCase())}
-          placeholder="For example, 3C7DF54B"
+          placeholder="Enter QR value or ticket code"
           value={lookupCode}
         />
 

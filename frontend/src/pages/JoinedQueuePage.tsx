@@ -149,7 +149,7 @@ function TicketBarcode({ value }: { value: string }) {
     <div className="ticket-page-barcode" aria-label={`Ticket ID ${value}`}>
       <svg
         ref={barcodeRef}
-        aria-label={`Barcode for ticket ID ${value}`}
+        aria-label={`Ticket code for ticket ID ${value}`}
         preserveAspectRatio="none"
         role="img"
       />
@@ -187,8 +187,8 @@ function RotatingTicketBarcode({ ticketId, token }: Readonly<{ ticketId: string;
   }, [ticketId, token]);
   return <Stack gap="xs" aria-live="polite">
     {state.value ? <><ArrivalQRCode value={state.value} /><Text className="ticket-page-barcode-value" ta="center" c="dimmed" size="sm">{state.value}</Text><Text ta="center" c="dimmed" size="sm" aria-live="off">Refreshes in {state.remainingSeconds}s</Text></> :
-      <Text ta="center" c="dimmed" size="sm">{state.loading ? "Loading arrival barcode…" : state.error}</Text>}
-    {state.error ? <Button mih={44} onClick={() => void controller.current?.refresh()} variant="default">Retry barcode</Button> : null}
+      <Text ta="center" c="dimmed" size="sm">{state.loading ? "Loading arrival QR code…" : state.error}</Text>}
+    {state.error ? <Button mih={44} onClick={() => void controller.current?.refresh()} variant="default">Retry QR code</Button> : null}
   </Stack>;
 }
 
@@ -707,7 +707,7 @@ export default function JoinedQueuePage() {
   if (focusTicket?.barcodeRotationRequired && ["waiting", "called", "skipped", "pending_carry_over"].includes(focusTicket.status) &&
       !focusTicket.customerConfirmedAt && !focusTicket.serviceStartedAt && !focusTicket.serviceEndedAt && !focusTicket.serviceOutcome) {
     ticketBarcode = token ? <RotatingTicketBarcode key={`${focusTicket.id}:${token}`} ticketId={focusTicket.id} token={token} /> :
-      <Text ta="center" size="sm">Sign in to the ticket owner’s account to display its current arrival barcode.</Text>;
+      <Text ta="center" size="sm">Sign in to the ticket owner’s account to display its current arrival QR code.</Text>;
   }
 
   return (
