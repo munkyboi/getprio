@@ -28,11 +28,11 @@ export function getBookings(
   search: string,
   status: string,
   dateRange: [string | null, string | null],
-  hideCompleted = false
+  hideNonActive = false
 ) {
   const statusQuery = status !== "all"
     ? `&status=${encodeURIComponent(status)}`
-    : hideCompleted ? "&hideCompleted=true" : "";
+    : hideNonActive ? "&hideNonActive=true" : "";
   const [dateFrom, dateTo] = dateRange;
   const dateQuery = [
     dateFrom ? `scheduledDateFrom=${encodeURIComponent(dateFrom)}` : "",

@@ -690,3 +690,35 @@ test("check-in business and branch rereads retain BIGINT scope parameters", asyn
   await locationRepository.findLocationById(id,{client});
   assert.deepEqual(calls,[[id],[id]]);
 });
+
+
+test("vendor status filters apply equally to count and paginated rows", async () => {
+  const cases = [
+    { options: { hideNonActive: true }, expected: /bookings.status IN \('pending', 'confirmed', 'rescheduled'\)/, expiry: /bookings.expired_at IS NULL/ },
+    { options: { status: "expired" }, expected: /bookings.expired_at IS NOT NULL/ },
+    { options: { status: "missed" }, expected: /bookings.status = \$3/, expiry: /bookings.expired_at IS NULL/, parameter: "missed" },
+    { options: { status: "canceled", hideNonActive: true }, expected: /bookings.status = \$3/, expiry: /bookings.expired_at IS NULL/, parameter: "canceled" },
+    { options: {}, expected: /bookings.tenant_id = \$1/ }
+  ];
+  for (const { options, expected, expiry, parameter } of cases) {
+    const calls = [];
+    const repository = requireWithMocks("../src/repositories/bookings.js", {
+      "../config/db": { pool: { query: async (query, params) => {
+        calls.push({ query: String(query), params });
+        return { rows: /SELECT COUNT/.test(query) ? [{ count: 12 }] : [] };
+      } } }
+    });
+    const result = await repository.listBookingsForTenant(7, { locationId: 9, page: 2, pageSize: 10, ...options });
+    assert.equal(result.totalItems, 12);
+    assert.equal(calls.length, 2);
+    for (const call of calls) {
+      assert.match(call.query, expected);
+      assert.deepEqual(call.params.slice(0, 2), [7, 9]);
+      if (expiry) assert.match(call.query, expiry);
+      if (parameter) assert.equal(call.params[2], parameter);
+      if (options.status || !options.hideNonActive) assert.doesNotMatch(call.query, /bookings.status IN/);
+      if (!options.status && !options.hideNonActive) assert.doesNotMatch(call.query, /bookings.expired_at IS/);
+    }
+    assert.deepEqual(calls[1].params.slice(-2), [10, 10]);
+  }
+});

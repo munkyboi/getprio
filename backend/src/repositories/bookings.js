@@ -648,9 +648,18 @@ async function listBookingsForTenant(tenantId, options = {}) {
     filters.push(`bookings.location_id = $${params.length}`);
   }
 
-  if (options.status) {
+  if (options.status === "expired") {
+    filters.push("bookings.expired_at IS NOT NULL");
+  } else if (options.status) {
     params.push(String(options.status));
     filters.push(`bookings.status = $${params.length}`);
+    // Expired records display as expired, even though their stored status is canceled.
+    filters.push("bookings.expired_at IS NULL");
+  }
+
+  if (!options.status && options.hideNonActive === true) {
+    filters.push("bookings.status IN ('pending', 'confirmed', 'rescheduled')");
+    filters.push("bookings.expired_at IS NULL");
   }
 
   if (!options.status && options.hideCompleted === true) {
