@@ -3,25 +3,19 @@ const assert = require("node:assert/strict");
 
 const { handleCreateLocation, handleUpdateLocation } = require("../src/routes/vendorLocationHandlers");
 
-test("vendor location handler rejects active location limit", async () => {
-  await assert.rejects(
-    () =>
-      handleCreateLocation({
-        req: { user: {}, params: { tenantSlug: "tenant" }, query: {}, body: { isActive: true } },
-        res: {},
-        getAuthorizedTenant: async () => ({ _id: 1 }),
-        assertTenantPermission: () => {},
-        billingService: { getBillingOverview: async () => ({ subscription: { entitlements: { locations: 1 } } }) },
-        storeLocationRepository: {
-          listLocationsByTenantId: async () => [{ isActive: true }],
-          createLocation: async () => ({}),
-          createDefaultHours: async () => {}
-        },
-        normalizeLocationPayload: (body) => body,
-        formatLocation: async () => ({})
-      }),
-    (error) => error.statusCode === 403
-  );
+test("vendor location creation forwards authenticated actor and server tenant", async () => {
+  const tenant={_id:'9007199254740993'};const body={name:'Branch',tenantId:'other',actorUserId:'spoof'};
+  const res={statusCode:null,body:null,status(value){this.statusCode=value;return this;},json(value){this.body=value;}};
+  await handleCreateLocation({req:{user:{_id:'actor'},params:{tenantSlug:'tenant'},body},res,
+    getAuthorizedTenant:async()=>tenant,assertTenantPermission:(_user,id,permission)=>{assert.equal(id,tenant._id);assert.equal(permission,'tenant.location.manage');},
+    locationCreationService:{createVendorLocation:async(selected,payload,options)=>{assert.equal(selected,tenant);assert.equal(payload,body);assert.deepEqual(options,{actorUserId:'actor'});return {_id:'branch'};}},
+    formatLocation:async(location,selected)=>{assert.equal(selected,tenant);return {id:location._id};}});
+  assert.equal(res.statusCode,201);assert.deepEqual(res.body,{location:{id:'branch'}});
+});
+
+test("vendor location creation preserves domain quota rejection", async () => {
+  await assert.rejects(handleCreateLocation({req:{user:{_id:'actor'},params:{tenantSlug:'tenant'},body:{}},res:{},getAuthorizedTenant:async()=>({_id:'1'}),assertTenantPermission:()=>{},
+    locationCreationService:{createVendorLocation:async()=>{throw Object.assign(new Error('Active location limit exceeded'),{statusCode:403});}}}),{statusCode:403});
 });
 
 test("vendor location handlers create and update locations through injected services", async () => {
@@ -53,20 +47,22 @@ test("vendor location handlers create and update locations through injected serv
   };
 
   await handleCreateLocation({
-    req: { user: {}, params: { tenantSlug: "tenant" }, query: {}, body: { name: "Branch" } },
+    req: { user: { _id: "actor" }, params: { tenantSlug: "tenant" }, query: {}, body: { name: "Branch" } },
     res: response,
     getAuthorizedTenant: async () => ({ _id: 1 }),
     assertTenantPermission: () => {},
     billingService: { getBillingOverview: async () => ({ subscription: { entitlements: { locations: 2 } } }) },
     storeLocationRepository,
-    platformRepository: { getPlatformSettings: async () => ({ defaultTimezone: "Pacific/Auckland" }) },
+    locationCreationService: { createVendorLocation: async (tenant, body, options) => {
+      assert.equal(tenant._id, 1);assert.equal(options.actorUserId,"actor");createdLocations.push(body);return {_id:2};
+    } },
     normalizeLocationPayload: (body) => body,
     formatLocation: async () => ({ id: "2" })
   });
 
   assert.equal(response.statusCode, 201);
   assert.deepEqual(response.body.location, { id: "2" });
-  assert.equal(createdLocations[0].timezone, "Pacific/Auckland");
+  assert.equal(createdLocations[0].name, "Branch");
 
   const updateResponse = {
     statusCode: null,

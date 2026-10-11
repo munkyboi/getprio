@@ -132,7 +132,7 @@ async function listLocationsByTenantId(tenantId, options = {}) {
       WHERE tenant_id = $1
       ORDER BY is_primary DESC, name ASC
     `,
-    [Number(tenantId)]
+    [tenantId]
   );
 
   return result.rows.map(mapLocation);
@@ -245,7 +245,7 @@ async function createLocation(data, options = {}) {
   if (isPrimary) {
     await queryClient.query(
       `UPDATE store_locations SET is_primary = FALSE WHERE tenant_id = $1`,
-      [Number(data.tenantId)]
+      [data.tenantId]
     );
   }
 
@@ -280,7 +280,7 @@ async function createLocation(data, options = {}) {
       RETURNING ${LOCATION_COLUMNS}
     `,
     [
-      Number(data.tenantId),
+      data.tenantId,
       data.name,
       normalizeSlug(data.slug || data.name),
       data.imageUrl || null,
@@ -392,7 +392,7 @@ async function listHoursByLocationId(locationId, options = {}) {
       WHERE location_id = $1
       ORDER BY weekday ASC, opens_at ASC NULLS LAST, closes_at ASC NULLS LAST, id ASC
     `,
-    [Number(locationId)]
+    [locationId]
   );
 
   return result.rows.map(mapHour);
@@ -432,9 +432,9 @@ async function replaceHours(locationId, hours, options = {}) {
     intervalsByDay.set(weekday, [...existingRanges, ...ranges]);
   }
   const persist = async (queryClient) => {
-    const location = await queryClient.query("SELECT id FROM store_locations WHERE id = $1 FOR NO KEY UPDATE", [Number(locationId)]);
+    const location = await queryClient.query("SELECT id FROM store_locations WHERE id = $1 FOR NO KEY UPDATE", [locationId]);
     if (!location.rows.length) throw Object.assign(new Error("Operating-hours location not found."), { statusCode: 404 });
-    await queryClient.query(`DELETE FROM store_hours WHERE location_id = $1`, [Number(locationId)]);
+    await queryClient.query(`DELETE FROM store_hours WHERE location_id = $1`, [locationId]);
 
     for (const hour of normalizedHours) {
       await queryClient.query(
@@ -443,7 +443,7 @@ async function replaceHours(locationId, hours, options = {}) {
           VALUES ($1, $2, $3, $4, $5)
         `,
         [
-          Number(locationId),
+          locationId,
           Number(hour.weekday),
           hour.opensAt || null,
           hour.closesAt || null,

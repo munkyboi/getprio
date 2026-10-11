@@ -111,7 +111,7 @@ async function getActiveSubscriptionByTenantId(tenantId, options = {}) {
       LIMIT 1
       ${options.forShare ? "FOR SHARE" : ""}
     `,
-    [Number(tenantId)]
+    [tenantId]
   );
 
   return mapSubscription(result.rows[0]);
