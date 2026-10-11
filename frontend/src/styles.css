@@ -2176,6 +2176,7 @@ body {
 }
 
 .ticket-page-barcode-value {
+  overflow-wrap: anywhere;
   margin-top: 0.35rem;
   margin-bottom: 0;
   font-variant-numeric: tabular-nums;
@@ -8124,4 +8125,16 @@ button:hover > .rating-star { transform: scale(1.08); }
   .vendor-location-settings-tabs > .mantine-Tabs-list > .mantine-Tabs-tab {
     padding-inline: 1.25rem;
   }
+}
+
+.ticket-page-arrival-qr {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+}
+
+.ticket-page-arrival-qr canvas {
+  display: block;
+  width: 232px;
+  height: 232px;
 }

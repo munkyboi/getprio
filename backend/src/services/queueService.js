@@ -1,3 +1,4 @@
+const ticketBarcodeService = require("./ticketBarcodeService");
 const ticketServicePlanService = require("./ticketServicePlanService");
 const storeHoursService = require("./storeHoursService");
 const { withVendorQueueTransaction, readAuthorizedVendorQueueActor } = require("./vendorQueueTransactionService");
@@ -932,11 +933,9 @@ async function confirmCurrentTicket(tenant, lookupCode, options = {}) {
       return null;
     }
 
-    if (String(currentTicket.lookupCode || "").toUpperCase() !== normalizedLookupCode) {
-      const error = new Error("Scanned ticket does not match the current called ticket.");
-      error.statusCode = 409;
-      throw error;
-    }
+    await ticketBarcodeService.assertConfirmationCredential(client, currentTicket, {
+      lookupCode: normalizedLookupCode, barcodeToken: options.barcodeToken
+    });
 
     if (currentTicket.customerConfirmedAt) {
       return { ticket: currentTicket, changed: false };

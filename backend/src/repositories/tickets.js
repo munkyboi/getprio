@@ -409,11 +409,12 @@ async function findTicketByIdForUpdate(ticketId, options = {}) {
 async function findTicketByTenantAndLookupCode(tenantId, lookupCode, options = {}) {
   const queryClient = buildQueryClient(options.client);
   const result = await queryClient.query(
-    `SELECT ${withLinkedBookingReferenceSelect()} FROM tickets WHERE tenant_id = $1 AND lookup_code = $2 LIMIT 1`,
+    `SELECT ${withLinkedBookingReferenceSelect()}, EXISTS(SELECT 1 FROM queue_ticket_barcodes WHERE ticket_id=tickets.id) AS barcode_rotation_enabled FROM tickets WHERE tenant_id = $1 AND lookup_code = $2 LIMIT 1`,
     [Number(tenantId), lookupCode]
   );
 
-  return mapTicket(result.rows[0]);
+  const row = result.rows[0];
+  return row ? { ...mapTicket(row), barcodeRotationEnabled: Boolean(row.barcode_rotation_enabled) } : null;
 }
 
 async function findVendorTicketForUpdate(tenantId, locationId, ticketId, options = {}) {

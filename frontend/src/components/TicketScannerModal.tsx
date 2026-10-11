@@ -134,9 +134,9 @@ export default function TicketScannerModal({
 
         <TextInput
           autoCapitalize="characters"
-          description="Use this if camera access is unavailable."
-          label="Manual ticket code"
-          maxLength={8}
+          description="Enter the current barcode value, or the ticket code for tickets without rotating protection."
+          label="Barcode or ticket code"
+          maxLength={34}
           onChange={(event) => setLookupCode(event.currentTarget.value.toUpperCase())}
           placeholder="For example, 3C7DF54B"
           value={lookupCode}
