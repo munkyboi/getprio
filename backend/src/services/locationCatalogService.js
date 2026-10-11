@@ -43,7 +43,7 @@ async function updateVendorLocation(tenant, locationSlug, body, { actorUserId })
     const location = await locations.findLocationByTenantAndSlug(tenant._id, locationSlug, { client });
     if (!location) throw Object.assign(new Error("Location not found."), { statusCode: 404 });
     const changes = normalizeLocationPayload(body, location);
-    if (Object.prototype.hasOwnProperty.call(changes, "slug") && changes.slug !== location.slug) {
+    if (Object.hasOwn(changes, "slug") && changes.slug !== location.slug) {
       throw Object.assign(new Error("Location slug cannot be changed after creation."), { statusCode: 400 });
     }
     delete changes.slug;

@@ -137,7 +137,7 @@ async function formatLocation(location, tenant) {
 function normalizeLocationPayload(body, existingLocation = null) {
   const next = { ...body };
   for (const field of ["isActive", "isPrimary"]) {
-    if (Object.prototype.hasOwnProperty.call(next, field) && typeof next[field] !== "boolean") {
+    if (Object.hasOwn(next, field) && typeof next[field] !== "boolean") {
       throw Object.assign(new Error("Location active and primary settings must be true or false."), { statusCode: 400 });
     }
   }
