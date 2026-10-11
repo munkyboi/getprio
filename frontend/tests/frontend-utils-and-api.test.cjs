@@ -1752,7 +1752,7 @@ test("vendor navigation combines tenant role RBAC with effective plan entitlemen
   assert.match(dashboard, /canAccessVendorSection\("bookings", effectiveEntitlements\)/);
 });
 
-test("vendor queue confirms called tickets through a barcode scan", () => {
+test("vendor queue confirms called tickets through a QR code scan", () => {
   const frontendRoot = path.resolve(__dirname, "..");
   const dashboard = fs.readFileSync(path.join(frontendRoot, "src", "pages", "VendorDashboardPage.tsx"), "utf8");
   const scanner = fs.readFileSync(path.join(frontendRoot, "src", "components", "TicketScannerModal.tsx"), "utf8");
@@ -1766,7 +1766,7 @@ test("vendor queue confirms called tickets through a barcode scan", () => {
   assert.doesNotMatch(dashboard, />\s*Serve current\s*<\/Button>/);
   assert.match(scanner, /BrowserMultiFormatReader/);
   assert.match(scanner, /decodeFromVideoDevice/);
-  assert.match(scanner, /Barcode or ticket code/);
+  assert.match(scanner, /QR value or ticket code/);
   assert.match(scanner, /maxLength=\{34\}/);
   assert.match(queueApi, /\/queue\/current\/confirm\$\{locationQuery\}/);
 });

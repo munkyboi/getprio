@@ -66,7 +66,7 @@ router.use(moderatePublicText);
 const barcodeLimiter = rateLimit({
   windowMs: 60 * 1000, limit: 120, standardHeaders: true, legacyHeaders: false,
   keyGenerator: (req) => String(req.user._id),
-  message: { message: "Too many barcode requests. Please try again later." }
+  message: { message: "Too many QR code requests. Please try again later." }
 });
 router.post("/queue/tickets/:ticketId/barcode", barcodeLimiter, asyncHandler(async (req, res) => {
   res.setHeader("Cache-Control", "no-store");
