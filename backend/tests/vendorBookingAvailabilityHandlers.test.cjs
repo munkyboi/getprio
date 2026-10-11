@@ -438,3 +438,27 @@ test("partial exception validation preserves the database calendar date across l
   }, {}, async () => { throw new Error("no location change"); });
   assert.equal(payload.exceptionDate, "2026-10-10"); assert.equal(payload.capacity, 3);
 });
+
+
+test("vendor list accepts expired and missed filters and forwards active-only scope", async () => {
+  for (const status of ["expired", "missed", ""]) {
+    let options;
+    await handleListBookings({
+      req: { user: {}, params: { tenantSlug: "tenant" }, query: { location: "main", status, hideNonActive: "true" } },
+      res: { json() {} },
+      getAuthorizedTenant: async () => ({ _id: 1 }),
+      assertTenantPermission() {},
+      getLocationForTenant: async () => ({ _id: 2 }),
+      bookingService: { expirePendingBookingsForTenant: async () => {} },
+      bookingRepository: { listBookingsForTenant: async (_tenantId, filters) => {
+        options = filters;
+        return { bookings: [], totalItems: 0 };
+      } },
+      formatPaginationMetadata: () => ({}),
+      parsePaginationParams: () => ({ page: 1, pageSize: 10 })
+    });
+    assert.equal(options.status, status || null);
+    assert.equal(options.hideNonActive, !status);
+    assert.equal(options.locationId, 2);
+  }
+});

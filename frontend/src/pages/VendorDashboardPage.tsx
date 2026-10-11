@@ -692,7 +692,7 @@ type SettingsTab = "contact" | "queue" | "notifications";
 type QueueView = "current" | "overflow" | "recovery";
 type ClientSort = "latestVisitDesc" | "latestVisitAsc" | "nameAsc" | "nameDesc" | "visitsDesc" | "visitsAsc";
 type HistorySort = "updatedDesc" | "updatedAsc" | "ticketAsc" | "ticketDesc" | "customerAsc" | "customerDesc";
-type BookingStatusFilter = "all" | "pending" | "confirmed" | "rescheduled" | "completed" | "canceled";
+type BookingStatusFilter = "all" | "pending" | "confirmed" | "rescheduled" | "completed" | "canceled" | "expired" | "missed";
 
 const CLIENTS_PAGE_SIZE = 10;
 const HISTORY_PAGE_SIZE = 10;
@@ -1139,7 +1139,7 @@ export default function VendorDashboardPage() {
   const [historyPage, setHistoryPage] = useState(1);
   const [bookingSearch, setBookingSearch] = useState("");
   const [bookingStatusFilter, setBookingStatusFilter] = useState<BookingStatusFilter>("all");
-  const [hideCompletedBookings, setHideCompletedBookings] = useState(true);
+  const [hideNonActiveBookings, setHideNonActiveBookings] = useState(true);
   const [bookingDateRange, setBookingDateRange] = useState<[Date | null, Date | null]>([null, null]);
   const [bookingPage, setBookingPage] = useState(1);
   const [bookingPagination, setBookingPagination] = useState<PaginationMetadata | null>(null);
@@ -1428,7 +1428,7 @@ export default function VendorDashboardPage() {
       bookingPage,
       bookingSearch,
       bookingStatusFilter,
-      hideCompletedBookings,
+      hideNonActiveBookings,
       bookingDateRange
     ],
     queryFn: async () => {
@@ -1439,7 +1439,7 @@ export default function VendorDashboardPage() {
       return vendorDashboardBookings.getBookings(token, selectedTenantSlug, selectedLocationSlug, bookingPage, bookingSearch, bookingStatusFilter, [
         bookingDateRange[0] ? formatDateInputValue(bookingDateRange[0]) : null,
         bookingDateRange[1] ? formatDateInputValue(bookingDateRange[1]) : null
-      ], hideCompletedBookings);
+      ], hideNonActiveBookings);
     },
     enabled: Boolean(
       canLoadProtectedDashboard &&
@@ -2022,7 +2022,7 @@ export default function VendorDashboardPage() {
             bookingPage,
             bookingSearch,
             bookingStatusFilter,
-            hideCompletedBookings,
+            hideNonActiveBookings,
             bookingDateRange
           ]
         });
@@ -2056,7 +2056,7 @@ export default function VendorDashboardPage() {
     bookingPage,
     bookingSearch,
     bookingStatusFilter,
-    hideCompletedBookings,
+    hideNonActiveBookings,
     hasActiveSubscription,
     locationQuery,
     queryClient,
@@ -2791,7 +2791,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
 
   useEffect(() => {
     setBookingPage(1);
-  }, [bookingSearch, bookingStatusFilter, hideCompletedBookings, bookingDateRange, selectedTenantSlug, selectedLocationSlug]);
+  }, [bookingSearch, bookingStatusFilter, hideNonActiveBookings, bookingDateRange, selectedTenantSlug, selectedLocationSlug]);
 
   async function runAction(
     actionName: string,
@@ -2898,7 +2898,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         bookingPage,
         bookingSearch,
         bookingStatusFilter,
-        hideCompletedBookings,
+        hideNonActiveBookings,
         bookingDateRange
       ]
     });
@@ -7698,21 +7698,27 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     { label: "Confirmed", value: "confirmed" },
                     { label: "Rescheduled", value: "rescheduled" },
                     { label: "Completed", value: "completed" },
-                    { label: "Canceled", value: "canceled" }
+                    { label: "Canceled", value: "canceled" },
+                    { label: "Expired", value: "expired" },
+                    { label: "Missed", value: "missed" }
                   ]}
                   label="Status"
                   value={bookingStatusFilter}
-                  onChange={(value) => setBookingStatusFilter((value || "all") as BookingStatusFilter)}
+                  onChange={(value) => {
+                    setBookingStatusFilter((value || "all") as BookingStatusFilter);
+                    setHideNonActiveBookings(false);
+                  }}
                 />
-                {bookingStatusFilter === "all" ? (
-                  <Checkbox
-                    label="Hide completed bookings"
-                    checked={hideCompletedBookings}
-                    onChange={(event) => setHideCompletedBookings(event.currentTarget.checked)}
-                    mt={24}
-                    styles={{ body: { minHeight: 44, alignItems: "center" }, label: { cursor: "pointer" } }}
-                  />
-                ) : null}
+                <Checkbox
+                  label="Hide non-active bookings"
+                  checked={hideNonActiveBookings}
+                  onChange={(event) => {
+                    setHideNonActiveBookings(event.currentTarget.checked);
+                    if (event.currentTarget.checked) setBookingStatusFilter("all");
+                  }}
+                  mt={24}
+                  styles={{ body: { minHeight: 44, alignItems: "center" }, label: { cursor: "pointer" } }}
+                />
                 <DatePickerInput
                   type="range"
                   clearable

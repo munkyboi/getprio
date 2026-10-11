@@ -155,7 +155,7 @@ async function handleListBookings({ req, res, getAuthorizedTenant, assertTenantP
   const scheduledDateFrom = String(req.query.scheduledDateFrom || req.query.scheduledDate || "").trim();
   const scheduledDateTo = String(req.query.scheduledDateTo || req.query.scheduledDate || "").trim();
   const search = String(req.query.search || "").trim();
-  const allowedStatuses = new Set(["pending", "confirmed", "rescheduled", "completed", "canceled", "disputed", "reviewed"]);
+  const allowedStatuses = new Set(["pending", "confirmed", "rescheduled", "completed", "canceled", "disputed", "reviewed", "expired", "missed"]);
   if (status && !allowedStatuses.has(status)) {
     const error = new Error("Unsupported booking status filter.");
     error.statusCode = 400;
@@ -171,6 +171,7 @@ async function handleListBookings({ req, res, getAuthorizedTenant, assertTenantP
     pageSize,
     locationId: location?._id,
     status: status || null,
+    hideNonActive: !status && req.query.hideNonActive === "true",
     hideCompleted: !status && req.query.hideCompleted === "true",
     scheduledDateFrom: scheduledDateFrom || null,
     scheduledDateTo: scheduledDateTo || null,
