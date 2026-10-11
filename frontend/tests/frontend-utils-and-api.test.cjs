@@ -1481,7 +1481,9 @@ test("queue ticket details show joined date metadata and themed ticket number al
   assert.match(source, /<Divider className="ticket-page-barcode-divider" \/>/);
   assert.match(source, /barcodeRotationRequired/);
   assert.match(source, /<RotatingTicketBarcode/);
-  assert.match(source, /<TicketBarcode value=\{focusTicket\?\.lookupCode \|\| lookupCode\} \/>/);
+  assert.match(source, /if \(focusTicket\) ticketBarcode = <TicketBarcode value=\{focusTicket\.lookupCode\} \/>/);
+  assert.match(source, /Loading ticket arrival details/);
+  assert.doesNotMatch(source, /<TicketBarcode value=\{[^}]*lookupCode \|\| lookupCode/);
   assert.doesNotMatch(source, /getBusinessCategoryLabel/);
   assert.doesNotMatch(source, /className="vendor-hero-description"/);
   assert.equal((source.match(/formatHoursLabel\(locationHours\[todayIndex\]\)/g) || []).length, 1);
