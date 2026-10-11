@@ -7237,6 +7237,10 @@ h2 {
   background: var(--getprio-modal-paper, var(--mantine-color-body));
 }
 
+.booking-detail__footer .mantine-Button-root {
+  min-height: 44px;
+}
+
 .customer-booking-campaign-card {
   background:
     linear-gradient(135deg, rgba(255, 122, 21, 0.08) 0%, rgba(255, 255, 255, 0) 44%),
@@ -8087,22 +8091,6 @@ button:hover > .rating-star { transform: scale(1.08); }
   .support-primary-card { padding: 2.5rem; }
   .support-vendor-card { padding: 2rem; }
   .support-contact-action { align-items: flex-start; }
-}
-
-/* Check-in follows the booking footer's full-width mobile action layout. */
-.booking-detail__check-in {
-  width: 100%;
-}
-
-.booking-detail__check-in > .mantine-Button-root {
-  width: 100%;
-}
-
-@media (min-width: 48.0625em) {
-  .booking-detail__check-in {
-    width: auto;
-    max-width: 18rem;
-  }
 }
 
 /* Location setup uses equal-width, touch-friendly tabs at narrow widths. */
