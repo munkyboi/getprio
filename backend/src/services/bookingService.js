@@ -1833,7 +1833,7 @@ async function checkInBooking({ tenant, location, bookingId, user, overrideWindo
     }
     if (windowState.isLate && (customerArrival || !overrideWindow)) {
       const error = new Error(customerArrival
-        ? "The customer arrival window has closed. Ask the vendor to check you in."
+        ? "The customer arrival window has closed. Ask the vendor to reschedule your booking."
         : "This booking is outside the check-in window. Use a late check-in override to continue.");
       error.statusCode = 409;
       throw error;
