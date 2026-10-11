@@ -692,7 +692,12 @@ type SettingsTab = "contact" | "queue" | "notifications";
 type QueueView = "current" | "overflow" | "recovery";
 type ClientSort = "latestVisitDesc" | "latestVisitAsc" | "nameAsc" | "nameDesc" | "visitsDesc" | "visitsAsc";
 type HistorySort = "updatedDesc" | "updatedAsc" | "ticketAsc" | "ticketDesc" | "customerAsc" | "customerDesc";
-type BookingStatusFilter = "all" | "pending" | "confirmed" | "rescheduled" | "completed" | "canceled" | "expired" | "missed";
+const bookingStatusFilters = ["all", "pending", "confirmed", "rescheduled", "completed", "canceled", "expired", "missed"] as const;
+type BookingStatusFilter = typeof bookingStatusFilters[number];
+const bookingStatusFilterOptions = bookingStatusFilters.map((value) => ({
+  value,
+  label: value === "all" ? "All statuses" : value.charAt(0).toUpperCase() + value.slice(1)
+}));
 
 const CLIENTS_PAGE_SIZE = 10;
 const HISTORY_PAGE_SIZE = 10;
@@ -7692,16 +7697,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   onChange={(event) => setBookingSearch(event.target.value)}
                 />
                 <Select
-                  data={[
-                    { label: "All statuses", value: "all" },
-                    { label: "Pending", value: "pending" },
-                    { label: "Confirmed", value: "confirmed" },
-                    { label: "Rescheduled", value: "rescheduled" },
-                    { label: "Completed", value: "completed" },
-                    { label: "Canceled", value: "canceled" },
-                    { label: "Expired", value: "expired" },
-                    { label: "Missed", value: "missed" }
-                  ]}
+                  data={bookingStatusFilterOptions}
                   label="Status"
                   value={bookingStatusFilter}
                   onChange={(value) => {
