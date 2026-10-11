@@ -225,9 +225,16 @@ test("vendor location payment QR settings are private vendor-managed configurati
 
   const vendorRouter = requireWithMocks("../src/routes/vendorRoutes.js", {
     "../services/staffAccessEmailService": { change: async (_context, mutate) => mutate({ client: {} }) },
-    "../services/locationCreationService": { createVendorLocation: async (tenant, body, options) => {
-      assert.equal(tenant._id,"tenant-1");assert.equal(options.actorUserId,"user-1");return {_id:"location-2",...body,tenantId:tenant._id,timezone:"Asia/Manila",isActive:true};
-    } },
+    "../services/locationCatalogService": {
+      createVendorLocation: async (tenant, body, options) => {
+        assert.equal(tenant._id,"tenant-1");assert.equal(options.actorUserId,"user-1");return {_id:"location-2",...body,tenantId:tenant._id,timezone:"Asia/Manila",isActive:true};
+      },
+      updateVendorLocation: async (tenant, slug, body, options) => {
+        assert.equal(tenant._id,"tenant-1");assert.equal(slug,"main");assert.equal(options.actorUserId,"user-1");
+        const changes=require("../src/routes/vendorRouteHelpers").normalizeLocationPayload(body,locations[0]);
+        updatedLocation={...locations[0],...changes};return updatedLocation;
+      }
+    },
     "../middleware/auth": buildAuthMock(),
     "../middleware/asyncHandler": buildAsyncHandlerMock(),
     "../repositories/tenants": {

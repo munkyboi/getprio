@@ -1,48 +1,15 @@
-async function handleCreateLocation({ req, res, getAuthorizedTenant, assertTenantPermission, locationCreationService, formatLocation }) {
+async function handleCreateLocation({ req, res, getAuthorizedTenant, assertTenantPermission, locationCatalogService, formatLocation }) {
   const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
   assertTenantPermission(req.user, tenant._id, "tenant.location.manage");
-  const location = await locationCreationService.createVendorLocation(tenant, req.body || {}, { actorUserId: req.user._id });
+  const location = await locationCatalogService.createVendorLocation(tenant, req.body || {}, { actorUserId: req.user._id });
   res.status(201).json({ location: await formatLocation(location, tenant) });
 }
 
-async function handleUpdateLocation({
-  req,
-  res,
-  getAuthorizedTenant,
-  assertTenantPermission,
-  billingService,
-  storeLocationRepository,
-  normalizeLocationPayload,
-  formatLocation,
-  getLocationForTenant
-}) {
+async function handleUpdateLocation({ req, res, getAuthorizedTenant, assertTenantPermission, locationCatalogService, formatLocation }) {
   const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
   assertTenantPermission(req.user, tenant._id, "tenant.location.manage");
-  const location = await getLocationForTenant(tenant, req.params.locationSlug);
-  if (req.body.isActive === true && !location.isActive) {
-    const billing = await billingService.getBillingOverview(tenant._id);
-    const activeLocationLimit = billing.subscription?.entitlements?.locations || 1;
-    const existingLocations = await storeLocationRepository.listLocationsByTenantId(tenant._id);
-    const activeCount = existingLocations.filter((locationItem) => locationItem.isActive).length;
-
-    if (activeCount >= activeLocationLimit) {
-      const error = new Error("Active location limit exceeded for this subscription plan.");
-      error.statusCode = 403;
-      throw error;
-    }
-  }
-
-  const changes = normalizeLocationPayload(req.body || {}, location);
-  if (Object.prototype.hasOwnProperty.call(changes, "slug") && changes.slug !== location.slug) {
-    const error = new Error("Location slug cannot be changed after creation.");
-    error.statusCode = 400;
-    throw error;
-  }
-  delete changes.slug;
-
-  const updatedLocation = await storeLocationRepository.updateLocation(location._id, changes);
-
-  res.json({ location: await formatLocation(updatedLocation, tenant) });
+  const location = await locationCatalogService.updateVendorLocation(tenant, req.params.locationSlug, req.body || {}, { actorUserId: req.user._id });
+  res.json({ location: await formatLocation(location, tenant) });
 }
 
 async function handleCheckLocationSlugAvailability({
