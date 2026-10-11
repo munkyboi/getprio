@@ -493,6 +493,8 @@ export default function CustomerBookingDetailPage() {
       : booking.customerSelfCheckInEnabled && customerArrivalPaymentBlocked
         ? "Waiting for payment verification"
         : "Waiting for vendor check-in";
+  } else if (Number.isFinite(checkInWindowEndsAt) && currentTime > checkInWindowEndsAt) {
+    checkInActionLabel = "Ask the vendor to reschedule";
   }
   const totalBookingHoursLabel = formatDurationLabel(bookingStart, bookingEnd);
   const bookingTotalFeeCents = groupFundedCampaign

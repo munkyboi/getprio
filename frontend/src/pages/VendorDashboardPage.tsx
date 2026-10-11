@@ -3027,6 +3027,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       setVendorBookings((current) =>
         current.map((item) => (item.id === response.booking.id ? response.booking : item))
       );
+      setBookingDetailBooking((current) => current?.id === response.booking.id ? response.booking : current);
       clearBookingAlert(response.booking.id);
       setRescheduleDialogOpen(false);
       setReschedulingBooking(null);
@@ -3096,9 +3097,9 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     }
   }
 
-  function renderStaffNoShowAction(booking: VendorBookingSummary) {
+  function renderBookingNoShowAction(booking: VendorBookingSummary, includeAdmin = false) {
     const state = getBookingCheckInState(booking, bookingCheckInNow);
-    const canMarkNoShow = canOperateBookingQueue && !canAdminBookings && state.isEligibleStatus && state.isLate;
+    const canMarkNoShow = canOperateBookingQueue && (!canAdminBookings || includeAdmin) && state.isEligibleStatus && state.isLate;
     if (!canMarkNoShow || booking.checkedInAt || booking.linkedTicket) {
       return null;
     }
@@ -7834,6 +7835,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                               <IconActionButton
                                 label="Reschedule booking"
                                 color="orange"
+                                disabled={Boolean(busyAction) || (manualPaymentRequired && !paymentVerified && !booking.paymentVerifiedAt)}
                                 onClick={() => openRescheduleDialog(booking)}
                               >
                                 <IconCalendar size={16} />
@@ -8108,7 +8110,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                                     <IconCalendarCheck size={18} />
                                   </IconActionButton>
                                 ) : null}
-                                {renderStaffNoShowAction(booking)}
+                                {renderBookingNoShowAction(booking)}
                                 {actionButtons}
                               </Group>
                             </Stack>
@@ -10075,13 +10077,13 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     <Button
                       leftSection={<IconCalendar size={18} />}
                       mih={44}
-                      disabled={Boolean(busyAction)}
+                      disabled={Boolean(busyAction) || detailPaymentGateActive}
                       onClick={() => openRescheduleDialog(detailBooking)}
                     >
                       Reschedule
                     </Button>
                   ) : null}
-                  {renderStaffNoShowAction(detailBooking)}
+                  {renderBookingNoShowAction(detailBooking, true)}
                   {canAdminBookings && detailBooking.status === "pending" ? (
                     <>
                       <Button
