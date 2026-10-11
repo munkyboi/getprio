@@ -318,6 +318,11 @@ test("vendor routes queue mutations invoke the queue service helpers", async () 
       body: JSON.stringify({ lookupCode: "abcd1234" })
     });
     assert.equal(confirmCurrentRes.status, 200);
+    const barcodeToken='QB'+'A'.repeat(32);
+    const rotatingRes=await fetch(`${baseUrl}/tenant/demo/queue/current/confirm?location=main`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({barcodeToken:barcodeToken.toLowerCase()})});
+    assert.equal(rotatingRes.status,200);assert.equal(calls.filter(([name])=>name==='confirmCurrentTicket')[1][1][2].barcodeToken,barcodeToken);
+    const invalidRes=await fetch(`${baseUrl}/tenant/demo/queue/current/confirm?location=main`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({barcodeToken:'QBbad'})});assert.equal(invalidRes.status,400);
+
 
     const restoreRes = await fetch(`${baseUrl}/tenant/demo/queue/tickets/ticket-1/restore?location=main`, {
       method: "POST",

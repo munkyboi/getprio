@@ -8,7 +8,8 @@ test("called ticket confirmation validates identity without serving and gates se
   const transition = source.match(/async function updateCurrentTicketStatus[\s\S]*?return \{ ticket, snapshot \};\n\}/)?.[0] || "";
   const confirmation = source.match(/async function confirmCurrentTicket[\s\S]*?\n\}\n\nasync function cancelTicket/)?.[0] || "";
 
-  assert.match(confirmation, /currentTicket\.lookupCode/);
+  assert.match(confirmation, /assertConfirmationCredential\(client, currentTicket/);
+  assert.match(confirmation, /lookupCode: normalizedLookupCode, barcodeToken: options\.barcodeToken/);
   assert.match(confirmation, /confirmCurrentCalledTicket/);
   assert.match(confirmation, /"ticket_confirmed"/);
   assert.match(confirmation, /notifyCustomerQueueUpdate/);

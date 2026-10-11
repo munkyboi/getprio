@@ -110,9 +110,9 @@ export function serveCurrentTicket(token: string, tenantSlug: string, locationQu
 }
 
 export function confirmCurrentTicket(token: string, tenantSlug: string, locationQuery: string, lookupCode: string) {
-  return apiRequest<VendorDashboardActionResponse, { lookupCode: string }>(
+  return apiRequest<VendorDashboardActionResponse, { lookupCode?: string; barcodeToken?: string }>(
     `/vendor/tenant/${tenantSlug}/queue/current/confirm${locationQuery}`,
-    { method: "POST", token, body: { lookupCode } }
+    { method: "POST", token, body: lookupCode.startsWith("QB") ? { barcodeToken: lookupCode } : { lookupCode } }
   );
 }
 

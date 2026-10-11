@@ -1761,7 +1761,8 @@ test("vendor queue confirms called tickets through a barcode scan", () => {
   assert.doesNotMatch(dashboard, />\s*Serve current\s*<\/Button>/);
   assert.match(scanner, /BrowserMultiFormatReader/);
   assert.match(scanner, /decodeFromVideoDevice/);
-  assert.match(scanner, /Manual ticket code/);
+  assert.match(scanner, /Barcode or ticket code/);
+  assert.match(scanner, /maxLength=\{34\}/);
   assert.match(queueApi, /\/queue\/current\/confirm\$\{locationQuery\}/);
 });
 

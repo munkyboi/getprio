@@ -154,6 +154,7 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
     };
     const service=loadService(mocks);
     const record=(id,action,actor='1',selected=location) => service.recordTicketService(tenant,id,action,{location:selected,actorUserId:actor});
+    await pool.query(fs.readFileSync(path.resolve(__dirname,'../../database/migrations/20261011_add_rotating_ticket_barcodes.sql'),'utf8'));
     async function reset(capacity=4,enabled=true) {
       await pool.query(`TRUNCATE resource_ledger_commands,resource_allocations,resource_ledger_reservations,resource_ledger_scopes,
         ticket_service_plans,tickets,booking_bundle_items,bookings,service_resource_requirements,location_resource_pools,
@@ -257,6 +258,8 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
       const r=await client.query("UPDATE queue_day_state SET next_sequence=next_sequence+1 WHERE state='open' AND intake_mode='accepting' RETURNING next_sequence-1 AS sequence");
       return r.rows[0]?.sequence ?? null;
     }};
+    const barcodeService=loadService({'../config/db':{pool},'../config/env':{jwtSecret:'isolated-ticket-barcode-secret'}},'ticketBarcodeService');
+    queueMocks['./ticketBarcodeService']=barcodeService;
     const operationalQueue=loadService({...queueMocks,'../repositories/tickets':{
       ...queueMocks['../repositories/tickets'],createTicket:realTickets.createTicket,findCurrentCalledTicket:realTickets.findCurrentCalledTicket,
       listWaitingTickets:realTickets.listWaitingTickets,callNextWaitingTicket:realTickets.callNextWaitingTicket,
@@ -966,6 +969,51 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
       assert.equal(await count('events'),1); assert.equal(await count('webhooks'),1); assert.equal(pushes,1);
       assert.equal(await count('resource_allocations'),0); assert.equal(await count('resource_ledger_commands'),0);
       assert.equal((await pool.query('SELECT revision::text FROM resource_ledger_scopes')).rows[0].revision,'2');
+    });
+    const issueBarcode=(id='1',user='1',issuer=barcodeService)=>issuer.issueForOwner(id,user);
+    async function ownedTicket() {await reset();await ticket('1',{channel:'online'});await pool.query('UPDATE tickets SET user_id=1 WHERE id=1');}
+    await t.test('rotating barcode enrollment is owner scoped stable compact and expires after exactly two database minutes',async () => {
+      await ownedTicket();for(const [id,user] of [['1','2'],['2','1'],['0','1'],['9007199254740993','1']])await assert.rejects(issueBarcode(id,user),{statusCode:404});
+      const [first,second]=await Promise.all([issueBarcode(),issueBarcode()]);assert.equal(first.barcodeToken,second.barcodeToken);assert.match(first.barcodeToken,/^QB[A-F0-9]{32}$/);assert.equal(Date.parse(first.expiresAt)-Date.parse(first.issuedAt),120000);assert.ok(Date.parse(first.serverNow)>=Date.parse(first.issuedAt));assert.equal(await count('queue_ticket_barcodes'),1);assert.equal(await count('resource_ledger_scopes'),0);assert.equal(await count('events'),0);
+      await assert.rejects(pool.query("UPDATE queue_ticket_barcodes SET expires_at=expires_at+INTERVAL '1 second'"),{code:'23514'});
+      await pool.query("UPDATE queue_ticket_barcodes SET issued_at=issued_at-INTERVAL '121 seconds',expires_at=expires_at-INTERVAL '121 seconds'");await assert.rejects(confirm(undefined,{barcodeToken:first.barcodeToken}),{code:'TICKET_BARCODE_INVALID'});
+      const refreshed=await issueBarcode();assert.notEqual(refreshed.barcodeToken,first.barcodeToken);await assert.rejects(confirm(undefined,{barcodeToken:first.barcodeToken}),{code:'TICKET_BARCODE_INVALID'});await confirm(undefined,{barcodeToken:refreshed.barcodeToken});
+    });
+    await t.test('rotating barcode scanner rejects static bypass wrong token scope and replay after confirmation without service start',async () => {
+      await ownedTicket();const token=await issueBarcode();await assert.rejects(confirm(),{code:'TICKET_BARCODE_REQUIRED'});await assert.rejects(confirm(undefined,{barcodeToken:'QB'+ '0'.repeat(32)}),{code:'TICKET_BARCODE_INVALID'});
+      await ticket('2',{channel:'online'});await pool.query("UPDATE tickets SET user_id=1,status='waiting' WHERE id=2");const other=await issueBarcode('2');await assert.rejects(confirm(undefined,{barcodeToken:other.barcodeToken}),{code:'TICKET_BARCODE_INVALID'});
+      assert.equal(await count('events'),0);await confirm(undefined,{barcodeToken:token.barcodeToken});await assert.rejects(confirm(undefined,{barcodeToken:token.barcodeToken}),{code:'TICKET_BARCODE_INVALID'});await assert.rejects(issueBarcode(),{code:'TICKET_BARCODE_UNAVAILABLE'});
+      assert.equal(await count('events'),1);assert.equal(await count('webhooks'),1);assert.equal((await readTicket('1')).serviceStartedAt,null);assert.equal(await count('resource_allocations'),0);
+    });
+    await t.test('rotating confirmation rollback permits retry and competing scans confirm only once',async () => {
+      await ownedTicket();const token=await issueBarcode();failEvent=true;await assert.rejects(confirm(undefined,{barcodeToken:token.barcodeToken}),/event failed/);assert.equal((await readTicket('1')).customerConfirmedAt,null);assert.equal(await count('events'),0);failEvent=false;
+      const results=await Promise.allSettled([confirm(undefined,{barcodeToken:token.barcodeToken}),confirm(undefined,{barcodeToken:token.barcodeToken})]);assert.equal(results.filter(item=>item.status==='fulfilled').length,1);assert.equal(results.find(item=>item.status==='rejected').reason.code,'TICKET_BARCODE_INVALID');assert.equal(await count('events'),1);assert.equal(await count('webhooks'),1);
+    });
+    await t.test('rotating barcode issuance and scanner fail closed on current lifecycle and account restrictions',async () => {
+      for(const change of ["status='served'","status='cancelled'","status='expired'","status='unserved'","customer_confirmed_at=clock_timestamp()","service_started_at=clock_timestamp()","service_ended_at=clock_timestamp()","service_outcome='interrupted'","terminal_at=clock_timestamp()"]){
+        await ownedTicket();const token=await issueBarcode();await pool.query(`UPDATE tickets SET ${change}`);await assert.rejects(issueBarcode(),{code:'TICKET_BARCODE_UNAVAILABLE'});const current=await realTickets.findTicketById('1',{client:pool});await assert.rejects(barcodeService.assertConfirmationCredential(pool,current,{barcodeToken:token.barcodeToken}),{code:'TICKET_BARCODE_INVALID'});
+      }
+      for(const change of ["UPDATE tickets SET developer_project_id=7,developer_environment='sandbox'","UPDATE users SET deletion_requested_at=clock_timestamp() WHERE id=1","UPDATE users SET platform_access_suspended_at=clock_timestamp() WHERE id=1"]){await ownedTicket();await pool.query(change);await assert.rejects(issueBarcode(),{statusCode:404});assert.equal(await count('queue_ticket_barcodes'),0);}
+      for(const status of ['waiting','skipped','pending_carry_over']){await ownedTicket();await pool.query('UPDATE tickets SET status=$1',[status]);assert.match((await issueBarcode()).barcodeToken,/^QB/);}
+    });
+    await t.test('rotating barcode enrollment rolls back on signing and commit failures and can reuse the connection',async () => {
+      await ownedTicket();const unavailable=loadService({'../config/db':{pool},'../config/env':{jwtSecret:'change-me'}},'ticketBarcodeService');await assert.rejects(issueBarcode('1','1',unavailable),{statusCode:503});assert.equal(await count('queue_ticket_barcodes'),0);
+      const faultPool={query:(...args)=>pool.query(...args),connect:async()=>{const client=await pool.connect();return {release:()=>client.release(),query:async(sql,args)=>{if(sql==='COMMIT')throw new Error('barcode commit fault');return client.query(sql,args);}};}};
+      const issuer=loadService({'../config/db':{pool:faultPool},'../config/env':{jwtSecret:'isolated-ticket-barcode-secret'}},'ticketBarcodeService');await assert.rejects(issueBarcode('1','1',issuer),/barcode commit fault/);assert.equal(await count('queue_ticket_barcodes'),0);await issueBarcode();
+    });
+    await t.test('rotating barcode enrollment serializes a competing static confirmation and current ownership lifecycle changes',async () => {
+      await ownedTicket();let entered;let release;const ready=new Promise(resolve=>{entered=resolve;});const barrier=new Promise(resolve=>{release=resolve;});
+      const heldPool={query:(...args)=>pool.query(...args),connect:async()=>{const client=await pool.connect();return {release:()=>client.release(),query:async(sql,args)=>{const result=await client.query(sql,args);if(/INSERT INTO queue_ticket_barcodes/.test(sql)){entered();await barrier;}return result;}};}};
+      const issuer=loadService({'../config/db':{pool:heldPool},'../config/env':{jwtSecret:'isolated-ticket-barcode-secret'}},'ticketBarcodeService');const enrollment=issueBarcode('1','1',issuer);enrollment.catch(()=>{});let confirmation;
+      try {await Promise.race([ready,enrollment.then(()=>{throw new Error('barcode enrollment barrier missing');})]);confirmation=confirm();confirmation.catch(()=>{});await waitForLocationLock();}
+      finally {release();const results=await Promise.allSettled([enrollment,confirmation]);assert.equal(results[0].status,'fulfilled');assert.equal(results[1].status,'rejected');assert.equal(results[1].reason.code,'TICKET_BARCODE_REQUIRED');}
+      for(const change of ['customer_confirmed_at=clock_timestamp()','user_id=2']) {await ownedTicket();const blocker=await pool.connect();let pending;
+        try {await blocker.query('BEGIN');await blocker.query('SELECT id FROM store_locations WHERE id=10 FOR UPDATE');pending=issueBarcode();pending.catch(()=>{});await waitForLocationLock();await blocker.query(`UPDATE tickets SET ${change}`);const denied=assert.rejects(pending,{statusCode:change.startsWith('user_id')?404:409});await blocker.query('COMMIT');await denied;}
+        finally {await blocker.query('ROLLBACK');blocker.release();if(pending)await pending.catch(()=>{});}assert.equal(await count('queue_ticket_barcodes'),0);
+      }
+    });
+    await t.test('rotating barcode enrollment preserves exact adjacent owner and ticket identifiers',async () => {
+      await reset();const selected='9007199254740993';const neighbor='9007199254740992';await pool.query("INSERT INTO users(id,roles) VALUES($1,'{}'),($2,'{}')",[selected,neighbor]);await ticket(selected);await ticket(neighbor);await pool.query('UPDATE tickets SET user_id=id');await assert.rejects(issueBarcode(selected,neighbor),{statusCode:404});const token=await issueBarcode(selected,selected);assert.match(token.barcodeToken,/^QB/);assert.deepEqual((await pool.query('SELECT ticket_id::text FROM queue_ticket_barcodes')).rows,[{ticket_id:selected}]);
     });
     await t.test('call eligibility keeps early arrived bookings waiting and selects an eligible ordinary ticket',async () => {
       await reset(); await ticket('1',{booking:true}); await pool.query("UPDATE tickets SET status='waiting',service_priority_band='checked_in_booking'; UPDATE bookings SET scheduled_start_at=clock_timestamp()+interval '1 hour'");

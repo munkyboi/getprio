@@ -1267,15 +1267,14 @@ router.post(
     const location = await getLocationForTenant(tenant, normalizeRequestText(req.query.location));
     await assertQueueLocationAccess(req.user, tenant, location);
     const lookupCode = String(req.body.lookupCode || "").trim().toUpperCase();
-
-    if (!/^[A-F0-9]{8}$/.test(lookupCode)) {
-      const error = new Error("Enter or scan a valid ticket code.");
-      error.statusCode = 400;
-      throw error;
+    const barcodeToken = String(req.body.barcodeToken || "").trim().toUpperCase();
+    if ((barcodeToken && !/^QB[A-F0-9]{32}$/.test(barcodeToken)) || (!barcodeToken && !/^[A-F0-9]{8}$/.test(lookupCode))) {
+      throw Object.assign(new Error("Enter or scan a valid ticket barcode or code."), { statusCode: 400 });
     }
 
     const result = await confirmCurrentTicket(tenant, lookupCode, {
       location,
+      ...(barcodeToken ? { barcodeToken } : {}),
       actorUserId: req.user?._id,
       actorRole: "vendor",
       source: "vendor_barcode_scan"

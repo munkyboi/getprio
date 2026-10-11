@@ -169,6 +169,7 @@ BEGIN
   SELECT array_agg(table_name)
   INTO missing_tables
   FROM (VALUES
+    ('queue_ticket_barcodes'),
     ('resource_ledger_scopes'),
     ('resource_ledger_reservations'),
     ('resource_allocations'),
@@ -280,6 +281,8 @@ DECLARE
 BEGIN
   SELECT array_agg(required.constraint_name) INTO missing_resource_constraints
   FROM (VALUES
+    ('queue_ticket_barcodes', 'queue_ticket_barcode_duration_check'),
+    ('queue_ticket_barcodes', 'queue_ticket_barcodes_ticket_id_fkey'),
     ('resource_ledger_scopes', 'resource_ledger_coverage_disabled_check'),
     ('resource_ledger_scopes', 'resource_ledger_location_scope_fkey'),
     ('resource_ledger_reservations', 'resource_reservation_item_scope_fkey'),

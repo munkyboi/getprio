@@ -6,6 +6,7 @@ const { moderatePublicText } = require("../middleware/moderatePublicText");
 const bookingRepository = require("../repositories/bookings");
 
 const ticketRepository = require("../repositories/tickets");
+const ticketBarcodeService = require("../services/ticketBarcodeService");
 const tenantRepository = require("../repositories/tenants");
 const userRepository = require("../repositories/users");
 const bookingService = require("../services/bookingService");
@@ -61,6 +62,21 @@ router.post("/delete", requireDeletionEnabled, deletionLimiter, asyncHandler(asy
 }));
 
 router.use(moderatePublicText);
+
+const barcodeLimiter = rateLimit({
+  windowMs: 60 * 1000, limit: 120, standardHeaders: true, legacyHeaders: false,
+  keyGenerator: (req) => String(req.user._id),
+  message: { message: "Too many barcode requests. Please try again later." }
+});
+router.get("/queue/tickets/:ticketId/barcode", barcodeLimiter, asyncHandler(async (req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  const hostname = String(req.hostname || "").toLowerCase();
+  if (["sandbox.getprio.online", "sandbox-api.getprio.online"].includes(hostname)) {
+    throw Object.assign(new Error("Ticket not found."), { statusCode: 404, code: "TICKET_NOT_FOUND" });
+  }
+  res.json(await ticketBarcodeService.issueForOwner(String(req.params.ticketId), String(req.user._id)));
+}));
+
 const favorites = require("../repositories/favorites");
 router.get("/favorites", asyncHandler(async (req, res) => res.json({ vendors: await favorites.list(req.user._id) })));
 router.put("/favorites/:tenantSlug", asyncHandler(async (req, res) => {
