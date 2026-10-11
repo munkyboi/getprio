@@ -1,3 +1,4 @@
+import { BookingTableRow } from "../components/BookingTableRow";
 import { BookingCheckInNotice } from "../components/BookingCheckInNotice";
 import { getBookingCheckInState } from "../utils/bookingCheckIn";
 import { VendorResourceConfiguration } from "../components/VendorResourceConfiguration";
@@ -8000,7 +8001,15 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       })();
 
                         return (
-                        <Table.Tr key={booking.id}>
+                        <BookingTableRow
+                          key={booking.id}
+                          reference={booking.reference}
+                          onOpen={() => {
+                            setPaymentRejectionReason("");
+                            setBookingDetailModalId(booking.id);
+                            setBookingDetailOpen(true);
+                          }}
+                        >
                           <Table.Td fw={700} className="neura-bookings-table__sticky neura-bookings-table__sticky-first">
                             {booking.id}
                           </Table.Td>
@@ -8111,7 +8120,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                               {actionButtons}
                             </Group>
                           </Table.Td>
-                        </Table.Tr>
+                        </BookingTableRow>
                       );
                       })}
                     </Table.Tbody>

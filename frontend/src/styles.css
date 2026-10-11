@@ -6830,6 +6830,15 @@ h2 {
   background: #f1f5f9;
 }
 
+.neura-booking-row {
+  cursor: pointer;
+}
+
+.neura-booking-row:focus-visible {
+  outline: 2px solid var(--mantine-primary-color-filled);
+  outline-offset: -2px;
+}
+
 .neura-bookings-table__sticky {
   position: sticky;
   z-index: 2;
