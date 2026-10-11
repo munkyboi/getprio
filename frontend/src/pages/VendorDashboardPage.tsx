@@ -7804,6 +7804,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                               <IconActionButton
                                 label="Reschedule booking"
                                 color="orange"
+                                disabled={Boolean(busyAction) || (checkInState.isEligibleStatus && checkInState.isLate && manualPaymentRequired && !paymentVerified && !booking.paymentVerifiedAt)}
                                 onClick={() => openRescheduleDialog(booking)}
                               >
                                 <IconCalendar size={16} />
