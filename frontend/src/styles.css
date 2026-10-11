@@ -8126,3 +8126,15 @@ button:hover > .rating-star { transform: scale(1.08); }
     padding-inline: 1.25rem;
   }
 }
+
+.ticket-page-arrival-qr {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+}
+
+.ticket-page-arrival-qr canvas {
+  display: block;
+  width: 232px;
+  height: 232px;
+}

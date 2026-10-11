@@ -13,6 +13,7 @@ export class ArrivalBarcodeController {
   private generation = 0;
   private stopped = false;
   private disposed = false;
+  private offline = false;
   private cancelTimer?: () => void;
   private deadline = 0;
   private wallDeadline = 0;
@@ -32,7 +33,7 @@ export class ArrivalBarcodeController {
   }
 
   async refresh() {
-    if (this.disposed) return;
+    if (this.disposed || this.offline) return;
     this.stopped = false;
     const generation = ++this.generation;
     this.cancelTimer?.();
@@ -68,12 +69,30 @@ export class ArrivalBarcodeController {
     // Wall time catches OS sleep; monotonic time prevents clock changes extending validity.
     const remaining = Math.min(this.deadline - this.now(), this.wallDeadline - wallTime);
     if (remaining <= 0 || wallTime < this.lastWallTime) {
+      if (this.offline) {
+        this.value = "";
+        this.options.onChange({ value: "", remainingSeconds: 0, loading: false, error: "Barcode expired. Reconnect to refresh." });
+        return;
+      }
       void this.refresh();
       return;
     }
     this.lastWallTime = wallTime;
     this.options.onChange({ value: this.value, remainingSeconds: Math.ceil(remaining / 1000), loading: false, error: "" });
     this.cancelTimer = this.schedule(() => this.tick(), Math.min(1000, remaining));
+  }
+
+  setOffline(offline: boolean) {
+    if (this.disposed) return;
+    this.offline = offline;
+    if (!offline) {
+      void this.refresh();
+      return;
+    }
+    ++this.generation;
+    this.cancelTimer?.();
+    if (this.value && !this.stopped) this.tick();
+    else this.options.onChange({ value: "", remainingSeconds: 0, loading: false, error: "Reconnect to load an arrival barcode." });
   }
 
   pause() {

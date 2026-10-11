@@ -24,6 +24,7 @@ import { Link, Navigate, useLocation, useNavigate, useParams, useSearchParams } 
 import type { CancelQueueTicketRequest, PublicVendorProfileResponse, QueueJoinPaymentSyncResponse, QueueSnapshot, StoreHourSummary } from "@shared";
 import { API_BASE_URL, ApiError, apiRequest } from "../api/client";
 import { ArrivalBarcodeController, type ArrivalBarcode, type ArrivalBarcodeState } from "../utils/arrivalBarcode";
+import ArrivalQRCode from "../components/ArrivalQRCode";
 import ResourceErrorState from "../components/ResourceErrorState";
 import { useAuth } from "../context/AuthContext";
 import { buildJoinPath, buildJoinedQueuePathWithTicket, buildMonitorPath } from "../queuePaths";
@@ -159,7 +160,7 @@ function TicketBarcode({ value }: { value: string }) {
   );
 }
 
-function RotatingTicketBarcode({ ticketId, token }: { ticketId: string; token: string }) {
+function RotatingTicketBarcode({ ticketId, token }: Readonly<{ ticketId: string; token: string }>) {
   const [state, setState] = useState<ArrivalBarcodeState>({ value: "", remainingSeconds: 0, loading: true, error: "" });
   const controller = useRef<ArrivalBarcodeController | null>(null);
   useEffect(() => {
@@ -169,8 +170,8 @@ function RotatingTicketBarcode({ ticketId, token }: { ticketId: string; token: s
     });
     controller.current = current;
     const refreshVisible = () => {
-      if (document.hidden || !navigator.onLine) current.pause();
-      else void current.refresh();
+      if (document.hidden) current.pause();
+      else current.setOffline(!navigator.onLine);
     };
     refreshVisible();
     document.addEventListener("visibilitychange", refreshVisible);
@@ -185,7 +186,7 @@ function RotatingTicketBarcode({ ticketId, token }: { ticketId: string; token: s
     };
   }, [ticketId, token]);
   return <Stack gap="xs" aria-live="polite">
-    {state.value ? <><TicketBarcode value={state.value} /><Text ta="center" c="dimmed" size="sm" aria-live="off">Refreshes in {state.remainingSeconds}s</Text></> :
+    {state.value ? <><ArrivalQRCode value={state.value} /><Text className="ticket-page-barcode-value" ta="center" c="dimmed" size="sm">{state.value}</Text><Text ta="center" c="dimmed" size="sm" aria-live="off">Refreshes in {state.remainingSeconds}s</Text></> :
       <Text ta="center" c="dimmed" size="sm">{state.loading ? "Loading arrival barcode…" : state.error}</Text>}
     {state.error ? <Button mih={44} onClick={() => void controller.current?.refresh()} variant="default">Retry barcode</Button> : null}
   </Stack>;
@@ -700,6 +701,14 @@ export default function JoinedQueuePage() {
     }
   }
 
+  const focusTicket = snapshot?.focusTicket;
+  let ticketBarcode = <TicketBarcode value={focusTicket?.lookupCode || lookupCode} />;
+  if (focusTicket?.barcodeRotationRequired && ["waiting", "called", "skipped", "pending_carry_over"].includes(focusTicket.status) &&
+      !focusTicket.customerConfirmedAt && !focusTicket.serviceStartedAt && !focusTicket.serviceEndedAt && !focusTicket.serviceOutcome) {
+    ticketBarcode = token ? <RotatingTicketBarcode key={`${focusTicket.id}:${token}`} ticketId={focusTicket.id} token={token} /> :
+      <Text ta="center" size="sm">Sign in to the ticket owner’s account to display its current arrival barcode.</Text>;
+  }
+
   return (
     <Stack className="vendor-profile-page" gap="xl" style={themeStyle}>
       <Container size="xl" w="100%">
@@ -1012,11 +1021,7 @@ export default function JoinedQueuePage() {
                     </Stack>
                   ) : null}
                   <Divider className="ticket-page-barcode-divider" />
-                  {snapshot?.focusTicket?.barcodeRotationRequired && ["waiting", "called", "skipped", "pending_carry_over"].includes(snapshot.focusTicket.status) &&
-                    !snapshot.focusTicket.customerConfirmedAt && !snapshot.focusTicket.serviceStartedAt && !snapshot.focusTicket.serviceEndedAt && !snapshot.focusTicket.serviceOutcome ? (
-                    token ? <RotatingTicketBarcode key={`${snapshot.focusTicket.id}:${token}`} ticketId={snapshot.focusTicket.id} token={token} /> :
-                      <Text ta="center" size="sm">Sign in to the ticket owner’s account to display its current arrival barcode.</Text>
-                  ) : <TicketBarcode value={snapshot?.focusTicket?.lookupCode || lookupCode} />}
+                  {ticketBarcode}
                 </Stack>
               </Paper>
 

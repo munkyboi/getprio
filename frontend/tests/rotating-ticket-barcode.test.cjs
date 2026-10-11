@@ -32,3 +32,10 @@ test('web barcode accounts for sleep during request and refreshes after backward
   let resolve;const h=harness(()=>new Promise(r=>{resolve=r;}));const pending=h.controller.refresh();h.setNow(100);h.setWallNow(5000);resolve(credential());await pending;assert.equal(h.states.at(-1).remainingSeconds,115);h.setWallNow(4000);h.tasks.at(-1).callback();assert.equal(h.states.at(-1).value,'');h.controller.dispose();resolve(credential());
   const expired=harness(()=>new Promise(r=>{resolve=r;}));const asleep=expired.controller.refresh();expired.setWallNow(121000);resolve(credential());await asleep;assert.equal(expired.states.at(-1).value,'');assert.match(expired.states.at(-1).error,/expired/);expired.controller.dispose();
 });
+
+test('loaded web barcode remains usable offline until expiry and reconnect fetches current value',async()=>{
+ let calls=0;const h=harness(()=>Promise.resolve(credential(++calls===1?'A':'B')));await h.controller.refresh();h.setNow(10000);h.controller.setOffline(true);assert.equal(h.states.at(-1).value,credential().barcodeToken);assert.equal(h.states.at(-1).remainingSeconds,110);await h.controller.refresh();assert.equal(calls,1);h.setNow(120000);h.tasks.at(-1).callback();assert.equal(h.states.at(-1).value,'');assert.match(h.states.at(-1).error,/Reconnect/);assert.equal(calls,1);h.controller.setOffline(false);await new Promise(r=>setImmediate(r));assert.equal(h.states.at(-1).value,credential('B').barcodeToken);assert.equal(calls,2);h.controller.dispose();
+});
+test('offline event invalidates pending issuance without reviving a token',async()=>{
+ let resolve;const h=harness(()=>new Promise(r=>{resolve=r;}));const pending=h.controller.refresh();h.controller.setOffline(true);resolve(credential());await pending;assert.equal(h.states.at(-1).value,'');assert.equal(h.states.at(-1).loading,false);assert.equal(h.tasks.length,0);h.controller.dispose();
+});
