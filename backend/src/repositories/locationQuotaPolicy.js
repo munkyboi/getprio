@@ -3,7 +3,7 @@ const plans = require("./subscriptionPlans");
 
 // Catalog owns the tenant FK target. NOWAIT avoids subscription-first
 // lifecycle writers that may need that target for a transition record.
-async function readLocationCreationLimit(tenantId, { client }) {
+async function readActiveLocationLimit(tenantId, { client }) {
   await client.query("SELECT id FROM tenant_subscriptions WHERE tenant_id=$1 ORDER BY id FOR UPDATE NOWAIT", [tenantId]);
   const subscription = await billing.getActiveSubscriptionByTenantId(tenantId, { client });
   if (!subscription) return 1;
@@ -12,4 +12,4 @@ async function readLocationCreationLimit(tenantId, { client }) {
   return { ...plan?.entitlements, ...subscription.entitlements }.locations || 1;
 }
 
-module.exports = { readLocationCreationLimit };
+module.exports = { readActiveLocationLimit };

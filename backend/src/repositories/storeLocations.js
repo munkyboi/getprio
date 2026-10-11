@@ -312,7 +312,7 @@ async function createLocation(data, options = {}) {
 async function updateLocation(locationId, changes, options = {}) {
   const queryClient = buildQueryClient(options.client);
   const updates = [];
-  const values = [Number(locationId)];
+  const values = [locationId];
   const setters = {
     name: "name",
     slug: "slug",
@@ -341,7 +341,7 @@ async function updateLocation(locationId, changes, options = {}) {
   if (changes.isPrimary) {
     const existing = await queryClient.query(
       `SELECT tenant_id FROM store_locations WHERE id = $1 LIMIT 1`,
-      [Number(locationId)]
+      [locationId]
     );
     const tenantId = existing.rows[0]?.tenant_id;
     if (tenantId) {
@@ -365,7 +365,7 @@ async function updateLocation(locationId, changes, options = {}) {
   if (!updates.length) {
     const result = await queryClient.query(
       `SELECT ${LOCATION_COLUMNS} FROM store_locations WHERE id = $1 LIMIT 1`,
-      [Number(locationId)]
+      [locationId]
     );
     return mapLocation(result.rows[0]);
   }
