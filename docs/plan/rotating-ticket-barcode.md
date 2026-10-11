@@ -1,5 +1,7 @@
 # Two-minute arrival barcode
 
+Browser expiry checks both monotonic elapsed time and wall time, including request latency. The shorter remaining lifetime wins, so OS sleep cannot prolong a displayed credential. A backward wall-clock change hides the value and fetches current server state.
+
 Production customer API: authenticated POST `/api/v1/account/queue/tickets/{ticketId}/barcode` returns `{ barcodeToken, issuedAt, expiresAt, serverNow }`, with UTC ISO timestamps and `Cache-Control: no-store`. Barcode values are `QB` followed by 32 uppercase hexadecimal characters, suitable for Code128. Repeated requests within validity return the same value; renewal occurs at expiry with a fresh nonce. Database time supplies the exact 120-second lifetime. Signing uses the existing JWT secret with domain-separated HMAC input containing exact ticket, tenant, branch, owner and nonce; an unavailable signing key rolls issuance back.
 
 The endpoint requires exact persisted ownership and current account eligibility. Unknown, non-owner or developer/Sandbox tickets return 404. Eligible statuses are waiting, called, skipped and pending_carry_over, with no arrival confirmation, service start/end/outcome or terminal timestamp. Other lifecycle states return 409 TICKET_BARCODE_UNAVAILABLE. Rate limiting applies to authenticated users. Barcode requests cannot change ticket IDs, lookup codes, status or service timing.
