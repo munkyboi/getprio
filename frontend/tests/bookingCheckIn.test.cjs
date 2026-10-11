@@ -5,6 +5,7 @@ const React = require("react");
 const { renderToStaticMarkup } = require("react-dom/server");
 const { MantineProvider } = require("@mantine/core");
 const { getBookingCheckInState } = require("../src/utils/bookingCheckIn.ts");
+const { formatBookingScheduleDateTime } = require("../src/utils/dates.ts");
 const { BookingCheckInNotice } = require("../src/components/BookingCheckInNotice.tsx");
 
 const start = Date.parse("2026-10-11T04:00:00Z");
@@ -48,7 +49,7 @@ test("October 20 booking has no check-in action on October 11 and displays its o
   assert.equal(state.opensAt, "2026-10-20T03:45:00.000Z");
   const markup = notice({ booking: futureBooking, now, queueBlocked: true });
   assert.match(markup, /Check-in not open yet/);
-  assert.match(markup, /20 Oct 2026/);
+  assert.ok(markup.includes(`Check-in opens ${formatBookingScheduleDateTime(state.opensAt)}, 15 minutes before the booking.`));
   assert.doesNotMatch(markup, /Open the queue/);
   assert.equal(getBookingCheckInState(futureBooking, Date.parse(state.opensAt)).isWindowOpen, true);
   assert.equal(getBookingCheckInState(futureBooking, Date.parse("2026-10-20T04:15:00.001Z")).isWindowOpen, false);
