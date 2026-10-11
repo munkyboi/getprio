@@ -2,13 +2,13 @@ import { Alert } from "@mantine/core";
 import { IconInfoCircle } from "@tabler/icons-react";
 import { getBookingCheckInState, type CheckInBooking } from "../utils/bookingCheckIn";
 
-export function BookingCheckInNotice({ booking, now, canReschedule, queueBlocked, queueGuidance }: {
+export function BookingCheckInNotice({ booking, now, canReschedule, queueBlocked, queueGuidance }: Readonly<{
   booking: CheckInBooking;
   now: number;
   canReschedule: boolean;
   queueBlocked: boolean;
   queueGuidance: string;
-}) {
+}>) {
   const state = getBookingCheckInState(booking, now);
   if (!state.isAwaitingCheckIn) return null;
   if (state.isLate) {
