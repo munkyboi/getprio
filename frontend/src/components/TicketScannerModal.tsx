@@ -112,20 +112,20 @@ export default function TicketScannerModal({
       title={
         <div>
           <Text className="neura-label">QUEUE CHECK-IN</Text>
-          <Text fw={800} size="xl">Scan QR code for {ticketNumber || "called ticket"}</Text>
+          <Text fw={800} size="xl">Scan QR or ticket code for {ticketNumber || "called ticket"}</Text>
         </div>
       }
     >
       <Stack gap="md">
         <Text c="dimmed" size="sm">
-          Scan the QR code on the customer&apos;s ticket. Only the currently called ticket can be confirmed.
+          Scan the QR code or ticket code on the customer&apos;s ticket. Only the currently called ticket can be confirmed.
         </Text>
 
         <div className="ticket-scanner-camera">
-          <video aria-label="Ticket QR code camera preview" autoPlay muted playsInline ref={videoRef} />
+          <video aria-label="QR or ticket code camera preview" autoPlay muted playsInline ref={videoRef} />
           <div className="ticket-scanner-guide" aria-hidden="true" />
           <Text className="ticket-scanner-status" size="xs">
-            {scanning ? "Point the QR code inside the frame" : lookupCode ? "Code captured" : "Camera stopped"}
+            {scanning ? "Point the QR or ticket code inside the frame" : lookupCode ? "Code captured" : "Camera stopped"}
           </Text>
         </div>
 

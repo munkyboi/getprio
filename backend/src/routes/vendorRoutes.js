@@ -1260,7 +1260,7 @@ router.post(
     const lookupCode = String(req.body.lookupCode || "").trim().toUpperCase();
     const barcodeToken = String(req.body.barcodeToken || "").trim().toUpperCase();
     if ((barcodeToken && !/^QB[A-F0-9]{32}$/.test(barcodeToken)) || (!barcodeToken && !/^[A-F0-9]{8}$/.test(lookupCode))) {
-      throw Object.assign(new Error("Scan a valid ticket QR code or enter its ticket code."), { statusCode: 400 });
+      throw Object.assign(new Error("Scan a valid QR or ticket code, or enter the code manually."), { statusCode: 400 });
     }
 
     const result = await confirmCurrentTicket(tenant, lookupCode, {
