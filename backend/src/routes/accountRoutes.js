@@ -68,7 +68,7 @@ const barcodeLimiter = rateLimit({
   keyGenerator: (req) => String(req.user._id),
   message: { message: "Too many barcode requests. Please try again later." }
 });
-router.get("/queue/tickets/:ticketId/barcode", barcodeLimiter, asyncHandler(async (req, res) => {
+router.post("/queue/tickets/:ticketId/barcode", barcodeLimiter, asyncHandler(async (req, res) => {
   res.setHeader("Cache-Control", "no-store");
   const hostname = String(req.hostname || "").toLowerCase();
   if (["sandbox.getprio.online", "sandbox-api.getprio.online"].includes(hostname)) {

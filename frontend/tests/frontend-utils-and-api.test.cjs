@@ -1478,7 +1478,10 @@ test("queue ticket details show joined date metadata and themed ticket number al
   assert.match(source, /import "jsbarcode\/dist\/barcodes\/JsBarcode\.code128\.min\.js"/);
   assert.match(source, /window\.JsBarcode\(barcodeRef\.current, value, \{[\s\S]*?format: "CODE128"/);
   assert.match(source, /displayValue: false/);
-  assert.match(source, /<Divider className="ticket-page-barcode-divider" \/>\s*<TicketBarcode value=\{snapshot\?\.focusTicket\?\.lookupCode \|\| lookupCode\} \/>/);
+  assert.match(source, /<Divider className="ticket-page-barcode-divider" \/>/);
+  assert.match(source, /barcodeRotationRequired/);
+  assert.match(source, /<RotatingTicketBarcode/);
+  assert.match(source, /<TicketBarcode value=\{snapshot\?\.focusTicket\?\.lookupCode \|\| lookupCode\} \/>/);
   assert.doesNotMatch(source, /getBusinessCategoryLabel/);
   assert.doesNotMatch(source, /className="vendor-hero-description"/);
   assert.equal((source.match(/formatHoursLabel\(locationHours\[todayIndex\]\)/g) || []).length, 1);

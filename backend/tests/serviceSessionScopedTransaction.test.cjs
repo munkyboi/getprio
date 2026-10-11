@@ -978,6 +978,7 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
       await assert.rejects(pool.query("UPDATE queue_ticket_barcodes SET expires_at=expires_at+INTERVAL '1 second'"),{code:'23514'});
       await pool.query("UPDATE queue_ticket_barcodes SET issued_at=issued_at-INTERVAL '121 seconds',expires_at=expires_at-INTERVAL '121 seconds'");await assert.rejects(confirm(undefined,{barcodeToken:first.barcodeToken}),{code:'TICKET_BARCODE_INVALID'});
       const refreshed=await issueBarcode();assert.notEqual(refreshed.barcodeToken,first.barcodeToken);await assert.rejects(confirm(undefined,{barcodeToken:first.barcodeToken}),{code:'TICKET_BARCODE_INVALID'});await confirm(undefined,{barcodeToken:refreshed.barcodeToken});
+      const protectedReference=await realTickets.findTicketByTenantAndLookupCode('1','LOOKUP-1',{client:pool});assert.equal(protectedReference.barcodeRotationEnabled,true);assert.equal(protectedReference.lookupCode,'LOOKUP-1');assert.equal(protectedReference.barcodeToken,undefined);assert.equal(protectedReference.nonce,undefined);
     });
     await t.test('rotating barcode scanner rejects static bypass wrong token scope and replay after confirmation without service start',async () => {
       await ownedTicket();const token=await issueBarcode();await assert.rejects(confirm(),{code:'TICKET_BARCODE_REQUIRED'});await assert.rejects(confirm(undefined,{barcodeToken:'QB'+ '0'.repeat(32)}),{code:'TICKET_BARCODE_INVALID'});

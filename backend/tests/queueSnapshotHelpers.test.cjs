@@ -79,6 +79,7 @@ test("queue snapshot helpers prefer a ticket location when lookup code resolves"
   storeLocations.listHoursByLocationId = async () => [];
   tickets.findTicketByTenantAndLookupCode = async () => ({
     _id: 99,
+    userId: "1",
     tenantId: 10,
     locationId: 2,
     dateKey: "20260630",
@@ -115,6 +116,7 @@ test("queue snapshot helpers prefer a ticket location when lookup code resolves"
 
   assert.equal(result.location.slug, "branch");
   assert.equal(result.focusTicket.lookupCode, "ABC123");
+  assert.equal(result.focusTicket.barcodeRotationRequired, true);
   assert.equal(result.focusTicket.position, null);
   assert.equal(result.focusTicket.serviceStartedAt.toISOString(), "2026-06-30T00:06:00.000Z");
   assert.equal(result.focusTicket.serviceEndedAt.toISOString(), "2026-06-30T00:16:00.000Z");

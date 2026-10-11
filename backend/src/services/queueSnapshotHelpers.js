@@ -233,6 +233,7 @@ async function buildQueueSnapshot(tenant, options = {}, getTenantUsage) {
       customerDisplayName: lookupTicket.customerDisplayName || null,
       status: lookupTicket.status,
       customerConfirmedAt: lookupTicket.customerConfirmedAt || null,
+      barcodeRotationRequired: Boolean(lookupTicket.barcodeRotationEnabled || (lookupTicket.userId && !lookupTicket.developerProjectId)),
       serviceStartedAt: lookupTicket.serviceStartedAt || null,
       serviceEndedAt: lookupTicket.serviceEndedAt || null,
       serviceOutcome: lookupTicket.serviceOutcome || null,

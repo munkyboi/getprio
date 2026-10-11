@@ -1388,6 +1388,10 @@ export interface QueueFocusTicket {
   customerDisplayName?: string | null;
   status: TicketStatus;
   customerConfirmedAt?: string | Date | null;
+  barcodeRotationRequired?: boolean;
+  serviceStartedAt?: string | Date | null;
+  serviceEndedAt?: string | Date | null;
+  serviceOutcome?: "completed" | "interrupted" | null;
   statusReason?: string | null;
   isCarriedOver?: boolean;
   carryOverCount?: number;

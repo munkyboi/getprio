@@ -2176,6 +2176,7 @@ body {
 }
 
 .ticket-page-barcode-value {
+  overflow-wrap: anywhere;
   margin-top: 0.35rem;
   margin-bottom: 0;
   font-variant-numeric: tabular-nums;
