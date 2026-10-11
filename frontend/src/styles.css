@@ -8133,7 +8133,7 @@ button:hover > .rating-star { transform: scale(1.08); }
   width: 100%;
 }
 
-.ticket-page-arrival-qr canvas {
+.ticket-page-arrival-qr img {
   display: block;
   width: 232px;
   height: 232px;
