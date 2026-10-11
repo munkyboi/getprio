@@ -1,6 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const express = require('express');
+const {rateLimit}=require('express-rate-limit');
 const {createCsrfProtection}=require('../src/middleware/csrfProtection');
 const {LOCAL_ACCESS_COOKIE,CSRF_COOKIE,signCsrfToken}=require('../src/services/browserSessionService');
 const {loadModuleWithMocks} = require('./helpers/loadModuleWithMocks.cjs');
@@ -13,7 +14,7 @@ test('account barcode endpoint authenticates server owner, preserves contract an
     '../middleware/moderatePublicText':{moderatePublicText:(_req,_res,next)=>next()},
     '../services/ticketBarcodeService':{issueForOwner:async(id,user)=>{calls.push([id,user]);if(id==='2')throw Object.assign(new Error('Unavailable'),{statusCode:409,code:'TICKET_BARCODE_UNAVAILABLE'});if(id==='3')throw Object.assign(new Error('Not found'),{statusCode:404});return response;}}
   });
-  const app=express();app.set('trust proxy',true);app.use(express.json());app.use(createCsrfProtection({allowedOrigins:['https://getprio.test'],csrfSecret:'barcode-csrf-test',authCookieSecure:false}));app.use(router);app.use((error,_req,res,_next)=>res.status(error.statusCode||500).json({message:error.message,code:error.code}));
+  const app=express();app.set('trust proxy',1);app.use(rateLimit({windowMs:60000,limit:120}));app.use(express.json());app.use(createCsrfProtection({allowedOrigins:['https://getprio.test'],csrfSecret:'barcode-csrf-test',authCookieSecure:false}));app.use(router);app.use((error,_req,res,_next)=>res.status(error.statusCode||500).json({message:error.message,code:error.code}));
   const server=app.listen(0,'127.0.0.1');await new Promise(resolve=>server.once('listening',resolve));const base=`http://127.0.0.1:${server.address().port}`;
   try {
     assert.equal((await fetch(`${base}/queue/tickets/1/barcode`,{method:'POST'})).status,401);
