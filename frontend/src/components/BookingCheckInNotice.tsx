@@ -1,5 +1,6 @@
 import { Alert } from "@mantine/core";
 import { IconInfoCircle } from "@tabler/icons-react";
+import { formatBookingScheduleDateTime } from "../utils/dates";
 import { getBookingCheckInState, type CheckInBooking } from "../utils/bookingCheckIn";
 
 export function BookingCheckInNotice({ booking, now, canReschedule, queueBlocked, queueGuidance }: Readonly<{
@@ -20,12 +21,19 @@ export function BookingCheckInNotice({ booking, now, canReschedule, queueBlocked
       </Alert>
     );
   }
-  if (!state.isTooEarly && !queueBlocked) return null;
+  if (state.isTooEarly) {
+    return (
+      <Alert color="blue" icon={<IconInfoCircle size={18} />} title="Check-in not open yet">
+        {state.opensAt
+          ? `Check-in opens ${formatBookingScheduleDateTime(state.opensAt)}, 15 minutes before the booking.`
+          : "The booking schedule is unavailable. Check the scheduled time before checking in."}
+      </Alert>
+    );
+  }
+  if (!queueBlocked) return null;
   return (
     <Alert color="blue" icon={<IconInfoCircle size={18} />} title="Check-in unavailable">
-      {state.isTooEarly ? "Check-in opens 15 minutes before the booking." : null}
-      {state.isTooEarly && queueBlocked ? " " : null}
-      {queueBlocked ? queueGuidance : null}
+      {queueGuidance}
     </Alert>
   );
 }

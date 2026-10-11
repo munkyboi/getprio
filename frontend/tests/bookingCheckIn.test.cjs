@@ -5,6 +5,7 @@ const React = require("react");
 const { renderToStaticMarkup } = require("react-dom/server");
 const { MantineProvider } = require("@mantine/core");
 const { getBookingCheckInState } = require("../src/utils/bookingCheckIn.ts");
+const { formatBookingScheduleDateTime } = require("../src/utils/dates.ts");
 const { BookingCheckInNotice } = require("../src/components/BookingCheckInNotice.tsx");
 
 const start = Date.parse("2026-10-11T04:00:00Z");
@@ -36,8 +37,24 @@ test("missed-window notice takes priority over queue closure and follows resched
 
 test("closed and early check-in guidance is inline and absent when ready", () => {
   assert.match(notice({ queueBlocked: true }), /role="alert"[\s\S]*Open the queue before checking in customers/);
-  assert.match(notice({ now: start - 16 * minute }), /Check-in opens 15 minutes before the booking/);
+  assert.match(notice({ now: start - 16 * minute }), /Check-in not open yet/);
   assert.doesNotMatch(notice(), /role="alert"/);
+});
+
+test("October 20 booking has no check-in action on October 11 and displays its opening time", () => {
+  const futureBooking = { ...booking, scheduledStartAt: "2026-10-20T04:00:00Z" };
+  const now = Date.parse("2026-10-11T04:00:00Z");
+  const state = getBookingCheckInState(futureBooking, now);
+  assert.equal(state.isWindowOpen, false);
+  assert.equal(state.opensAt, "2026-10-20T03:45:00.000Z");
+  const markup = notice({ booking: futureBooking, now, queueBlocked: true });
+  assert.match(markup, /Check-in not open yet/);
+  assert.ok(markup.includes(`Check-in opens ${formatBookingScheduleDateTime(state.opensAt)}, 15 minutes before the booking.`));
+  assert.doesNotMatch(markup, /Open the queue/);
+  assert.equal(getBookingCheckInState(futureBooking, Date.parse(state.opensAt)).isWindowOpen, true);
+  assert.equal(getBookingCheckInState(futureBooking, Date.parse("2026-10-20T04:15:00.001Z")).isWindowOpen, false);
+  assert.equal(getBookingCheckInState({ ...futureBooking, scheduledStartAt: "invalid" }, now).isWindowOpen, false);
+  assert.match(notice({ booking: { ...futureBooking, scheduledStartAt: "invalid" }, now }), /booking schedule is unavailable/);
 });
 
 test("arrived and terminal bookings do not get check-in or rescheduling guidance", () => {

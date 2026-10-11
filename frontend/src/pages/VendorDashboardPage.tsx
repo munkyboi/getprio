@@ -8094,27 +8094,22 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                             </Stack>
                           </Table.Td>
                           <Table.Td>
-                            <Stack gap="xs">
-                              {canOperateBookingQueue ? (
-                                <BookingCheckInNotice booking={booking} now={bookingCheckInNow} canReschedule={canAdminBookings} queueBlocked={bookingCheckInBlocked} queueGuidance={bookingCheckInGuidance} />
+                            <Group gap="xs" wrap="wrap">
+                              {canOperateBookingQueue && checkInState.isWindowOpen ? (
+                                <IconActionButton
+                                  label={bookingCheckInBlocked ? `Check in customer: ${bookingCheckInGuidance}` : "Check in customer"}
+                                  color="teal"
+                                  size={44}
+                                  loading={busyAction === `booking-check-in:${booking.id}`}
+                                  disabled={Boolean(busyAction) || bookingCheckInBlocked}
+                                  onClick={() => void handleCheckInBooking(booking)}
+                                >
+                                  <IconCalendarCheck size={18} />
+                                </IconActionButton>
                               ) : null}
-                              <Group gap="xs" wrap="wrap">
-                                {canOperateBookingQueue && checkInState.isEligibleStatus && !checkInState.isTooEarly && !checkInState.isLate && !booking.checkedInAt && !booking.linkedTicket ? (
-                                  <IconActionButton
-                                    label={bookingCheckInBlocked ? `Check in customer: ${bookingCheckInGuidance}` : "Check in customer"}
-                                    color="teal"
-                                    size={44}
-                                    loading={busyAction === `booking-check-in:${booking.id}`}
-                                    disabled={Boolean(busyAction) || bookingCheckInBlocked}
-                                    onClick={() => void handleCheckInBooking(booking)}
-                                  >
-                                    <IconCalendarCheck size={18} />
-                                  </IconActionButton>
-                                ) : null}
-                                {renderBookingNoShowAction(booking)}
-                                {actionButtons}
-                              </Group>
-                            </Stack>
+                              {renderBookingNoShowAction(booking)}
+                              {actionButtons}
+                            </Group>
                           </Table.Td>
                         </Table.Tr>
                       );
@@ -10060,7 +10055,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   >
                     Open booking queue
                   </Button>
-                  {canOperateBookingQueue && detailCheckInState?.isAwaitingCheckIn && !detailCheckInState.isLate ? (
+                  {canOperateBookingQueue && detailCheckInState?.isWindowOpen ? (
                     <Button
                       className="neura-primary-button"
                       radius="xl"
