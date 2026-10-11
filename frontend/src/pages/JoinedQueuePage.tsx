@@ -702,7 +702,8 @@ export default function JoinedQueuePage() {
   }
 
   const focusTicket = snapshot?.focusTicket;
-  let ticketBarcode = <TicketBarcode value={focusTicket?.lookupCode || lookupCode} />;
+  let ticketBarcode = <Text ta="center" c="dimmed" size="sm">{error || "Loading ticket arrival details…"}</Text>;
+  if (focusTicket) ticketBarcode = <TicketBarcode value={focusTicket.lookupCode} />;
   if (focusTicket?.barcodeRotationRequired && ["waiting", "called", "skipped", "pending_carry_over"].includes(focusTicket.status) &&
       !focusTicket.customerConfirmedAt && !focusTicket.serviceStartedAt && !focusTicket.serviceEndedAt && !focusTicket.serviceOutcome) {
     ticketBarcode = token ? <RotatingTicketBarcode key={`${focusTicket.id}:${token}`} ticketId={focusTicket.id} token={token} /> :
