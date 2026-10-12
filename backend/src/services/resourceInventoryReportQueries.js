@@ -110,7 +110,8 @@ const COLLECTIONS = {
     sequence,priority_band,activated_at,legacy_inferred FROM relevant_segments ORDER BY id` }
 };
 
-const COUNTS = `${CONTEXT} SELECT ${Object.entries(COLLECTIONS).map(([name, collection]) => `(${collection.count})::text AS "${name}"`).join(',')},
+const collectionCounts = Object.entries(COLLECTIONS).map(([name, collection]) => `(${collection.count})::text AS "${name}"`).join(',');
+const COUNTS = `${CONTEXT} SELECT ${collectionCounts},
   (SELECT COUNT(*)::text FROM scope_tickets) AS "historicalTickets",
   (SELECT COUNT(*)::text FROM scope_tickets WHERE status='served' AND service_started_at IS NULL) AS "servedWithoutExplicitStart",
   (SELECT COUNT(*)::text FROM scope_tickets t WHERE service_started_at IS NOT NULL AND NOT EXISTS
