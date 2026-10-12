@@ -3,7 +3,6 @@ const ledger = require("../repositories/resourceLedger");
 const counters = require("../repositories/serviceCounters");
 const assignments = require("../repositories/tenantMembershipLocations");
 const billing = require("../repositories/billing");
-const plans = require("../repositories/subscriptionPlans");
 const { readAuthorizedVendorQueueActor } = require("./vendorQueueTransactionService");
 
 function fail(message, statusCode = 400) {
@@ -24,8 +23,9 @@ async function counterLimit(client, tenantId) {
   await client.query("SELECT id FROM tenant_subscriptions WHERE tenant_id=$1 ORDER BY id FOR UPDATE NOWAIT", [tenantId]);
   const subscription = await billing.getActiveSubscriptionByTenantId(tenantId, { client });
   if (subscription?.status !== "active") return 0;
-  await client.query("SELECT slug FROM subscription_plans WHERE slug=$1 FOR SHARE NOWAIT", [subscription.planSlug]);
-  const plan = await plans.findPlanBySlug(subscription.planSlug, { client });
+  // Read policy from the locking statement itself. An absent plan locks no
+  // row, so a second read could consume a newly inserted, unlocked plan.
+  const plan = (await client.query("SELECT slug,entitlements FROM subscription_plans WHERE slug=$1 FOR SHARE NOWAIT", [subscription.planSlug])).rows[0];
   return Number({ ...plan?.entitlements, ...subscription.entitlements }.counters || 0);
 }
 
