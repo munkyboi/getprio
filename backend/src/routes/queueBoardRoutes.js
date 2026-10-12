@@ -10,6 +10,7 @@ const assignments = require("../repositories/tenantMembershipLocations");
 const { getAuthorizedTenant, getLocationForTenant } = require("./vendorRouteHelpers");
 const access = require("../services/queueBoardAccess");
 const { boardSnapshot } = require("../services/queueBoardProjection");
+const { sealBrowserSecret, openBrowserSecret } = require("../services/queueBoardCookie");
 const { parseCookies } = require("../services/browserSessionService");
 const { getQueueSnapshot } = require("../services/queueService");
 const entitlement = require("../services/entitlementAdmissionService");
@@ -23,7 +24,7 @@ const pairingLimiter = rateLimit({ windowMs: 60000, limit: 10, standardHeaders: 
 const accessLimiter = rateLimit({ windowMs: 60000, limit: 900, standardHeaders: true, legacyHeaders: false, keyGenerator: (req) => ipKeyGenerator(req.ip) });
 const readLimiter = rateLimit({ windowMs: 60000, limit: 90, standardHeaders: true, legacyHeaders: false, keyGenerator: (req) => ipKeyGenerator(req.ip) });
 function cookieName(boardId) { return `${env.authCookieSecure ? "__Host-" : ""}prio_board_${boardId}`; }
-function browserSecret(req, boardId) { return parseCookies(req.headers.cookie)[cookieName(boardId)] || ""; }
+function browserSecret(req, boardId) { return openBrowserSecret(parseCookies(req.headers.cookie)[cookieName(boardId)] || "", boardId); }
 function noStore(_req, res, next) { res.set("Cache-Control", "no-store"); res.set("Referrer-Policy", "no-referrer"); next(); }
 publicRouter.use(noStore);
 vendorRouter.use(noStore, authenticate);
@@ -44,7 +45,7 @@ publicRouter.get("/:boardId/access", accessLimiter, asyncHandler(async (req, res
   if (allowed && !board.queue_board_public) {
     const secret = browserSecret(req, board.queue_board_id);
     const expiry = await access.grantExpiry(board, secret);
-    if (expiry) res.cookie(cookieName(board.queue_board_id), secret, { httpOnly: true, secure: env.authCookieSecure,
+    if (expiry) res.cookie(cookieName(board.queue_board_id), sealBrowserSecret(secret, board.queue_board_id), { httpOnly: true, secure: env.authCookieSecure,
       sameSite: "strict", path: "/", maxAge: Math.max(0, new Date(expiry).getTime() - Date.now()) });
   }
   res.json({ allowed, isPublic: board.queue_board_public, locationName: board.name });
@@ -56,7 +57,7 @@ publicRouter.post("/:boardId/pairing", pairingLimiter, asyncHandler(async (req, 
   const existing = browserSecret(req, board.queue_board_id);
   const secret = /^[a-f0-9]{64}$/.test(existing) ? existing : crypto.randomBytes(32).toString("hex");
   const pairing = await access.requestPairing(board, secret);
-  res.cookie(cookieName(board.queue_board_id), secret, { httpOnly: true, secure: env.authCookieSecure,
+  res.cookie(cookieName(board.queue_board_id), sealBrowserSecret(secret, board.queue_board_id), { httpOnly: true, secure: env.authCookieSecure,
     sameSite: "strict", path: "/", maxAge: 30 * 86400000 });
   res.status(201).json({ ...pairing, locationName: board.name,
     approvalUrl: `${env.appBaseUrl.replace(/\/$/, "")}/dashboard/queue?boardPairing=${pairing.code}` });

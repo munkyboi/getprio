@@ -31,7 +31,8 @@ test("board HTTP reads and streams enforce grants; staff cannot publish or appro
       grantExpiry: async () => new Date(Date.now() + 29 * 86400000),
       pairingForLocation: async () => ({ match_code: "123456" }), approve: async () => ({ id: "grant" }) },
     "../services/queueBoardProjection": projection,
-    "../services/browserSessionService": { parseCookies: () => ({}) },
+    "../services/browserSessionService": require("../src/services/browserSessionService"),
+    "../services/queueBoardCookie": require("../src/services/queueBoardCookie"),
     "../services/queueService": { getQueueSnapshot: async () => snapshot },
     "../services/entitlementAdmissionService": { admit: async () => {}, resolvePublicCapabilities: async () => ({ queue: true }) },
     "../config/env": { appBaseUrl: "https://getprio.online", authCookieSecure: true },
@@ -55,12 +56,17 @@ test("board HTTP reads and streams enforce grants; staff cannot publish or appro
     const pairing = await fetch(`${base}/board/${boardId}/pairing`, { method: "POST", headers: { Origin: "https://getprio.online" } });
     assert.equal(pairing.status, 201); assert.match(pairing.headers.get("set-cookie"), /HttpOnly/); assert.match(pairing.headers.get("set-cookie"), /SameSite=Strict/); assert.match(pairing.headers.get("set-cookie"), /Secure/);
     assert.equal(pairing.headers.get("cache-control"), "no-store");
+    const codec = require("../src/services/queueBoardCookie");
+    const cookieValue = decodeURIComponent(pairing.headers.get("set-cookie").split(";")[0].split("=")[1]);
+    assert.match(cookieValue, /^v1\./);
+    assert.match(codec.openBrowserSecret(cookieValue, boardId), /^[a-f0-9]{64}$/);
     assert.equal((await fetch(`${base}/vendor/vendor/queue-board?location=main`)).status, 403);
     assert.equal((await fetch(`${base}/vendor/vendor/queue-board/pairing/${"a".repeat(32)}?location=other`)).status, 403);
     const approval = await fetch(`${base}/vendor/vendor/queue-board/pairing/${"a".repeat(32)}/approve?location=main`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ displayName: "TV" }) });
     assert.equal(approval.status, 200);
     allowed = true;
-    const refreshed = await fetch(`${base}/board/${boardId}/access`);
+    const pairingCookie = pairing.headers.get("set-cookie").split(";")[0];
+    const refreshed = await fetch(`${base}/board/${boardId}/access`, { headers: { Cookie: pairingCookie } });
     const remainingSeconds = Number(refreshed.headers.get("set-cookie").match(/Max-Age=(\d+)/)[1]);
     assert.ok(remainingSeconds >= 29 * 86400 - 1 && remainingSeconds <= 29 * 86400);
     const read = await fetch(`${base}/board/${boardId}/queue`);
