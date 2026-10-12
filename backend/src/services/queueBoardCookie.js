@@ -5,14 +5,14 @@ const env = require("../config/env");
 function key() {
   return crypto.hkdfSync("sha256", env.jwtSecret, Buffer.alloc(0), "prio-queue-board-cookie-v1", 32);
 }
-function sealBrowserSecret(secret, boardId) {
+function encryptDisplayCookie(secret, boardId) {
   const iv = crypto.randomBytes(12);
   const cipher = crypto.createCipheriv("aes-256-gcm", key(), iv);
   cipher.setAAD(Buffer.from(boardId));
   const ciphertext = Buffer.concat([cipher.update(secret, "utf8"), cipher.final()]);
   return `v1.${Buffer.concat([iv, cipher.getAuthTag(), ciphertext]).toString("base64url")}`;
 }
-function openBrowserSecret(value, boardId) {
+function decryptDisplayCookie(value, boardId) {
   if (typeof value !== "string" || !/^v1\.[A-Za-z0-9_-]{123}$/.test(value)) return "";
   try {
     const payload = Buffer.from(value.slice(3), "base64url");
@@ -25,4 +25,4 @@ function openBrowserSecret(value, boardId) {
     return "";
   }
 }
-module.exports = { sealBrowserSecret, openBrowserSecret };
+module.exports = { encryptDisplayCookie, decryptDisplayCookie };

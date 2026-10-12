@@ -59,7 +59,7 @@ test("board HTTP reads and streams enforce grants; staff cannot publish or appro
     const codec = require("../src/services/queueBoardCookie");
     const cookieValue = decodeURIComponent(pairing.headers.get("set-cookie").split(";")[0].split("=")[1]);
     assert.match(cookieValue, /^v1\./);
-    assert.match(codec.openBrowserSecret(cookieValue, boardId), /^[a-f0-9]{64}$/);
+    assert.match(codec.decryptDisplayCookie(cookieValue, boardId), /^[a-f0-9]{64}$/);
     assert.equal((await fetch(`${base}/vendor/vendor/queue-board?location=main`)).status, 403);
     assert.equal((await fetch(`${base}/vendor/vendor/queue-board/pairing/${"a".repeat(32)}?location=other`)).status, 403);
     const approval = await fetch(`${base}/vendor/vendor/queue-board/pairing/${"a".repeat(32)}/approve?location=main`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ displayName: "TV" }) });
