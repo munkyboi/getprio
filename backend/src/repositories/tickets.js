@@ -51,15 +51,9 @@ const TICKET_COLUMNS = `
   updated_at
 `;
 
-const BOOKING_CALL_NOT_READY = `EXISTS (
-  SELECT 1 FROM bookings
-  WHERE bookings.queue_ticket_id = tickets.id
-    AND bookings.tenant_id = tickets.tenant_id
-    AND bookings.location_id = tickets.location_id
-    AND bookings.scheduled_start_at > clock_timestamp()
-)`;
-
-const WAITING_PRIORITY_ORDER = "CASE service_priority_band WHEN 'carry_over' THEN 0 WHEN 'recovery' THEN 1 WHEN 'checked_in_booking' THEN 2 ELSE 3 END ASC, carry_over_count DESC, created_at ASC";
+const { bookingCallNotReady, waitingPriorityOrder } = require("../services/queueDispatchRules");
+const BOOKING_CALL_NOT_READY = bookingCallNotReady();
+const WAITING_PRIORITY_ORDER = waitingPriorityOrder();
 
 function mapTicket(row) {
   if (!row) {

@@ -110,8 +110,9 @@ const COLLECTIONS = {
     sequence,priority_band,activated_at,legacy_inferred FROM relevant_segments ORDER BY id` }
 };
 
-const collectionCounts = Object.entries(COLLECTIONS).map(([name, collection]) => `(${collection.count})::text AS "${name}"`).join(',');
-const COUNTS = `${CONTEXT} SELECT ${collectionCounts},
+function buildCounts(context, collections) {
+  const collectionCounts = Object.entries(collections).map(([name, collection]) => `(${collection.count})::text AS "${name}"`).join(',');
+  return `${context} SELECT ${collectionCounts},
   (SELECT COUNT(*)::text FROM scope_tickets) AS "historicalTickets",
   (SELECT COUNT(*)::text FROM scope_tickets WHERE status='served' AND service_started_at IS NULL) AS "servedWithoutExplicitStart",
   (SELECT COUNT(*)::text FROM scope_tickets t WHERE service_started_at IS NOT NULL AND NOT EXISTS
@@ -122,4 +123,6 @@ const COUNTS = `${CONTEXT} SELECT ${collectionCounts},
     AND b.status IN ('pending','confirmed','rescheduled')
     AND ((b.scheduled_start_at<$4::timestamptz AND b.scheduled_end_at>$3::timestamptz) OR b.id IN (SELECT id FROM linked_bookings))
     AND NOT EXISTS (SELECT 1 FROM booking_bundle_items i WHERE i.booking_id=b.id AND i.tenant_id=$1 AND i.location_id=$2)) AS "bookingParentsWithoutItems"`;
-module.exports = { CONTEXT, COLLECTIONS, COUNTS };
+}
+const COUNTS = buildCounts(CONTEXT, COLLECTIONS);
+module.exports = { CONTEXT, COLLECTIONS, COUNTS, buildCounts };
