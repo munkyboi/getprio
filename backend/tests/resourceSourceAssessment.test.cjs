@@ -226,6 +226,23 @@ test('PostgreSQL source assessment agrees with dispatch and stays coherent bound
       }});
       await assert.rejects(reader(input()),error=>error.message==='resource_report_authorization_unavailable');assert.equal(calls,2);
     });
+    await t.test('fresh checkpoint outages after a successful inventory read remain authorization errors',async()=>{
+      for(const code of [undefined,'42P01','42703','57014']){
+        await reset();await ticket('1');let calls=0;
+        const reader=read({authorize:async(client,scope)=>{calls++;if(calls===2)throw Object.assign(new Error('PRIVATE'),{code});return authorize(client,scope);}});
+        await assert.rejects(reader(input()),{code:'resource_report_authorization_unavailable',statusCode:503});assert.equal(calls,2);
+      }
+    });
+    await t.test('a failed collection read stops subsequent reads before rollback and fresh authorization',async()=>{
+      await reset();await ticket('1');let laterReads=0;
+      const guarded={connect:async()=>{const client=await pool.connect();return {release:()=>client.release(),query:async(sql,params)=>{
+        if(sql.includes('LEFT JOIN candidate_order o'))return client.query('SELECT * FROM absent_private_table');
+        if(sql.includes('FROM held_allocations a ORDER BY id'))laterReads++;
+        return client.query(sql,params);
+      }};}};
+      const result=await createResourceSourceAssessment({pool:guarded,sourceBinding:'test',authorize})(input());
+      assert.equal(laterReads,0);assert.equal(result.sourceAssessment,null);assert.equal(result.scanStatus,'unavailable');
+    });
     await t.test('actual PostgreSQL statement timeout returns only authorized unavailable evidence',async()=>{
       await reset();let calls=0,failed=false;
       const slow={connect:async()=>{const client=await pool.connect();return {release:()=>client.release(),query:async(sql,params)=>{

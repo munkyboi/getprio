@@ -38,9 +38,10 @@ function createResourceInventoryReconciliationReport({ pool, sourceBinding, auth
       await client.query("SELECT set_config('statement_timeout',$1,TRUE),set_config('lock_timeout',$2,TRUE)", [`${statementTimeoutMs}ms`,`${lockTimeoutMs}ms`]);
       if (await authorize(client,scope) !== true) fail('resource_report_scope_access_denied',403);
       if ((await client.query('COMMIT')).command !== 'COMMIT') fail('resource_report_not_committed',503);
-    } catch (error) {
+    } catch (error_) {
       await client.query('ROLLBACK').catch(() => {});
-      throw error;
+      if (error_.code === 'resource_report_scope_access_denied') throw error_;
+      fail('resource_report_authorization_unavailable',503);
     }
   }
   if (typeof includeSourceAssessment !== 'boolean' || !pool || typeof pool.connect !== 'function' || typeof authorize !== 'function'
@@ -81,11 +82,13 @@ function createResourceInventoryReconciliationReport({ pool, sourceBinding, auth
       const exceeded = Object.entries(bounds).filter(([name, limit]) => BigInt(counts[name]) > BigInt(limit)).map(([name]) => name);
       const data = {};
       if (!exceeded.length) {
-        for (const [name, collection] of Object.entries(collections)) {
+        // Serialize on the one transaction client; rejected reads prevent later
+        // queries from being queued before rollback and connection release.
+        await Object.entries(collections).reduce((reads,[name,collection]) => reads.then(async () => {
           const rows = (await client.query(`${context} ${collection.rows} LIMIT $5`, [...params,bounds[name]+1])).rows;
           if (BigInt(rows.length) !== BigInt(counts[name])) fail('resource_report_counts_inconsistent',503);
           data[name] = rows;
-        }
+        }),Promise.resolve());
       }
       const report = buildResourceInventoryReport({ reportVersion: REPORT_VERSION, scope, window, observedAt, observedAtUs: observation.observed_at_us, ledger, counts, data, exceeded, bounds });
       report.completedAt = new Date().toISOString();
@@ -108,16 +111,10 @@ function createResourceInventoryReconciliationReport({ pool, sourceBinding, auth
       return freeze(result);
     } catch (error) {
       if (client) await client.query('ROLLBACK').catch(() => {});
-      if (['invalid_resource_report_window','resource_report_scope_access_denied','resource_report_location_not_found'].includes(error.code)) throw error;
+      if (['invalid_resource_report_window','resource_report_scope_access_denied','resource_report_location_not_found','resource_report_authorization_unavailable'].includes(error.code)) throw error;
       if (authorized && ['42P01','42703','57014','55P03'].includes(error.code)) {
         // Assessment has no Platform wrapper: even failure returns need current access.
-        if (includeSourceAssessment) {
-          try { await freshAuthorize(client,scope); }
-          catch (checkpoint) {
-            if (checkpoint.code === 'resource_report_scope_access_denied') throw checkpoint;
-            fail('resource_report_authorization_unavailable',503);
-          }
-        }
+        if (includeSourceAssessment) await freshAuthorize(client,scope);
         return freeze(response(unavailable(scope,window,observedAt,['57014','55P03'].includes(error.code) ? 'resource_report_read_timeout' : 'resource_report_storage_unavailable'),undefined,observedAtUs));
       }
       fail(authorized ? 'resource_report_read_failed' : 'resource_report_authorization_unavailable',503);
