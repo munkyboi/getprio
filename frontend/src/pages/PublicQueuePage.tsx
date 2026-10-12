@@ -67,6 +67,14 @@ function getEtaLabel(ticket: QueueListTicket, averageServiceMinutes: number) {
 }
 
 export default function PublicQueuePage({ snapshot }: { snapshot: QueueSnapshot }) {
+  const [callPage, setCallPage] = useState(0);
+  const calledTickets = snapshot.calledTickets || [];
+  const callPageCount = Math.max(1, Math.ceil(calledTickets.length / 4));
+  const visibleCalls = calledTickets.slice((callPage % callPageCount) * 4, (callPage % callPageCount) * 4 + 4);
+  useEffect(() => {
+    const timer = window.setInterval(() => setCallPage((page) => page + 1), 6000);
+    return () => window.clearInterval(timer);
+  }, []);
   const [clockNow, setClockNow] = useState(() => new Date());
   const tenantSlugValue = snapshot.tenant.slug;
   const locationSlug = snapshot.location?.slug;
@@ -170,11 +178,13 @@ export default function PublicQueuePage({ snapshot }: { snapshot: QueueSnapshot 
               <section className="public-board-tv-current">
                 <div className="public-board-tv-current-inner">
                   <Text className="public-board-tv-eyebrow">Now serving</Text>
-                  {snapshot.calledTickets?.length ? snapshot.calledTickets.map((ticket) => <div key={ticket.id}>
-                    <strong>{ticket.ticketNumber}</strong>
-                    <span>{ticket.serviceCounterId ? snapshot.counterDispatch?.find((lane) => lane.serviceCounterId === ticket.serviceCounterId)?.counterName || "Counter" : "Reception"}</span>
-                  </div>) : <strong>--</strong>}
-                  <span>{snapshot.calledTickets?.length ? "Please proceed to your counter" : "Waiting for next ticket"}</span>
+                  <div className="public-board-tv-calls" data-multiple={visibleCalls.length > 1}>
+                    {visibleCalls.length ? visibleCalls.map((ticket) => <div className="public-board-tv-call" key={ticket.id}>
+                      <strong>{ticket.ticketNumber}</strong>
+                      <span>{ticket.serviceCounterId ? snapshot.counterDispatch?.find((lane) => lane.serviceCounterId === ticket.serviceCounterId)?.counterName || "Counter" : "Reception"}</span>
+                    </div>) : <div className="public-board-tv-call"><strong>--</strong></div>}
+                  </div>
+                  <span className="public-board-tv-call-instruction">{calledTickets.length ? "Please proceed to your counter" : "Waiting for next ticket"}{callPageCount > 1 ? ` · ${callPage % callPageCount + 1}/${callPageCount}` : ""}</span>
                 </div>
               </section>
 

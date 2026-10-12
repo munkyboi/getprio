@@ -87,7 +87,7 @@ function buildLocationLinks(location, tenant, options = {}) {
       location.slug,
       location.queueJoinId
     ),
-    monitorUrl: location.queueBoardId ? `${appBaseUrl}/queue-board/${location.queueBoardId}` : ""
+    monitorUrl: location.queueBoardId ? `${appBaseUrl.replace(/\/+$/, "")}/queue-board/${location.queueBoardId}` : ""
   };
 }
 

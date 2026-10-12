@@ -42,11 +42,14 @@ async function snapshotFor(board) {
 publicRouter.get("/:boardId/access", accessLimiter, asyncHandler(async (req, res) => {
   const board = await boardForRequest(req);
   const allowed = await access.canRead(board, browserSecret(req, board.queue_board_id));
-  if (allowed && !board.queue_board_public) {
+  if (allowed && browserSecret(req, board.queue_board_id)) {
     const secret = browserSecret(req, board.queue_board_id);
     const expiry = await access.grantExpiry(board, secret);
+    // The cookie identifies the browser; database expiry/revocation authorizes access.
+    // Keep identity beyond near-expiring grants so a late renewal survives until
+    // the next infrequent refresh, including while the board is public.
     if (expiry) res.cookie(cookieName(board.queue_board_id), encryptDisplayCookie(secret, board.queue_board_id), { httpOnly: true, secure: env.authCookieSecure,
-      sameSite: "strict", path: "/", maxAge: Math.max(0, new Date(expiry).getTime() - Date.now()) });
+      sameSite: "strict", path: "/", maxAge: 30 * 86400000 });
   }
   res.json({ allowed, isPublic: board.queue_board_public, locationName: board.name });
 }));

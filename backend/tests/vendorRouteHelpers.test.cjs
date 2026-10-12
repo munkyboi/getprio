@@ -253,3 +253,9 @@ test("counter slugs normalize punctuation and long separator inputs", () => {
   assert.equal(helpers.normalizeCounterSlug("-".repeat(100000) + "Desk"), "desk");
   assert.equal(helpers.normalizeCounterSlug(null), "");
 });
+
+ test("board links normalize trailing base slashes", () => {
+  const boardId = "063b7899-ffbe-482c-9564-91a5a6c79be0";
+  const result = helpers.buildLocationLinks({_id: "1", slug: "main", queueBoardId: boardId}, {slug: "demo"}, {appBaseUrl: "https://getprio.online/"});
+  assert.equal(result.monitorUrl, `https://getprio.online/queue-board/${boardId}`);
+});

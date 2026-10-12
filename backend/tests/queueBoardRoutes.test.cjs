@@ -28,7 +28,7 @@ test("board HTTP reads and streams enforce grants; staff cannot publish or appro
     "./vendorRouteHelpers": { getAuthorizedTenant: async () => ({ _id: "1" }), getLocationForTenant: async (_tenant, slug) => ({ _id: slug === "other" ? "2" : "1", tenantId: "1", name: "Main" }) },
     "../services/queueBoardAccess": { findBoard: async () => board, canRead: async () => allowed,
       requestPairing: async () => ({ code: "a".repeat(32), matchCode: "123456" }), settings: async () => ({ boardId }),
-      grantExpiry: async () => new Date(Date.now() + 29 * 86400000),
+      grantExpiry: async () => new Date(Date.now() + 2 * 3600000),
       pairingForLocation: async () => ({ match_code: "123456" }), approve: async () => ({ id: "grant" }) },
     "../services/queueBoardProjection": projection,
     "../services/browserSessionService": require("../src/services/browserSessionService"),
@@ -68,7 +68,13 @@ test("board HTTP reads and streams enforce grants; staff cannot publish or appro
     const pairingCookie = pairing.headers.get("set-cookie").split(";")[0];
     const refreshed = await fetch(`${base}/board/${boardId}/access`, { headers: { Cookie: pairingCookie } });
     const remainingSeconds = Number(refreshed.headers.get("set-cookie").match(/Max-Age=(\d+)/)[1]);
-    assert.ok(remainingSeconds >= 29 * 86400 - 1 && remainingSeconds <= 29 * 86400);
+    assert.ok(remainingSeconds === 30 * 86400);
+    board.queue_board_public = true;
+    const publicRefresh = await fetch(`${base}/board/${boardId}/access`, { headers: { Cookie: pairingCookie } });
+    assert.match(publicRefresh.headers.get("set-cookie"), /Max-Age=/);
+    const anonymousPublic = await fetch(`${base}/board/${boardId}/access`);
+    assert.equal(anonymousPublic.headers.get("set-cookie"), null);
+    board.queue_board_public = false;
     const read = await fetch(`${base}/board/${boardId}/queue`);
     assert.equal(read.status, 200); assert.doesNotMatch(await read.text(), /Private|SECRET/);
     const controller = new AbortController();

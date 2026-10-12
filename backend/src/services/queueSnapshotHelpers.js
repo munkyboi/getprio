@@ -287,7 +287,7 @@ async function buildQueueSnapshot(tenant, options = {}, getTenantUsage) {
       autoResumeEnabled: Boolean(tenant.autoResumeEnabled),
       autoResumeVacancyPercent: tenant.autoResumeVacancyPercent ?? null,
       joinUrl: buildJoinUrl(env.appBaseUrl, tenant.slug, locationToUse?.slug),
-      monitorUrl: locationToUse?.queueBoardId ? `${env.appBaseUrl}/queue-board/${locationToUse.queueBoardId}` : "",
+      monitorUrl: locationToUse?.queueBoardId ? `${env.appBaseUrl.replace(/\/+$/, "")}/queue-board/${locationToUse.queueBoardId}` : "",
       isActive: Boolean(activeSubscription),
       queueFee
     }),
@@ -309,7 +309,7 @@ async function buildQueueSnapshot(tenant, options = {}, getTenantUsage) {
             isPrimary: locationToUse.isPrimary,
             isActive: locationToUse.isActive,
             joinUrl: buildJoinUrl(env.appBaseUrl, tenant.slug, locationToUse.slug),
-            monitorUrl: locationToUse.queueBoardId ? `${env.appBaseUrl}/queue-board/${locationToUse.queueBoardId}` : "",
+            monitorUrl: locationToUse.queueBoardId ? `${env.appBaseUrl.replace(/\/+$/, "")}/queue-board/${locationToUse.queueBoardId}` : "",
             openStatus,
             hours: hours.map((hour) => ({
               weekday: hour.weekday,

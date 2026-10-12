@@ -19,16 +19,18 @@ export default function SecureQueueBoardPage() {
     let source: EventSource | undefined;
     let checking = false;
     let requestedPairing = false;
+    let refreshCookieAfter = 0;
     const base = `/queue-board/${encodeURIComponent(boardId)}`;
     setSnapshot(null); setPairing(null); setError("");
     const check = async () => {
-      if (checking || !active) return;
+      if (checking || !active || (source && Date.now() < refreshCookieAfter)) return;
       checking = true;
       try {
         const status = await apiRequest<{ allowed: boolean }>(`${base}/access`);
         if (!active) return;
         if (status.allowed) {
           requestedPairing = false;
+          refreshCookieAfter = Date.now() + 12 * 60 * 60 * 1000;
           if (source) return;
           const data = await apiRequest<QueueSnapshot>(`${base}/queue`);
           if (!active) return;

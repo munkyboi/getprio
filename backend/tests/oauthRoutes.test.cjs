@@ -97,6 +97,7 @@ function getRouteHandlers(router, method, routePath) {
 test("oauth start route redirects to the provider authorization URL", () => {
   let capturedProvider = "";
   let capturedState = "";
+  let capturedPayload;
   const authRoutes = requireWithMocks("../src/routes/authRoutes.js", {
     "../config/db": {},
     "../repositories/tenants": {},
@@ -125,7 +126,7 @@ test("oauth start route redirects to the provider authorization URL", () => {
       },
       buildClientCallbackUrl: () => "",
       buildProviderAvailability: () => ({ google: true, facebook: false }),
-      createOAuthState: (payload) => `state:${payload.provider}:${payload.intent}`,
+      createOAuthState: (payload) => { capturedPayload = payload; return `state:${payload.provider}:${payload.intent}`; },
       exchangeCodeForProfile: async () => ({}),
       ensureSupportedProvider: () => {},
       getProviderLabel: (provider) => provider,
@@ -149,6 +150,11 @@ test("oauth start route redirects to the provider authorization URL", () => {
   assert.equal(capturedProvider, "google");
   assert.equal(capturedState, "state:google:register_vendor");
   assert.equal(res.redirectUrl, "https://oauth.example/google?state=state%3Agoogle%3Aregister_vendor");
+  const next = "/dashboard/queue?boardPairing=" + "a".repeat(32);
+  handler({params: {provider: "google"}, query: {intent: "login", next}}, createMockRes());
+  assert.equal(capturedPayload.next, next);
+  handler({params: {provider: "facebook"}, query: {intent: "login", next: "https://attacker.example"}}, createMockRes());
+  assert.equal(capturedPayload.next, null);
 });
 
 test("oauth callback route completes login and redirects with tokens", async () => {
@@ -160,6 +166,7 @@ test("oauth callback route completes login and redirects with tokens", async () 
   const welcomeCalls = [];
   let existing = false;
   let intent = "login";
+  let next = null;
   let receivedProfile = null;
   let receivedCallbackArgs = null;
   const oauthUser = {
@@ -224,7 +231,7 @@ test("oauth callback route completes login and redirects with tokens", async () 
       },
       ensureSupportedProvider: () => {},
       getProviderLabel: (provider) => provider,
-      readOAuthState: () => ({ provider: "google", intent })
+      readOAuthState: () => ({ provider: "google", intent, next })
     },
     "../services/notificationService": {},
     "../services/passwordResetService": {},
@@ -256,6 +263,14 @@ test("oauth callback route completes login and redirects with tokens", async () 
   assert.deepEqual(receivedCallbackArgs, { next: "/" });
   assert.equal(res.redirectUrl, "https://app.example/oauth/callback");
   assert.deepEqual(welcomeCalls, [{ user: oauthUser }]);
+  existing = true;
+  next = "/dashboard/queue?boardPairing=" + "b".repeat(32);
+  await handler(req, createMockRes());
+  assert.equal(receivedCallbackArgs.next, next);
+  next = "//attacker.example";
+  await handler(req, createMockRes());
+  assert.equal(receivedCallbackArgs.next, "/");
+  next = null;
   existing = true;
   await handler(req, createMockRes());
   assert.equal(welcomeCalls.length, 1, "ordinary login does not send another welcome");

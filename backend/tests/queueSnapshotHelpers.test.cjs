@@ -26,7 +26,7 @@ test("queue snapshot helpers resolve primary locations when none are specified",
 
   originalRepo.findPrimaryLocationByTenantId = async () => {
     primaryCalls += 1;
-    return { _id: 1, tenantId: 10, slug: "main", timezone: "Asia/Manila", isPrimary: true, isActive: true };
+    return { queueBoardId: "063b7899-ffbe-482c-9564-91a5a6c79be0", _id: 1, tenantId: 10, slug: "main", timezone: "Asia/Manila", isPrimary: true, isActive: true };
   };
   originalRepo.findLocationByTenantAndSlug = async () => null;
   originalRepo.findLocationById = async () => null;
@@ -48,12 +48,18 @@ test("queue snapshot helpers resolve primary locations when none are specified",
   originalQueueFeeService.getActiveTenantSubscription = async () => null;
   originalHours.getOpenStatus = async () => ({ isOpen: true, timezone: "Asia/Manila", summary: "Open", today: null, nextOpenAt: null });
 
+  const env = require("../src/config/env");
+  const originalBase = env.appBaseUrl;
+  env.appBaseUrl = "https://getprio.online/";
   const result = await queueSnapshotHelpers.buildQueueSnapshot(
     { _id: 10, name: "Tenant", slug: "tenant", averageServiceMinutes: 10 },
     {},
     async () => ({ emailsSentThisPeriod: 0 })
   );
 
+  env.appBaseUrl = originalBase;
+  assert.equal(result.tenant.monitorUrl, "https://getprio.online/queue-board/063b7899-ffbe-482c-9564-91a5a6c79be0");
+  assert.equal(result.location.monitorUrl, result.tenant.monitorUrl);
   assert.equal(primaryCalls, 1);
   assert.equal(lookupCalls, 0);
   assert.equal(result.location.slug, "main");

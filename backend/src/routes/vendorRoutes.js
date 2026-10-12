@@ -1120,6 +1120,7 @@ router.post(
 );
 
 async function getCurrentCounterTarget(req, location) {
+  req.body = req.body || {};
   if (!Object.hasOwn(req.body, "counterSlug") || (req.body.counterSlug !== null && !normalizeRequestText(req.body.counterSlug))) {
     throw Object.assign(new Error("Select the counter for this called ticket."), { statusCode: 400, code: "COUNTER_REQUIRED" });
   }
@@ -1134,7 +1135,7 @@ router.post(
     assertTenantPermission(req.user, tenant._id, "tenant.queue.operate");
     const location = await getLocationForTenant(tenant, normalizeRequestText(req.query.location));
     await assertQueueLocationAccess(req.user, tenant, location);
-    if (!normalizeRequestText(req.body.counterSlug)) {
+    if (!normalizeRequestText(req.body?.counterSlug)) {
       throw Object.assign(new Error("Select an active counter before calling a customer."), { statusCode: 400, code: "COUNTER_REQUIRED" });
     }
     const serviceCounter = await getCounterForLocation(location, normalizeRequestText(req.body.counterSlug));
@@ -1268,6 +1269,7 @@ router.post(
     assertTenantPermission(req.user, tenant._id, "tenant.ticket.update_state");
     const location = await getLocationForTenant(tenant, normalizeRequestText(req.query.location));
     await assertQueueLocationAccess(req.user, tenant, location);
+    const target = await getCurrentCounterTarget(req, location);
     const lookupCode = String(req.body.lookupCode || "").trim().toUpperCase();
     const barcodeToken = String(req.body.barcodeToken || "").trim().toUpperCase();
     if ((barcodeToken && !/^QB[A-F0-9]{32}$/.test(barcodeToken)) || (!barcodeToken && !/^[A-F0-9]{8}$/.test(lookupCode))) {
@@ -1276,7 +1278,7 @@ router.post(
 
     const result = await confirmCurrentTicket(tenant, lookupCode, {
       location,
-      ...await getCurrentCounterTarget(req, location),
+      ...target,
       ...(barcodeToken ? { barcodeToken } : {}),
       actorUserId: req.user?._id,
       actorRole: "vendor",

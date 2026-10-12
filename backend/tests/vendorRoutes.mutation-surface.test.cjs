@@ -305,6 +305,10 @@ test("vendor routes queue mutations invoke the queue service helpers", async () 
     const pauseRes = await fetch(`${baseUrl}/tenant/demo/queue/pause?location=main`, { method: "POST" });
     assert.equal(pauseRes.status, 200, await pauseRes.text());
 
+    for (const action of ["serve", "skip", "confirm"]) {
+      const bodyless = await fetch(`${baseUrl}/tenant/demo/queue/current/${action}?location=main`, { method: "POST" });
+      assert.equal(bodyless.status, 400, await bodyless.text());
+    }
     const callNextRes = await fetch(`${baseUrl}/tenant/demo/queue/call-next?location=main`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },

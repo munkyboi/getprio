@@ -247,13 +247,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setToken(COOKIE_SESSION);
       setRefreshToken(COOKIE_SESSION);
     },
-    startOAuth(provider: OAuthProviderId, intent: AuthIntent) {
+    startOAuth(provider: OAuthProviderId, intent: AuthIntent, returnPath?: string) {
       if (!oauthProviders[provider]) {
         throw new Error(`${provider} sign-in is not available right now.`);
       }
 
       const startUrl = new URL(`${API_BASE_URL}/auth/oauth/${provider}/start`);
       startUrl.searchParams.set("intent", intent);
+      if (returnPath) startUrl.searchParams.set("next", returnPath);
       window.location.assign(startUrl.toString());
     },
     async logout() {
