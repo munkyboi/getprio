@@ -8171,3 +8171,53 @@ button:hover > .rating-star { transform: scale(1.08); }
   flex: 1;
   min-width: 0;
 }
+
+/* Queue board scanner follows the bounded task-dialog structure. */
+.queue-board-scanner-modal .mantine-Modal-content {
+  display: flex;
+  flex-direction: column;
+  height: min(92dvh, 48rem) !important;
+  max-height: min(92dvh, 48rem) !important;
+  overflow: hidden;
+}
+.queue-board-scanner-modal .mantine-Modal-header { flex: 0 0 auto; }
+.queue-board-scanner-modal .mantine-Modal-body {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+.queue-board-scanner-form {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.queue-board-scanner-intro { flex: 0 0 auto; padding-bottom: 16px; }
+.queue-board-scanner-main {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-gutter: stable;
+  padding-right: 4px;
+  padding-bottom: 16px;
+}
+.queue-board-scanner-footer {
+  flex: 0 0 auto;
+  display: flex;
+  padding: 16px 0 env(safe-area-inset-bottom);
+  border-top: 1px solid var(--mantine-color-default-border);
+  background: inherit;
+}
+.queue-board-scanner-footer .mantine-Button-root { width: 100%; }
+@media (min-width: 48.0625em) {
+  .queue-board-scanner-modal .mantine-Modal-content {
+    height: min(88dvh, 48rem) !important;
+    max-height: min(88dvh, 48rem) !important;
+  }
+  .queue-board-scanner-footer { justify-content: flex-end; }
+  .queue-board-scanner-footer .mantine-Button-root { width: auto; }
+}
