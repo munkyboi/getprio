@@ -711,9 +711,9 @@ export function PlatformAiInference({
               </p>
             </CardContent>
           </Card>
-          <PlatformResourceInventory live={live} canRead={canReadResources} onSessionExpired={onSessionExpired} />
         </>
       ) : null}
+      <PlatformResourceInventory live={live} canRead={canReadResources} onSessionExpired={onSessionExpired} />
     </div>
   )
 }

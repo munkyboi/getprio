@@ -981,6 +981,6 @@ export const aiInferenceApi: AiInferenceApi = {
     { policy: preview.policy, reason, expectedRevision: preview.revision }, operationKey, 'POST', { 'X-Transaction-Confirmation': preview.confirmation.token }),
 }
 export const resourceInventoryApi: ResourceInventoryApi = {
-  searchScopes: query => readAi(`/platform/resource-inventory/scopes?q=${encodeURIComponent(query)}`),
-  read: input => readAi(`/platform/resource-inventory/report?${new URLSearchParams(input).toString()}`),
+  searchScopes: query => writePlatform(API_BASE_URL, '/platform/resource-inventory/scopes', { q: query }, crypto.randomUUID()),
+  read: input => writePlatform(API_BASE_URL, '/platform/resource-inventory/report', input, crypto.randomUUID()),
 }

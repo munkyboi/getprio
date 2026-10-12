@@ -125,6 +125,7 @@ createRoot(document.getElementById("root")!).render(
       live
       canRead={!params.has("denied")}
       canManage={!params.has("readonly")}
+      canReadResources={params.has("resourcecard")}
       api={api}
       onSessionExpired={() => {
         document.getElementById("qa-requests")!.textContent =

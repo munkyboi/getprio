@@ -23,6 +23,7 @@ import developerProjectRoutes from "./routes/developerProjectRoutes";
 import errorHandler from "./middleware/errorHandler";
 import requestContextModule from "./middleware/requestContext";
 import csrfProtectionModule from "./middleware/csrfProtection";
+import requestLogPathModule from "./middleware/requestLogPath";
 
 function normalizeOrigin(origin?: string): string {
   return String(origin || "").replace(/\/$/, "");
@@ -98,7 +99,7 @@ app.use(
         ?.correlationId,
       rolloutCohort: env.rolloutCohort,
       method: tokens.method(req, res),
-      path: tokens.url(req, res),
+      path: requestLogPathModule.requestLogPath(tokens.url(req, res)),
       status: Number(tokens.status(req, res) || 0),
       responseTimeMs: Number(tokens["response-time"](req, res) || 0)
     })

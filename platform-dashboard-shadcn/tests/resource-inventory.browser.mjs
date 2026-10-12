@@ -1,8 +1,9 @@
 // Run through the supported CUA browser surface against the local fixture only.
 const root='http://127.0.0.1:5193/tests/fixtures/resource-inventory.html';
-const check=(condition,message)=>{if(!condition)throw Error(message);};
+const check=(condition,message)=>{if(!condition)throw new Error(message);};
 export async function prepareReport(tab,params='') {
-  await tab.goto(`${root}${params?`?${params}`:''}`);
+  const query=params ? "?"+params : "";
+  await tab.goto(root+query);
   await tab.playwright.domSnapshot();
   await tab.playwright.getByRole('button',{name:'Find locations',exact:true}).click();
   await tab.playwright.getByRole('combobox',{name:'Location',exact:true}).click();
@@ -53,4 +54,21 @@ export async function verifyEditDuringReport(tab,field) {
   await tab.playwright.getByRole('textbox',{name:field,exact:true}).fill(field==='Vendor or location search'?'Other':'2026-10-12T00:00:00Z');
   await tab.playwright.getByText('Completed calls: 1',{exact:true}).waitFor({state:'visible'});
   check(await tab.playwright.getByRole('region',{name:'Resource report results'}).count()===0,'Editing during request must suppress old response');
+}
+export async function verifyScopeRecovery(tab) {
+  await prepareReport(tab,'scopegone');
+  await tab.playwright.getByRole('button',{name:'Load resource report',exact:true}).click();
+  await tab.playwright.getByText('Location no longer available',{exact:true}).waitFor({state:'visible'});
+  check(await tab.playwright.getByRole('button',{name:'Find locations',exact:true}).isEnabled(),'404 must retain search controls');
+  await tab.playwright.getByRole('button',{name:'Find locations',exact:true}).click();
+  await tab.playwright.getByRole('combobox',{name:'Location',exact:true}).click();
+  await tab.playwright.getByRole('option',{name:'Test vendor · Main location (1/10)',exact:true}).click();
+  await tab.playwright.getByRole('button',{name:'Load resource report',exact:true}).click();
+  await tab.playwright.getByRole('region',{name:'Resource report results'}).waitFor({state:'visible'});
+}
+export async function verifySearchNoticeReset(tab) {
+  await prepareReport(tab,'limited');
+  check(await tab.playwright.getByText('Showing 50 matches. Narrow the search to find another location.',{exact:true}).isVisible(),'Limited search must announce truncation');
+  await tab.playwright.getByRole('textbox',{name:'Vendor or location search',exact:true}).fill('Other');
+  check(await tab.playwright.getByText('Showing 50 matches. Narrow the search to find another location.',{exact:true}).count()===0,'Edited search must clear stale limit notice');
 }
