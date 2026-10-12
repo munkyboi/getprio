@@ -1,3 +1,4 @@
+import { OtpInputField } from "../components/OtpInputField";
 import {
   useCallback,
   useEffect,
@@ -13,7 +14,6 @@ import {
   Button,
   Checkbox,
   Group,
-  PinInput,
   Paper,
   SimpleGrid,
   Stack,
@@ -117,8 +117,6 @@ export default function JoinQueuePage() {
   const [turnstileReady, setTurnstileReady] = useState(false);
   const [otp, setOtp] = useState<RequestJoinOtpResponse | null>(null);
   const [otpCode, setOtpCode] = useState("");
-  const otpAutoSubmitRef = useRef(false);
-  const lastAutoSubmittedOtpRef = useRef<string>("");
   const [now, setNow] = useState(() => Date.now());
   const tenantSlugValue = tenantSlug || "";
   const publicApiBase = locationSlug
@@ -463,7 +461,6 @@ export default function JoinQueuePage() {
       );
       setOtp(data);
       setOtpCode("");
-      lastAutoSubmittedOtpRef.current = "";
     } catch (submitError) {
       setError(getErrorMessage(submitError));
       if (shouldUseTurnstile) {
@@ -551,7 +548,6 @@ export default function JoinQueuePage() {
       );
       setOtp(data);
       setOtpCode("");
-      lastAutoSubmittedOtpRef.current = "";
     } catch (submitError) {
       setError(getErrorMessage(submitError));
     } finally {
@@ -569,10 +565,10 @@ export default function JoinQueuePage() {
     await requestOtp();
   }
 
-  const handleVerifyOtp = useCallback(async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  const handleVerifyOtp = useCallback(async (event?: FormEvent<HTMLFormElement>) => {
+    event?.preventDefault();
 
-    if (!otp) {
+    if (submitting || queueJoinUnavailable || !otp) {
       return;
     }
 
@@ -632,24 +628,8 @@ export default function JoinQueuePage() {
     } finally {
       setSubmitting(false);
     }
-  }, [form.customerEmail, form.customerName, form.customerPhone, joinedQueueNavigationState, locationSlug, navigate, otp, otpCode, publicApiBase, tenantSlugValue]);
+  }, [form.customerEmail, form.customerName, form.customerPhone, joinedQueueNavigationState, locationSlug, navigate, otp, otpCode, publicApiBase, tenantSlugValue, submitting, queueJoinUnavailable]);
 
-  useEffect(() => {
-    if (!otp || otpCode.length !== 6 || submitting || otpAutoSubmitRef.current) {
-      return;
-    }
-
-    const submissionKey = `${otp.otpId}:${otpCode}`;
-    if (lastAutoSubmittedOtpRef.current === submissionKey) {
-      return;
-    }
-
-    lastAutoSubmittedOtpRef.current = submissionKey;
-    otpAutoSubmitRef.current = true;
-    handleVerifyOtp({ preventDefault() {} } as FormEvent<HTMLFormElement>).finally(() => {
-      otpAutoSubmitRef.current = false;
-    });
-  }, [handleVerifyOtp, otp, otpCode, submitting]);
 
   return (
     <Stack className="vendor-profile-page join-queue-page" gap="lg" style={themeStyle}>
@@ -755,16 +735,14 @@ export default function JoinQueuePage() {
                       It expires at {formatDisplayTime(otp.expiresAt)}.
                     </Text>
                   </Paper>
-                  <PinInput
-                    aria-label="OTP"
-                    inputMode="numeric"
-                    length={6}
+                  <OtpInputField
+                    label="Verification code"
                     name="otpCode"
-                    oneTimeCode
-                    size="lg"
-                    type="number"
                     value={otpCode}
-                    onChange={(value) => setOtpCode(value.replace(/\D/g, ""))}
+                    onChange={setOtpCode}
+                    onVerify={() => handleVerifyOtp()}
+                    verificationKey={otp.otpId}
+                    disabled={submitting || queueJoinUnavailable}
                   />
                   {error ? <Alert color="red">{error}</Alert> : null}
                   <Button

@@ -1,3 +1,4 @@
+import { OtpInputField } from "./OtpInputField";
 import { useState } from "react";
 import { Alert, Button, Card, Group, PasswordInput, Stack, Text, TextInput } from "@mantine/core";
 import { apiRequest } from "../api/client";
@@ -21,6 +22,7 @@ export default function PhoneChangePanel({ token, currentPhone, onCompleted }: {
   }
 
   async function startChange() {
+    if (busy) return;
     setBusy(true); setError(""); setSuccess("");
     try {
       const response = await apiRequest<StartResponse, Record<string, string>>("/account/phone-change/start", {
@@ -32,6 +34,7 @@ export default function PhoneChangePanel({ token, currentPhone, onCompleted }: {
   }
 
   async function verifyEmail() {
+    if (busy) return;
     if (!challenge?.challengeId) return;
     setBusy(true); setError("");
     try {
@@ -52,12 +55,12 @@ export default function PhoneChangePanel({ token, currentPhone, onCompleted }: {
         <TextInput label="Current phone" value={currentPhone || "Not set"} disabled />
         <TextInput label="New phone number" placeholder="09XXXXXXXXX" inputMode="tel" autoComplete="tel" required value={newPhone} onChange={(event) => setNewPhone(event.target.value)} />
         <Group gap="xs"><Button variant={method === "totp" ? "filled" : "light"} onClick={() => setMethod("totp")}>Use authenticator</Button><Button variant={method === "email" ? "filled" : "light"} onClick={() => setMethod("email")}>Use email and password</Button></Group>
-        {method === "totp" ? <TextInput label="Authenticator code" inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={totpCode} onChange={(event) => setTotpCode(event.target.value.replace(/\D/g, ""))} /> : <Alert color="blue" variant="light">We’ll email a one-time code to your current email. Your password is required when you confirm it.</Alert>}
+        {method === "totp" ? <OtpInputField label="Authenticator code" value={totpCode} onChange={setTotpCode} disabled={busy} onVerify={startChange} autoVerifyEnabled={Boolean(newPhone.trim())} /> : <Alert color="blue" variant="light">We’ll email a one-time code to your current email. Your password is required when you confirm it.</Alert>}
         <Button loading={busy} disabled={!newPhone.trim() || (method === "totp" && totpCode.length !== 6)} onClick={() => void startChange()}>Continue</Button>
       </> : <>
         <Alert color="blue" variant="light">Enter the code sent to {challenge.deliveryTarget}. It expires in 10 minutes.</Alert>
-        <TextInput label="Email verification code" inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={code} onChange={(event) => setCode(event.target.value.replace(/\D/g, ""))} />
         <PasswordInput label="Current password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} />
+        <OtpInputField label="Email verification code" value={code} onChange={setCode} disabled={busy} onVerify={verifyEmail} autoVerifyEnabled={Boolean(password)} verificationKey={challenge?.challengeId} />
         <Group justify="space-between"><Button variant="subtle" onClick={reset}>Cancel</Button><Button loading={busy} disabled={code.length !== 6 || !password} onClick={() => void verifyEmail()}>Confirm phone number</Button></Group>
       </>}
     </Stack>

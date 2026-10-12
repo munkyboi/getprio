@@ -1191,7 +1191,7 @@ test("login MFA challenge focuses the authenticator code when mounted", () => {
     "utf8"
   );
 
-  assert.match(source, /autoComplete="one-time-code"\s+autoFocus\s+inputMode="numeric"\s+label=\{emailMfaActive \? "Email code" : "Authenticator code"\}/);
+  assert.match(source, /<OtpInputField[\s\S]*?autoFocus\s+label=\{emailMfaActive \? "Email code" : "Authenticator code"\}/);
 });
 
 test("signup forms use provider icons, helpful labels, and touch-friendly actions", () => {

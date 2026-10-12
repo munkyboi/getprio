@@ -8135,3 +8135,14 @@ button:hover > .rating-star { transform: scale(1.08); }
   width: 232px;
   height: 232px;
 }
+
+
+.otp-input-field {
+  width: 100%;
+  max-width: 320px;
+}
+
+.otp-input-field__cell {
+  flex: 1;
+  min-width: 0;
+}

@@ -1,3 +1,4 @@
+import { OtpInputField } from "./OtpInputField";
 import { useState } from "react";
 import { Alert, Button, Card, Group, PasswordInput, SimpleGrid, Stack, Text, TextInput } from "@mantine/core";
 import { apiRequest } from "../api/client";
@@ -29,6 +30,7 @@ export default function EmailChangePanel({ token, currentEmail, onCompleted }: {
   }
 
   async function startChange() {
+    if (busy) return;
     setBusy(true);
     setError("");
     setSuccess("");
@@ -49,6 +51,7 @@ export default function EmailChangePanel({ token, currentEmail, onCompleted }: {
   }
 
   async function verifyCurrent() {
+    if (busy) return;
     if (!challenge) return;
     setBusy(true);
     setError("");
@@ -69,6 +72,7 @@ export default function EmailChangePanel({ token, currentEmail, onCompleted }: {
   }
 
   async function verifyNew() {
+    if (busy) return;
     if (!challenge) return;
     setBusy(true);
     setError("");
@@ -116,7 +120,7 @@ export default function EmailChangePanel({ token, currentEmail, onCompleted }: {
 
           {method === "mfa" ? <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
             <PasswordInput autoComplete="current-password" label="Current password" required value={password} onChange={(event) => setPassword(event.target.value)} />
-            <TextInput autoComplete="one-time-code" inputMode="numeric" label="Authenticator code" maxLength={6} placeholder="6 digits" required value={totpCode} onChange={(event) => setTotpCode(event.target.value.replace(/\D/g, ""))} />
+            <OtpInputField label="Authenticator code" value={totpCode} onChange={setTotpCode} disabled={busy} onVerify={startChange} autoVerifyEnabled={Boolean(newEmail.trim() && password)} required />
           </SimpleGrid> : <Alert color="blue" variant="light">We’ll send a one-time code to your current email first.</Alert>}
 
           <Button disabled={!newEmail.trim() || (method === "mfa" && (password.length === 0 || totpCode.length !== 6))} loading={busy} onClick={() => void startChange()}>Continue</Button>
@@ -124,13 +128,13 @@ export default function EmailChangePanel({ token, currentEmail, onCompleted }: {
 
         {step === "current_email" && challenge ? <>
           <Alert color="blue" variant="light">Enter the 6-digit code sent to {challenge.deliveryTarget}. It expires in 10 minutes.</Alert>
-          <TextInput autoComplete="one-time-code" inputMode="numeric" label="Current email code" maxLength={6} value={code} onChange={(event) => setCode(event.target.value.replace(/\D/g, ""))} />
+          <OtpInputField label="Current email code" value={code} onChange={setCode} disabled={busy} onVerify={verifyCurrent} verificationKey={`${challenge?.challengeId}:current`} />
           <Group justify="space-between"><Button variant="subtle" onClick={reset}>Start over</Button><Button disabled={code.length !== 6} loading={busy} onClick={() => void verifyCurrent()}>Verify current email</Button></Group>
         </> : null}
 
         {step === "new_email" && challenge ? <>
           <Alert color="blue" variant="light">Enter the 6-digit code sent to {challenge.deliveryTarget}. Your email will be replaced only after this code is verified.</Alert>
-          <TextInput autoComplete="one-time-code" inputMode="numeric" label="New email code" maxLength={6} value={code} onChange={(event) => setCode(event.target.value.replace(/\D/g, ""))} />
+          <OtpInputField label="New email code" value={code} onChange={setCode} disabled={busy} onVerify={verifyNew} verificationKey={`${challenge?.challengeId}:new`} />
           <Group justify="space-between"><Button variant="subtle" onClick={reset}>Cancel</Button><Button disabled={code.length !== 6} loading={busy} onClick={() => void verifyNew()}>Confirm new email</Button></Group>
         </> : null}
 
