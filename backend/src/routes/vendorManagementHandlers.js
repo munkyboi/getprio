@@ -173,7 +173,7 @@ async function handleUpdateCounter({ req, res, getAuthorizedTenant, assertTenant
   const slug = normalizeCounterSlug(req.body.slug || req.body.name);
   assertPublicTextFieldsAllowed({ "Counter name": req.body.name, "Counter slug": slug });
   const counter = await counterService.mutate({ tenantId: tenant._id, locationId: location._id,
-    actorUserId: req.user._id, action: "update", counterSlug: req.params.counterSlug,
+    actorUserId: req.user._id, action: "update", counterSlug: normalizeCounterSlug(req.params.counterSlug),
     data: { ...req.body, slug } });
   res.json({ counter });
 }
@@ -183,7 +183,7 @@ async function handleDeleteCounter({ req, res, getAuthorizedTenant, assertTenant
   assertTenantPermission(req.user, tenant._id, "tenant.counter.manage");
   const location = await getLocationForTenant(tenant, req.query.location);
   await counterService.mutate({ tenantId: tenant._id, locationId: location._id,
-    actorUserId: req.user._id, action: "delete", counterSlug: req.params.counterSlug });
+    actorUserId: req.user._id, action: "delete", counterSlug: normalizeCounterSlug(req.params.counterSlug) });
   res.status(204).send();
 }
 

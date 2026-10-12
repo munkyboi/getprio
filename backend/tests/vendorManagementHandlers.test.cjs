@@ -43,6 +43,17 @@ test('counter handler propagates transaction quota and not-found failures withou
   }
 });
 
+test('counter update and delete preserve normalization of decoded noncanonical lookup URLs', async () => {
+  for (const handler of [handleUpdateCounter, handleDeleteCounter]) {
+    let called = false;
+    await handler({ req: { user: { _id: '1' }, params: { tenantSlug: 'vendor', counterSlug: 'Court   One' }, query: {}, body: { name: 'Court Two' } },
+      res: { json(body) { assert.equal(body.counter._id, '7'); }, status(code) { assert.equal(code, 204); return this; }, send() {} },
+      getAuthorizedTenant: async () => ({ _id: '1' }), assertTenantPermission: () => {}, getLocationForTenant: async () => ({ _id: '10' }),
+      counterService: { mutate: async input => { called = true; assert.equal(input.counterSlug, 'court-one'); return { _id: '7' }; } } });
+    assert.equal(called, true);
+  }
+});
+
 test("vendor management handler updates settings through injected repositories", async () => {
   const response = { body: null, json(payload) { this.body = payload; } };
   await handleUpdateSettings({
