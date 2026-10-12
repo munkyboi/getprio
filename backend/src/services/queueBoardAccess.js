@@ -23,10 +23,13 @@ async function findBoard(boardId, client = db.pool) {
 async function canRead(board, browserSecret, client = db.pool) {
   if (board.queue_board_public) return true;
   if (!browserSecret || !/^[a-f0-9]{64}$/.test(browserSecret)) return false;
-  const { rows } = await client.query(`UPDATE queue_board_display_grants SET last_seen_at=now()
-    WHERE location_id=$1 AND board_id=$2 AND secret_hash=$3
-    AND revoked_at IS NULL AND expires_at>now() RETURNING id`,
-  [board.id, board.queue_board_id, hash(browserSecret)]);
+  const { rows } = await client.query(`SELECT id,
+    last_seen_at IS NULL OR last_seen_at<now()-interval '1 minute' AS touch_due
+    FROM queue_board_display_grants WHERE location_id=$1 AND board_id=$2 AND secret_hash=$3
+    AND revoked_at IS NULL AND expires_at>now()`, [board.id, board.queue_board_id, hash(browserSecret)]);
+  if (rows[0]?.touch_due) await client.query(`UPDATE queue_board_display_grants SET last_seen_at=now()
+    WHERE id=$1 AND revoked_at IS NULL AND expires_at>now()
+    AND (last_seen_at IS NULL OR last_seen_at<now()-interval '1 minute')`, [rows[0].id]);
   return rows.length > 0;
 }
 async function grantExpiry(board, browserSecret) {
@@ -59,7 +62,7 @@ async function pairingForLocation(locationId, code, client = db.pool, lock = fal
   if (!rows[0]) throw unavailable();
   return rows[0];
 }
-async function approve(locationId, code, name, userId) {
+async function approve(locationId, code, name, userId, recordAudit) {
   const displayName = String(name || "").trim();
   if (!displayName || displayName.length>80) throw Object.assign(new Error("Enter a display name of 1–80 characters."), { statusCode: 400 });
   return db.withTransaction(async (client) => {
@@ -72,7 +75,9 @@ async function approve(locationId, code, name, userId) {
       approved_by=EXCLUDED.approved_by,expires_at=EXCLUDED.expires_at,revoked_at=NULL RETURNING *`,
     [locationId, request.board_id, request.browser_hash, displayName, userId]);
     await client.query("UPDATE queue_board_pairing_requests SET approved_at=now(),approved_by=$2 WHERE id=$1", [request.id, userId]);
-    return displayGrant(rows[0]);
+    const display = displayGrant(rows[0]);
+    if (recordAudit) await recordAudit(client, display);
+    return display;
   });
 }
 async function settings(locationId) {
@@ -81,25 +86,29 @@ async function settings(locationId) {
   const grants = await db.pool.query("SELECT * FROM queue_board_display_grants WHERE location_id=$1 AND board_id=$2 ORDER BY created_at DESC", [locationId, rows[0].queue_board_id]);
   return { boardId: rows[0].queue_board_id, isPublic: rows[0].queue_board_public, displays: grants.rows.map(displayGrant) };
 }
-async function updateSettings(locationId, isPublic, rotate) {
+async function updateSettings(locationId, isPublic, rotate, recordAudit) {
   if (isPublic !== undefined && typeof isPublic !== "boolean") throw Object.assign(new Error("isPublic must be a boolean."), { statusCode: 400 });
   await db.withTransaction(async (client) => {
     await client.query("SELECT id FROM store_locations WHERE id=$1 FOR UPDATE", [locationId]);
-    await client.query(`UPDATE store_locations SET queue_board_public=COALESCE($2,queue_board_public),
-      queue_board_id=CASE WHEN $3 THEN gen_random_uuid() ELSE queue_board_id END WHERE id=$1`, [locationId, isPublic ?? null, rotate === true]);
+    const updated = await client.query(`UPDATE store_locations SET queue_board_public=COALESCE($2,queue_board_public),
+      queue_board_id=CASE WHEN $3 THEN gen_random_uuid() ELSE queue_board_id END WHERE id=$1 RETURNING queue_board_public`, [locationId, isPublic ?? null, rotate === true]);
     if (rotate === true) {
       await client.query("UPDATE queue_board_display_grants SET revoked_at=now() WHERE location_id=$1 AND revoked_at IS NULL", [locationId]);
       await client.query("DELETE FROM queue_board_pairing_requests WHERE location_id=$1", [locationId]);
     }
+    if (recordAudit) await recordAudit(client, { isPublic: updated.rows[0].queue_board_public, rotated: rotate === true });
   });
   return settings(locationId);
 }
-async function changeGrant(locationId, id, renew) {
+async function changeGrant(locationId, id, renew, recordAudit) {
   if (!UUID.test(String(id))) throw unavailable();
-  const { rows } = await db.pool.query(`UPDATE queue_board_display_grants g
-    SET ${renew ? "expires_at=now()+interval '30 days'" : "revoked_at=now()"}
-    FROM store_locations l WHERE g.id=$1 AND g.location_id=$2 AND l.id=g.location_id
-    AND g.board_id=l.queue_board_id AND g.revoked_at IS NULL RETURNING g.id`, [id, locationId]);
-  if (!rows.length) throw unavailable();
+  await db.withTransaction(async (client) => {
+    const { rows } = await client.query(`UPDATE queue_board_display_grants g
+      SET ${renew ? "expires_at=now()+interval '30 days'" : "revoked_at=now()"}
+      FROM store_locations l WHERE g.id=$1 AND g.location_id=$2 AND l.id=g.location_id
+      AND g.board_id=l.queue_board_id AND g.revoked_at IS NULL RETURNING g.id`, [id, locationId]);
+    if (!rows.length) throw unavailable();
+    if (recordAudit) await recordAudit(client);
+  });
 }
 module.exports = { UUID, hash, findBoard, canRead, grantExpiry, requestPairing, pairingForLocation, approve, settings, updateSettings, changeGrant };

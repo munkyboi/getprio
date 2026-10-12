@@ -16,6 +16,8 @@ const { getQueueSnapshot } = require("../services/queueService");
 const entitlement = require("../services/entitlementAdmissionService");
 const env = require("../config/env");
 const audit = require("../services/securityAuditService");
+const { createStreamBudget } = require("../services/queueBoardStreams");
+const streamBudget = createStreamBudget();
 const publicRouter = express.Router();
 const vendorRouter = express.Router();
 const pairingLimiter = rateLimit({ windowMs: 60000, limit: 10, standardHeaders: true, legacyHeaders: false, keyGenerator: (req) => ipKeyGenerator(req.ip) });
@@ -27,7 +29,7 @@ function cookieName(boardId) { return `${env.authCookieSecure ? "__Host-" : ""}p
 function browserSecret(req, boardId) { return decryptDisplayCookie(parseCookies(req.headers.cookie)[cookieName(boardId)] || "", boardId); }
 function noStore(_req, res, next) { res.set("Cache-Control", "no-store"); res.set("Referrer-Policy", "no-referrer"); next(); }
 publicRouter.use(noStore);
-vendorRouter.use(noStore, authenticate);
+vendorRouter.use("/:tenantSlug/queue-board", noStore, authenticate);
 async function boardForRequest(req) {
   const board = await access.findBoard(req.params.boardId);
   const capabilities = await entitlement.resolvePublicCapabilities(String(board.tenant_id));
@@ -76,32 +78,47 @@ publicRouter.get("/:boardId/queue", readLimiter, asyncHandler(async (req, res) =
 publicRouter.get("/:boardId/stream", readLimiter, asyncHandler(async (req, res) => {
   let board = await boardForRequest(req);
   if (!await access.canRead(board, browserSecret(req, board.queue_board_id))) return res.status(403).json({ message: "Display approval required." });
+  const release = streamBudget.acquire(ipKeyGenerator(req.ip), board.queue_board_id);
+  if (!release) return res.status(429).json({ message: "Too many active queue board displays. Try again shortly." });
   res.set({ "Content-Type": "text/event-stream", Connection: "keep-alive", "X-Accel-Buffering": "no" });
   res.flushHeaders();
   let closed = false;
   let running = false;
+  let timer;
+  let lifetime;
+  const cleanup = () => {
+    closed = true; clearInterval(timer); clearTimeout(lifetime);
+    // Keep the slot while an abandoned database read is still in flight.
+    if (!running) release();
+  };
+  req.on("close", cleanup);
+  res.on("close", cleanup);
+  res.on("error", cleanup);
   const send = async () => {
     if (running || closed) return;
     running = true;
     try {
       board = await boardForRequest(req);
+      if (closed) return;
       if (!await access.canRead(board, browserSecret(req, board.queue_board_id))) throw new Error("Access revoked");
+      if (closed) return;
       const snapshot = await snapshotFor(board);
+      if (closed) return;
       // Recheck after asynchronous snapshot reads before emitting any data.
       board = await boardForRequest(req);
+      if (closed) return;
       if (!await access.canRead(board, browserSecret(req, board.queue_board_id))) throw new Error("Access revoked");
-      if (!closed) res.write(`data: ${JSON.stringify(snapshot)}\n\n`);
+      if (!closed && !res.write(`data: ${JSON.stringify(snapshot)}\n\n`)) { cleanup(); res.end(); }
     } catch {
       if (!closed) { res.write("event: access-revoked\ndata: {}\n\n"); res.end(); }
-      closed = true;
-      clearInterval(timer);
-    } finally { running = false; }
+      cleanup();
+    } finally { running = false; if (closed) release(); }
   };
-  const timer = setInterval(() => { void send(); }, 2000);
-  req.on("close", () => { closed = true; clearInterval(timer); });
+  timer = setInterval(() => { void send(); }, 2000);
+  lifetime = setTimeout(() => { cleanup(); res.end(); }, 15 * 60 * 1000);
   await send();
 }));
-async function vendorContext(req, management = false) {
+async function vendorContext(req, management = false, mode = "create") {
   const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug, tenants, userHasTenantAccess);
   assertTenantPermission(req.user, tenant._id, management ? "tenant.settings.manage" : "tenant.queue.operate");
   const location = await getLocationForTenant(tenant, req.query.location);
@@ -110,17 +127,18 @@ async function vendorContext(req, management = false) {
     && !await assignments.userHasLocationAssignment(req.user._id, tenant._id, location._id)) {
     throw Object.assign(new Error("You are not assigned to this location."), { statusCode: 403 });
   }
-  await entitlement.admit({ tenantId: tenant._id, featureKey: "queue" });
+  await entitlement.admit({ tenantId: tenant._id, featureKey: "queue", mode });
   return location;
 }
 vendorRouter.get("/:tenantSlug/queue-board", asyncHandler(async (req, res) => {
-  const location = await vendorContext(req, true);
+  const location = await vendorContext(req, true, "read");
   res.json(await access.settings(location._id));
 }));
 vendorRouter.patch("/:tenantSlug/queue-board", asyncHandler(async (req, res) => {
-  const location = await vendorContext(req, true);
-  const value = await access.updateSettings(location._id, req.body.isPublic, req.body.rotate);
-  await recordChange(req, location, "queue_board.settings.update", { isPublic: value.isPublic, rotated: req.body.rotate === true });
+  const body = req.body || {};
+  const location = await vendorContext(req, true, body.isPublic === true ? "create" : "wind_down");
+  const value = await access.updateSettings(location._id, body.isPublic, body.rotate,
+    (client, metadata) => recordChange(req, location, "queue_board.settings.update", metadata, client));
   res.json(value);
 }));
 vendorRouter.get("/:tenantSlug/queue-board/pairing/:code", pairingLimiter, asyncHandler(async (req, res) => {
@@ -130,20 +148,20 @@ vendorRouter.get("/:tenantSlug/queue-board/pairing/:code", pairingLimiter, async
 }));
 vendorRouter.post("/:tenantSlug/queue-board/pairing/:code/approve", pairingLimiter, asyncHandler(async (req, res) => {
   const location = await vendorContext(req);
-  const display = await access.approve(location._id, req.params.code, req.body.displayName, req.user._id);
-  await recordChange(req, location, "queue_board.display.approve", { displayId: display.id });
+  const display = await access.approve(location._id, req.params.code, req.body?.displayName, req.user._id,
+    (client, value) => recordChange(req, location, "queue_board.display.approve", { displayId: value.id }, client));
   res.json(display);
 }));
 vendorRouter.post("/:tenantSlug/queue-board/displays/:id/:action", asyncHandler(async (req, res) => {
-  const location = await vendorContext(req, true);
   if (!["revoke", "renew"].includes(req.params.action)) return res.sendStatus(404);
-  await access.changeGrant(location._id, req.params.id, req.params.action === "renew");
-  await recordChange(req, location, `queue_board.display.${req.params.action}`, { displayId: req.params.id });
+  const location = await vendorContext(req, true, req.params.action === "revoke" ? "wind_down" : "create");
+  await access.changeGrant(location._id, req.params.id, req.params.action === "renew",
+    (client) => recordChange(req, location, `queue_board.display.${req.params.action}`, { displayId: req.params.id }, client));
   res.json(await access.settings(location._id));
 }));
-async function recordChange(req, location, action, metadata) {
+async function recordChange(req, location, action, metadata, client) {
   await audit.record({ actorId: req.user._id, actorRole: "vendor", tenantId: location.tenantId,
     sessionId: req.auth?.sessionId, action, resourceType: "queue_board", resourceId: String(location._id),
-    outcome: "success", metadata });
+    outcome: "success", metadata }, { client });
 }
 module.exports = { publicRouter, vendorRouter };

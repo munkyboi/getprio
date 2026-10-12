@@ -8,6 +8,11 @@ const projection = require("../src/services/queueBoardProjection");
 
 test("board HTTP reads and streams enforce grants; staff cannot publish or approve another location", async () => {
   let allowed = false;
+  let lapsed = false;
+  let authCalls = 0;
+  let holdSnapshot = null;
+  let reachedSnapshot = null;
+  const transactionClient = {};
   const boardId = "063b7899-ffbe-482c-9564-91a5a6c79be0";
   const board = { id: "1", tenant_id: "1", queue_board_id: boardId, tenant_slug: "vendor", slug: "main", name: "Main", queue_board_public: false };
   const snapshot = { tenant: { slug: "vendor" }, location: { slug: "main" },
@@ -19,7 +24,7 @@ test("board HTTP reads and streams enforce grants; staff cannot publish or appro
     "node:crypto": require("node:crypto"),
     "express-rate-limit": { rateLimit: () => (_req, _res, next) => next(), ipKeyGenerator: (ip) => ip },
     "../middleware/asyncHandler": (handler) => (req, res, next) => Promise.resolve(handler(req, res, next)).catch(next),
-    "../middleware/auth": { authenticate: (req, _res, next) => { req.user = { _id: "1", role: req.headers["x-role"] || "staff" }; next(); }, userHasTenantAccess: () => true,
+    "../middleware/auth": { authenticate: (req, _res, next) => { authCalls++; req.user = { _id: "1", role: req.headers["x-role"] || "staff" }; next(); }, userHasTenantAccess: () => true,
       assertTenantPermission: (user, _id, permission) => { if (permission === "tenant.settings.manage" && user.role !== "admin") denied(); } },
     "../services/permissions": { userHasPermission: (user) => user.role === "admin" },
     "../repositories/tenants": { findTenantBySlug: async () => ({ _id: "1", slug: "vendor" }) },
@@ -29,22 +34,26 @@ test("board HTTP reads and streams enforce grants; staff cannot publish or appro
     "../services/queueBoardAccess": { findBoard: async () => board, canRead: async () => allowed,
       requestPairing: async () => ({ code: "a".repeat(32), matchCode: "123456" }), settings: async () => ({ boardId }),
       grantExpiry: async () => new Date(Date.now() + 2 * 3600000),
-      pairingForLocation: async () => ({ match_code: "123456" }), approve: async () => ({ id: "grant" }) },
+      pairingForLocation: async () => ({ match_code: "123456" }), approve: async (_loc, _code, _name, _user, callback) => { const value = {id: "grant"}; await callback(transactionClient, value); return value; },
+      updateSettings: async (_loc, isPublic, rotate, callback) => { await callback(transactionClient, {isPublic, rotated: rotate}); return {boardId}; },
+      changeGrant: async (_loc, _id, _renew, callback) => callback(transactionClient) },
     "../services/queueBoardProjection": projection,
     "../services/browserSessionService": require("../src/services/browserSessionService"),
     "../services/queueBoardCookie": require("../src/services/queueBoardCookie"),
-    "../services/queueService": { getQueueSnapshot: async () => snapshot },
-    "../services/entitlementAdmissionService": { admit: async () => {}, resolvePublicCapabilities: async () => ({ queue: true }) },
+    "../services/queueService": { getQueueSnapshot: async () => { if (holdSnapshot) { reachedSnapshot(); await holdSnapshot; } return snapshot; } },
+    "../services/entitlementAdmissionService": { admit: async ({mode}) => { if(lapsed && !["read", "wind_down"].includes(mode)) denied(); }, resolvePublicCapabilities: async () => ({ queue: true }) },
     "../config/env": { appBaseUrl: "https://getprio.online", authCookieSecure: true },
-    "../services/securityAuditService": { record: async () => {} }
+    "../services/securityAuditService": { record: async (_event, options) => assert.equal(options.client, transactionClient) },
+    "../services/queueBoardStreams": { createStreamBudget: () => require("../src/services/queueBoardStreams").createStreamBudget({perIp: 1}) }
   };
   const module = { exports: {} };
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, "../src/routes/queueBoardRoutes.js"), "utf8"), {
     module, require: (name) => { if (!(name in mocks)) throw new Error(`Unexpected dependency ${name}`); return mocks[name]; },
-    URL, setInterval, clearInterval
+    URL, setInterval, clearInterval, setTimeout, clearTimeout
   });
   const app = express(); app.use(express.json());
   app.use("/board", module.exports.publicRouter); app.use("/vendor", module.exports.vendorRouter);
+  app.get("/vendor/tenant/demo/queue", (_req, res) => res.json({ok:true}));
   app.use((error, _req, res, _next) => res.status(error.statusCode || 500).json({ message: error.message }));
   const server = app.listen(0, "127.0.0.1"); await new Promise((resolve) => server.once("listening", resolve));
   const base = `http://127.0.0.1:${server.address().port}`;
@@ -62,8 +71,19 @@ test("board HTTP reads and streams enforce grants; staff cannot publish or appro
     assert.match(codec.decryptDisplayCookie(cookieValue, boardId), /^[a-f0-9]{64}$/);
     assert.equal((await fetch(`${base}/vendor/vendor/queue-board?location=main`)).status, 403);
     assert.equal((await fetch(`${base}/vendor/vendor/queue-board/pairing/${"a".repeat(32)}?location=other`)).status, 403);
+    const beforeAuth = authCalls;
+    assert.equal((await fetch(`${base}/vendor/tenant/demo/queue`)).status, 200);
+    assert.equal(authCalls, beforeAuth, "ordinary vendor routes bypass board authentication");
     const approval = await fetch(`${base}/vendor/vendor/queue-board/pairing/${"a".repeat(32)}/approve?location=main`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ displayName: "TV" }) });
     assert.equal(approval.status, 200);
+    lapsed = true;
+    const adminHeaders = {"x-role":"admin", "Content-Type":"application/json"};
+    assert.equal((await fetch(`${base}/vendor/vendor/queue-board?location=main`, {headers:adminHeaders})).status, 200);
+    assert.equal((await fetch(`${base}/vendor/vendor/queue-board?location=main`, {method:"PATCH",headers:adminHeaders,body:JSON.stringify({rotate:true})})).status, 200);
+    assert.equal((await fetch(`${base}/vendor/vendor/queue-board?location=main`, {method:"PATCH",headers:adminHeaders,body:JSON.stringify({isPublic:true})})).status, 403);
+    assert.equal((await fetch(`${base}/vendor/vendor/queue-board/displays/grant/renew?location=main`, {method:"POST",headers:adminHeaders})).status, 403);
+    assert.equal((await fetch(`${base}/vendor/vendor/queue-board/displays/grant/revoke?location=main`, {method:"POST",headers:adminHeaders})).status, 200);
+    lapsed = false;
     allowed = true;
     const pairingCookie = pairing.headers.get("set-cookie").split(";")[0];
     const refreshed = await fetch(`${base}/board/${boardId}/access`, { headers: { Cookie: pairingCookie } });
@@ -82,10 +102,32 @@ test("board HTTP reads and streams enforce grants; staff cannot publish or appro
     const reader = stream.body.getReader();
     const first = new TextDecoder().decode((await reader.read()).value);
     assert.match(first, /P001/); assert.doesNotMatch(first, /Private|SECRET/);
+    assert.equal((await fetch(`${base}/board/${boardId}/stream`)).status, 429);
     allowed = false;
     const revoked = new TextDecoder().decode((await reader.read()).value);
     assert.match(revoked, /access-revoked/); assert.doesNotMatch(revoked, /P001/);
     controller.abort();
+    allowed = true;
+    const retryController = new AbortController();
+    const retry = await fetch(`${base}/board/${boardId}/stream`, {signal:retryController.signal});
+    assert.equal(retry.status, 200, "revocation releases stream capacity");
+    retryController.abort(); allowed = false;
     assert.equal((await fetch(`${base}/board/${boardId}/queue`)).status, 403);
+    await new Promise(resolve => setTimeout(resolve, 30));
+    allowed = true;
+    let finishSnapshot;
+    holdSnapshot = new Promise(resolve => { finishSnapshot = resolve; });
+    const reached = new Promise(resolve => { reachedSnapshot = resolve; });
+    const abandonedController = new AbortController();
+    await fetch(`${base}/board/${boardId}/stream`, {signal:abandonedController.signal});
+    await reached;
+    abandonedController.abort();
+    await new Promise(resolve => setTimeout(resolve, 30));
+    assert.equal((await fetch(`${base}/board/${boardId}/stream`)).status, 429, "disconnected in-flight database work still consumes capacity");
+    finishSnapshot(); holdSnapshot = null;
+    await new Promise(resolve => setTimeout(resolve, 30));
+    const finalController = new AbortController();
+    assert.equal((await fetch(`${base}/board/${boardId}/stream`, {signal:finalController.signal})).status, 200);
+    finalController.abort();
   } finally { await new Promise((resolve) => server.close(resolve)); }
 });
