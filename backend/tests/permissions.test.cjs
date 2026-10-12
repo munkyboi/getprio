@@ -41,6 +41,7 @@ test("permissions helpers resolve tenant roles, ignore inactive memberships, and
     "platform.queue_lifecycle.repair",
     "platform.queue_notifications.requeue",
     "platform.release_readiness.read",
+    "platform.resource_inventory.read",
     "platform.security_audit.export",
     "platform.security_audit.read",
     "platform.settings.manage",
