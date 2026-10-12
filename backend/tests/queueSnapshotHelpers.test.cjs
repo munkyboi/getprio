@@ -260,8 +260,8 @@ test("wait-time prediction features use the lookup ticket Queue Day", async (t) 
     calledAt: new Date(Date.now() - (options.dateKey === lookupTicket.dateKey ? 120_000 : 30_000))
   });
   tickets.listCalledTickets = async () => [
-    { _id: 60, ticketNumber: "Q060", serviceCounterId: "1", status: "called" },
-    { _id: 61, ticketNumber: "Q061", serviceCounterId: "2", status: "called" }
+    { _id: 60, ticketNumber: "Q060", serviceCounterId: "1", status: "called", dateKey: "20260928" },
+    { _id: 61, ticketNumber: "Q061", serviceCounterId: "2", status: "called", dateKey: "20260929" }
   ];
   tickets.countReadyWaitingTickets = async () => 1;
   require("../src/repositories/serviceCounters").listCountersByLocationId = async () => [
@@ -308,6 +308,7 @@ test("wait-time prediction features use the lookup ticket Queue Day", async (t) 
 
   assert.equal(result.focusTicket.id, "102");
   assert.equal(result.current.id, "60");
+  assert.equal(result.stats.currentTicketNumber, "Q060");
   assert.deepEqual(result.calledTickets.map(ticket => ticket.id), ["60", "61"]);
   assert.equal(result.counterDispatch[0].canCallNext, false);
   assert.equal(result.counterDispatch[1].currentTicketId, "61");

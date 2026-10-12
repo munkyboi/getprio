@@ -35,7 +35,7 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
       status:r.status,joinChannel:r.join_channel,customerConfirmedAt:r.customer_confirmed_at,
       serviceStartedAt:r.service_started_at,serviceEndedAt:r.service_ended_at,serviceOutcome:r.service_outcome,
       userId:r.user_id && String(r.user_id),customerEmail:r.customer_email,customerPhone:r.customer_phone,
-      ticketNumber:String(r.id),dateKey:'2026-10-08',lookupCode:r.lookup_code,updatedAt:r.updated_at};
+      ticketNumber:String(r.id),dateKey:r.date_key,lookupCode:r.lookup_code,updatedAt:r.updated_at};
   }
   try {
     await pool.query(`CREATE SCHEMA ${schema};
@@ -265,7 +265,7 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
     const operationalQueue=loadService({...queueMocks,'./counterDispatchService':loadService({'../repositories/tickets':realTickets},'counterDispatchService'),'../repositories/tickets':{
       ...queueMocks['../repositories/tickets'],createTicket:realTickets.createTicket,findCurrentCalledTicket:realTickets.findCurrentCalledTicket,
       listWaitingTickets:realTickets.listWaitingTickets,callNextWaitingTicket:realTickets.callNextWaitingTicket,
-      confirmCurrentCalledTicket:realTickets.confirmCurrentCalledTicket,
+      confirmCurrentCalledTicket:realTickets.confirmCurrentCalledTicket,updateCurrentCalledTicketStatus:realTickets.updateCurrentCalledTicketStatus,
       findVendorTicketForUpdate:realTickets.findVendorTicketForUpdate,restoreSkippedTicket:realTickets.restoreSkippedTicket
     }},'queueService');
     const withTransaction=async callback=>{
@@ -954,6 +954,34 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
       await assert.rejects(transact((_client,capability)=>capability.executeCommand({command:'cancelReservation',payload:{reservationId:binding},operationKey:`booking:1:reservation:${binding}:expiry:cancel`})),{statusCode:403});
       await assert.rejects(transact((_client,capability)=>capability.executeCommand({command:'cancelReservation',payload:{reservationId:binding},operationKey:`ticket:1:reservation:${binding}:customer-cancel`})),{statusCode:403});
       assert.equal((await pool.query('SELECT state FROM resource_ledger_reservations')).rows[0].state,'protected'); assert.equal(await count('resource_ledger_commands'),1);
+    });
+    await t.test('overnight legacy call blocks its counter and confirmation and Serve retain original ticket day',async () => {
+      await reset(4,false); await ticket('1'); await ticket('2');
+      await pool.query("UPDATE store_locations SET service_timing_enabled=FALSE; UPDATE tickets SET date_key='20261007',service_counter_id=9000 WHERE id=1; UPDATE tickets SET status='waiting' WHERE id=2; INSERT INTO service_counters VALUES(9001,1,10,TRUE)");
+      await assert.rejects(call(),{code:'COUNTER_OCCUPIED'});
+      const next=await call({serviceCounter:{_id:'9001'}});
+      assert.equal(next.ticket._id,'2');
+      const confirmed=await confirm();
+      assert.equal(confirmed.ticket.dateKey,'20261007');
+      assert.ok(confirmed.ticket.customerConfirmedAt);
+      await assert.rejects(operationalQueue.updateCurrentTicketStatus(tenant,'served',{location,actorUserId:'1',queueDateKey:'20261008',ticketId:'1',serviceCounter:{_id:'9001'}}),{code:'CURRENT_TICKET_CHANGED'});
+      const served=await operationalQueue.updateCurrentTicketStatus(tenant,'served',{location,actorUserId:'1',queueDateKey:'20261008',ticketId:'1',serviceCounter:{_id:'9000'}});
+      assert.equal(served.ticket.dateKey,'20261007'); assert.equal(served.ticket.status,'served');
+      assert.equal((await readTicket('2')).status,'called');
+      assert.equal(await count('resource_allocations'),0);
+    });
+    await t.test('explicit service IDs preserve overnight occupancy and release only the selected old ticket',async () => {
+      await reset(); await ticket('1'); await ticket('2');
+      await pool.query("UPDATE tickets SET date_key='20261007',service_counter_id=9000 WHERE id=1; UPDATE tickets SET service_counter_id=9001 WHERE id=2; INSERT INTO service_counters VALUES(9001,1,10,TRUE)");
+      const oldStart=await record('1','start'); assert.equal(oldStart.ticket.dateKey,'20261007');
+      await record('2','start');
+      const oldEnd=await record('1','complete'); assert.equal(oldEnd.ticket.dateKey,'20261007');
+      assert.equal((await readTicket('1')).status,'served');
+      assert.equal((await readTicket('2')).status,'called');
+      assert.deepEqual((await pool.query('SELECT ticket_id::text FROM resource_allocations WHERE released_at IS NULL')).rows,[{ticket_id:'2'}]);
+      await record('1','complete');
+      await record('2','interrupt');
+      assert.equal((await pool.query('SELECT COUNT(*)::int count FROM resource_allocations WHERE released_at IS NULL')).rows[0].count,0);
     });
     await t.test('competing calls use real ticket SQL and preserve one called ticket without allocation',async () => {
       await reset(); await ticket('1'); await ticket('2'); await pool.query("UPDATE tickets SET status='waiting'");

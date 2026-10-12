@@ -68,8 +68,10 @@ async function buildQueueSnapshot(tenant, options = {}, getTenantUsage) {
     ? await queueDayPauseRepository.findActivePause(tenant._id, locationToUse._id, dateKey)
     : null;
   const overflowDateKey = queueDayClosure?.nextQueueDateKey || dateKey;
-  const called = await ticketRepository.listCalledTickets(tenant._id, { locationId, dateKey });
-  const current = called[0] || null;
+  const called = await ticketRepository.listCalledTickets(tenant._id, { locationId });
+  // Baseline estimates retain the current day's inputs; unresolved calls remain
+  // visible across days for counter occupancy and explicit staff resolution.
+  const currentDayCalled = called.find(ticket => ticket.dateKey === dateKey) || null;
   const calledTickets = called.map(counterDispatchService.formatCalledTicket);
   const counters = locationId ? await serviceCounterRepository.listCountersByLocationId(locationId) : [];
   const readyWaitingCount = locationId
@@ -186,7 +188,7 @@ async function buildQueueSnapshot(tenant, options = {}, getTenantUsage) {
         ) + 1
       : null;
     const predictionCurrent = lookupTicket.status !== "waiting" || isSnapshotDate
-      ? current
+      ? currentDayCalled
       : await ticketRepository.findCurrentCalledTicket(tenant._id, {
           locationId,
           dateKey: predictionDateKey
@@ -344,7 +346,7 @@ async function buildQueueSnapshot(tenant, options = {}, getTenantUsage) {
     stats: {
       waitingCount: waitingTickets.length,
       servedToday,
-      currentTicketNumber: current ? current.ticketNumber : null,
+      currentTicketNumber: calledTickets[0]?.ticketNumber || null,
       estimatedWaitMinutes: predictWaitTime({
         position: waitingTickets.length,
         waitingCount: waitingTickets.length,

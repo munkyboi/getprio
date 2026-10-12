@@ -134,6 +134,24 @@ test('PostgreSQL counter dispatch uses vendor authorization and branch resource 
       await assert.rejects(current(2, '2'), { code: 'CURRENT_TICKET_CHANGED' });
       assert.equal((await current(2, '3')).status, 'called');
     });
+    await t.test('prior-day call occupies only its counter and resolves using its original day', async () => {
+      await reset(3);
+      await pool.query("UPDATE tickets SET status='called',service_counter_id=1,date_key='20261011',called_at=clock_timestamp()-interval '1 day' WHERE id=1");
+      await assert.rejects(claim(1), { code: 'COUNTER_OCCUPIED' });
+      assert.equal((await claim(2))._id, '2');
+      const all = await tickets.listCalledTickets('1', { locationId: '10', client: pool });
+      assert.deepEqual(all.map(ticket => ticket._id), ['1', '2']);
+      assert.equal((await current(1, '1')).dateKey, '20261011');
+      await assert.rejects(current(2, '1'), { code: 'CURRENT_TICKET_CHANGED' });
+      await transact(async client => {
+        const old = await dispatch.lockCurrent(client, scope, { ...lane(1), ticketId: '1' });
+        await tickets.confirmCurrentCalledTicket('1', old._id, { client, locationId: '10', dateKey: old.dateKey });
+        await tickets.updateCurrentCalledTicketStatus('1', 'served', { client, locationId: '10', dateKey: old.dateKey, ticketId: old._id });
+      });
+      assert.equal((await claim(1))._id, '3');
+      await assert.rejects(current(1, '1'), { code: 'CURRENT_TICKET_CHANGED' });
+      assert.equal((await current(2, '2')).status, 'called');
+    });
     await t.test('dispatch advice rejects unopened, overdue and foreign Queue Days using database time', async () => {
       const days = require('../src/repositories/queueDays');
       const query = { client: pool };

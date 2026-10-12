@@ -769,6 +769,7 @@ async function updateCurrentTicketStatus(tenant, status, options = {}) {
     const currentTicket = await counterDispatchService.lockCurrent(client, {
       tenantId: tenant._id, locationId: location._id, dateKey
     }, options);
+    dateKey = currentTicket.dateKey;
     if (String(currentTicket.tenantId) !== String(tenant._id)
       || String(currentTicket.locationId) !== String(location._id)) {
       throw Object.assign(new Error("Ticket not found."), { statusCode: 404 });
@@ -897,7 +898,7 @@ async function confirmCurrentTicket(tenant, lookupCode, options = {}) {
       {
         client,
         locationId: location?._id,
-        dateKey
+        dateKey: currentTicket.dateKey
       }
     );
     if (!confirmedTicket) {

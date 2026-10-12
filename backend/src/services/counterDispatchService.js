@@ -28,10 +28,12 @@ async function claimNext(client, scope, options) {
   const serviceCounterId = counterId(options);
   if (serviceCounterId === null) fail("Select an active counter before calling a customer.", "COUNTER_REQUIRED", 400);
   await assertCounter(client, scope, serviceCounterId);
-  const query = { client, locationId: scope.locationId, dateKey: scope.dateKey, serviceCounterId };
-  if (await tickets.findCurrentCalledTicket(scope.tenantId, { ...query, forUpdate: true })) {
+  // An unresolved call occupies its counter across Queue Day boundaries.
+  const lane = { client, locationId: scope.locationId, serviceCounterId };
+  if (await tickets.findCurrentCalledTicket(scope.tenantId, { ...lane, forUpdate: true })) {
     fail("Serve or skip this counter's called ticket before calling the next one.", "COUNTER_OCCUPIED");
   }
+  const query = { ...lane, dateKey: scope.dateKey };
   const next = await tickets.callNextWaitingTicket(scope.tenantId, query);
   if (!next && (await tickets.listWaitingTickets(scope.tenantId, { ...query, limit: 1 })).length) {
     fail("No waiting ticket is ready to be called yet. Arrived bookings become ready at their scheduled start.", "NO_READY_WAITING_TICKET");
@@ -47,7 +49,7 @@ async function lockCurrent(client, scope, options) {
   // An inactive counter may still have a called ticket that staff must resolve.
   await assertCounter(client, scope, serviceCounterId, { allowInactive: true });
   const ticket = await tickets.findCurrentCalledTicket(scope.tenantId, {
-    client, forUpdate: true, locationId: scope.locationId, dateKey: scope.dateKey,
+    client, forUpdate: true, locationId: scope.locationId,
     serviceCounterId, ticketId: options.ticketId
   });
   if (!ticket) fail("This counter's called ticket changed. Refresh the queue before continuing.", "CURRENT_TICKET_CHANGED");
