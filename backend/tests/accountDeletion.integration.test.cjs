@@ -72,6 +72,8 @@ test('account deletion against disposable PostgreSQL', { skip: !url }, async (t)
     await t.test('atomic revocation, retry, blocked login, and reviewed asynchronous cleanup', async () => {
       const user = await fixture();
       const other = await fixture();
+      await db.pool.query(`INSERT INTO ai_inference_policy_operations(actor_user_id,operation_key,payload_digest,response)
+        VALUES($1,'former-admin-policy','fixture','{}'),($2,'unrelated-admin-policy','fixture','{}')`, [user._id, other._id]);
       secondTenant = (await db.pool.query("INSERT INTO tenants(name,slug) VALUES('Second deletion fixture',$1) RETURNING id", ['delete-test-' + require('node:crypto').randomUUID()])).rows[0];
       await db.pool.query('INSERT INTO customer_favorites(customer_user_id,tenant_id) VALUES($1,$3),($2,$3),($1,$4),($2,$4)', [user._id, other._id, scope.tenant_id, secondTenant.id]);
       const event = (await db.pool.query("INSERT INTO queue_events(tenant_id,location_id,queue_date_key,event_type,actor_user_id,actor_role,source,metadata) VALUES($1,$2,'2026-10-01','fixture_event',$3,'customer','cleanup-test',$4::jsonb) RETURNING *", [scope.tenant_id, scope.id, user._id, JSON.stringify({ accountEmail: user.email })])).rows[0];
@@ -122,6 +124,9 @@ test('account deletion against disposable PostgreSQL', { skip: !url }, async (t)
       }
       finally { cleanupClient.release(); }
       assert.equal(await users.findUserById(user._id),null);
+      assert.equal((await db.pool.query('SELECT 1 FROM ai_inference_policy_operations WHERE actor_user_id=$1',[user._id])).rowCount,0);
+      assert.equal((await db.pool.query('SELECT 1 FROM ai_inference_policy_operations WHERE actor_user_id=$1',[other._id])).rowCount,1);
+      assert.equal((await db.pool.query('SELECT requested_mode FROM ai_inference_policy WHERE id=1')).rows[0].requested_mode,'off');
       assert.equal((await load()).cleanup_status,'completed');
       assert.equal((await load()).report_status,'ready');
       assert.deepEqual((await load()).cleanup_report.actions[0].deletedPreferenceReferences, [{ source: 'public.customer_favorites.customer_user_id', count: 2 }]);

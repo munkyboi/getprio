@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import {
   AlertTriangle,
   LoaderCircle,
@@ -64,11 +64,13 @@ export function PlatformAiInference({
   live,
   canRead,
   canManage,
+  onSessionExpired,
   api = aiInferenceApi
 }: {
   live: boolean
   canRead: boolean
   canManage: boolean
+  onSessionExpired: () => void
   api?: AiInferenceApi
 }) {
   const [model, setModel] = useState<AiStatus | null>(null)
@@ -88,6 +90,31 @@ export function PlatformAiInference({
     key: string
   } | null>(null)
   const [refresh, setRefresh] = useState(0)
+  const [expired, setExpired] = useState(false)
+  const reportFailure = useCallback(
+    (cause: unknown, fallback: string) => {
+      if (
+        cause &&
+        typeof cause === "object" &&
+        "status" in cause &&
+        Number(cause.status) === 401
+      ) {
+        setModel(null)
+        setDraft(null)
+        setScopes([])
+        setReview(null)
+        setReason("")
+        setQuery("")
+        setNotice(null)
+        setError(null)
+        setExpired(true)
+        onSessionExpired()
+        return
+      }
+      setError(cause instanceof Error ? cause.message : fallback)
+    },
+    [onSessionExpired]
+  )
   useEffect(() => {
     if (!live || !canRead) return
     let active = true
@@ -102,12 +129,7 @@ export function PlatformAiInference({
         }
       })
       .catch((cause) => {
-        if (active)
-          setError(
-            cause instanceof Error
-              ? cause.message
-              : "AI controls are unavailable."
-          )
+        if (active) reportFailure(cause, "AI controls are unavailable.")
       })
       .finally(() => {
         if (active) setLoading(false)
@@ -115,7 +137,17 @@ export function PlatformAiInference({
     return () => {
       active = false
     }
-  }, [api, live, canRead, refresh])
+  }, [api, live, canRead, refresh, reportFailure])
+  if (expired)
+    return (
+      <Alert variant="destructive">
+        <AlertTriangle />
+        <AlertTitle>Session expired</AlertTitle>
+        <AlertDescription>
+          Sign in again to view AI inference controls.
+        </AlertDescription>
+      </Alert>
+    )
   if (!canRead)
     return (
       <Alert variant="destructive">
@@ -161,9 +193,7 @@ export function PlatformAiInference({
       }
       setReview({ preview, reason, key: crypto.randomUUID() })
     } catch (cause) {
-      setError(
-        cause instanceof Error ? cause.message : "Policy preview failed."
-      )
+      reportFailure(cause, "Policy preview failed.")
     } finally {
       setBusy(false)
     }
@@ -182,10 +212,9 @@ export function PlatformAiInference({
         "Policy saved. Effective inference remains subject to integration and readiness gates."
       )
     } catch (cause) {
-      setError(
-        cause instanceof Error
-          ? cause.message
-          : "Policy save failed. Retry uses the same operation key."
+      reportFailure(
+        cause,
+        "Policy save failed. Retry uses the same operation key."
       )
     } finally {
       setBusy(false)
@@ -200,9 +229,7 @@ export function PlatformAiInference({
       setLimited(result.limited)
       setSearched(true)
     } catch (cause) {
-      setError(
-        cause instanceof Error ? cause.message : "Location search failed."
-      )
+      reportFailure(cause, "Location search failed.")
     } finally {
       setBusy(false)
     }
@@ -474,6 +501,8 @@ export function PlatformAiInference({
                             <SelectGroup>
                               {scopes.map((scope) => (
                                 <SelectItem
+                                  wrapText
+                                  className="min-h-11"
                                   key={`${scope.tenantId}:${scope.locationId}`}
                                   value={`${scope.tenantId}:${scope.locationId}`}
                                 >
@@ -504,7 +533,7 @@ export function PlatformAiInference({
                           key={`${scope.tenantId}:${scope.locationId}`}
                           className="flex flex-col gap-2 rounded-lg border p-3"
                         >
-                          <p>
+                          <p className="break-words">
                             {scopeName(scope, [...model.pilots, ...scopes])}
                           </p>
                           <ToggleGroup

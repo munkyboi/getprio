@@ -29,8 +29,8 @@ router.post(
       await service.preview({
         user: req.user,
         session: req.auth.session,
-        draft: req.body.policy,
-        reason: req.body.reason,
+        draft: req.body?.policy,
+        reason: req.body?.reason,
       }),
     );
   }),
@@ -43,9 +43,9 @@ router.post(
       await service.update({
         user: req.user,
         session: req.auth.session,
-        draft: req.body.policy,
-        reason: req.body.reason,
-        expectedRevision: req.body.expectedRevision,
+        draft: req.body?.policy,
+        reason: req.body?.reason,
+        expectedRevision: req.body?.expectedRevision,
         confirmationToken: req.get("x-transaction-confirmation"),
         operationKey: req.get("idempotency-key"),
       }),
