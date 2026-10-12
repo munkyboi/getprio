@@ -230,11 +230,7 @@ function normalizeLocationPayload(body, existingLocation = null) {
 }
 
 function normalizeCounterSlug(value) {
-  return String(value || "")
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
+  return (String(value || "").toLowerCase().match(/[a-z0-9]+/g) || []).join("-");
 }
 
 function buildPriceDisplay(priceAmountCents, currency = "PHP") {

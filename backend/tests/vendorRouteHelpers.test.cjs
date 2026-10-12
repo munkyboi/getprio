@@ -245,3 +245,11 @@ test("vendor route helpers normalize group-funded location service settings", ()
   assert.equal(ignoredShareBounds.minContributionAmountCents, null);
   assert.equal(ignoredShareBounds.maxContributionAmountCents, null);
 });
+
+
+test("counter slugs normalize punctuation and long separator inputs", () => {
+  assert.equal(helpers.normalizeCounterSlug(" -- FRONT__Desk 2 -- "), "front-desk-2");
+  assert.equal(helpers.normalizeCounterSlug("-".repeat(100000)), "");
+  assert.equal(helpers.normalizeCounterSlug("-".repeat(100000) + "Desk"), "desk");
+  assert.equal(helpers.normalizeCounterSlug(null), "");
+});
