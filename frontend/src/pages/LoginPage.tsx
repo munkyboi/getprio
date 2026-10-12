@@ -43,6 +43,7 @@ export default function LoginPage() {
   const passwordChanged = searchParams.get("passwordChanged") === "1";
   const passwordResetSuccess = searchParams.get("reset") === "success";
   const nextPath = getSafeRedirectPath(searchParams.get("next"));
+  const mfaEnrollmentPath = nextPath ? `/dashboard/account?next=${encodeURIComponent(nextPath)}` : "/dashboard/account";
   const [showResetRequest, setShowResetRequest] = useState(false);
   const [error, setError] = useState("");
   const [resetRequestMessage, setResetRequestMessage] = useState("");
@@ -73,9 +74,9 @@ export default function LoginPage() {
 
   useEffect(() => {
     if (user?.tenants?.length) {
-      navigate(user.mfaRequired && !user.mfaEnabled ? "/dashboard/account" : nextPath || "/dashboard", { replace: true });
+      navigate(user.mfaRequired && !user.mfaEnabled ? mfaEnrollmentPath : nextPath || "/dashboard", { replace: true });
     }
-  }, [navigate, nextPath, user]);
+  }, [navigate, nextPath, mfaEnrollmentPath, user]);
 
   useEffect(() => {
     resetConfirmForm.setValue("token", resetToken);
@@ -139,7 +140,7 @@ export default function LoginPage() {
       }
       navigate(
         result.user.mfaRequired && !result.user.mfaEnabled
-          ? "/dashboard/account"
+          ? mfaEnrollmentPath
           : nextPath || (result.user.tenants.length ? "/dashboard" : "/"),
         { replace: true }
       );
@@ -161,7 +162,7 @@ export default function LoginPage() {
       });
       navigate(
         result.user.mfaRequired && !result.user.mfaEnabled
-          ? "/dashboard/account"
+          ? mfaEnrollmentPath
           : nextPath || (result.user.tenants.length ? "/dashboard" : "/"),
         { replace: true }
       );
@@ -350,7 +351,7 @@ export default function LoginPage() {
                 </Stack>
               </form>
             ) : null}
-            <SocialAuthButtons iconOnly intent="login" />
+            <SocialAuthButtons iconOnly intent="login" returnPath={nextPath || undefined} />
           </>
         )}
         <Text c="dimmed" size="sm">

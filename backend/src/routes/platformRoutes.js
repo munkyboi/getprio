@@ -1,3 +1,4 @@
+const { isValidContactEmail } = require("../utils/email");
 const businessCategories = require("../repositories/businessCategories");
 const platformHelpCenter = require("../repositories/platformHelpCenter");
 const { isValidImageUploadLimit } = require("../utils/imageUploadLimit");
@@ -1471,7 +1472,7 @@ router.patch(
     const mobileApprovedHosts = Object.prototype.hasOwnProperty.call(req.body, "mobileApprovedHosts")
       ? normalizeMobileApprovedHosts(req.body.mobileApprovedHosts)
       : undefined;
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(enterpriseInquiryEmail)) {
+    if (!isValidContactEmail(enterpriseInquiryEmail)) {
       const error = new Error("A valid enterprise inquiry email is required.");
       error.statusCode = 400;
       throw error;

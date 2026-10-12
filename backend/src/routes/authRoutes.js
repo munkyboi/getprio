@@ -1,3 +1,4 @@
+const queueBoardReturnPath = require("../services/queueBoardReturnPath");
 const businessCategories = require("../repositories/businessCategories");
 const express = require("express");
 const { rateLimit, ipKeyGenerator } = require("express-rate-limit");
@@ -72,11 +73,7 @@ const customerRegistrationOtpLimiter = rateLimit({
 });
 
 function normalizeSlug(value) {
-  return String(value || "")
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
+  return (String(value || "").toLowerCase().match(/[a-z0-9]+/g) || []).join("-");
 }
 
 function validateTenantSlug(value) {
@@ -530,7 +527,7 @@ router.get("/oauth/:provider/start", (req, res) => {
     ensureSupportedProvider(provider);
     ensureValidIntent(intent);
 
-    const state = createOAuthState({ provider, intent });
+    const state = createOAuthState({ provider, intent, next: intent === "login" ? queueBoardReturnPath(req.query.next) : null });
     res.redirect(buildAuthorizationUrl(provider, state));
   } catch (error) {
     redirectOauthError(res, error.message || "Unable to start social sign-in.");
@@ -565,7 +562,7 @@ router.all("/oauth/:provider/callback", async (req, res) => {
     });
 
     const { user, created } = await findOrCreateOauthUser(profile);
-    const next = getPostOauthPath(oauthState.intent, provider, user);
+    const next = (oauthState.intent === "login" && queueBoardReturnPath(oauthState.next)) || getPostOauthPath(oauthState.intent, provider, user);
     const sessionResult = await sessionService.createAuthSession({
       user,
       authMethod: getAuthMethodForProvider(provider),

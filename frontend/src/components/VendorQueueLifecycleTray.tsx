@@ -19,6 +19,7 @@ import {
   IconShieldLock
 } from "@tabler/icons-react";
 import type { QueueSnapshot } from "@shared";
+import { countCalledTicketsForQueueDay } from "../utils/counterDispatch";
 
 type Props = {
   snapshot: QueueSnapshot | null;
@@ -83,7 +84,7 @@ export default function VendorQueueLifecycleTray({
   ];
   const carriedCount = waitingTickets.filter((ticket) => ticket.isCarriedOver).length;
   const firstCarryCount = Math.max(0, waitingTickets.length - carriedCount);
-  const calledCount = snapshot?.current ? 1 : 0;
+  const calledCount = countCalledTicketsForQueueDay(snapshot);
   const skippedCount = snapshot?.recovery?.length || 0;
 
   useEffect(() => {

@@ -1,9 +1,17 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
+process.env.APP_BASE_URL = "https://getprio.online/";
 require("tsx/cjs");
 
 const queueSnapshotHelpers = require("../src/services/queueSnapshotHelpers");
+const snapshotTickets = require("../src/repositories/tickets");
+snapshotTickets.listCalledTickets = async (...args) => {
+  const current = await snapshotTickets.findCurrentCalledTicket(...args);
+  return current ? [current] : [];
+};
+snapshotTickets.countReadyWaitingTickets = async () => 0;
+require("../src/repositories/serviceCounters").listCountersByLocationId = async () => [];
 
 test("queue snapshot helpers resolve primary locations when none are specified", async () => {
   const originalRepo = require("../src/repositories/storeLocations");
@@ -19,7 +27,7 @@ test("queue snapshot helpers resolve primary locations when none are specified",
 
   originalRepo.findPrimaryLocationByTenantId = async () => {
     primaryCalls += 1;
-    return { _id: 1, tenantId: 10, slug: "main", timezone: "Asia/Manila", isPrimary: true, isActive: true };
+    return { queueBoardId: "063b7899-ffbe-482c-9564-91a5a6c79be0", _id: 1, tenantId: 10, slug: "main", timezone: "Asia/Manila", isPrimary: true, isActive: true };
   };
   originalRepo.findLocationByTenantAndSlug = async () => null;
   originalRepo.findLocationById = async () => null;
@@ -47,6 +55,8 @@ test("queue snapshot helpers resolve primary locations when none are specified",
     async () => ({ emailsSentThisPeriod: 0 })
   );
 
+  assert.equal(result.tenant.monitorUrl, "https://getprio.online/queue-board/063b7899-ffbe-482c-9564-91a5a6c79be0");
+  assert.equal(result.location.monitorUrl, result.tenant.monitorUrl);
   assert.equal(primaryCalls, 1);
   assert.equal(lookupCalls, 0);
   assert.equal(result.location.slug, "main");
@@ -252,6 +262,16 @@ test("wait-time prediction features use the lookup ticket Queue Day", async (t) 
     _id: options.dateKey === lookupTicket.dateKey ? 50 : 60,
     calledAt: new Date(Date.now() - (options.dateKey === lookupTicket.dateKey ? 120_000 : 30_000))
   });
+  tickets.listCalledTickets = async () => [
+    { _id: 60, ticketNumber: "Q060", serviceCounterId: "1", status: "called", dateKey: "20260928" },
+    { _id: 61, ticketNumber: "Q061", serviceCounterId: "2", status: "called", dateKey: "20260929" }
+  ];
+  tickets.countReadyWaitingTickets = async () => 1;
+  require("../src/repositories/serviceCounters").listCountersByLocationId = async () => [
+    { _id: "1", slug: "one", name: "One", isActive: true },
+    { _id: "2", slug: "two", name: "Two", isActive: true },
+    { _id: "3", slug: "three", name: "Three", isActive: true }
+  ];
   tickets.listWaitingTickets = async (_tenantId, options = {}) => {
     if (options.onlyCarriedOver) return [];
     if (options.dateKey === lookupTicket.dateKey) {
@@ -289,6 +309,14 @@ test("wait-time prediction features use the lookup ticket Queue Day", async (t) 
   );
   await new Promise((resolve) => setImmediate(resolve));
 
+  assert.equal(result.focusTicket.id, "102");
+  assert.equal(result.current.id, "60");
+  assert.equal(result.stats.currentTicketNumber, "Q060");
+  assert.deepEqual(result.calledTickets.map(ticket => ticket.id), ["60", "61"]);
+  assert.equal(result.counterDispatch[0].canCallNext, false);
+  assert.equal(result.counterDispatch[1].currentTicketId, "61");
+  assert.equal(result.counterDispatch[2].canCallNext, true);
+  assert.equal(result.readyWaitingCount, 1);
   assert.equal(result.focusTicket.position, 2);
   assert.equal(predictedFeatures[0].waitingCount, 2);
   assert.equal(predictedFeatures[0].position, 2);

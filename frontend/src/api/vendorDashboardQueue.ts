@@ -102,24 +102,24 @@ export function recordTicketService(
   );
 }
 
-export function serveCurrentTicket(token: string, tenantSlug: string, locationQuery: string) {
+export function serveCurrentTicket(token: string, tenantSlug: string, locationQuery: string, ticketId: string, counterSlug: string | null) {
   return apiRequest<VendorDashboardActionResponse>(
     `/vendor/tenant/${tenantSlug}/queue/current/serve${locationQuery}`,
-    { method: "POST", token }
+    { method: "POST", token, body: { ticketId, counterSlug } }
   );
 }
 
-export function confirmCurrentTicket(token: string, tenantSlug: string, locationQuery: string, lookupCode: string) {
-  return apiRequest<VendorDashboardActionResponse, { lookupCode?: string; barcodeToken?: string }>(
+export function confirmCurrentTicket(token: string, tenantSlug: string, locationQuery: string, lookupCode: string, ticketId: string, counterSlug: string | null) {
+  return apiRequest<VendorDashboardActionResponse, { lookupCode?: string; barcodeToken?: string; ticketId: string; counterSlug: string | null }>(
     `/vendor/tenant/${tenantSlug}/queue/current/confirm${locationQuery}`,
-    { method: "POST", token, body: lookupCode.startsWith("QB") ? { barcodeToken: lookupCode } : { lookupCode } }
+    { method: "POST", token, body: { ticketId, counterSlug, ...(lookupCode.startsWith("QB") ? { barcodeToken: lookupCode } : { lookupCode }) } }
   );
 }
 
-export function skipCurrentTicket(token: string, tenantSlug: string, locationQuery: string) {
+export function skipCurrentTicket(token: string, tenantSlug: string, locationQuery: string, ticketId: string, counterSlug: string | null) {
   return apiRequest<VendorDashboardActionResponse>(
     `/vendor/tenant/${tenantSlug}/queue/current/skip${locationQuery}`,
-    { method: "POST", token }
+    { method: "POST", token, body: { ticketId, counterSlug } }
   );
 }
 

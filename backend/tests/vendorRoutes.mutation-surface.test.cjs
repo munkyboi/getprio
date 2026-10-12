@@ -305,6 +305,10 @@ test("vendor routes queue mutations invoke the queue service helpers", async () 
     const pauseRes = await fetch(`${baseUrl}/tenant/demo/queue/pause?location=main`, { method: "POST" });
     assert.equal(pauseRes.status, 200, await pauseRes.text());
 
+    for (const action of ["serve", "skip", "confirm"]) {
+      const bodyless = await fetch(`${baseUrl}/tenant/demo/queue/current/${action}?location=main`, { method: "POST" });
+      assert.equal(bodyless.status, 400, await bodyless.text());
+    }
     const callNextRes = await fetch(`${baseUrl}/tenant/demo/queue/call-next?location=main`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -315,11 +319,11 @@ test("vendor routes queue mutations invoke the queue service helpers", async () 
     const confirmCurrentRes = await fetch(`${baseUrl}/tenant/demo/queue/current/confirm?location=main`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ lookupCode: "abcd1234" })
+      body: JSON.stringify({ lookupCode: "abcd1234", ticketId: "7", counterSlug: null })
     });
     assert.equal(confirmCurrentRes.status, 200);
     const barcodeToken='QB'+'A'.repeat(32);
-    const rotatingRes=await fetch(`${baseUrl}/tenant/demo/queue/current/confirm?location=main`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({barcodeToken:barcodeToken.toLowerCase()})});
+    const rotatingRes=await fetch(`${baseUrl}/tenant/demo/queue/current/confirm?location=main`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({barcodeToken:barcodeToken.toLowerCase(),ticketId:"7",counterSlug:null})});
     assert.equal(rotatingRes.status,200);assert.equal(calls.filter(([name])=>name==='confirmCurrentTicket')[1][1][2].barcodeToken,barcodeToken);
     const invalidRes=await fetch(`${baseUrl}/tenant/demo/queue/current/confirm?location=main`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({barcodeToken:'QBbad'})});assert.equal(invalidRes.status,400);
 
@@ -363,7 +367,9 @@ test("vendor routes queue mutations invoke the queue service helpers", async () 
           location: { _id: "location-1", slug: "main" },
           actorUserId: "user-1",
           actorRole: "vendor",
-          source: "vendor_barcode_scan"
+          source: "vendor_barcode_scan",
+          ticketId: "7",
+          serviceCounter: null
         }
       ]
     ]);

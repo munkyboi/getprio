@@ -5014,7 +5014,7 @@ button {
 .public-board-tv-left {
   min-height: 0;
   display: grid;
-  grid-template-rows: minmax(0, 1fr) 184px 212px;
+  grid-template-rows: minmax(0, 1fr) 184px 138px;
   gap: 24px;
 }
 
@@ -5036,34 +5036,55 @@ button {
 .public-board-tv-current-inner {
   width: 100%;
   height: 100%;
+  min-height: 0;
   display: grid;
-  align-content: center;
-  justify-items: center;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: 12px;
+  padding: 12px;
   border-radius: 28px;
-  background:
-    linear-gradient(160deg, color-mix(in srgb, var(--public-board-primary) 8%, transparent), rgba(255, 255, 255, 0)),
-    rgba(255, 245, 232, 0.78);
+  background: rgba(255, 245, 232, 0.78);
+  container-type: size;
 }
-
-.public-board-tv-current strong {
-  display: block;
-  margin-top: 18px;
+.public-board-tv-calls {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+}
+.public-board-tv-calls[data-multiple="true"] {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-auto-rows: minmax(0, 1fr);
+}
+.public-board-tv-call {
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+.public-board-tv-call strong {
   color: var(--public-board-ink);
-  font-size: 138px;
-  line-height: 0.9;
+  font-size: clamp(24px, 30cqh, 138px);
+  line-height: 1;
   font-weight: 950;
-  letter-spacing: 0;
+  overflow-wrap: anywhere;
 }
-
-.public-board-tv-current span {
-  margin-top: 18px;
-  padding: 12px 20px;
-  border-radius: 999px;
+.public-board-tv-calls[data-multiple="true"] strong {
+  font-size: clamp(24px, 14cqh, 64px);
+}
+.public-board-tv-call span,
+.public-board-tv-call-instruction {
+  padding: 4px 10px;
+  border-radius: 12px;
   color: var(--public-board-primary-ink);
   background: var(--public-board-primary);
-  font-size: 20px;
+  font-size: 16px;
   font-weight: 900;
+  overflow-wrap: anywhere;
 }
+.public-board-tv-call-instruction { font-size: 14px; }
 
 .public-board-tv-qr {
   display: grid;
@@ -5101,28 +5122,28 @@ button {
 .public-board-tv-stats {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 18px;
-  padding: 26px;
+  gap: 12px;
+  padding: 12px;
 }
 
 .public-board-tv-stats div {
   display: grid;
   align-content: center;
-  padding: 24px;
+  padding: 8px;
   border-radius: 24px;
   background: rgba(255, 255, 255, 0.62);
 }
 
 .public-board-tv-stats span {
   color: var(--public-board-muted);
-  font-size: 20px;
+  font-size: 16px;
   font-weight: 800;
 }
 
 .public-board-tv-stats strong {
-  margin-top: 8px;
+  margin-top: 4px;
   color: var(--public-board-ink);
-  font-size: 64px;
+  font-size: 40px;
   line-height: 1;
 }
 
@@ -6656,35 +6677,39 @@ h2 {
 }
 
 .vendor-queue-action-layout {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  align-items: center;
-  gap: 1rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
 }
-
+.vendor-queue-counter-select {
+  flex: 1 1 100%;
+  min-width: 180px;
+}
 .vendor-queue-primary-actions {
   min-width: 0;
+  flex: 1 1 auto;
 }
-
-.vendor-queue-action-layout .mantine-Button-root {
-  min-height: 44px;
+.vendor-queue-action-layout .mantine-Button-root { min-height: 44px; }
+.vendor-queue-status-columns {
+  display: grid;
+  grid-template-columns: 1fr;
+  border-top: 1px solid var(--mantine-color-default-border);
+  padding-top: 16px;
 }
-
-.vendor-queue-management-action .mantine-Button-root {
-  width: 100%;
+.vendor-queue-status-column { min-width: 0; padding: 12px 0; }
+.vendor-queue-status-column + .vendor-queue-status-column {
+  border-top: 1px solid var(--mantine-color-default-border);
 }
-
-@media (min-width: 48.0625em) {
-  .vendor-queue-action-layout {
-    grid-template-columns: minmax(0, 1fr) auto;
-  }
-
-  .vendor-queue-management-action {
-    justify-self: end;
-  }
-
-  .vendor-queue-management-action .mantine-Button-root {
-    width: auto;
+@media (min-width: 48.01em) {
+  .vendor-queue-counter-select { flex: 0 1 200px; }
+  .vendor-queue-status-columns { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .vendor-queue-status-columns[data-columns="3"] { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .vendor-queue-status-column { padding: 0 16px; }
+  .vendor-queue-status-column:first-child { padding-left: 0; }
+  .vendor-queue-status-column + .vendor-queue-status-column {
+    border-top: 0;
+    border-left: 1px solid var(--mantine-color-default-border);
   }
 }
 

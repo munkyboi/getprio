@@ -1,3 +1,6 @@
+const counterDispatchService = require("./counterDispatchService");
+const serviceCounterRepository = require("../repositories/serviceCounters");
+const queueDayRepository = require("../repositories/queueDays");
 const env = require("../config/env");
 const publicBoardThemeRepository = require("../repositories/publicBoardThemes");
 const queueDayClosureRepository = require("../repositories/queueDayClosures");
@@ -15,7 +18,7 @@ const {
   getQueueIntakeState,
   redactPublicContactDetails
 } = require("./queueHelpers");
-const { buildJoinUrl, buildMonitorUrl } = require("../publicLinks.ts");
+const { buildJoinUrl } = require("../publicLinks.ts");
 
 async function resolveLocation(tenant, options = {}) {
   if (options.location) {
@@ -65,7 +68,17 @@ async function buildQueueSnapshot(tenant, options = {}, getTenantUsage) {
     ? await queueDayPauseRepository.findActivePause(tenant._id, locationToUse._id, dateKey)
     : null;
   const overflowDateKey = queueDayClosure?.nextQueueDateKey || dateKey;
-  const current = await ticketRepository.findCurrentCalledTicket(tenant._id, { locationId, dateKey });
+  const called = await ticketRepository.listCalledTickets(tenant._id, { locationId });
+  // Baseline estimates retain the current day's inputs; unresolved calls remain
+  // visible across days for counter occupancy and explicit staff resolution.
+  const currentDayCalled = called.find(ticket => ticket.dateKey === dateKey) || null;
+  const calledTickets = called.map(counterDispatchService.formatCalledTicket);
+  const counters = locationId ? await serviceCounterRepository.listCountersByLocationId(locationId) : [];
+  const readyWaitingCount = locationId
+    ? await ticketRepository.countReadyWaitingTickets(tenant._id, { locationId, dateKey }) : 0;
+  const queueOpen = !queueDayClosure && (locationToUse?.queueLifecycleMode !== "enforced"
+    || await queueDayRepository.isOpenForDispatch(tenant._id, locationId, dateKey));
+  const counterDispatch = counterDispatchService.buildCounterDispatch(counters, calledTickets, readyWaitingCount, queueOpen);
   const waitingTickets = await ticketRepository.listWaitingTickets(tenant._id, { locationId, dateKey });
   const overflowTickets = await ticketRepository.listWaitingTickets(tenant._id, {
     locationId,
@@ -175,7 +188,7 @@ async function buildQueueSnapshot(tenant, options = {}, getTenantUsage) {
         ) + 1
       : null;
     const predictionCurrent = lookupTicket.status !== "waiting" || isSnapshotDate
-      ? current
+      ? currentDayCalled
       : await ticketRepository.findCurrentCalledTicket(tenant._id, {
           locationId,
           dateKey: predictionDateKey
@@ -274,7 +287,7 @@ async function buildQueueSnapshot(tenant, options = {}, getTenantUsage) {
       autoResumeEnabled: Boolean(tenant.autoResumeEnabled),
       autoResumeVacancyPercent: tenant.autoResumeVacancyPercent ?? null,
       joinUrl: buildJoinUrl(env.appBaseUrl, tenant.slug, locationToUse?.slug),
-      monitorUrl: buildMonitorUrl(env.appBaseUrl, tenant.slug, locationToUse?.slug),
+      monitorUrl: locationToUse?.queueBoardId ? `${env.appBaseUrl.replace(/\/+$/, "")}/queue-board/${locationToUse.queueBoardId}` : "",
       isActive: Boolean(activeSubscription),
       queueFee
     }),
@@ -296,7 +309,7 @@ async function buildQueueSnapshot(tenant, options = {}, getTenantUsage) {
             isPrimary: locationToUse.isPrimary,
             isActive: locationToUse.isActive,
             joinUrl: buildJoinUrl(env.appBaseUrl, tenant.slug, locationToUse.slug),
-            monitorUrl: buildMonitorUrl(env.appBaseUrl, tenant.slug, locationToUse.slug),
+            monitorUrl: locationToUse.queueBoardId ? `${env.appBaseUrl.replace(/\/+$/, "")}/queue-board/${locationToUse.queueBoardId}` : "",
             openStatus,
             hours: hours.map((hour) => ({
               weekday: hour.weekday,
@@ -333,27 +346,18 @@ async function buildQueueSnapshot(tenant, options = {}, getTenantUsage) {
     stats: {
       waitingCount: waitingTickets.length,
       servedToday,
-      currentTicketNumber: current ? current.ticketNumber : null,
+      currentTicketNumber: calledTickets[0]?.ticketNumber || null,
       estimatedWaitMinutes: predictWaitTime({
         position: waitingTickets.length,
         waitingCount: waitingTickets.length,
         averageServiceMinutes: tenant.averageServiceMinutes
       }).estimatedWaitMinutes
     },
-    current: current
-      ? {
-          id: String(current._id),
-          ticketNumber: current.ticketNumber,
-          customerName: current.customerName,
-          customerDisplayName: current.customerDisplayName || null,
-          calledAt: current.calledAt,
-          serviceStartedAt: current.serviceStartedAt,
-          joinChannel: current.joinChannel,
-          customerConfirmedAt: current.customerConfirmedAt || null,
-          servicePriorityBand: current.servicePriorityBand || "normal",
-          linkedBookingReference: current.linkedBookingReference || null
-        }
-      : null,
+    // Compatibility summary only; vendor actions use a counter lane and ticket ID.
+    current: calledTickets[0] || null,
+    calledTickets,
+    readyWaitingCount,
+    counterDispatch,
     nextUp,
     overflow,
     recovery: recoveryTickets.map((ticket) => ({

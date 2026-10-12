@@ -418,7 +418,7 @@ router.post(
   asyncHandler(async (req, res) => {
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
     assertTenantPermission(req.user, tenant._id, "tenant.theme.manage");
-    if (!req.body || !Buffer.isBuffer(req.body) || !req.body.length) {
+    if (!req.body || !Buffer.isBuffer(req.body) || !req.body.byteLength) {
       const error = new Error("Image upload payload is required.");
       error.statusCode = 400;
       throw error;
@@ -439,7 +439,7 @@ router.post(
         assetType: normalizeRequestText(req.query.assetType),
         fileName: normalizeRequestText(req.query.fileName),
         contentType: req.headers["content-type"],
-        sizeBytes: req.body.length
+        sizeBytes: req.body.byteLength
       },
       fileBuffer: req.body
     });
@@ -492,7 +492,7 @@ router.post(
       error.statusCode = 400;
       throw error;
     }
-    if (!req.body || !Buffer.isBuffer(req.body) || !req.body.length) {
+    if (!req.body || !Buffer.isBuffer(req.body) || !req.body.byteLength) {
       const error = new Error("QR image upload payload is required.");
       error.statusCode = 400;
       throw error;
@@ -504,7 +504,7 @@ router.post(
       body: {
         fileName: normalizeRequestText(req.query.fileName),
         contentType: req.headers["content-type"],
-        sizeBytes: req.body.length
+        sizeBytes: req.body.byteLength
       },
       fileBuffer: req.body
     });
@@ -585,7 +585,7 @@ router.post(
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
     assertTenantPermission(req.user, tenant._id, "tenant.location.manage");
     const location = await getLocationForTenant(tenant, req.params.locationSlug);
-    if (!req.body || !Buffer.isBuffer(req.body) || !req.body.length) {
+    if (!req.body || !Buffer.isBuffer(req.body) || !req.body.byteLength) {
       const error = new Error("QR image upload payload is required.");
       error.statusCode = 400;
       throw error;
@@ -597,7 +597,7 @@ router.post(
       body: {
         fileName: normalizeRequestText(req.query.fileName),
         contentType: req.headers["content-type"],
-        sizeBytes: req.body.length
+        sizeBytes: req.body.byteLength
       },
       fileBuffer: req.body
     });
@@ -1119,6 +1119,15 @@ router.post(
   })
 );
 
+async function getCurrentCounterTarget(req, location) {
+  req.body = req.body || {};
+  if (!Object.hasOwn(req.body, "counterSlug") || (req.body.counterSlug !== null && !normalizeRequestText(req.body.counterSlug))) {
+    throw Object.assign(new Error("Select the counter for this called ticket."), { statusCode: 400, code: "COUNTER_REQUIRED" });
+  }
+  return { ticketId: req.body.ticketId,
+    serviceCounter: await getCounterForLocation(location, normalizeRequestText(req.body.counterSlug)) };
+}
+
 router.post(
   "/tenant/:tenantSlug/queue/call-next",
   asyncHandler(async (req, res) => {
@@ -1126,6 +1135,9 @@ router.post(
     assertTenantPermission(req.user, tenant._id, "tenant.queue.operate");
     const location = await getLocationForTenant(tenant, normalizeRequestText(req.query.location));
     await assertQueueLocationAccess(req.user, tenant, location);
+    if (!normalizeRequestText(req.body?.counterSlug)) {
+      throw Object.assign(new Error("Select an active counter before calling a customer."), { statusCode: 400, code: "COUNTER_REQUIRED" });
+    }
     const serviceCounter = await getCounterForLocation(location, normalizeRequestText(req.body.counterSlug));
     const result = await callNextTicket(tenant, {
       location,
@@ -1257,6 +1269,7 @@ router.post(
     assertTenantPermission(req.user, tenant._id, "tenant.ticket.update_state");
     const location = await getLocationForTenant(tenant, normalizeRequestText(req.query.location));
     await assertQueueLocationAccess(req.user, tenant, location);
+    const target = await getCurrentCounterTarget(req, location);
     const lookupCode = String(req.body.lookupCode || "").trim().toUpperCase();
     const barcodeToken = String(req.body.barcodeToken || "").trim().toUpperCase();
     if ((barcodeToken && !/^QB[A-F0-9]{32}$/.test(barcodeToken)) || (!barcodeToken && !/^[A-F0-9]{8}$/.test(lookupCode))) {
@@ -1265,6 +1278,7 @@ router.post(
 
     const result = await confirmCurrentTicket(tenant, lookupCode, {
       location,
+      ...target,
       ...(barcodeToken ? { barcodeToken } : {}),
       actorUserId: req.user?._id,
       actorRole: "vendor",
@@ -1329,6 +1343,7 @@ router.post(
     await assertQueueLocationAccess(req.user, tenant, location);
     const result = await updateCurrentTicketStatus(tenant, "served", {
       location,
+      ...await getCurrentCounterTarget(req, location),
       actorUserId: req.user?._id,
       actorRole: "vendor",
       source: "vendor"
@@ -1360,6 +1375,7 @@ router.post(
     await assertQueueLocationAccess(req.user, tenant, location);
     const result = await updateCurrentTicketStatus(tenant, "skipped", {
       location,
+      ...await getCurrentCounterTarget(req, location),
       actorUserId: req.user?._id,
       actorRole: "vendor",
       source: "vendor"

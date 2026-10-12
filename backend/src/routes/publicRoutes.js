@@ -1,3 +1,4 @@
+const { isValidContactEmail } = require("../utils/email");
 const businessCategories = require("../repositories/businessCategories");
 const platformHelpCenter = require("../repositories/platformHelpCenter");
 const express = require("express");
@@ -33,6 +34,7 @@ const {
 const { normalizePhilippineMobileNumber } = require("../utils/phone");
 const entitlementAdmissionService = require("../services/entitlementAdmissionService");
 
+const { queueMetadata, trackingSnapshot } = require("../services/queueBoardProjection");
 const router = express.Router();
 router.get("/upload-policy", asyncHandler(async (_req, res) => {
   const maxImageUploadKb = await platformRepository.getImageUploadLimitKb();
@@ -254,7 +256,7 @@ router.post(
       items: req.body?.items,
       includeGroupFundedHolds: Boolean(req.body?.includeGroupFundedHolds)
     });
-    res.json(result);
+    res.json(projectPublicResult(result));
   })
 );
 
@@ -341,7 +343,7 @@ router.post(
       code: req.body.code
     });
 
-    res.json(result);
+    res.json(projectPublicResult(result));
   })
 );
 
@@ -367,7 +369,7 @@ router.post(
       paymentId: req.params.paymentId
     });
 
-    res.json(result);
+    res.json(projectPublicResult(result));
   })
 );
 
@@ -451,36 +453,16 @@ function assertQueueTicketDetailsAccess(req, ticket) {
   }
 }
 
-function redactQueueTicketIdentity(ticket) {
-  if (!ticket) {
-    return ticket;
-  }
-
-  const {
-    customerName: _customerName,
-    customerDisplayName: _customerDisplayName,
-    lookupCode: _lookupCode,
-    ...publicTicket
-  } = ticket;
-
-  return publicTicket;
+function projectPublicResult(result) {
+  return result?.snapshot ? { ...result, snapshot: trackingSnapshot(result.snapshot) } : result;
 }
 
 function withoutStaffServiceTiming(snapshot) {
-  const { unfinishedServiceTiming: _staffTiming, ...customerSnapshot } = snapshot;
-  return customerSnapshot;
+  return trackingSnapshot(snapshot);
 }
 
 function formatPublicQueueSnapshot(snapshot) {
-  return {
-    ...withoutStaffServiceTiming(snapshot),
-    current: redactQueueTicketIdentity(snapshot.current),
-    nextUp: (snapshot.nextUp || []).map(redactQueueTicketIdentity),
-    overflow: (snapshot.overflow || []).map(redactQueueTicketIdentity),
-    recovery: (snapshot.recovery || []).map(redactQueueTicketIdentity),
-    history: (snapshot.history || []).map(redactQueueTicketIdentity),
-    focusTicket: null
-  };
+  return queueMetadata(snapshot);
 }
 
 router.get(
@@ -607,7 +589,7 @@ router.post(
     const phone = normalizePhilippineMobileNumber(req.body.phone);
     const message = normalizeText(req.body.message, 1000);
 
-    if (!businessName || !contactName || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    if (!businessName || !contactName || !isValidContactEmail(email)) {
       const error = new Error("Business name, contact name, and a valid email are required.");
       error.statusCode = 400;
       throw error;
@@ -691,7 +673,7 @@ router.post(
       payload
     });
 
-    res.status(201).json(result);
+    res.status(201).json(projectPublicResult(result));
   })
 );
 
@@ -738,11 +720,11 @@ router.post(
     });
 
     if (result.requiresPayment) {
-      res.status(201).json(result);
+      res.status(201).json(projectPublicResult(result));
       return;
     }
 
-    res.status(201).json(result);
+    res.status(201).json(projectPublicResult(result));
   })
 );
 
@@ -758,7 +740,7 @@ router.post(
       paymentId: req.params.paymentId
     });
 
-    res.json(result);
+    res.json(projectPublicResult(result));
   })
 );
 

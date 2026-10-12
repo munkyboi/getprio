@@ -567,7 +567,7 @@ test("public queue board uses the compact calendar and status clock", () => {
 
 test("public and customer queue streams retain EventSource automatic reconnect", () => {
   const frontendRoot = path.resolve(__dirname, "..");
-  for (const file of ["JoinQueuePage.tsx", "PublicQueuePage.tsx", "JoinedQueuePage.tsx"]) {
+  for (const file of ["JoinQueuePage.tsx", "JoinedQueuePage.tsx"]) {
     const source = fs.readFileSync(path.join(frontendRoot, "src", "pages", file), "utf8");
     assert.match(source, /Live (queue )?updates interrupted\. Reconnecting…/);
     const onError = source.match(/eventSource\.onerror = \(\) => \{([\s\S]*?)\n    \};/);
@@ -1180,7 +1180,7 @@ test("login actions are mobile-first", () => {
 
   assert.ok((loginSource.match(/className="auth-primary-action"/g) || []).length >= 3);
   assert.match(loginSource, /<SocialAuthButtons iconOnly intent="login"/);
-  assert.match(loginSource, /result\.user\.mfaRequired && !result\.user\.mfaEnabled[\s\S]*?"\/dashboard\/account"/);
+  assert.match(loginSource, /result\.user\.mfaRequired && !result\.user\.mfaEnabled[\s\S]*?mfaEnrollmentPath/);
   assert.match(socialSource, /className="auth-social-action"/);
   assert.match(styles, /\.finazze-auth-card \.auth-primary-action,[\s\S]*?\.finazze-auth-card \.auth-social-action \{\s+width: 100%;\s+min-height: 3\.25rem;/);
 });
@@ -1642,7 +1642,7 @@ test("vendor location card URLs copy to the clipboard with confirmation", () => 
   assert.match(source, /copyLocationUrl\("Join URL", locationItem\.joinUrl\)/);
   assert.match(source, /copyLocationUrl\("Monitor URL", locationItem\.monitorUrl\)/);
   assert.match(source, /title="Click to copy Join URL"/);
-  assert.match(source, /title="Click to copy Monitor URL"/);
+  assert.match(source, /title="Click to copy queue board URL"/);
 });
 
 test("vendor queue public links copy to the clipboard with confirmation", () => {
@@ -1695,7 +1695,7 @@ test("vendor dashboard provides account-level MFA enrollment with a QR code", ()
   assert.match(dashboard, /<Tabs\.Tab value="security">Security<\/Tabs\.Tab>/);
   assert.match(dashboard, /<Tabs\.Panel pt="lg" value="security">[\s\S]*?\{renderSecurityPage\(\)\}/);
   assert.match(dashboard, /setAccountTab\("security"\)/);
-  assert.match(dashboard, /navigate\("\/dashboard\/account", \{ replace: true \}\)/);
+  assert.match(dashboard, /navigate\(boardApprovalReturn \? `\/dashboard\/account\?next=\$\{encodeURIComponent\(boardApprovalReturn\)\}` : "\/dashboard\/account", \{ replace: true \}\)/);
   assert.match(dashboard, /Your sign-in session remains active during setup\./);
   assert.match(dashboard, /navItems\.filter\(\(item\) => item\.section === "account"\)/);
   assert.match(dashboard, /!requiresMfaEnrollment \? <Card className="neura-card vendor-security-card"/);

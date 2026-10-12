@@ -121,6 +121,7 @@ test("vendor route helpers build mobile queue QR links from the dedicated HTTPS 
   const links = helpers.buildLocationLinks(
     {
       slug: "main",
+      queueBoardId: "123e4567-e89b-42d3-a456-426614174001",
       queueJoinId: "123e4567-e89b-42d3-a456-426614174000"
     },
     { slug: "tenant" },
@@ -134,7 +135,7 @@ test("vendor route helpers build mobile queue QR links from the dedicated HTTPS 
     joinUrl: "http://localhost:5173/join/tenant/main",
     qrJoinUrl:
       "https://192.168.1.22:5173/join/tenant/main?source=qr&id=123e4567-e89b-42d3-a456-426614174000",
-    monitorUrl: "http://localhost:5173/monitor/tenant/main"
+    monitorUrl: "http://localhost:5173/queue-board/123e4567-e89b-42d3-a456-426614174001"
   });
 });
 
@@ -243,4 +244,18 @@ test("vendor route helpers normalize group-funded location service settings", ()
   });
   assert.equal(ignoredShareBounds.minContributionAmountCents, null);
   assert.equal(ignoredShareBounds.maxContributionAmountCents, null);
+});
+
+
+test("counter slugs normalize punctuation and long separator inputs", () => {
+  assert.equal(helpers.normalizeCounterSlug(" -- FRONT__Desk 2 -- "), "front-desk-2");
+  assert.equal(helpers.normalizeCounterSlug("-".repeat(100000)), "");
+  assert.equal(helpers.normalizeCounterSlug("-".repeat(100000) + "Desk"), "desk");
+  assert.equal(helpers.normalizeCounterSlug(null), "");
+});
+
+ test("board links normalize trailing base slashes", () => {
+  const boardId = "063b7899-ffbe-482c-9564-91a5a6c79be0";
+  const result = helpers.buildLocationLinks({_id: "1", slug: "main", queueBoardId: boardId}, {slug: "demo"}, {appBaseUrl: "https://getprio.online/"});
+  assert.equal(result.monitorUrl, `https://getprio.online/queue-board/${boardId}`);
 });

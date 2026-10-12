@@ -34,6 +34,6 @@ export interface AuthContextValue {
   changePassword(payload: PasswordChangeRequest): Promise<AuthActionResponse>;
   refreshUser(): Promise<UserSummary | null>;
   acceptAuthToken(nextToken: string, nextRefreshToken: string): void;
-  startOAuth(provider: OAuthProviderId, intent: AuthIntent): void;
+  startOAuth(provider: OAuthProviderId, intent: AuthIntent, returnPath?: string): void;
   logout(): Promise<void>;
 }

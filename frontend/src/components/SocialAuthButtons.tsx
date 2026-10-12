@@ -9,7 +9,7 @@ const PROVIDER_OPTIONS: Array<{ id: OAuthProviderId; label: string; Icon: typeof
   { id: "facebook", label: "Facebook", Icon: IconBrandFacebook }
 ];
 
-export default function SocialAuthButtons({ iconOnly = false, intent }: SocialAuthButtonsProps) {
+export default function SocialAuthButtons({ iconOnly = false, intent, returnPath }: SocialAuthButtonsProps) {
   const { oauthLoading, oauthProviders, startOAuth } = useAuth();
   const hasConfiguredProvider = PROVIDER_OPTIONS.some(({ id }) => Boolean(oauthProviders[id]));
 
@@ -28,7 +28,7 @@ export default function SocialAuthButtons({ iconOnly = false, intent }: SocialAu
                 className="auth-social-icon-action"
                 data-provider={provider.id}
                 disabled={oauthLoading || !enabled}
-                onClick={() => startOAuth(provider.id, intent)}
+                onClick={() => startOAuth(provider.id, intent, returnPath)}
                 size={56}
                 type="button"
                 variant="outline"
@@ -51,7 +51,7 @@ export default function SocialAuthButtons({ iconOnly = false, intent }: SocialAu
               key={provider.id}
               data-provider={provider.id}
               leftSection={<ProviderIcon aria-hidden size={20} stroke={1.9} />}
-              onClick={() => startOAuth(provider.id, intent)}
+              onClick={() => startOAuth(provider.id, intent, returnPath)}
               size="lg"
               type="button"
               variant="outline"

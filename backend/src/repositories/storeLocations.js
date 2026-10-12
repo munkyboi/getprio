@@ -3,6 +3,8 @@ const db = require("../config/db");
 const LOCATION_COLUMNS = `
   id,
   queue_join_id,
+  queue_board_id,
+  queue_board_public,
   tenant_id,
   name,
   slug,
@@ -50,6 +52,8 @@ function mapLocation(row) {
   return {
     _id: String(row.id),
     queueJoinId: row.queue_join_id,
+    queueBoardId: row.queue_board_id,
+    queueBoardPublic: row.queue_board_public === true,
     tenantId: String(row.tenant_id),
     name: row.name,
     slug: row.slug,

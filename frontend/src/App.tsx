@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Anchor, Avatar, Box, Burger, Button, Container, Divider, Drawer, Group, Menu, Stack } from "@mantine/core";
+import { Anchor, Avatar, Box, Burger, Button, Container, Divider, Drawer, Group, Menu, Stack, Text } from "@mantine/core";
 import { Link, Navigate, NavLink, Route, Routes, useLocation, useParams } from "react-router-dom";
 import { IconChevronDown, IconLogout } from "@tabler/icons-react";
 import BrandMark from "./components/BrandMark";
@@ -21,7 +21,7 @@ import VendorDiscoveryPage from "./pages/VendorDiscoveryPage";
 import VendorProfilePage from "./pages/VendorProfilePage";
 import BookingRequestPage from "./pages/BookingRequestPage";
 
-import PublicQueuePage from "./pages/PublicQueuePage";
+import SecureQueueBoardPage from "./pages/SecureQueueBoardPage";
 import JoinQueuePage from "./pages/JoinQueuePage";
 import JoinedQueuePage from "./pages/JoinedQueuePage";
 import PaymentReturnPage from "./pages/PaymentReturnPage";
@@ -34,7 +34,6 @@ import SiteFooter from "./components/SiteFooter";
 
 import {
   JOINED_QUEUE_ROUTE_PATH,
-  buildMonitorPath,
   LEGACY_MONITOR_ROUTE_PATH,
   MONITOR_ROUTE_PATH
 } from "./queuePaths";
@@ -114,7 +113,7 @@ function AppShell({ children }: { children: ReactNode }) {
         <Menu.Label>{primaryTenant.name}</Menu.Label>
         <Menu.Item component={Link} to="/dashboard">Dashboard</Menu.Item>
         <Menu.Item component={Link} to={`/vendors/${primaryTenant.slug}`}>View vendor page</Menu.Item>
-        <Menu.Item component={Link} to={buildMonitorPath(primaryTenant.slug)}>View queue board</Menu.Item>
+        <Menu.Item component={Link} to="/dashboard/queue">View queue board</Menu.Item>
         <Menu.Item component={Link} to="/dashboard/account">Account</Menu.Item>
         <Menu.Divider />
         <Menu.Item color="red" leftSection={<IconLogout size={14} />} onClick={handleLogout}>
@@ -174,7 +173,7 @@ function AppShell({ children }: { children: ReactNode }) {
                   <>
                     <Button component={Link} to="/dashboard" variant="subtle" color="dark">Dashboard</Button>
                     <Button component={Link} to={`/vendors/${primaryTenant?.slug || ""}`} variant="subtle" color="dark">View vendor page</Button>
-                    <Button component={Link} to={buildMonitorPath(primaryTenant?.slug || "")} variant="subtle" color="dark">View queue board</Button>
+                    <Button component={Link} to="/dashboard/queue" variant="subtle" color="dark">View queue board</Button>
                     <Button component={Link} to="/dashboard/account" variant="subtle" color="dark">Account</Button>
                   </>
                 ) : (
@@ -222,19 +221,13 @@ function BarePage({ children }: { children: ReactNode }) {
 }
 
 function LegacyMonitorRedirect() {
-  const { tenantSlug } = useParams<{ tenantSlug: string }>();
+  const { tenantSlug, locationSlug } = useParams();
   const location = useLocation();
-
-  if (!tenantSlug) {
-    return <Navigate to="/" replace />;
+  const ticket = new URLSearchParams(location.search).get("ticket");
+  if (tenantSlug && (ticket || new URLSearchParams(location.search).has("payment"))) {
+    return <Navigate replace to={`/ticket/${tenantSlug}${locationSlug ? `/${locationSlug}` : ""}${location.search}`} />;
   }
-
-  return (
-    <Navigate
-      replace
-      to={`${buildMonitorPath(tenantSlug)}${location.search}${location.hash}`}
-    />
-  );
+  return <BarePage><Text ta="center" my="xl">This queue board link has been retired. Ask the vendor for their new queue board URL.</Text></BarePage>;
 }
 
 function DashboardRedirect() {
@@ -345,7 +338,8 @@ export default function App() {
     <>
       <ScrollToTop />
       <Routes>
-        <Route path={MONITOR_ROUTE_PATH} element={<BarePage><PublicQueuePage /></BarePage>} />
+        <Route path="/queue-board/:boardId" element={<BarePage><SecureQueueBoardPage /></BarePage>} />
+        <Route path={MONITOR_ROUTE_PATH} element={<LegacyMonitorRedirect />} />
         <Route path={JOINED_QUEUE_ROUTE_PATH} element={<AppShell><JoinedQueuePage /></AppShell>} />
         <Route path={LEGACY_MONITOR_ROUTE_PATH} element={<LegacyMonitorRedirect />} />
         <Route path="/" element={<AppShell><LandingPage /></AppShell>} />

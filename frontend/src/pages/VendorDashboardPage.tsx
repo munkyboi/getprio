@@ -1,3 +1,6 @@
+import { queueBoardReturnPath } from "../utils/queueBoardReturnPath";
+import { counterBlockMessage, selectCounterDispatch } from "../utils/counterDispatch";
+import { QueueBoardScanner, QueueBoardSettings } from "../components/QueueBoardAccess";
 import { OtpInputField } from "../components/OtpInputField";
 import { BookingTableRow } from "../components/BookingTableRow";
 import { BookingCheckInNotice } from "../components/BookingCheckInNotice";
@@ -140,7 +143,6 @@ import * as vendorDashboardBootstrap from "../api/vendorDashboardBootstrap";
 import * as vendorDashboardExport from "../api/vendorDashboardExport";
 import { useAuth } from "../context/AuthContext";
 import { ConfirmActionModal } from "../components/ConfirmActionModal";
-import { VendorWaitingTicketCancellation } from "../components/VendorWaitingTicketCancellation";
 import EmailChangePanel from "../components/EmailChangePanel";
 import PhoneChangePanel from "../components/PhoneChangePanel";
 import {
@@ -148,7 +150,7 @@ import {
   shouldEnableVendorDashboardBootstrap
 } from "../lib/vendorDashboardBootstrap";
 import { canAccessVendorSection } from "../lib/vendorDashboardNavigation";
-import { buildJoinUrl, buildMonitorUrl } from "../queuePaths";
+import { buildJoinUrl } from "../queuePaths";
 import {
   formatDateInputValue,
   formatDateTime,
@@ -689,7 +691,7 @@ const presetBackgroundImageUrls = new Set(
 
 type DashboardSection = "queue" | "tenants" | "services" | "bookings" | "group-funded" | "staff" | "clients" | "history" | "reports" | "ratings" | "settings" | "account";
 type AccountTab = "subscription" | "billing" | "profile" | "security";
-type SettingsTab = "contact" | "queue" | "notifications";
+type SettingsTab = "contact" | "queue" | "notifications" | "board";
 type QueueView = "current" | "overflow" | "recovery";
 type ClientSort = "latestVisitDesc" | "latestVisitAsc" | "nameAsc" | "nameDesc" | "visitsDesc" | "visitsAsc";
 type HistorySort = "updatedDesc" | "updatedAsc" | "ticketAsc" | "ticketDesc" | "customerAsc" | "customerDesc";
@@ -847,7 +849,7 @@ function QueueIntakeGauge({
   const remaining = Math.max(threshold - waitingCount, 0);
 
   return (
-    <Paper withBorder radius="md" p="md">
+    <div>
       <Stack gap={8} align="center">
         <Text className="neura-label">Queue intake</Text>
         <svg aria-hidden="true" height="96" viewBox="0 0 140 90" width="140">
@@ -891,7 +893,7 @@ function QueueIntakeGauge({
               : `${remaining} slot${remaining === 1 ? "" : "s"} before auto-pause.`}
         </Text>
       </Stack>
-    </Paper>
+    </div>
   );
 }
 
@@ -977,6 +979,7 @@ export default function VendorDashboardPage() {
   const { token, user, loading, logout, refreshUser, changePassword } = useAuth();
   const { section } = useParams<{ section: string }>();
   const location = useLocation();
+  const boardApprovalReturn = queueBoardReturnPath(location.search);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const currentSection = (
@@ -1114,6 +1117,9 @@ export default function VendorDashboardPage() {
   const [billingInterval, setBillingInterval] = useState<"monthly" | "annual">("monthly");
   const [billingPaymentMode, setBillingPaymentMode] = useState<"manual" | "automatic">("manual");
   const [selectedCounterSlug, setSelectedCounterSlug] = useState("");
+  const { lane: selectedLane, ticket: selectedCalledTicket } = selectCounterDispatch(snapshot, selectedTenantSlug, selectedLocationSlug, selectedCounterSlug);
+  const [scannerTarget, setScannerTarget] = useState<{ ticketId: string; counterSlug: string | null; tenantSlug: string; locationQuery: string; ticketNumber: string } | null>(null);
+
   const [counterDialogOpen, setCounterDialogOpen] = useState(false);
   const [editingCounterSlug, setEditingCounterSlug] = useState("");
   const [editingCounterId, setEditingCounterId] = useState("");
@@ -1559,7 +1565,7 @@ export default function VendorDashboardPage() {
     if (requiresMfaEnrollment) {
       setAccountTab("security");
       if (currentSection !== "account") {
-        navigate("/dashboard/account", { replace: true });
+        navigate(boardApprovalReturn ? `/dashboard/account?next=${encodeURIComponent(boardApprovalReturn)}` : "/dashboard/account", { replace: true });
       }
       return;
     }
@@ -1567,7 +1573,7 @@ export default function VendorDashboardPage() {
     if (selectedTenantRole === "staff" && (accountTab === "subscription" || accountTab === "billing")) {
       setAccountTab("profile");
     }
-  }, [accountTab, currentSection, navigate, requiresMfaEnrollment, selectedTenantRole]);
+  }, [accountTab, boardApprovalReturn, currentSection, navigate, requiresMfaEnrollment, selectedTenantRole]);
 
   useEffect(() => {
     if (!dashboardBootstrapQuery.data) {
@@ -2577,7 +2583,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     monitorUrl:
       snapshot?.location?.monitorUrl ||
       snapshot?.tenant.monitorUrl ||
-      buildMonitorUrl(window.location.origin, selectedTenantSlug, selectedLocationSlug)
+      ""
   };
   const ticketLimit =
     activeSubscription?.entitlements.monthlyTickets ||
@@ -2833,6 +2839,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
   }
 
   async function handleConfirmCalledTicket(lookupCode: string): Promise<boolean> {
+    if (!scannerTarget || scannerTarget.tenantSlug !== selectedTenantSlug || scannerTarget.locationQuery !== locationQuery) { setTicketScannerError("Queue context changed. Close the scanner and select the ticket again."); return false; }
     setTicketScannerError("");
     setBusyAction("confirm-current");
 
@@ -2840,8 +2847,10 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       const data = await vendorDashboardQueue.confirmCurrentTicket(
         token,
         selectedTenantSlug,
-        locationQuery,
-        lookupCode
+        scannerTarget.locationQuery,
+        lookupCode,
+        scannerTarget.ticketId,
+        scannerTarget.counterSlug
       );
       const confirmedSnapshot = data.snapshot;
       if (confirmedSnapshot) {
@@ -4836,8 +4845,8 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="md">
         <MetricCard
           label={snapshot?.location?.serviceTimingEnabled ? "Current ticket" : "Now serving"}
-          value={snapshot?.current?.ticketNumber || "--"}
-          detail={snapshot?.current?.customerName || "No active ticket"}
+          value={selectedCalledTicket?.ticketNumber || "--"}
+          detail={selectedCalledTicket?.customerName || "No active ticket for selected counter"}
         />
         <MetricCard
           label="Waiting"
@@ -4915,20 +4924,8 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
 
   function renderQueuePage() {
     const activeCounters = serviceCounters.filter((counter) => counter.isActive);
-    const activeTicket = snapshot?.current || null;
-    const waitingTicketManagement = selectedTenantRole ? (
-      <VendorWaitingTicketCancellation
-        key={`${selectedTenantSlug}:${selectedLocationSlug}`}
-        token={token}
-        tenantSlug={selectedTenantSlug}
-        locationQuery={locationQuery}
-        locationName={selectedLocation?.name || "Selected location"}
-        onCancelled={(nextSnapshot) => {
-          if (nextSnapshot) setSnapshot(current => selectFreshestQueueSnapshot(current, nextSnapshot));
-          showSuccessNotification("Ticket cancelled", "The ticket was removed from the waiting queue.");
-        }}
-      />
-    ) : null;
+    const activeTicket = selectedCalledTicket;
+
 
     return (
       <Stack gap="md">
@@ -5107,33 +5104,26 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   reverse these outcomes.
                 </Alert>
               ) : null}
-              {queueView !== "current" ? waitingTicketManagement : null}
               {queueView === "current" ? (
                 <>
-                  <Group justify="space-between" align="flex-end">
+                  <div className="vendor-queue-action-layout">
                     <Select
-                      data={activeCounters.map((counter) => ({
-                        label: counter.name,
-                        value: counter.slug
-                      }))}
+                      className="vendor-queue-counter-select"
+                      data={[...activeCounters.map((counter) => ({ label: counter.name, value: counter.slug })),
+                        ...(snapshot?.counterDispatch || []).filter((lane) => lane.counterSlug && lane.currentTicketId && !activeCounters.some((counter) => counter.slug === lane.counterSlug)).map((lane) => ({ label: `${lane.counterName} (inactive)`, value: lane.counterSlug! })),
+                        ...(snapshot?.counterDispatch?.some((lane) => lane.counterSlug === null && lane.currentTicketId) ? [{ label: "Unassigned legacy ticket", value: "__unassigned__" }] : [])]}
+                      disabled={Boolean(busyAction) || ticketScannerOpen}
                       label="Serving from"
                       placeholder="Select counter"
                       value={selectedCounterSlug || null}
                       onChange={(value) => setSelectedCounterSlug(value || "")}
                     />
-                    {snapshot?.queueDay?.closureReason ? (
-                      <Text c="dimmed" size="sm" maw={280} ta="right">
-                        {snapshot.queueDay.closureReason}
-                      </Text>
-                    ) : null}
-                  </Group>
-                  <div className="vendor-queue-action-layout">
-                    <Group className="vendor-queue-primary-actions">
+                    <Group className="vendor-queue-primary-actions" gap="xs">
                       <Button
                         className="neura-primary-button"
                         disabled={
-                          busyAction === "call-next" ||
-                          !selectedCounterSlug ||
+                          Boolean(busyAction) ||
+                          !selectedLane?.canCallNext ||
                           queueDayClosed ||
                           Boolean(activeTicket)
                         }
@@ -5157,16 +5147,29 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                           onClick={async () => {
                             const tracking = snapshot?.location?.serviceTimingEnabled || Boolean(activeTicket.serviceStartedAt);
                             const action = activeTicket.serviceStartedAt ? "complete" : "start";
-                            const success = await runAction(tracking ? `service-${action}` : "serve-current", () =>
-                              tracking
-                                ? vendorDashboardQueue.recordTicketService(token, selectedTenantSlug, locationQuery, activeTicket.id, action)
-                                : vendorDashboardQueue.serveCurrentTicket(token, selectedTenantSlug, locationQuery)
-                            );
-                            if (success) {
-                              showSuccessNotification(
-                                tracking && action === "start" ? "Service started" : "Customer served",
-                                tracking && action === "start" ? "The actual service start has been recorded." : "The ticket was marked as served."
+                            const execute = async () => {
+                              const success = await runAction(tracking ? `service-${action}` : "serve-current", () =>
+                                tracking
+                                  ? vendorDashboardQueue.recordTicketService(token, selectedTenantSlug, locationQuery, activeTicket.id, action)
+                                  : vendorDashboardQueue.serveCurrentTicket(token, selectedTenantSlug, locationQuery, activeTicket.id, selectedLane?.counterSlug ?? null)
                               );
+                              if (success) {
+                                showSuccessNotification(
+                                  tracking && action === "start" ? "Service started" : "Customer served",
+                                  tracking && action === "start" ? "The actual service start has been recorded." : "The ticket was marked as served."
+                                );
+                              }
+                            };
+                            if (activeTicket.serviceStartedAt) {
+                              setConfirmAction({
+                                title: "Complete service?",
+                                description: `Mark ticket ${activeTicket.ticketNumber} as served and record the service end time.`,
+                                confirmLabel: "Complete service",
+                                confirmColor: "blue",
+                                onConfirm: execute
+                              });
+                            } else {
+                              await execute();
                             }
                           }}
                         >
@@ -5179,6 +5182,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                           leftSection={<IconQrcode size={16} />}
                           onClick={() => {
                             setTicketScannerError("");
+                            if (activeTicket) setScannerTarget({ ticketId: activeTicket.id, ticketNumber: activeTicket.ticketNumber, counterSlug: selectedLane?.counterSlug ?? null, tenantSlug: selectedTenantSlug, locationQuery });
                             setTicketScannerOpen(true);
                           }}
                         >
@@ -5188,14 +5192,23 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       <Button
                         variant="default"
                         disabled={Boolean(busyAction) || !activeTicket || Boolean(activeTicket.serviceStartedAt)}
-                        onClick={async () => {
-                          const success = await runAction("skip-current", () =>
-                            vendorDashboardQueue.skipCurrentTicket(token, selectedTenantSlug, locationQuery)
-                          );
-                          if (success) {
-                            showSuccessNotification("Ticket skipped", "The current ticket was skipped.");
-                            setQueueView("current");
-                          }
+                        onClick={() => {
+                          if (!activeTicket) return;
+                          setConfirmAction({
+                            title: "Skip current ticket?",
+                            description: `Skip ticket ${activeTicket.ticketNumber} at the selected counter.`,
+                            confirmLabel: "Skip ticket",
+                            confirmColor: "orange",
+                            onConfirm: async () => {
+                              const success = await runAction("skip-current", () =>
+                                vendorDashboardQueue.skipCurrentTicket(token, selectedTenantSlug, locationQuery, activeTicket.id, selectedLane?.counterSlug ?? null)
+                              );
+                              if (success) {
+                                showSuccessNotification("Ticket skipped", "The current ticket was skipped.");
+                                setQueueView("current");
+                              }
+                            }
+                          });
                         }}
                       >
                         Skip current
@@ -5216,10 +5229,11 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                         </Button>
                       ) : null}
                     </Group>
-                  {waitingTicketManagement ? <div className="vendor-queue-management-action">{waitingTicketManagement}</div> : null}
                   </div>
-                  <SimpleGrid cols={{ base: 1, sm: intakeState?.autoPauseEnabled ? 3 : 2 }} spacing="md">
-                    <Paper withBorder radius="md" p="md">
+                  {snapshot?.queueDay?.closureReason ? <Text c="dimmed" size="sm">{snapshot.queueDay.closureReason}</Text> : null}
+                  {selectedLane?.blockReason && !activeTicket ? <Text size="sm" c="dimmed">{counterBlockMessage(selectedLane.blockReason)}</Text> : null}
+                  <div className="vendor-queue-status-columns" data-columns={intakeState?.autoPauseEnabled ? 3 : 2}>
+                    <div className="vendor-queue-status-column">
                       <Text className="neura-label">{activeTicket?.serviceStartedAt ? "In service" : snapshot?.location?.serviceTimingEnabled ? "Called ticket" : "Now serving"}</Text>
                       <Group gap="xs">
                         <Title order={3}>{activeTicket?.ticketNumber || "--"}</Title>
@@ -5243,8 +5257,8 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                           Booking {activeTicket.linkedBookingReference}
                         </Text>
                       ) : null}
-                    </Paper>
-                    <Paper withBorder radius="md" p="md">
+                    </div>
+                    <div className="vendor-queue-status-column">
                       <Text className="neura-label">Queue day</Text>
                       <Title order={3}>
                         {queueDayReconciling
@@ -5272,9 +5286,9 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                               ? `Scheduled close ${formatDateTime(snapshot.queueDay.currentClosesAt)}`
                               : "Customers can continue joining this queue"}
                       </Text>
-                    </Paper>
+                    </div>
                     {intakeState?.autoPauseEnabled && intakeState.autoPauseThreshold ? (
-                      <QueueIntakeGauge
+                      <div className="vendor-queue-status-column"><QueueIntakeGauge
                         waitingCount={intakeState.currentWaitingCount}
                         threshold={intakeState.autoPauseThreshold}
                         resumeWaitingCount={intakeState.resumeWaitingCount}
@@ -5287,9 +5301,9 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                               : "open"
                         }
                         stateLabel={intakeState.stateLabel}
-                      />
+                      /></div>
                     ) : null}
-                  </SimpleGrid>
+                  </div>
                   <Table.ScrollContainer minWidth={640}>
                     <Table verticalSpacing="sm">
                       <Table.Thead>
@@ -5541,7 +5555,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
           </Grid.Col>
 
           <Grid.Col span={{ base: 12, lg: 4 }}>
-          <Card className="neura-card" h="100%" padding="lg">
+          <Card className="neura-card" padding="lg">
             <Stack gap="md">
               <Group justify="space-between">
                 <div>
@@ -5615,7 +5629,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     value={queueLinks.qrUrl}
                   />
                   <TextInput
-                    label="Monitor URL"
+                    label="Queue board URL"
                     onClick={() => void copyLocationUrl("Monitor URL", queueLinks.monitorUrl)}
                     onFocus={(event) => event.currentTarget.select()}
                     onKeyDown={(event) => {
@@ -5628,13 +5642,14 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     rightSection={<IconCopy aria-hidden="true" size={16} />}
                     rightSectionPointerEvents="none"
                     styles={{ input: { cursor: "copy" } }}
-                    title="Click to copy Monitor URL"
+                    title="Click to copy queue board URL"
                     value={queueLinks.monitorUrl}
                   />
                 </Stack>
               </Group>
             </Stack>
           </Card>
+          {token && selectedTenantSlug && selectedLocationSlug ? <QueueBoardScanner key={`${selectedTenantSlug}:${selectedLocationSlug}`} token={token} tenantSlug={selectedTenantSlug} locationSlug={selectedLocationSlug} /> : null}
           </Grid.Col>
         </Grid>
 
@@ -6451,7 +6466,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                 value={locationItem.qrJoinUrl || locationItem.joinUrl}
               />
               <TextInput
-                label="Monitor URL"
+                label="Queue board URL"
                 onClick={() => void copyLocationUrl("Monitor URL", locationItem.monitorUrl)}
                 onFocus={(event) => event.currentTarget.select()}
                 onKeyDown={(event) => {
@@ -6464,7 +6479,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                 rightSection={<IconCopy aria-hidden="true" size={16} />}
                 rightSectionPointerEvents="none"
                 styles={{ input: { cursor: "copy" } }}
-                title="Click to copy Monitor URL"
+                title="Click to copy queue board URL"
                 value={locationItem.monitorUrl}
               />
               <Group>
@@ -9113,7 +9128,12 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
               <Tabs.Tab value="contact">Business profile</Tabs.Tab>
               <Tabs.Tab value="queue">Queue settings</Tabs.Tab>
               <Tabs.Tab value="notifications">Notifications</Tabs.Tab>
+              {isOwner || isAdmin ? <Tabs.Tab value="board">Queue Board</Tabs.Tab> : null}
             </Tabs.List>
+
+            <Tabs.Panel pt="lg" value="board">
+              {token && selectedTenantSlug && selectedLocationSlug && (isOwner || isAdmin) ? <QueueBoardSettings key={`${selectedTenantSlug}:${selectedLocationSlug}`} token={token} tenantSlug={selectedTenantSlug} locationSlug={selectedLocationSlug} onChanged={() => void reloadDashboardSnapshot()} /> : <Text>Select a location to manage its queue board.</Text>}
+            </Tabs.Panel>
 
             <Tabs.Panel pt="lg" value="contact">
               <form onSubmit={handleSaveBusinessProfile}>
@@ -10184,7 +10204,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     }
 
     if (currentSection === "account") {
-      return renderAccountPage();
+      return <Stack gap="md">{!requiresMfaEnrollment && boardApprovalReturn ? <Button component={NavLink} to={boardApprovalReturn} mih={44}>Continue to display approval</Button> : null}{renderAccountPage()}</Stack>;
     }
 
     return renderSettingsPage();
@@ -10194,12 +10214,16 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     return <Card className="neura-card">Loading dashboard...</Card>;
   }
 
+  if (!user) {
+    return <Navigate to={`/login?next=${encodeURIComponent(location.pathname + location.search)}`} replace />;
+  }
+
   if (invalidSection) {
     return <Navigate to="/dashboard/queue" replace />;
   }
 
   if (requiresMfaEnrollment && currentSection !== "account") {
-    return <Navigate to="/dashboard/account" replace />;
+    return <Navigate to={boardApprovalReturn ? `/dashboard/account?next=${encodeURIComponent(boardApprovalReturn)}` : "/dashboard/account"} replace />;
   }
 
   if (currentSection === "ratings" && !canAccessVendorSection("ratings", effectiveEntitlements, tenantPlan)) {
@@ -10222,9 +10246,6 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     return <Navigate to={defaultDashboardPath} replace />;
   }
 
-  if (!user) {
-    return <Navigate to="/login" replace />;
-  }
 
   if (!user.tenants?.length) {
     return (
@@ -10330,7 +10351,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         }}
         onConfirm={handleConfirmCalledTicket}
         opened={ticketScannerOpen}
-        ticketNumber={snapshot?.current?.ticketNumber}
+        ticketNumber={scannerTarget?.ticketNumber}
       />
       <Drawer
         classNames={{ body: "neura-drawer-body", content: "neura-drawer-content", header: "neura-drawer-header" }}

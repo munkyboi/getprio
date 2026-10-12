@@ -12,6 +12,7 @@ function loadSettingsRoutes() {
   const fallback = new Proxy({}, { get: () => () => undefined });
   const mocks = {
     express: { Router: () => router },
+    "../utils/email": require("../src/utils/email"),
     "../middleware/asyncHandler": (handler) => handler,
     "../middleware/auth": { authenticate: "authenticate", requirePlatformPermission: (permission) => ({ permission }) },
     "../utils/imageUploadLimit": require("../src/utils/imageUploadLimit"),
