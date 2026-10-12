@@ -57,6 +57,20 @@ The product distinguishes **estimated time to call** from **estimated time to ac
 
 ## Implementation Decisions
 
+### Persona and authorization mapping
+
+The product roles remain Guest, Customer, Vendor Staff, Vendor Admin and Platform Admin. Technical personas in the stories are not additional roles or permission grants.
+
+| Story persona / activity | Role or system boundary |
+| --- | --- |
+| Developer API integrator: issue/read tickets through a credential | An external client of the existing Developer API authorization model, not a sixth interactive GetPrio role. Preserve existing project/key permissions and ownership; no private AI artifacts, cross-vendor diagnostics or rollout controls are granted. Future production integration must define its credential-to-scope mapping before activation. |
+| Vendor-managed integration setup and vendor diagnostics | Vendor Admin only within explicitly authorized tenant/location scope; Vendor Staff retain existing operational permissions and receive no dataset/export access by implication. |
+| Evaluator: private exports, artifacts and evaluation evidence | Authorized Platform Admin capability, with explicit evidence-access permission and audited scope. Command-line access does not substitute for product authorization. |
+| Operator: private diagnostics, serving artifacts and pilot/rollback controls | Authorized Platform Admin capabilities with separate diagnostic, artifact and rollout permissions; not implied for Vendor Admin or Vendor Staff. |
+| Capture/prediction workers | Non-user system processes with narrowly scoped service authority and audit identity; no interactive role and no authority to mutate queue/resource outcomes. |
+
+These are required authorization boundaries for future implementation, not claims that new permissions or production Developer API provisioning exist. Public forecast visibility follows existing Guest/Customer ticket-access rules; knowing a work reference alone must not grant access.
+
 ### Prediction targets and terminology
 
 | Concept | Meaning and rule |
@@ -115,13 +129,15 @@ Ownership does not imply that the broader dashboard redesign has shipped. Depend
 
 ### Capture, evaluation and privacy
 
-- Capture the earliest admitted attempt per work and predictor version, including fallback attempts, independently of whether a customer opens a ticket screen.
+- Retain admitted initial and refresh attempts, including unavailable/fallback outcomes, independently of whether a customer opens a ticket screen. Apply predeclared per-work/time budgets and retention limits; record suppressed/dropped attempts and reasons so sampling cannot silently hide failures.
+- Select the earliest admitted attempt per work/version only for the anti-cherry-picking initial-attempt metric. The existing offline evaluator supplies that metric; it does not evaluate refresh performance. A separate bounded refresh/export/evaluation extension must measure later accepted forecasts and failures, preserve their observation/acceptance times and queue revision, and distinguish private forecasts from estimates actually delivered. Do not choose refresh samples by observed accuracy.
 - Store observation, forecast and acceptance timestamps distinctly. Late/unaccepted forecasts must not be presented as accepted results or scored as timely predictions.
 - Resolve service-start labels only from explicit authoritative starts. No calls, confirmations, schedules, expected ends or inferred occupancy may supply them.
 - Freeze export observation bounds and outcome-as-of cutoff. Preserve pending and censored cases; after service started, later interruption does not erase the observed start.
 - Keep synthetic, manually declared tests, vendor operations and developer sandbox provenance separate. Never automatically promote unverified traffic to verified production data.
 - Use keyed pseudonyms and stable private joining namespaces. Exclude customer names, contact details, booking references and raw ticket identifiers from evaluation exports.
-- Define retention, access control, export audit, deletion and key rotation before operational capture activation. These are pending policy decisions, not defaults approved by this PRD.
+- Stable pseudonymous work keys joined to queue/service timestamps remain linkable transactional data, not automatically anonymous data. Before operational capture activation, complete and obtain recorded privacy-owner/Platform Admin approval of the project-required NPC/Philippine Data Privacy Act assessment: processing activity and purpose; affected data subjects; inventory with field/type, PI/SPI classification, purpose and retention; documented RA 10173 legal basis; at least three privacy risks and mitigations; and the required 100–150 word privacy notice draft plus delivery plan. Do not invent consent or a legal basis in code or treat pseudonymization as an exemption.
+- The approved assessment must cover retention, access control, export audit, deletion and key rotation. Policy and notice implementation evidence are required alongside assessment approval before Stage C capture activation; these are pending decisions, not defaults approved by this PRD.
 - Keep capture outside the critical transaction when possible, with bounded load and explicit dropped-attempt accounting. The eventual delivery design must preserve atomic operational outcomes and avoid selectively losing fallback samples.
 
 ### Hosting, performance and cost
@@ -138,14 +154,14 @@ Existing wrapper defaults provide engineering constraints: 100 ms deadline, 1,00
 | --- | --- | --- |
 | A — Foundations | Separate targets, capture/audits, offline experiments, synthetic provenance and isolated resource projection. | Implemented; no production accuracy claim. |
 | B — Authoritative runtime | All relevant writers participate in location-first transactions; historical reconciliation, coverage inventory and coherent complete snapshots are reviewed. Calling/expected end do not allocate/release. | Many writers implemented; ready producer and activation proof pending. |
-| C — Private capture | Authorized opt-in shadow, authentic work/session links, independent channel coverage, bounded capture, compatible private export and explicit actual-start outcomes. | Wrapper/evaluator implemented; operational integration pending. |
-| D — Evaluation | Predeclared evaluation windows, target-specific comparator, representative scope/channel/service coverage, errors and fallback rates, interruption/overdue behavior, uncertainty policy and measured latency/cost. | Synthetic/time-to-call diagnostics only; no representative live-vendor evidence. |
+| C — Private capture | Authorized opt-in shadow, authentic work/session links, independent channel coverage, bounded initial/refresh capture, compatible private export, explicit actual-start outcomes, and approved privacy assessment/implemented notice and controls. | Wrapper/evaluator implemented; operational integration pending. |
+| D — Evaluation | Predeclared evaluation windows, target-specific comparator, representative scope/channel/service coverage, initial and refresh errors/availability, interruption/overdue behavior, uncertainty policy and measured latency/cost. | Synthetic/time-to-call diagnostics only; no representative live-vendor evidence. |
 | E — Controlled pilot | Named eligible scopes, approved public target/labels/fallback, measurable budgets, monitoring, rollback and human release approval. | Not approved. |
 | F — Expansion | Confirm performance per new business context; review bundle/multi-pool/stage/developer-production contracts before enabling them. | Future work. |
 
 ### Success measures and decisions still required
 
-Report MAE, signed error, within-five-minute percentage, forecast support, fallback reasons and scored-start counts per scope/pool/channel. Include pending/censored counts and exclusions. Compare equivalent targets only; baseline time-to-call cannot establish resource service-start improvement.
+Report MAE, signed error, within-five-minute percentage, forecast support, fallback reasons and scored-start counts per scope/pool/channel. Report initial-attempt and refresh metrics separately, with bounded sampling/drop coverage, stale-result rejection, delivery age and whether forecasts were actually shown. Stage E requires refresh-path evidence under queue changes, timeouts and recovery; initial-attempt accuracy alone cannot approve it. Include pending/censored counts and exclusions. Compare equivalent targets only; baseline time-to-call cannot establish resource service-start improvement.
 
 Before Stage D, product/runtime/AI owners must predeclare numerical acceptance limits for error, availability, representative observation counts/days, latency, resource overhead and cost per 50,000 monthly tickets at a specified observation policy. Confidence ranges require calibration evidence. The existing 30-ticket training threshold is an experimental fallback threshold, not production approval. There are no agreed production thresholds yet; this PRD does not invent them or lower them to fit available manual data.
 
@@ -162,7 +178,9 @@ Before Stage D, product/runtime/AI owners must predeclare numerical acceptance l
 9. Missing/stale plans, unsupported bundles, incomplete inventory or cross-scope requests never fabricate a forecast.
 10. Provider timeout, corrupt/incompatible bytes or stale state produce sanitized unavailability without affecting queue operations.
 11. Export retains early fallback, uses frozen outcomes and rejects time-to-call data for service-start scoring.
-12. Customer pilot rollback restores the approved public behavior without modifying reservations, occupancy or queue order.
+12. Refresh evaluation retains bounded later attempts and failures after queue changes, timeout/recovery and invalidation, without replacing initial attempts or choosing samples by outcome quality.
+13. Capture activation rejects missing/unapproved privacy assessment or unimplemented notice/controls; private evidence and rollout access enforce the persona-to-role mapping.
+14. Customer pilot rollback restores the approved public behavior without modifying reservations, occupancy or queue order.
 
 ## Testing Decisions
 
@@ -174,9 +192,9 @@ The user confirmed automated tests for **all five areas** in the implementation 
 | --- | --- |
 | Resource-state snapshots | Authorization, exact scope, coherent inventory/revisions, freshness, cross-date work and reconciliation/readiness gates. |
 | Prediction | Ordering, reservations, parallel/competing capacity, missing or unsupported plans, overrun/interruption fallbacks, inference deadlines and accepted-result freshness. |
-| Private observation capture/export | All issued-ticket channels independent of screen views/claims, exactly-once work identity, earliest-attempt selection including fallbacks, frozen outcomes, keyed pseudonyms, privacy and bounded output. |
-| Evaluation | Authentic target-specific labels, pending/censored outcomes, starts before acceptance, provenance separation, temporal leakage checks where applicable, support and accuracy metrics. |
-| Customer estimate delivery | Target labels, same-target fallback/unavailability, scope isolation, refresh/invalidation, web/mobile contract compatibility, bounded failure behavior and pilot rollback. |
+| Private observation capture/export | All issued-ticket channels independent of screen views/claims, exactly-once work identity, bounded initial/refresh retention and drop accounting, earliest-attempt selection including fallbacks, frozen outcomes, keyed pseudonyms, privacy activation gates, role-scoped evidence access and bounded output. |
+| Evaluation | Authentic target-specific labels, pending/censored outcomes, starts before acceptance, provenance separation, temporal leakage checks where applicable, separate initial/refresh support and accuracy metrics. |
+| Customer estimate delivery | Target labels, same-target fallback/unavailability, scope isolation, refresh/invalidation and delivered-estimate evidence, role-scoped pilot controls, web/mobile contract compatibility, bounded failure behavior and pilot rollback. |
 
 Each implementation slice must include relevant automated regressions and verification evidence before it is treated as complete. This decision approves test coverage in the implementation plan; this documentation update itself adds no runtime implementation or executable tests.
 
