@@ -73,11 +73,7 @@ const customerRegistrationOtpLimiter = rateLimit({
 });
 
 function normalizeSlug(value) {
-  return String(value || "")
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
+  return (String(value || "").toLowerCase().match(/[a-z0-9]+/g) || []).join("-");
 }
 
 function validateTenantSlug(value) {

@@ -418,7 +418,7 @@ router.post(
   asyncHandler(async (req, res) => {
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
     assertTenantPermission(req.user, tenant._id, "tenant.theme.manage");
-    if (!req.body || !Buffer.isBuffer(req.body) || !req.body.length) {
+    if (!req.body || !Buffer.isBuffer(req.body) || !req.body.byteLength) {
       const error = new Error("Image upload payload is required.");
       error.statusCode = 400;
       throw error;
@@ -439,7 +439,7 @@ router.post(
         assetType: normalizeRequestText(req.query.assetType),
         fileName: normalizeRequestText(req.query.fileName),
         contentType: req.headers["content-type"],
-        sizeBytes: req.body.length
+        sizeBytes: req.body.byteLength
       },
       fileBuffer: req.body
     });
@@ -492,7 +492,7 @@ router.post(
       error.statusCode = 400;
       throw error;
     }
-    if (!req.body || !Buffer.isBuffer(req.body) || !req.body.length) {
+    if (!req.body || !Buffer.isBuffer(req.body) || !req.body.byteLength) {
       const error = new Error("QR image upload payload is required.");
       error.statusCode = 400;
       throw error;
@@ -504,7 +504,7 @@ router.post(
       body: {
         fileName: normalizeRequestText(req.query.fileName),
         contentType: req.headers["content-type"],
-        sizeBytes: req.body.length
+        sizeBytes: req.body.byteLength
       },
       fileBuffer: req.body
     });
@@ -585,7 +585,7 @@ router.post(
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
     assertTenantPermission(req.user, tenant._id, "tenant.location.manage");
     const location = await getLocationForTenant(tenant, req.params.locationSlug);
-    if (!req.body || !Buffer.isBuffer(req.body) || !req.body.length) {
+    if (!req.body || !Buffer.isBuffer(req.body) || !req.body.byteLength) {
       const error = new Error("QR image upload payload is required.");
       error.statusCode = 400;
       throw error;
@@ -597,7 +597,7 @@ router.post(
       body: {
         fileName: normalizeRequestText(req.query.fileName),
         contentType: req.headers["content-type"],
-        sizeBytes: req.body.length
+        sizeBytes: req.body.byteLength
       },
       fileBuffer: req.body
     });

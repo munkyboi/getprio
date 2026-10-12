@@ -1,3 +1,4 @@
+const { isValidContactEmail } = require("../utils/email");
 const businessCategories = require("../repositories/businessCategories");
 const platformHelpCenter = require("../repositories/platformHelpCenter");
 const express = require("express");
@@ -588,7 +589,7 @@ router.post(
     const phone = normalizePhilippineMobileNumber(req.body.phone);
     const message = normalizeText(req.body.message, 1000);
 
-    if (!businessName || !contactName || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    if (!businessName || !contactName || !isValidContactEmail(email)) {
       const error = new Error("Business name, contact name, and a valid email are required.");
       error.statusCode = 400;
       throw error;
