@@ -47,6 +47,7 @@ test("queue board pairing is browser-bound, single-use, location scoped and revo
     assert.equal(await access.canRead(board, secret), false);
     await access.changeGrant(1, grant.id, true);
     assert.equal(await access.canRead(board, secret), true);
+    assert.ok(new Date(await access.grantExpiry(board, secret)).getTime() > Date.now() + 29 * 86400000);
     await access.changeGrant(1, grant.id, false);
     assert.equal(await access.canRead(board, secret), false);
     await assert.rejects(access.changeGrant(1, grant.id, true), { statusCode: 404 });

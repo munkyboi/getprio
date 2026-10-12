@@ -29,6 +29,12 @@ async function canRead(board, browserSecret, client = db.pool) {
   [board.id, board.queue_board_id, hash(browserSecret)]);
   return rows.length > 0;
 }
+async function grantExpiry(board, browserSecret) {
+  const { rows } = await db.pool.query(`SELECT expires_at FROM queue_board_display_grants
+    WHERE location_id=$1 AND board_id=$2 AND secret_hash=$3 AND revoked_at IS NULL AND expires_at>now()`,
+  [board.id, board.queue_board_id, hash(browserSecret)]);
+  return rows[0]?.expires_at || null;
+}
 async function requestPairing(board, secret) {
   const code = crypto.randomBytes(16).toString("hex");
   const matchCode = String(crypto.randomInt(100000, 1000000));
@@ -96,4 +102,4 @@ async function changeGrant(locationId, id, renew) {
     AND g.board_id=l.queue_board_id AND g.revoked_at IS NULL RETURNING g.id`, [id, locationId]);
   if (!rows.length) throw unavailable();
 }
-module.exports = { UUID, hash, findBoard, canRead, requestPairing, pairingForLocation, approve, settings, updateSettings, changeGrant };
+module.exports = { UUID, hash, findBoard, canRead, grantExpiry, requestPairing, pairingForLocation, approve, settings, updateSettings, changeGrant };

@@ -28,6 +28,7 @@ test("board HTTP reads and streams enforce grants; staff cannot publish or appro
     "./vendorRouteHelpers": { getAuthorizedTenant: async () => ({ _id: "1" }), getLocationForTenant: async (_tenant, slug) => ({ _id: slug === "other" ? "2" : "1", tenantId: "1", name: "Main" }) },
     "../services/queueBoardAccess": { findBoard: async () => board, canRead: async () => allowed,
       requestPairing: async () => ({ code: "a".repeat(32), matchCode: "123456" }), settings: async () => ({ boardId }),
+      grantExpiry: async () => new Date(Date.now() + 29 * 86400000),
       pairingForLocation: async () => ({ match_code: "123456" }), approve: async () => ({ id: "grant" }) },
     "../services/queueBoardProjection": projection,
     "../services/browserSessionService": { parseCookies: () => ({}) },
@@ -59,6 +60,8 @@ test("board HTTP reads and streams enforce grants; staff cannot publish or appro
     const approval = await fetch(`${base}/vendor/vendor/queue-board/pairing/${"a".repeat(32)}/approve?location=main`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ displayName: "TV" }) });
     assert.equal(approval.status, 200);
     allowed = true;
+    const refreshed = await fetch(`${base}/board/${boardId}/access`);
+    assert.match(refreshed.headers.get("set-cookie"), /Max-Age=25055\d\d/);
     const read = await fetch(`${base}/board/${boardId}/queue`);
     assert.equal(read.status, 200); assert.doesNotMatch(await read.text(), /Private|SECRET/);
     const controller = new AbortController();

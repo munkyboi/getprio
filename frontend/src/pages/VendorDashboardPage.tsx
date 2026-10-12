@@ -1,3 +1,4 @@
+import { queueBoardReturnPath } from "../utils/queueBoardReturnPath";
 import { selectCounterDispatch } from "../utils/counterDispatch";
 import { QueueBoardScanner, QueueBoardSettings } from "../components/QueueBoardAccess";
 import { OtpInputField } from "../components/OtpInputField";
@@ -979,6 +980,7 @@ export default function VendorDashboardPage() {
   const { token, user, loading, logout, refreshUser, changePassword } = useAuth();
   const { section } = useParams<{ section: string }>();
   const location = useLocation();
+  const boardApprovalReturn = queueBoardReturnPath(location.search);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const currentSection = (
@@ -10200,7 +10202,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     }
 
     if (currentSection === "account") {
-      return renderAccountPage();
+      return <Stack gap="md">{!requiresMfaEnrollment && boardApprovalReturn ? <Button component={NavLink} to={boardApprovalReturn} mih={44}>Continue to display approval</Button> : null}{renderAccountPage()}</Stack>;
     }
 
     return renderSettingsPage();
@@ -10210,12 +10212,16 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     return <Card className="neura-card">Loading dashboard...</Card>;
   }
 
+  if (!user) {
+    return <Navigate to={`/login?next=${encodeURIComponent(location.pathname + location.search)}`} replace />;
+  }
+
   if (invalidSection) {
     return <Navigate to="/dashboard/queue" replace />;
   }
 
   if (requiresMfaEnrollment && currentSection !== "account") {
-    return <Navigate to="/dashboard/account" replace />;
+    return <Navigate to={boardApprovalReturn ? `/dashboard/account?next=${encodeURIComponent(boardApprovalReturn)}` : "/dashboard/account"} replace />;
   }
 
   if (currentSection === "ratings" && !canAccessVendorSection("ratings", effectiveEntitlements, tenantPlan)) {
@@ -10238,9 +10244,6 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     return <Navigate to={defaultDashboardPath} replace />;
   }
 
-  if (!user) {
-    return <Navigate to="/login" replace />;
-  }
 
   if (!user.tenants?.length) {
     return (

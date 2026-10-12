@@ -22,12 +22,13 @@ export default function SecureQueueBoardPage() {
     const base = `/queue-board/${encodeURIComponent(boardId)}`;
     setSnapshot(null); setPairing(null); setError("");
     const check = async () => {
-      if (checking || !active || source) return;
+      if (checking || !active) return;
       checking = true;
       try {
         const status = await apiRequest<{ allowed: boolean }>(`${base}/access`);
         if (!active) return;
         if (status.allowed) {
+          if (source) return;
           const data = await apiRequest<QueueSnapshot>(`${base}/queue`);
           if (!active) return;
           setSnapshot(data); setPairing(null); setError("");
@@ -42,6 +43,7 @@ export default function SecureQueueBoardPage() {
             if (active) { setSnapshot(null); setError("Connection interrupted. Checking display access…"); }
           };
         } else {
+          source?.close(); source = undefined;
           setSnapshot(null);
           if (!requestedPairing) {
             const request = await apiRequest<Pairing>(`${base}/pairing`, { method: "POST", body: {} });

@@ -38,6 +38,12 @@ async function snapshotFor(board) {
 publicRouter.get("/:boardId/access", readLimiter, asyncHandler(async (req, res) => {
   const board = await boardForRequest(req);
   const allowed = await access.canRead(board, browserSecret(req, board.queue_board_id));
+  if (allowed && !board.queue_board_public) {
+    const secret = browserSecret(req, board.queue_board_id);
+    const expiry = await access.grantExpiry(board, secret);
+    if (expiry) res.cookie(cookieName(board.queue_board_id), secret, { httpOnly: true, secure: env.authCookieSecure,
+      sameSite: "strict", path: "/", maxAge: Math.max(0, new Date(expiry).getTime() - Date.now()) });
+  }
   res.json({ allowed, isPublic: board.queue_board_public, locationName: board.name });
 }));
 publicRouter.post("/:boardId/pairing", pairingLimiter, asyncHandler(async (req, res) => {
