@@ -312,6 +312,7 @@ export function PlatformResourceInventory({
     setSelected("");
     setBusy(false);
     setSearched(false);
+    setLimited(false);
   }, [live, canRead]);
   function invalidate() {
     generation.current++;
@@ -338,6 +339,12 @@ export function PlatformResourceInventory({
         setSelected("");
         setReport(null);
         if (status === 401) onSessionExpired();
+      }
+      if (status === 404) {
+        setScopes([]);
+        setSelected("");
+        setSearched(false);
+        setLimited(false);
       }
       setError(
         cause instanceof Error
@@ -440,6 +447,7 @@ export function PlatformResourceInventory({
                   setScopes([]);
                   setSelected("");
                   setSearched(false);
+                  setLimited(false);
                 }}
               />
             </Field>
@@ -468,6 +476,7 @@ export function PlatformResourceInventory({
                 }))}
                 value={selected}
                 onValueChange={(value) => {
+                  if ((value || "") === selected) return;
                   invalidate();
                   setSelected(value || "");
                 }}
@@ -485,6 +494,7 @@ export function PlatformResourceInventory({
                   <SelectGroup>
                     {scopes.map((scope) => (
                       <SelectItem
+                        wrapText
                         key={`${scope.tenantId}:${scope.locationId}`}
                         value={`${scope.tenantId}:${scope.locationId}`}
                       >

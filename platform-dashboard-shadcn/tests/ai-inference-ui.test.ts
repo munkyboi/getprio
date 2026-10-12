@@ -36,6 +36,11 @@ test('loading announces status before any policy becomes actionable', () => {
   assert.match(html, /role="status"[^>]*>Loading inference policy/)
   assert.doesNotMatch(html, /Review policy|Disable globally/)
 })
+test('resource controls are available independently while AI policy is loading', () => {
+  const html = render({canReadResources:true})
+  assert.match(html,/Loading inference policy/)
+  assert.match(html,/Load resource report|Find locations/)
+})
 test('AI sidebar route uses the dedicated read capability', () => {
   const app = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8')
   assert.match(app, /label: "AI Inference".*capability: "platform\.ai_inference\.read"/)

@@ -4,6 +4,8 @@ const fs = require("node:fs");
 const vm = require("node:vm");
 const { randomUUID } = require("node:crypto");
 const express = require("express");
+const { createCsrfProtection } = require("../src/middleware/csrfProtection");
+const { LOCAL_ACCESS_COOKIE, CSRF_COOKIE, signCsrfToken } = require("../src/services/browserSessionService");
 const permissions = require("../src/services/permissions");
 const reportModule = require("../src/services/resourceInventoryReconciliationReport");
 function loadService(pool) {
@@ -25,7 +27,7 @@ function loadService(pool) {
   );
   return module.exports.createPlatformResourceInventoryService;
 }
-test("resource HTTP route denies non-admin roles, forwards only scalar scope/window and disables caching", async () => {
+test("resource HTTP route denies non-admin roles, accepts only protected scalar body scope/window and disables caching", async () => {
   const calls = [];
   const service = {
     PERMISSION: "platform.resource_inventory.read",
@@ -66,6 +68,8 @@ test("resource HTTP route denies non-admin roles, forwards only scalar scope/win
     },
   );
   const app = express();
+  app.use(express.json());
+  app.use(createCsrfProtection({ allowedOrigins: ["https://platform.getprio.online"], csrfSecret: "resource-test", authCookieSecure: false }));
   app.use((req, _res, next) => {
     req.user = { _id: "1", roles: [req.get("x-test-role")] };
     req.auth = { session: { _id: "1" } };
@@ -73,11 +77,16 @@ test("resource HTTP route denies non-admin roles, forwards only scalar scope/win
   });
   app.use("/resource", module.exports);
   app.use((error, _req, res, _next) =>
-    res.status(error.statusCode || 500).json({ message: error.message }),
+    res.status(error.statusCode || 500).json({ message: error.message, code: error.code }),
   );
   const server = app.listen(0, "127.0.0.1");
   await new Promise((resolve) => server.once("listening", resolve));
   const root = `http://127.0.0.1:${server.address().port}/resource`;
+  const post = (role, body = {}) => ({
+    method: "POST",
+    headers: { "x-test-role": role, "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
   try {
     for (const role of [
       "customer",
@@ -86,9 +95,7 @@ test("resource HTTP route denies non-admin roles, forwards only scalar scope/win
       "platform_release_observer",
     ])
       for (const path of ["/report", "/scopes"]) {
-        const response = await fetch(root + path, {
-          headers: { "x-test-role": role },
-        });
+        const response = await fetch(root + path, post(role));
         assert.equal(response.status, 403);
         assert.equal(response.headers.get("cache-control"), "no-store");
       }
@@ -100,43 +107,76 @@ test("resource HTTP route denies non-admin roles, forwards only scalar scope/win
       "locationId[]=10",
       "windowFrom[sql]=evil",
     ]) {
-      const response = await fetch(`${root}/report?${query}`, {
-        headers: { "x-test-role": "platform_admin" },
-      });
+      const response = await fetch(
+        `${root}/report?${query}`,
+        post("platform_admin"),
+      );
       assert.equal(response.status, 400);
       assert.equal(response.headers.get("cache-control"), "no-store");
     }
-    for (const query of ["q=one&q=two", "limit=1000"])
+    for (const body of [
+      { sourceBinding: "client" },
+      { tenantId: ["1", "2"] },
+      { limits: "1" },
+      [],
+    ])
       assert.equal(
-        (
-          await fetch(`${root}/scopes?${query}`, {
-            headers: { "x-test-role": "platform_admin" },
-          })
-        ).status,
+        (await fetch(root + "/report", post("platform_admin", body))).status,
         400,
       );
-    assert.equal(calls.length, 0);
+    assert.equal(
+      (await fetch(root + "/scopes?q=private", post("platform_admin"))).status,
+      400,
+    );
     assert.equal(
       (
         await fetch(
-          `${root}/report?tenantId=1&locationId=10&windowFrom=2026-10-12T00%3A00%3A00Z&windowTo=2026-10-12T01%3A00%3A00Z`,
-          { headers: { "x-test-role": "platform_admin" } },
+          root + "/scopes",
+          post("platform_admin", { q: ["one", "two"] }),
         )
       ).status,
+      400,
+    );
+    assert.equal(
+      (
+        await fetch(root + "/report", {
+          headers: { "x-test-role": "platform_admin" },
+        })
+      ).status,
+      404,
+    );
+    assert.equal(calls.length, 0);
+    const input = {
+      tenantId: "1",
+      locationId: "10",
+      windowFrom: "2026-10-12T00:00:00Z",
+      windowTo: "2026-10-12T01:00:00Z",
+    };
+    assert.equal(
+      (await fetch(root + "/report", post("platform_admin", input))).status,
       200,
     );
+    const csrfToken = signCsrfToken("1", "resource-test");
+    for (const path of ["/report", "/scopes"]) {
+      const request = post("platform_admin", path === "/report" ? input : { q: "Vendor" });
+      request.headers.origin = "https://platform.getprio.online";
+      request.headers.cookie = `${LOCAL_ACCESS_COOKIE}=local-session; ${CSRF_COOKIE}=${encodeURIComponent(csrfToken)}`;
+      const before = calls.length;
+      const denied = await fetch(root + path, request);
+      assert.equal(denied.status, 403);
+      assert.equal((await denied.json()).code, "CSRF_VALIDATION_FAILED");
+      assert.equal(calls.length, before, "CSRF denial must not invoke private reads");
+      request.headers["x-csrf-token"] = csrfToken;
+      assert.equal((await fetch(root + path, request)).status, 200);
+    }
     assert.equal(calls[0].user._id, "1");
     assert.equal(calls[0].session._id, "1");
-    assert.deepEqual(Object.keys(calls[0].input).sort(), [
-      "locationId",
-      "tenantId",
-      "windowFrom",
-      "windowTo",
-    ]);
+    assert.deepEqual(calls[0].input, input);
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }
 });
+
 const url = process.env.RESOURCE_LEDGER_TEST_DATABASE_URL;
 test(
   "PostgreSQL resource operator authority is refreshed for search, scope and unavailable report delivery",
@@ -219,7 +259,7 @@ test(
               session,
               input: { ...input(), tenantId: "2" },
             }),
-            { statusCode: 403 },
+            { statusCode: 404, code: "resource_report_location_not_found" },
           );
           await assert.rejects(
             service.read({

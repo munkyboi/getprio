@@ -8,42 +8,42 @@ router.use((_req, res, next) => {
   next();
 });
 router.use(requirePlatformPermission(service.PERMISSION));
-function queryFields(query, allowed) {
+function bodyFields(req, allowed) {
+  const body = req.body;
   if (
-    Object.keys(query).some((key) => !allowed.includes(key)) ||
-    Object.values(query).some((value) => typeof value !== "string")
+    !body ||
+    typeof body !== "object" ||
+    Array.isArray(body) ||
+    Object.keys(req.query).length ||
+    Object.keys(body).some((key) => !allowed.includes(key)) ||
+    Object.values(body).some((value) => typeof value !== "string")
   )
     throw Object.assign(new Error("Invalid resource report query."), {
       statusCode: 400,
     });
 }
-router.get(
+router.post(
   "/scopes",
   asyncHandler(async (req, res) => {
-    queryFields(req.query, ["q"]);
+    bodyFields(req, ["q"]);
     res.json(
       await service.searchScopes({
         user: req.user,
         session: req.auth.session,
-        query: req.query.q ?? "",
+        query: req.body.q ?? "",
       }),
     );
   }),
 );
-router.get(
+router.post(
   "/report",
   asyncHandler(async (req, res) => {
-    queryFields(req.query, [
-      "tenantId",
-      "locationId",
-      "windowFrom",
-      "windowTo",
-    ]);
+    bodyFields(req, ["tenantId", "locationId", "windowFrom", "windowTo"]);
     res.json(
       await service.read({
         user: req.user,
         session: req.auth.session,
-        input: req.query,
+        input: req.body,
       }),
     );
   }),

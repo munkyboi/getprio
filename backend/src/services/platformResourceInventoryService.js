@@ -40,14 +40,16 @@ function createPlatformResourceInventoryService({
       ).rows[0];
       if (!permissions.userHasPermission(actor, PERMISSION)) return false;
       if (!scope) return true;
-      return (
-        (
+      if (
+        !(
           await client.query(
             "SELECT id FROM store_locations WHERE tenant_id=$1 AND id=$2",
             [scope.tenantId, scope.locationId],
           )
-        ).rows.length === 1
-      );
+        ).rows.length
+      )
+        fail("resource_report_location_not_found", 404);
+      return true;
     };
   }
   async function checkpoint(authorize, operation, scope) {
@@ -68,7 +70,13 @@ function createPlatformResourceInventoryService({
       return result;
     } catch (error) {
       if (client) await client.query("ROLLBACK").catch(() => {});
-      if (error.code === "resource_report_scope_access_denied") throw error;
+      if (
+        [
+          "resource_report_scope_access_denied",
+          "resource_report_location_not_found",
+        ].includes(error.code)
+      )
+        throw error;
       fail("resource_report_authorization_unavailable", 503);
     } finally {
       client?.release();

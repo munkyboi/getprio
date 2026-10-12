@@ -8,7 +8,7 @@ import type {
 import "../../src/index.css";
 const params = new URLSearchParams(location.search);
 if (params.has("dark")) document.documentElement.classList.add("dark");
-let calls = 0
+let calls = 0;
 const completed: number[] = [];
 const api: ResourceInventoryApi = {
   searchScopes: async () => ({
@@ -28,18 +28,29 @@ const api: ResourceInventoryApi = {
         locationName: "Other location",
       },
     ],
-    limited: false,
+    limited: params.has("limited"),
   }),
   read: async (input) => {
     const request = ++calls;
     document.getElementById("qa-calls")!.textContent = `Report calls: ${calls}`;
     await new Promise((resolve) =>
-      setTimeout(resolve, (params.has("race") || params.has("raceerror")) && request === 1 ? 2500 : 100),
+      setTimeout(
+        resolve,
+        (params.has("race") || params.has("raceerror")) && request === 1
+          ? 2500
+          : 100,
+      ),
     );
-    completed.push(request)
-    document.getElementById("qa-completed")!.textContent = `Completed calls: ${completed.join(",")}`
+    completed.push(request);
+    document.getElementById("qa-completed")!.textContent =
+      `Completed calls: ${completed.join(",")}`;
     if (params.has("expire"))
       throw Object.assign(Error("Session expired"), { status: 401 });
+    if (params.has("scopegone") && request === 1)
+      throw Object.assign(Error("Location no longer available"), {
+        status: 404,
+        code: "resource_report_location_not_found",
+      });
     if (params.has("forbidden"))
       throw Object.assign(Error("Access revoked"), { status: 403 });
     if (params.has("raceerror") && request === 1)
