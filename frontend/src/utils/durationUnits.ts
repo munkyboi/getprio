@@ -3,7 +3,8 @@ import type { PublicVendorService } from "@shared";
 type UnitService = Pick<PublicVendorService, "allowBookingQuantity" | "bookingQuantityMin" | "bookingQuantityMax" | "durationMinutes">;
 export function durationUnitBounds(service: UnitService | null | undefined) {
   if (!service?.allowBookingQuantity) return { min: 1, max: 1 };
-  return { min: service.bookingQuantityMin ?? 1, max: service.bookingQuantityMax ?? 24 };
+  const durationMaximum = service.durationMinutes > 0 ? Math.floor(1440 / service.durationMinutes) : 24;
+  return { min: service.bookingQuantityMin ?? 1, max: Math.min(service.bookingQuantityMax ?? 24, durationMaximum) };
 }
 export function clampDurationUnits(value: number, bounds: { min: number; max: number }) {
   return Math.max(bounds.min, Math.min(Number.isFinite(value) ? Math.round(value) : bounds.min, bounds.max));
