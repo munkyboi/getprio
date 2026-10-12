@@ -44,7 +44,9 @@ const CONTEXT = `WITH scope_tickets AS MATERIALIZED (
 ), relevant_days AS MATERIALIZED (
   SELECT q.* FROM queue_days q WHERE q.tenant_id=$1 AND q.location_id=$2 AND
     (q.state='open' OR q.id IN (SELECT current_queue_day_id FROM work_scope)
-      OR q.id IN (SELECT original_queue_day_id FROM work_scope))
+      OR q.id IN (SELECT original_queue_day_id FROM work_scope)
+      OR EXISTS (SELECT 1 FROM queue_ticket_segments s JOIN work_scope w ON w.id=s.ticket_id
+        WHERE s.queue_day_id=q.id AND s.ended_at IS NULL))
 ), relevant_segments AS MATERIALIZED (
   SELECT s.* FROM queue_ticket_segments s JOIN work_scope w ON w.id=s.ticket_id
     JOIN queue_days q ON q.id=s.queue_day_id AND q.tenant_id=$1 AND q.location_id=$2
@@ -63,6 +65,7 @@ const COLLECTIONS = {
     FROM work_scope w LEFT JOIN ticket_service_plans p ON (p.ticket_id,p.tenant_id,p.location_id)=(w.id,$1,$2) ORDER BY w.id` },
   allocations: { maximum: 10000, count: 'SELECT COUNT(*) FROM held_allocations', rows: `SELECT id::text,ticket_id::text,pool_id::text,
     pool_revision::text,units,reservation_id::text,started_at,expected_end_at,
+    (SELECT a.expected_end_at IS NOT DISTINCT FROM r.ends_at FROM relevant_bindings r WHERE r.id=a.reservation_id) AS reservation_end_matches,
     (SELECT a.started_at IS NOT DISTINCT FROM w.service_started_at FROM work_scope w WHERE w.id=a.ticket_id) AS ticket_start_matches
     FROM held_allocations a ORDER BY id` },
   bookingItems: { maximum: 20000, count: 'SELECT COUNT(*) FROM relevant_items', rows: `SELECT id::text,booking_id::text,service_id::text,

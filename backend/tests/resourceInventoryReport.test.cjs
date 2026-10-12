@@ -38,6 +38,7 @@ test('unknown and overdue allocation ends never release held occupancy',()=>{
   assert.equal(report.inventory.allocations.length,2);
   assert.ok(has(report,'allocation_expected_end_unknown')); assert.ok(has(report,'allocation_expected_end_overdue'));
   assert.ok(has(report,'observed_held_units_exceed_capacity'));
+  assert.ok(!has(report,'potential_held_and_protected_capacity_conflict'));
 });
 test('binding and allocation demand differences stay visible without assuming repairs',()=>{
   const input=fixture(); input.data.pools=[{id:'100',capacity:4,revision:'2'},{id:'200',capacity:4,revision:'2'}];
@@ -111,6 +112,32 @@ test('maximum-sized item reconciliation uses bounded grouped lookups',()=>{
   const report=buildResourceInventoryReport(input);
   assert.equal(report.inventory.bookingItems.length,20000);
   assert.equal(report.inventory.bookingItems[19999].bindingRefs[0],'reservation:1:10:20000');
+});
+test('converted immutable revision and source interval differences are integrity findings',()=>{
+  const input=fixture();
+  input.data.allocations=[{id:'1',pool_id:'100',pool_revision:'2',units:1,reservation_id:'9'}];
+  input.data.bindings=[{id:'9',booking_item_id:'7',pool_id:'100',pool_revision:'1',units:1,state:'converted',booking_interval_matches:false}];
+  input.data.bookingItems=[{id:'7'}];
+  const report=buildResourceInventoryReport(input);
+  assert.ok(has(report,'allocation_conversion_mismatch'));
+  assert.equal(report.findings.counts.find(i=>i.code==='converted_booking_interval_mismatch').classification,'integrity_difference');
+  input.data.bindings[0].pool_revision='2'; input.data.bindings[0].booking_interval_matches=true;
+  const matching=buildResourceInventoryReport(input);
+  assert.ok(!has(matching,'allocation_conversion_mismatch')); assert.ok(!has(matching,'converted_booking_interval_mismatch'));
+});
+test('frozen allocation and captured booking evidence cannot silently diverge',()=>{
+  const input=fixture();
+  const item={bookingItemId:'7',scheduledStartAt:input.observedAt,scheduledEndAt:input.window.to,
+    resource:{known:true,poolId:'100',unitsRequired:1,poolRevision:'1',requirementRevision:'1'}};
+  input.data.work=[{id:'1',plan_source:'booking',booking_id:'5',items:[item]}];
+  input.data.allocations=[{id:'1',ticket_id:'1',pool_id:'100',pool_revision:'2',units:1,reservation_id:'9',reservation_end_matches:false}];
+  input.data.bindings=[{id:'9',booking_id:'5',booking_item_id:'7',pool_id:'100',pool_revision:'2',requirement_revision:'2',units:1,state:'converted',starts_at:input.window.from,ends_at:input.window.to}];
+  const report=buildResourceInventoryReport(input);
+  assert.ok(has(report,'allocation_captured_demand_mismatch'));
+  assert.ok(has(report,'allocation_conversion_mismatch'));
+  assert.ok(has(report,'conversion_captured_binding_mismatch'));
+  input.data.work[0].plan_source='staff_selection';
+  assert.ok(has(buildResourceInventoryReport(input),'staff_allocation_with_booking_conversion'));
 });
 test('row overflow keeps exact totals but does not evaluate partial inventory',()=>{
   const input=fixture(); input.exceeded=['work']; input.counts.work='10001';
@@ -191,7 +218,7 @@ test('real PostgreSQL scoped inventory, reconciliation, authorization and read b
       await assert.rejects(pool.query('UPDATE resource_ledger_scopes SET writer_coverage_complete=true'),/resource_ledger_coverage_disabled_check/);
     });
     await t.test('recoverable skipped work, plan and active segment remain inventoried',async()=>{
-      await pool.query(`INSERT INTO tickets(id,tenant_id,location_id,status,join_channel,current_queue_day_id) VALUES(7,1,10,'skipped','vendor',7);
+      await pool.query(`INSERT INTO tickets(id,tenant_id,location_id,status,join_channel) VALUES(7,1,10,'skipped','vendor');
         INSERT INTO ticket_service_plans(ticket_id,tenant_id,location_id,source,execution_mode,items) VALUES(7,1,10,'staff_selection','parallel','[]');
         INSERT INTO queue_days(id,tenant_id,location_id,business_date,state,version,deadline_version) VALUES(7,1,10,current_date,'closed',1,1);
         INSERT INTO queue_ticket_segments(id,ticket_id,queue_day_id,sequence,priority_band,activated_at,legacy_inferred) VALUES(7,7,7,1,'recovery',now(),false);`);
@@ -200,6 +227,7 @@ test('real PostgreSQL scoped inventory, reconciliation, authorization and read b
       const work=report.inventory.work.find(i=>i.workRef.endsWith(':7'));
       assert.equal(work.queueStatus,'skipped'); assert.ok(work.plan);
       assert.ok(report.inventory.segments.some(i=>i.workRef.endsWith(':7')));
+      assert.ok(report.inventory.queueDays.some(i=>i.queueDayRef.endsWith(':7') && i.version==='1'));
       await pool.query('DELETE FROM queue_ticket_segments WHERE id=7');
       await pool.query('DELETE FROM queue_days WHERE id=7');
       await pool.query('DELETE FROM ticket_service_plans WHERE ticket_id=7');
