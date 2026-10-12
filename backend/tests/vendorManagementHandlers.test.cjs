@@ -4,8 +4,55 @@ const assert = require("node:assert/strict");
 const {
   handleUpdateSettings,
   handleListHistory,
-  handleInviteStaff
+  handleInviteStaff,
+  handleCreateCounter,
+  handleUpdateCounter,
+  handleDeleteCounter
 } = require("../src/routes/vendorManagementHandlers");
+
+test('counter handlers preserve normalized payload scope status and write response', async () => {
+  const calls = [];
+  const context = {
+    req: { user: { _id: '9007199254740993' }, params: { tenantSlug: 'vendor', counterSlug: 'old' },
+      query: { location: 'main' }, body: { name: 'Court One!', assignedUserIds: ['9007199254740995'] } },
+    getAuthorizedTenant: async () => ({ _id: '9007199254740993' }),
+    assertTenantPermission: (_user, tenant, permission) => { assert.equal(tenant, '9007199254740993'); assert.equal(permission, 'tenant.counter.manage'); },
+    getLocationForTenant: async (_tenant, slug) => { assert.equal(slug, 'main'); return { _id: '9007199254740995' }; },
+    counterService: { mutate: async input => { calls.push(input); return { _id: '7', assignedUserIds: [] }; } }
+  };
+  const response = () => ({ code: 200, body: undefined, status(code) { this.code = code; return this; }, json(body) { this.body = body; }, send() {} });
+  let res = response(); await handleCreateCounter({ ...context, res });
+  assert.equal(res.code, 201); assert.deepEqual(res.body, { counter: { _id: '7', assignedUserIds: [] } });
+  assert.equal(calls[0].data.slug, 'court-one!'); assert.equal(calls[0].data.isActive, undefined);
+  assert.equal(calls[0].actorUserId, '9007199254740993');
+  assert.equal(calls[0].locationId, '9007199254740995');
+  res = response(); await handleUpdateCounter({ ...context, res });
+  assert.equal(res.code, 200); assert.equal(calls[1].data.slug, 'court-one');
+  assert.equal(calls[1].data.isActive, undefined); assert.equal(calls[1].counterSlug, 'old');
+  res = response(); await handleDeleteCounter({ ...context, res });
+  assert.equal(res.code, 204); assert.equal(res.body, undefined); assert.equal(calls[2].action, 'delete');
+});
+
+test('counter handler propagates transaction quota and not-found failures without returning success', async () => {
+  const context = { req: { user: { _id: '1' }, params: { tenantSlug: 'vendor', counterSlug: 'missing' }, query: {}, body: { name: 'Court' } },
+    res: { json() { assert.fail('unexpected success'); }, status() { assert.fail('unexpected success'); } },
+    getAuthorizedTenant: async () => ({ _id: '1' }), assertTenantPermission: () => {}, getLocationForTenant: async () => ({ _id: '10' }) };
+  for (const handler of [handleCreateCounter, handleUpdateCounter, handleDeleteCounter]) {
+    const error = Object.assign(new Error('blocked'), { statusCode: handler === handleDeleteCounter ? 404 : 403 });
+    await assert.rejects(handler({ ...context, counterService: { mutate: async () => { throw error; } } }), error);
+  }
+});
+
+test('counter update and delete preserve normalization of decoded noncanonical lookup URLs', async () => {
+  for (const handler of [handleUpdateCounter, handleDeleteCounter]) {
+    let called = false;
+    await handler({ req: { user: { _id: '1' }, params: { tenantSlug: 'vendor', counterSlug: 'Court   One' }, query: {}, body: { name: 'Court Two' } },
+      res: { json(body) { assert.equal(body.counter._id, '7'); }, status(code) { assert.equal(code, 204); return this; }, send() {} },
+      getAuthorizedTenant: async () => ({ _id: '1' }), assertTenantPermission: () => {}, getLocationForTenant: async () => ({ _id: '10' }),
+      counterService: { mutate: async input => { called = true; assert.equal(input.counterSlug, 'court-one'); return { _id: '7' }; } } });
+    assert.equal(called, true);
+  }
+});
 
 test("vendor management handler updates settings through injected repositories", async () => {
   const response = { body: null, json(payload) { this.body = payload; } };

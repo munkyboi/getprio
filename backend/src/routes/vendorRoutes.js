@@ -97,6 +97,7 @@ const {
   handleListHistory,
   handleListClients,
   handleListCounters,
+  handleCreateCounter,
   handleUpdateCounter,
   handleDeleteCounter,
   handleCheckCounterSlugAvailability,
@@ -1561,39 +1562,7 @@ router.delete(
   })
 );
 
-router.post(
-  "/tenant/:tenantSlug/counters",
-  asyncHandler(async (req, res) => {
-    const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
-    assertTenantPermission(req.user, tenant._id, "tenant.counter.manage");
-    const location = await getLocationForTenant(tenant, normalizeRequestText(req.query.location));
-    const entitlements = await billingService.getTenantEntitlements(tenant._id);
-    const counters = await serviceCounterRepository.listCountersByLocationId(location._id);
-    if (counters.filter((counter) => counter.isActive).length >= Number(entitlements.counters || 0)) {
-      const error = new Error("Counter limit exceeded for this subscription plan.");
-      error.statusCode = 403;
-      throw error;
-    }
-
-    const counter = await serviceCounterRepository.createCounter({
-      tenantId: tenant._id,
-      locationId: location._id,
-      name: req.body.name,
-      slug: String(req.body.slug || req.body.name).trim().toLowerCase().replace(/\s+/g, "-"),
-      isActive: req.body.isActive !== false
-    });
-
-    const assignedUserIds = req.body.assignedUserIds || [];
-    await serviceCounterRepository.replaceAssignments(counter._id, assignedUserIds);
-    await tenantMembershipLocationRepository.ensureUserLocationAssignments({
-      userIds: assignedUserIds,
-      tenantId: tenant._id,
-      locationId: location._id,
-      assignedByUserId: req.user?._id
-    });
-    res.status(201).json({ counter });
-  })
-);
+router.post("/tenant/:tenantSlug/counters", asyncHandler((req, res) => handleCreateCounter({ req, res, getAuthorizedTenant, assertTenantPermission, getLocationForTenant })));
 
 const HISTORY_RANGE_DAYS = {
   today: 0,
