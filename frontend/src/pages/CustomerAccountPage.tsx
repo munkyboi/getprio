@@ -1,3 +1,4 @@
+import { OtpInputField } from "../components/OtpInputField";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -206,6 +207,7 @@ export default function CustomerAccountPage() {
   }
 
   async function confirmMfaEnrollment() {
+    if (mfaBusy) return;
     setMfaBusy(true);
     try {
       const data = await apiRequest<{ success: boolean; recoveryCodes: string[]; message: string }>("/auth/mfa/enrollment/confirm", { method: "POST", token, body: { code: mfaCode } });
@@ -233,6 +235,7 @@ export default function CustomerAccountPage() {
   }
 
   async function removeMfa() {
+    if (mfaRemovalBusy) return;
     setMfaRemovalBusy(true);
     try {
       await apiRequest<{ success: boolean; message: string }, { password: string; code: string; recoveryCode: string }>("/auth/mfa/disable", {
@@ -1221,7 +1224,7 @@ export default function CustomerAccountPage() {
                 <Text ff="monospace" mt="xs" style={{ overflowWrap: "anywhere" }}>{mfaSecret}</Text>
                 <Text component="a" href={mfaUri} mt="xs" style={{ display: "block", overflowWrap: "anywhere" }}>Open authenticator setup</Text>
               </Alert>
-              <TextInput autoComplete="one-time-code" inputMode="numeric" label="6-digit authenticator code" maxLength={6} value={mfaCode} onChange={(event) => setMfaCode(event.target.value.replace(/\D/g, ""))}/>
+              <OtpInputField label="6-digit authenticator code" value={mfaCode} onChange={setMfaCode} disabled={mfaBusy} onVerify={confirmMfaEnrollment} autoVerifyEnabled={Boolean(mfaSecret)} verificationKey={mfaSecret} />
               <Button className="customer-primary-action" color="dark" disabled={mfaCode.length !== 6} loading={mfaBusy} onClick={() => void confirmMfaEnrollment()}>Verify and enable</Button>
             </Stack>
           ) : null}
@@ -1259,7 +1262,7 @@ export default function CustomerAccountPage() {
           </Alert>
           <Stack className="mfa-removal-modal__main" gap="md">
             <PasswordInput autoComplete="current-password" label="Current password" required value={mfaRemovalPassword} onChange={(event) => setMfaRemovalPassword(event.target.value)} />
-            <TextInput autoComplete="one-time-code" description="Use this or an unused recovery code below." inputMode="numeric" label="Current authenticator code" maxLength={6} value={mfaRemovalCode} onChange={(event) => setMfaRemovalCode(event.target.value.replace(/\D/g, ""))}/>
+            <OtpInputField label="Current authenticator code" value={mfaRemovalCode} onChange={setMfaRemovalCode} disabled={mfaRemovalBusy} onVerify={removeMfa} autoVerifyEnabled={Boolean(mfaRemovalPassword) && mfaRemovalAcknowledged && !mfaRemovalRecoveryCode} description="Use this or an unused recovery code below." />
             <TextInput autoComplete="one-time-code" description="Use this only if your authenticator is unavailable." label="Recovery code" value={mfaRemovalRecoveryCode} onChange={(event) => setMfaRemovalRecoveryCode(event.target.value)} />
             <Checkbox checked={mfaRemovalAcknowledged} label="I understand that removing MFA reduces my account security." onChange={(event) => setMfaRemovalAcknowledged(event.target.checked)} />
           </Stack>

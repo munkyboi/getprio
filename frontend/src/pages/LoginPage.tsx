@@ -4,6 +4,7 @@ import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { Alert, Anchor, Button, Paper, PasswordInput, Stack, Text, TextInput, Title } from "@mantine/core";
 import { Navigate, Link, useNavigate, useSearchParams } from "react-router-dom";
+import { OtpInputField } from "../components/OtpInputField";
 import SocialAuthButtons from "../components/SocialAuthButtons";
 import { useAuth } from "../context/AuthContext";
 import { getErrorMessage } from "../utils/errors";
@@ -147,8 +148,9 @@ export default function LoginPage() {
     }
   });
 
-  async function handleMfaVerification(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  async function handleMfaVerification(event?: FormEvent<HTMLFormElement>) {
+    event?.preventDefault();
+    if (mfaSubmitting) return;
     setError("");
     setMfaSubmitting(true);
     try {
@@ -245,15 +247,15 @@ export default function LoginPage() {
                       ? `Enter the six-digit code sent to ${emailMfaDeliveryTarget || "your verified email address"}. It expires in 10 minutes.`
                       : "For your security, confirm the code from your authenticator app. You can use one saved recovery code if your authenticator is unavailable."}
                   </Alert>
-                  <TextInput
+                  <OtpInputField
                     key={emailMfaActive ? "email-code" : "authenticator-code"}
-                    autoComplete="one-time-code"
                     autoFocus
-                    inputMode="numeric"
                     label={emailMfaActive ? "Email code" : "Authenticator code"}
-                    maxLength={6}
                     value={mfaCode}
-                    onChange={(event) => { setMfaCode(event.currentTarget.value.replace(/\D/g, "")); setMfaRecoveryCode(""); }}
+                    onChange={(value) => { setMfaCode(value); setMfaRecoveryCode(""); }}
+                    onVerify={() => handleMfaVerification()}
+                    verificationKey={`${mfaChallengeToken}:${emailMfaActive}`}
+                    disabled={mfaSubmitting || emailMfaSending}
                   />
                   {!emailMfaActive && mfaMethods.includes("recovery") ? (
                     <TextInput

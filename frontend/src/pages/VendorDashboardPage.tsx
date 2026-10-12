@@ -1,3 +1,4 @@
+import { OtpInputField } from "../components/OtpInputField";
 import { BookingTableRow } from "../components/BookingTableRow";
 import { BookingCheckInNotice } from "../components/BookingCheckInNotice";
 import { getBookingCheckInState } from "../utils/bookingCheckIn";
@@ -2296,6 +2297,7 @@ export default function VendorDashboardPage() {
   }
 
   async function confirmMfaEnrollment() {
+    if (mfaBusy) return;
     if (!token) {
       return;
     }
@@ -2375,6 +2377,7 @@ export default function VendorDashboardPage() {
   }
 
   async function startMfaReplacement() {
+    if (mfaBusy) return;
     if (!token) {
       return;
     }
@@ -2399,6 +2402,7 @@ export default function VendorDashboardPage() {
   }
 
   async function removeMfa() {
+    if (mfaBusy) return;
     if (!token) {
       return;
     }
@@ -8745,15 +8749,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   Enter this secret manually in your authenticator app.
                   <Text ff="monospace" mt="xs" style={{ overflowWrap: "anywhere" }}>{mfaSecret}</Text>
                 </Alert>
-                <TextInput
-                  autoFocus
-                  autoComplete="one-time-code"
-                  inputMode="numeric"
-                  label="6-digit authenticator code"
-                  maxLength={6}
-                  value={mfaCode}
-                  onChange={(event) => setMfaCode(event.target.value.replace(/\D/g, ""))}
-                />
+                <OtpInputField label="6-digit authenticator code" value={mfaCode} onChange={setMfaCode} disabled={mfaBusy} onVerify={confirmMfaEnrollment} autoVerifyEnabled={Boolean(mfaSecret)} verificationKey={mfaSecret} autoFocus />
                 <Group justify="flex-end">
                   {mfaEnabled && mfaSecret ? (
                     <Button disabled={mfaBusy} onClick={() => void cancelMfaEnrollment()} variant="default">
@@ -8804,15 +8800,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                         value={replacementPassword}
                         onChange={(event) => setReplacementPassword(event.target.value)}
                       />
-                      <TextInput
-                        autoComplete="one-time-code"
-                        inputMode="numeric"
-                        label="Current authenticator code"
-                        maxLength={6}
-                        required
-                        value={replacementCode}
-                        onChange={(event) => setReplacementCode(event.target.value.replace(/\D/g, ""))}
-                      />
+                      <OtpInputField label="Current authenticator code" value={replacementCode} onChange={setReplacementCode} disabled={mfaBusy} onVerify={startMfaReplacement} autoVerifyEnabled={Boolean(replacementPassword)} required />
                       <Group justify="flex-end">
                         <Button disabled={mfaBusy} onClick={() => setReplacingMfa(false)} variant="default">Cancel</Button>
                         <Button
@@ -8841,15 +8829,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                         value={removalPassword}
                         onChange={(event) => setRemovalPassword(event.target.value)}
                       />
-                      <TextInput
-                        autoComplete="one-time-code"
-                        description="Use this or an unused recovery code below."
-                        inputMode="numeric"
-                        label="Current authenticator code"
-                        maxLength={6}
-                        value={removalCode}
-                        onChange={(event) => setRemovalCode(event.target.value.replace(/\D/g, ""))}
-                      />
+                      <OtpInputField label="Current authenticator code" value={removalCode} onChange={setRemovalCode} disabled={mfaBusy} onVerify={removeMfa} autoVerifyEnabled={Boolean(removalPassword) && removalAcknowledged && !removalRecoveryCode} description="Use this or an unused recovery code below." />
                       <TextInput
                         autoComplete="one-time-code"
                         description="Use this only if your authenticator is unavailable."

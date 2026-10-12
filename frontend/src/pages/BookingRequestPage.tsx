@@ -1,3 +1,4 @@
+import { OtpInputField } from "../components/OtpInputField";
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   Accordion,
@@ -10,7 +11,6 @@ import {
   FileInput,
   Group,
   Image,
-  PinInput,
   Select,
   SegmentedControl,
   SimpleGrid,
@@ -676,8 +676,9 @@ export default function BookingRequestPage() {
     await submitBooking(buildBookingPayload(verificationToken));
   }
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  async function handleSubmit(event?: FormEvent<HTMLFormElement>) {
+    event?.preventDefault();
+    if (submitting) return;
     if (!vendor || !selectedServiceSlug || !selectedLocationSlug || !selectedSlot || !token) {
       setError("Select an available booking slot.");
       return;
@@ -1170,12 +1171,13 @@ export default function BookingRequestPage() {
                       <Text c="dimmed" size="sm">
                         Sent by {otp.deliveryChannel} to {otp.deliveryTarget}.
                       </Text>
-                      <PinInput
-                        length={6}
-                        onChange={(value) => setOtpCode(value.replace(/\D/g, ""))}
-                        oneTimeCode
-                        type="number"
+                      <OtpInputField
+                        label="Email verification code"
                         value={otpCode}
+                        onChange={setOtpCode}
+                        onVerify={() => handleSubmit()}
+                        verificationKey={otp.otpId}
+                        disabled={submitting}
                       />
                       <Group className="customer-action-row booking-step-action" justify="space-between">
                         <Button
