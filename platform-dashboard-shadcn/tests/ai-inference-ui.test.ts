@@ -40,4 +40,5 @@ test('AI sidebar route uses the dedicated read capability', () => {
   const app = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8')
   assert.match(app, /label: "AI Inference".*capability: "platform\.ai_inference\.read"/)
   assert.match(app, /"AI Inference": "\/ai-inference"/)
+  assert.match(app, /<PlatformAiInference[^>]*onSessionExpired=\{handleAccountSessionExpired\}/)
 })

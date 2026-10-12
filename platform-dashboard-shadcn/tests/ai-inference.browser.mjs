@@ -40,3 +40,22 @@ export async function verifyAiReadOnly(page) {
   if (await page.getByRole('button', { name: 'Disable globally', exact: true }).isEnabled()) throw Error('Read-only viewer can disable');
   return 'Read-only controls are disabled';
 }
+export async function verifyAiSessionExpiry(page, operation) {
+  await page.getByText('Local test fixture — no production requests', { exact: true }).waitFor({ state: 'visible' });
+  if (operation !== 'read') {
+    await page.getByRole('group', { name: 'Global requested mode' }).waitFor({ state: 'visible' });
+    if (operation === 'search') await page.getByRole('button', { name: 'Search locations', exact: true }).click();
+    else {
+      await page.getByRole('textbox', { name: 'Audit reason' }).fill('Review local expiry regression');
+      await page.getByRole('button', { name: 'Review policy', exact: true }).click();
+      await page.domSnapshot();
+      if (operation === 'save') await page.getByRole('button', { name: 'Save policy', exact: true }).click();
+    }
+    await page.domSnapshot();
+  }
+  await page.getByText('Session expiry callback invoked', { exact: true }).waitFor({ state: 'visible' });
+  if (!(await page.getByText('Sign in again to view AI inference controls.', { exact: true }).isVisible())) throw Error('Expiry must close the view');
+  if (await page.getByRole('button', { name: 'Review policy', exact: true }).count()) throw Error('Expired policy controls remain visible');
+  if (await page.getByText('resource-service-start-shadow-v1', { exact: true }).count()) throw Error('Expired private policy remains visible');
+  return `${operation} 401 clears policy and invokes sign-in callback`;
+}

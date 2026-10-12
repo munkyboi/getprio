@@ -1856,7 +1856,7 @@ function App() {
           </header>
           <main className="min-w-0 flex-1 p-4 md:p-6 lg:p-8">
             <div className="mx-auto max-w-[1440px]">
-              {activeRoute === "AI Inference" ? <PlatformAiInference live={usesLiveData} canRead={availableCapabilities.has('platform.ai_inference.read')} canManage={availableCapabilities.has('platform.ai_inference.manage')} />
+              {activeRoute === "AI Inference" ? <PlatformAiInference live={usesLiveData} canRead={availableCapabilities.has('platform.ai_inference.read')} canManage={availableCapabilities.has('platform.ai_inference.manage')} onSessionExpired={handleAccountSessionExpired} />
                 : activeRoute === "My account" ? <PlatformAccountSettings live={usesLiveData} onPasswordChanged={() => { setAuthStatus("signed-out"); setViewer(null) }} onSessionExpired={handleAccountSessionExpired} />
                 : isHelpCenterRoute && viewer && availableCapabilities.has("platform.help_center.manage") ? <PlatformHelpCenterManager page={activeRoute.replace("Help Center / ", "").toLowerCase() as "overview" | "topics" | "guides" | "faqs"} onNavigate={(page) => navigate(`Help Center / ${page[0].toUpperCase()}${page.slice(1)}`)} />
                   : error ? <Alert variant="destructive"><AlertTriangle /><AlertTitle>Platform unavailable</AlertTitle><AlertDescription>{error}</AlertDescription></Alert>

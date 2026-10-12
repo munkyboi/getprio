@@ -4,6 +4,7 @@ const express = require("express");
 const fs = require("node:fs");
 const vm = require("node:vm");
 const { assertPermission } = require("../src/services/permissions");
+const { normalizePolicy } = require("../src/services/aiInferencePolicy");
 
 test("AI controller denies other roles before reading/writing and disables HTTP caching", async () => {
   const calls = [];
@@ -11,6 +12,7 @@ test("AI controller denies other roles before reading/writing and disables HTTP 
     ["read", "searchScopes", "preview", "update"].map((name) => [
       name,
       async (input) => {
+        if (name === "preview" || name === "update") normalizePolicy(input.draft);
         calls.push([name, input]);
         return { operation: name };
       },
@@ -94,7 +96,7 @@ test("AI controller denies other roles before reading/writing and disables HTTP 
         "x-transaction-confirmation": "confirmed",
       },
       body: JSON.stringify({
-        policy: {},
+          policy: { requestedMode: 'off', timeoutMs: 100, freshnessMs: 1000, pilots: [] },
         reason: "Review policy",
         expectedRevision: "2",
       }),
@@ -102,6 +104,11 @@ test("AI controller denies other roles before reading/writing and disables HTTP 
     assert.equal(write.status, 200);
     assert.equal(calls.at(-1)[1].operationKey, "test-key-123");
     assert.equal(calls.at(-1)[1].confirmationToken, "confirmed");
+    for (const path of ['/preview', '/policy']) {
+      const empty = await fetch(root + path, { method: 'POST', headers: { 'x-test-role': 'platform_admin' } });
+      assert.equal(empty.status, 400);
+      assert.match((await empty.json()).message, /policy field/);
+    }
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }

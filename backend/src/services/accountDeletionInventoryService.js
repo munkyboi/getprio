@@ -19,6 +19,7 @@ const BEST_EFFORT_ANONYMIZATION_SOURCES = new Set([
   'public.user_trust_ratings.subject_user_id'
 ]);
 const SAFE_CLEANUP_SOURCES = new Set([
+  "public.ai_inference_policy_operations.actor_user_id",
   "public.users.id",
   "public.account_deletion_requests.user_id",
   "public.account_phone_change_challenges.user_id",
