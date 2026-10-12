@@ -82,6 +82,36 @@ test('capacity comparison uses exact observation within the displayed millisecon
   input.data.bindings[0].ends_at_us=String(base+501n);
   assert.ok(has(buildResourceInventoryReport(input),'potential_held_and_protected_capacity_conflict'));
 });
+test('booking allocation requires the captured item conversion even with identical demand',()=>{
+  const input=fixture(); input.data.work=[{id:'1',plan_source:'booking',booking_id:'5',items:[{bookingItemId:'7'}]}];
+  input.data.allocations=[{id:'1',ticket_id:'1',pool_id:'100',units:1,reservation_id:'9'}];
+  input.data.bindings=[{id:'9',booking_id:'5',booking_item_id:'8',pool_id:'100',units:1,state:'converted'}];
+  assert.ok(has(buildResourceInventoryReport(input),'allocation_booking_conversion_lineage_mismatch'));
+  input.data.bindings[0].booking_item_id='7';
+  assert.ok(!has(buildResourceInventoryReport(input),'allocation_booking_conversion_lineage_mismatch'));
+  input.data.allocations[0].reservation_id=null;
+  assert.ok(has(buildResourceInventoryReport(input),'allocation_booking_conversion_lineage_mismatch'));
+});
+test('connection acquisition and rollback failures are sanitized',async()=>{
+  const read=createResourceInventoryReconciliationReport({pool:{connect:async()=>{throw new Error('PRIVATE database host');}},sourceBinding:'test',authorize:async()=>true});
+  await assert.rejects(read({tenantId:'1',locationId:'10',windowFrom:'2026-10-12T00:00:00Z',windowTo:'2026-10-12T01:00:00Z'}),
+    error=>error.code==='resource_report_authorization_unavailable' && !error.message.includes('PRIVATE'));
+  let released=false;
+  const acquired=createResourceInventoryReconciliationReport({pool:{connect:async()=>({query:async()=>{throw new Error('PRIVATE');},release:()=>{released=true;}})},sourceBinding:'test',authorize:async()=>true});
+  await assert.rejects(acquired({tenantId:'1',locationId:'10',windowFrom:'2026-10-12T00:00:00Z',windowTo:'2026-10-12T01:00:00Z'}),/authorization_unavailable/);
+  assert.equal(released,true);
+});
+test('maximum-sized item reconciliation uses bounded grouped lookups',()=>{
+  const input=fixture();
+  for(let index=1;index<=20000;index++){
+    const key=String(index);
+    input.data.bookingItems.push({id:key,item_count:'1',booking_quantity:1,booking_status:'confirmed',interval_not_elapsed:true,duration_minutes:'60'});
+    input.data.bindings.push({id:key,booking_item_id:key,state:'converted'});
+  }
+  const report=buildResourceInventoryReport(input);
+  assert.equal(report.inventory.bookingItems.length,20000);
+  assert.equal(report.inventory.bookingItems[19999].bindingRefs[0],'reservation:1:10:20000');
+});
 test('row overflow keeps exact totals but does not evaluate partial inventory',()=>{
   const input=fixture(); input.exceeded=['work']; input.counts.work='10001';
   const report=buildResourceInventoryReport(input);
@@ -159,6 +189,21 @@ test('real PostgreSQL scoped inventory, reconciliation, authorization and read b
       assert.equal((await pool.query('SELECT state FROM resource_ledger_reservations')).rows[0].state,'converted');
       await assert.rejects(pool.query('UPDATE location_resource_pools SET tracking_enabled=true WHERE id=100'),/resource_pools_tracking_disabled_check/);
       await assert.rejects(pool.query('UPDATE resource_ledger_scopes SET writer_coverage_complete=true'),/resource_ledger_coverage_disabled_check/);
+    });
+    await t.test('recoverable skipped work, plan and active segment remain inventoried',async()=>{
+      await pool.query(`INSERT INTO tickets(id,tenant_id,location_id,status,join_channel,current_queue_day_id) VALUES(7,1,10,'skipped','vendor',7);
+        INSERT INTO ticket_service_plans(ticket_id,tenant_id,location_id,source,execution_mode,items) VALUES(7,1,10,'staff_selection','parallel','[]');
+        INSERT INTO queue_days(id,tenant_id,location_id,business_date,state,version,deadline_version) VALUES(7,1,10,current_date,'closed',1,1);
+        INSERT INTO queue_ticket_segments(id,ticket_id,queue_day_id,sequence,priority_band,activated_at,legacy_inferred) VALUES(7,7,7,1,'recovery',now(),false);`);
+      const report=await read()(input());
+      assert.equal(report.counts.work,'3');
+      const work=report.inventory.work.find(i=>i.workRef.endsWith(':7'));
+      assert.equal(work.queueStatus,'skipped'); assert.ok(work.plan);
+      assert.ok(report.inventory.segments.some(i=>i.workRef.endsWith(':7')));
+      await pool.query('DELETE FROM queue_ticket_segments WHERE id=7');
+      await pool.query('DELETE FROM queue_days WHERE id=7');
+      await pool.query('DELETE FROM ticket_service_plans WHERE ticket_id=7');
+      await pool.query('DELETE FROM tickets WHERE id=7');
     });
     await t.test('ledger overlap loads mismatched source item even outside source window',async()=>{
       await pool.query(`INSERT INTO bookings VALUES(6,1,10,'confirmed',NULL,NULL,now()+interval '2 hours',now()+interval '3 hours',NULL);

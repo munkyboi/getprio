@@ -45,6 +45,13 @@ function buildResourceInventoryReport({ reportVersion, scope, window, observedAt
   const allocationByWork = new Map(data.allocations.map(row => [row.ticket_id, row]));
   const allocationByBinding = new Map(data.allocations.filter(row => row.reservation_id).map(row => [row.reservation_id, row]));
   const bindingById = new Map(data.bindings.map(row => [row.id, row]));
+  const liveBindingsByItem = new Map();
+  for (const binding of data.bindings) {
+    if (!['protected','converted'].includes(binding.state)) continue;
+    const group = liveBindingsByItem.get(binding.booking_item_id) || [];
+    group.push(binding);
+    liveBindingsByItem.set(binding.booking_item_id,group);
+  }
   const now = Date.parse(observedAt), from = Date.parse(window.from), to = Date.parse(window.to);
   const overlaps = row => {
     if (typeof row.overlaps_window === 'boolean') return row.overlaps_window;
@@ -112,6 +119,14 @@ function buildResourceInventoryReport({ reportVersion, scope, window, observedAt
     if (!time(row.expected_end_at)) finding('allocation_expected_end_unknown','allocation',allocationRef,'forecast_support_gap');
     else if (Date.parse(time(row.expected_end_at)) <= now) finding('allocation_expected_end_overdue','allocation',allocationRef,'forecast_support_gap');
     if (row.reservation_id && (!binding || binding.state !== 'converted' || binding.pool_id !== row.pool_id || binding.units !== row.units)) finding('allocation_conversion_mismatch','allocation',allocationRef);
+    if (work?.plan_source === 'booking') {
+      const capturedItemIds = capturedItems.map(item => id(item?.bookingItemId)).filter(Boolean);
+      if (!row.reservation_id || !binding || (capturedItemIds.length && !capturedItemIds.includes(binding.booking_item_id))
+        || (work.booking_id && binding.booking_id !== work.booking_id))
+        finding('allocation_booking_conversion_lineage_mismatch','allocation',allocationRef);
+      if (!capturedItemIds.length || !work.booking_id)
+        finding('captured_booking_lineage_unknown','allocation',allocationRef,'evidence_gap');
+    }
   }
   for (const row of data.bindings) {
     const entry = { reservationRef: reference('reservation',row.id), bookingItemRef: reference('booking_item',row.booking_item_id), poolRef: reference('pool',row.pool_id),
@@ -123,7 +138,7 @@ function buildResourceInventoryReport({ reportVersion, scope, window, observedAt
   }
   for (const row of data.bookingItems) {
     const bookingItemRef = reference('booking_item',row.id), mapping = mappingByService.get(row.service_id);
-    const bindings = data.bindings.filter(binding => binding.booking_item_id === row.id && ['protected','converted'].includes(binding.state));
+    const bindings = liveBindingsByItem.get(row.id) || [];
     const start = time(row.scheduled_start_at), end = time(row.scheduled_end_at);
     const expired = row.pending_expired === true;
     const active = ['pending','confirmed','rescheduled'].includes(row.booking_status) && !expired && row.interval_not_elapsed === true;

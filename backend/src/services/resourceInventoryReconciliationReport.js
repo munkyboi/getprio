@@ -44,9 +44,10 @@ function createResourceInventoryReconciliationReport({ pool, sourceBinding, auth
     if (to <= from || to-from > 480*60000) fail('invalid_resource_report_window');
     const window = { from: new Date(from).toISOString(), to: new Date(to).toISOString(), horizonCompletenessAttested: false };
     const params = [scope.tenantId, scope.locationId, window.from, window.to];
-    const client = await pool.connect();
+    let client;
     let observedAt = null, authorized = false;
     try {
+      client = await pool.connect();
       await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
       await client.query("SELECT set_config('statement_timeout',$1,TRUE),set_config('lock_timeout',$2,TRUE)", [`${statementTimeoutMs}ms`,`${lockTimeoutMs}ms`]);
       const observation = (await client.query("SELECT transaction_timestamp() AS observed_at,(EXTRACT(EPOCH FROM transaction_timestamp())*1000000)::bigint::text AS observed_at_us,current_setting('transaction_read_only') AS read_only,current_setting('transaction_isolation') AS isolation")).rows[0];
@@ -88,13 +89,13 @@ function createResourceInventoryReconciliationReport({ pool, sourceBinding, auth
       result.completedAt = new Date().toISOString();
       return freeze(result);
     } catch (error) {
-      await client.query('ROLLBACK');
+      if (client) await client.query('ROLLBACK').catch(() => {});
       if (['invalid_resource_report_window','resource_report_scope_access_denied','resource_report_location_not_found'].includes(error.code)) throw error;
       if (authorized && ['42P01','42703','57014','55P03'].includes(error.code)) {
         return freeze(unavailable(scope,window,observedAt,['57014','55P03'].includes(error.code) ? 'resource_report_read_timeout' : 'resource_report_storage_unavailable'));
       }
       fail(authorized ? 'resource_report_read_failed' : 'resource_report_authorization_unavailable',503);
-    } finally { client.release(); }
+    } finally { client?.release(); }
   };
 }
 module.exports = { createResourceInventoryReconciliationReport, REPORT_VERSION, MAX_BYTES };

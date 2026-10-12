@@ -18,7 +18,7 @@ The limits bound individual reads and returned bytes; they are not a hard whole-
 
 ## Retained source facts
 
-- Work includes waiting, called, pending carry-over, explicit timing-open tickets and every ticket with an unreleased allocation across queue dates, independent of customer claim.
+- Work includes waiting, called, recoverable skipped, pending carry-over, explicit timing-open tickets and every ticket with an unreleased allocation across queue dates, independent of customer claim.
 - All unreleased allocations remain held, including overdue expected ends. Unknown ends in legacy input remain unknown. Expected end never releases capacity.
 - Underlying booking items overlapping the window and those linked to inventoried work/held allocations are reconciled even when there are zero ledger reservations. Pending expiry is classified without writing expiry.
 - Window-overlapping unconverted protection is distinct from linked bindings outside the window and converted bindings. Converted protections never count twice as reserved capacity. Released historical allocations still satisfy historical conversion evidence.

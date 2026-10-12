@@ -7,7 +7,7 @@ const CONTEXT = `WITH scope_tickets AS MATERIALIZED (
 ), held_allocations AS MATERIALIZED (
   SELECT * FROM resource_allocations WHERE tenant_id=$1 AND location_id=$2 AND released_at IS NULL
 ), work_scope AS MATERIALIZED (
-  SELECT t.* FROM scope_tickets t WHERE t.status IN ('waiting','called','pending_carry_over')
+  SELECT t.* FROM scope_tickets t WHERE t.status IN ('waiting','called','skipped','pending_carry_over')
     OR (t.service_started_at IS NOT NULL AND t.service_ended_at IS NULL)
     OR EXISTS (SELECT 1 FROM held_allocations a WHERE a.ticket_id=t.id)
 ), linked_bookings AS (
