@@ -1,4 +1,6 @@
 const { COLLECTIONS, CONTEXT, COUNTS } = require('./resourceInventoryReportQueries');
+const { SOURCE_CONTEXT, SOURCE_COLLECTIONS, SOURCE_COUNTS } = require('./resourceSourceAssessmentQueries');
+const { buildSourceAssessmentResponse } = require('./resourceSourceAssessmentAnalysis');
 const { buildResourceInventoryReport } = require('./resourceInventoryReportAnalysis');
 const REPORT_VERSION = 'resource-inventory-reconciliation-report-v1';
 const MAX_BYTES = 2 * 1024 * 1024;
@@ -25,14 +27,29 @@ function unavailable(scope, window, observedAt, reason) {
     forecastSupport: 'not_assessed', historicalRepairPerformed: false, customerEstimateChanged: false };
 }
 function createResourceInventoryReconciliationReport({ pool, sourceBinding, authorize,
-  statementTimeoutMs = 1000, lockTimeoutMs = 100, maximumBytes = MAX_BYTES, limits = {} }) {
-  if (!pool || typeof pool.connect !== 'function' || typeof authorize !== 'function'
+  statementTimeoutMs = 1000, lockTimeoutMs = 100, maximumBytes = MAX_BYTES, limits = {}, includeSourceAssessment = false }) {
+  const collections = includeSourceAssessment ? SOURCE_COLLECTIONS : COLLECTIONS;
+  const context = includeSourceAssessment ? SOURCE_CONTEXT : CONTEXT;
+  const countsQuery = includeSourceAssessment ? SOURCE_COUNTS : COUNTS;
+  const response = (report,data,observedAtUs) => includeSourceAssessment ? buildSourceAssessmentResponse(report,data,observedAtUs) : report;
+  async function freshAuthorize(client,scope) {
+    try {
+      await client.query('BEGIN READ ONLY');
+      await client.query("SELECT set_config('statement_timeout',$1,TRUE),set_config('lock_timeout',$2,TRUE)", [`${statementTimeoutMs}ms`,`${lockTimeoutMs}ms`]);
+      if (await authorize(client,scope) !== true) fail('resource_report_scope_access_denied',403);
+      if ((await client.query('COMMIT')).command !== 'COMMIT') fail('resource_report_not_committed',503);
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw error;
+    }
+  }
+  if (typeof includeSourceAssessment !== 'boolean' || !pool || typeof pool.connect !== 'function' || typeof authorize !== 'function'
     || typeof sourceBinding !== 'string' || !sourceBinding.trim() || sourceBinding.length > 160
     || !Number.isSafeInteger(statementTimeoutMs) || statementTimeoutMs < 1 || statementTimeoutMs > 1000
     || !Number.isSafeInteger(lockTimeoutMs) || lockTimeoutMs < 1 || lockTimeoutMs > 1000
     || !Number.isSafeInteger(maximumBytes) || maximumBytes < 4096 || maximumBytes > MAX_BYTES
-    || Object.keys(limits).some(key => !Object.hasOwn(COLLECTIONS, key))) fail('invalid_resource_report_configuration');
-  const bounds = Object.fromEntries(Object.entries(COLLECTIONS).map(([name, collection]) => {
+    || Object.keys(limits).some(key => !Object.hasOwn(collections, key))) fail('invalid_resource_report_configuration');
+  const bounds = Object.fromEntries(Object.entries(collections).map(([name, collection]) => {
     const limit = limits[name] ?? collection.maximum;
     if (!Number.isSafeInteger(limit) || limit < 1 || limit > collection.maximum) fail('invalid_resource_report_configuration');
     return [name, limit];
@@ -45,7 +62,7 @@ function createResourceInventoryReconciliationReport({ pool, sourceBinding, auth
     const window = { from: new Date(from).toISOString(), to: new Date(to).toISOString(), horizonCompletenessAttested: false };
     const params = [scope.tenantId, scope.locationId, window.from, window.to];
     let client;
-    let observedAt = null, authorized = false;
+    let observedAt = null, observedAtUs = null, authorized = false;
     try {
       client = await pool.connect();
       await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
@@ -55,26 +72,29 @@ function createResourceInventoryReconciliationReport({ pool, sourceBinding, auth
       if (await authorize(client, scope) !== true) fail('resource_report_scope_access_denied', 403);
       authorized = true;
       observedAt = observation.observed_at.toISOString();
+      observedAtUs = observation.observed_at_us;
       if (BigInt(from)*1000n > BigInt(observation.observed_at_us) || BigInt(to)*1000n <= BigInt(observation.observed_at_us)) fail('invalid_resource_report_window');
       if (!(await client.query('SELECT id FROM store_locations WHERE tenant_id=$1 AND id=$2', params.slice(0,2))).rows.length) fail('resource_report_location_not_found',404);
       const ledger = (await client.query('SELECT revision::text,writer_coverage_complete FROM resource_ledger_scopes WHERE tenant_id=$1 AND location_id=$2',params.slice(0,2))).rows[0] || null;
-      const counts = (await client.query(COUNTS, params)).rows[0];
+      const counts = (await client.query(countsQuery, params)).rows[0];
       if (!counts || Object.values(counts).some(value => typeof value !== 'string' || !/^\d+$/.test(value))) fail('resource_report_counts_unavailable',503);
       const exceeded = Object.entries(bounds).filter(([name, limit]) => BigInt(counts[name]) > BigInt(limit)).map(([name]) => name);
       const data = {};
       if (!exceeded.length) {
-        for (const [name, collection] of Object.entries(COLLECTIONS)) {
-          const rows = (await client.query(`${CONTEXT} ${collection.rows} LIMIT $5`, [...params,bounds[name]+1])).rows;
+        for (const [name, collection] of Object.entries(collections)) {
+          const rows = (await client.query(`${context} ${collection.rows} LIMIT $5`, [...params,bounds[name]+1])).rows;
           if (BigInt(rows.length) !== BigInt(counts[name])) fail('resource_report_counts_inconsistent',503);
           data[name] = rows;
         }
       }
-      const result = buildResourceInventoryReport({ reportVersion: REPORT_VERSION, scope, window, observedAt, observedAtUs: observation.observed_at_us, ledger, counts, data, exceeded, bounds });
-      result.completedAt = new Date().toISOString();
+      const report = buildResourceInventoryReport({ reportVersion: REPORT_VERSION, scope, window, observedAt, observedAtUs: observation.observed_at_us, ledger, counts, data, exceeded, bounds });
+      report.completedAt = new Date().toISOString();
+      const result = response(report,data,observedAtUs);
       if (Buffer.byteLength(JSON.stringify(result),'utf8') > maximumBytes) {
-        result.scanStatus = 'byte_limit_exceeded'; result.inventory = null;
-        result.findings = { status: 'not_returned_due_byte_limit', counts: null, examples: [] };
-        result.blockers = [...new Set([...result.blockers,'report_byte_limit_exceeded'])];
+        result.scanStatus = 'byte_limit_exceeded'; report.scanStatus = 'byte_limit_exceeded'; report.inventory = null;
+        if (includeSourceAssessment) result.sourceAssessment = null;
+        report.findings = { status: 'not_returned_due_byte_limit', counts: null, examples: [] };
+        report.blockers = [...new Set([...report.blockers,'report_byte_limit_exceeded'])];
       }
       if (Buffer.byteLength(JSON.stringify(result),'utf8') > maximumBytes) fail('resource_report_byte_limit_exceeded',503);
       const completion = await client.query('COMMIT');
@@ -82,17 +102,23 @@ function createResourceInventoryReconciliationReport({ pool, sourceBinding, auth
       // A repeatable-read snapshot cannot see a later grant revocation. Check
       // current access again in a separate bounded, read-only auth transaction.
       // This never refreshes the inventory observation or its revision facts.
-      await client.query('BEGIN READ ONLY');
-      await client.query("SELECT set_config('statement_timeout',$1,TRUE),set_config('lock_timeout',$2,TRUE)", [`${statementTimeoutMs}ms`,`${lockTimeoutMs}ms`]);
-      if (await authorize(client, scope) !== true) fail('resource_report_scope_access_denied',403);
-      if ((await client.query('COMMIT')).command !== 'COMMIT') fail('resource_report_not_committed',503);
+      await freshAuthorize(client,scope);
       result.completedAt = new Date().toISOString();
+      report.completedAt = result.completedAt;
       return freeze(result);
     } catch (error) {
       if (client) await client.query('ROLLBACK').catch(() => {});
       if (['invalid_resource_report_window','resource_report_scope_access_denied','resource_report_location_not_found'].includes(error.code)) throw error;
       if (authorized && ['42P01','42703','57014','55P03'].includes(error.code)) {
-        return freeze(unavailable(scope,window,observedAt,['57014','55P03'].includes(error.code) ? 'resource_report_read_timeout' : 'resource_report_storage_unavailable'));
+        // Assessment has no Platform wrapper: even failure returns need current access.
+        if (includeSourceAssessment) {
+          try { await freshAuthorize(client,scope); }
+          catch (checkpoint) {
+            if (checkpoint.code === 'resource_report_scope_access_denied') throw checkpoint;
+            fail('resource_report_authorization_unavailable',503);
+          }
+        }
+        return freeze(response(unavailable(scope,window,observedAt,['57014','55P03'].includes(error.code) ? 'resource_report_read_timeout' : 'resource_report_storage_unavailable'),undefined,observedAtUs));
       }
       fail(authorized ? 'resource_report_read_failed' : 'resource_report_authorization_unavailable',503);
     } finally { client?.release(); }
