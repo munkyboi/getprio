@@ -86,6 +86,7 @@ router.post("/release-readiness/evidence", asyncHandler(async (req, res) => {
 }));
 
 router.use(authenticate);
+router.use('/ai-inference', require('./platformAiInferenceRoutes'));
 
 router.get("/help-center", requirePlatformPermission("platform.help_center.manage"), asyncHandler(async (_req, res) => {
   res.setHeader("Cache-Control", "no-store");

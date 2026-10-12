@@ -17,6 +17,8 @@ test("permissions helpers resolve tenant roles, ignore inactive memberships, and
     "account.change_password",
     "account.read_self",
     "platform.account_deletion.manage",
+    "platform.ai_inference.manage",
+    "platform.ai_inference.read",
     "platform.billing.manage",
     "platform.billing.read",
     "platform.capacity.read",

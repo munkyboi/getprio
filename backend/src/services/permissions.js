@@ -3,6 +3,8 @@ const PLATFORM_PERMISSIONS = {
     "platform.release_readiness.read"
   ]),
   platform_admin: new Set([
+    "platform.ai_inference.read",
+    "platform.ai_inference.manage",
     "platform.tenants.read",
     "platform.release_readiness.read",
     "platform.users.read",

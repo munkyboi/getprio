@@ -52,6 +52,7 @@ import { PlatformAccountSettings } from "@/components/platform-account-settings"
 import { PlanMatrix } from "@/components/plan-matrix"
 import { PlatformHelpCenterManager } from "@/components/platform-help-center"
 import { PlatformSettingsEditor } from "@/components/platform-settings-editor"
+import { PlatformAiInference } from "@/components/platform-ai-inference"
 import { PlatformLogin } from "@/components/platform-login"
 import { platformAuth } from "@/lib/platform-auth"
 import { platformApi } from "@/lib/platform-api"
@@ -105,7 +106,7 @@ function formatReferenceRowIdentity(rowIdentity?: Record<string, string | null>)
 }
 
 const navGroups: Array<{ label: string; items: NavItem[] }> = [
-  { label: "Workspace", items: [{ label: "Overview", icon: LayoutDashboard, capability: "platform.tenants.read" }] },
+  { label: "Workspace", items: [{ label: "Overview", icon: LayoutDashboard, capability: "platform.tenants.read" }, { label: "AI Inference", icon: Activity, capability: "platform.ai_inference.read" }] },
   { label: "Operations", items: [{ label: "Queues & recovery", icon: ListChecks, capability: "platform.tenants.read" }, { label: "Tenants", icon: DatabaseZap, capability: "platform.tenants.read" }, { label: "Users", icon: Users, capability: "platform.users.read" }, { label: "Service health", icon: Activity, capability: "platform.tenants.read" }] },
   { label: "Governance", items: [{ label: "Developer projects", icon: Code2, capability: "platform.developer_api.manage" }, { label: "Plan Matrix", icon: Settings2, capability: "platform.billing.read" }, { label: "Billing & credits", icon: CircleDollarSign, capability: "platform.billing.read" }, { label: "Moderation", icon: ShieldCheck, capability: "platform.users.read" }] },
   { label: "Trust", items: [{ label: "Release readiness", icon: Rocket, capability: "platform.release_readiness.read" }, { label: "Security audit", icon: FileSearch, capability: "platform.security_audit.read" }, { label: "Help Center", icon: BookOpenText, capability: "platform.help_center.manage", route: "Help Center / Overview", subItems: [{ label: "Overview", route: "Help Center / Overview" }, { label: "Topics", route: "Help Center / Topics" }, { label: "Guides", route: "Help Center / Guides" }, { label: "FAQs", route: "Help Center / FAQs" }] }, { label: "Settings", icon: Settings2, capability: "platform.settings.manage" }] },
@@ -124,6 +125,7 @@ const routePathByLabel: Record<string, string> = {
   "Plan Matrix": "/plans",
   Moderation: "/moderation",
   "Release readiness": "/release-readiness",
+  "AI Inference": "/ai-inference",
   "Security audit": "/security-audit",
   "Help Center / Overview": "/help-center",
   "Help Center / Topics": "/help-center/topics",
@@ -1854,7 +1856,8 @@ function App() {
           </header>
           <main className="min-w-0 flex-1 p-4 md:p-6 lg:p-8">
             <div className="mx-auto max-w-[1440px]">
-              {activeRoute === "My account" ? <PlatformAccountSettings live={usesLiveData} onPasswordChanged={() => { setAuthStatus("signed-out"); setViewer(null) }} onSessionExpired={handleAccountSessionExpired} />
+              {activeRoute === "AI Inference" ? <PlatformAiInference live={usesLiveData} canRead={availableCapabilities.has('platform.ai_inference.read')} canManage={availableCapabilities.has('platform.ai_inference.manage')} />
+                : activeRoute === "My account" ? <PlatformAccountSettings live={usesLiveData} onPasswordChanged={() => { setAuthStatus("signed-out"); setViewer(null) }} onSessionExpired={handleAccountSessionExpired} />
                 : isHelpCenterRoute && viewer && availableCapabilities.has("platform.help_center.manage") ? <PlatformHelpCenterManager page={activeRoute.replace("Help Center / ", "").toLowerCase() as "overview" | "topics" | "guides" | "faqs"} onNavigate={(page) => navigate(`Help Center / ${page[0].toUpperCase()}${page.slice(1)}`)} />
                   : error ? <Alert variant="destructive"><AlertTriangle /><AlertTitle>Platform unavailable</AlertTitle><AlertDescription>{error}</AlertDescription></Alert>
                     : overview && viewer && serviceHealth && queueOperations && tenants && releaseReadiness

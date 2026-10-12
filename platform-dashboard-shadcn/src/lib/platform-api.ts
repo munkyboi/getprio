@@ -40,6 +40,7 @@ import type { QueueFeeSetting, SubscriptionPlan } from "../../../shared/types"
 import helpCenterSeed from "../../../shared/helpCenterSeed.json"
 import { platformAuth } from "@/lib/platform-auth"
 import { resolvePlatformApiBaseUrl } from "@/lib/platform-api-url"
+import type { AiInferenceApi, AiStatus } from "@/lib/ai-inference-contracts"
 
 const API_BASE_URL = resolvePlatformApiBaseUrl(import.meta.env.VITE_API_URL, window.location.hostname, import.meta.env.DEV)
 
@@ -332,6 +333,7 @@ const releaseReadiness: PlatformReleaseReadinessReadModel = {
 }
 
 const fixtureCapabilities = [
+  "platform.ai_inference.read",
   "platform.help_center.manage",
   "platform.tenants.read",
   "platform.queue_lifecycle.read",
@@ -963,3 +965,17 @@ function createHttpPlatformApi(baseUrl = API_BASE_URL): PlatformApi {
 
 export const httpPlatformApi = createHttpPlatformApi()
 export const platformApi: PlatformApi = import.meta.env.VITE_PLATFORM_DATA_SOURCE === "live" ? httpPlatformApi : fixturePlatformApi
+
+async function readAi<T>(path: string): Promise<T> {
+  const response = await fetchWithSessionRefresh(() => fetch(`${API_BASE_URL}${path}`, { credentials: 'include', cache: 'no-store', headers: { Accept: 'application/json' } }))
+  const payload = await response.json()
+  if (!response.ok) throw Object.assign(new Error(payload.message || 'AI controls are unavailable.'), { status: response.status })
+  return payload as T
+}
+export const aiInferenceApi: AiInferenceApi = {
+  read: () => readAi<AiStatus>('/platform/ai-inference'),
+  searchScopes: query => readAi(`/platform/ai-inference/scopes?q=${encodeURIComponent(query)}`),
+  preview: (policy, reason) => writePlatform(API_BASE_URL, '/platform/ai-inference/preview', { policy, reason }, crypto.randomUUID()),
+  save: (preview, reason, operationKey) => writePlatform(API_BASE_URL, '/platform/ai-inference/policy',
+    { policy: preview.policy, reason, expectedRevision: preview.revision }, operationKey, 'POST', { 'X-Transaction-Confirmation': preview.confirmation.token }),
+}
