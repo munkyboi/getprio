@@ -276,6 +276,11 @@ export function ResourceReportView({ report }: { report: ResourceReport }) {
     </section>
   );
 }
+function failureStatus(cause: unknown) {
+  return cause && typeof cause === "object" && "status" in cause
+    ? Number(cause.status)
+    : null;
+}
 export function PlatformResourceInventory({
   live,
   canRead,
@@ -329,10 +334,7 @@ export function PlatformResourceInventory({
       await operation();
     } catch (cause) {
       if (request !== generation.current) return;
-      const status =
-        cause && typeof cause === "object" && "status" in cause
-          ? Number(cause.status)
-          : null;
+      const status = failureStatus(cause);
       if (status === 401 || status === 403) {
         setRevoked(true);
         setScopes([]);
