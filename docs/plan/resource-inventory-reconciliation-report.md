@@ -4,7 +4,7 @@ Refs [AI Wait-Time Prediction #378](https://github.com/munkyboi/getprio/issues/3
 
 ## Boundary
 
-`createResourceInventoryReconciliationReport({ pool, sourceBinding, authorize })` returns `readReport({ tenantId, locationId, windowFrom, windowTo })`. The caller supplies an explicit trusted pool and source binding, and an authorizer that queries current server-side authority for the exact tenant/location. There is no application pool import, HTTP route, public serializer, production invocation, dataset export or producer integration in this slice.
+`createResourceInventoryReconciliationReport({ pool, sourceBinding, authorize })` returns `readReport({ tenantId, locationId, windowFrom, windowTo })`. The internal module retains no application pool import. The Platform Admin adapter supplies the application pool, fixed source binding and trusted scope authorizer. The read-only HTTP/view integration described below does not provide dataset export or producer integration.
 
 The version is `resource-inventory-reconciliation-report-v1`, distinct from the accepted forecast snapshot contract. Every result keeps `readiness: not_ready`, `snapshot: null`, and `authoritativeInventoryComplete: false`. A successful scan means bounded source rows were read coherently; it cannot be passed as a ready snapshot. Resource tracking and writer coverage remain constrained to false. The existing operational producer is unchanged.
 
@@ -35,7 +35,19 @@ At most 32 finding examples are returned. `examplesComplete` distinguishes these
 
 Default output excludes customer names, contacts, user identities, notes, payment proof keys, lookup codes, arbitrary plan JSON and auth material. Qualified stable work/session/booking-item identifiers and timestamps remain linkable private transactional data. Access must be role-scoped; this report gives no capture, export, anonymization, repair or retention approval.
 
-## Verification
+## Platform Admin operator view
+
+The AI Inference page includes a private **Resource inventory and reconciliation** card. Search for a vendor/location, select the exact branch, review the explicit UTC window (at most eight hours, containing the database observation), then load manually. There is no polling or automatic report load. Changing search, scope or window clears the result; late responses cannot overwrite a newer request. A new request is needed to refresh evidence. Displayed timestamps retain millisecond precision; capacity checks use internal PostgreSQL microseconds.
+
+`GET /platform/resource-inventory/scopes?q=...` returns at most 50 named location choices. `GET /platform/resource-inventory/report?tenantId=...&locationId=...&windowFrom=...&windowTo=...` accepts only these scalar fields. Repeated parameters, unknown fields and client-supplied limits/configuration are rejected. Both endpoints set `Cache-Control: no-store` and require `platform.resource_inventory.read`, assigned only to Platform Admin; release observers, vendors and customers are excluded.
+
+The adapter queries current database role, deletion/suspension, MFA enrollment, session ownership/surface/status/MFA and all session expiry deadlines. Exact tenant/location existence is checked at observation and fresh authorization checkpoints. An additional bounded read-only checkpoint covers unavailable results too. These checks detect revocation visible at the checkpoint; they do not hold authority locks through HTTP delivery. Connection/read failures are sanitized.
+
+The view preserves exact decimal counts, unavailable/null values, row/byte suppression and at most 32 finding examples. Details are opened manually and paginated in groups of 25; released conversion history stays separate from held allocations. Complete scans remain `not_ready`; no available-capacity forecast, tracking activation, repair, export, capture or customer estimate change is provided. Stable IDs and timestamps remain private linkable operational data.
+
+The adapter tests cover fresh authorization, cross-scope rejection, forbidden query shapes, missing storage, bounded search and revocation during unavailable report delivery. The dashboard tests and local browser fixture cover complete/unavailable/limit rendering, UTC validation, scope/window changes, late requests, access expiry, responsive layouts and both themes. Local fixtures make no production requests. Deployment and a live scoped report invocation are separate verification steps.
+
+## Verification commands
 
 `backend/tests/resourceInventoryReport.test.cjs` covers unsupported/missing plans, sanitization, unknown/overdue held occupancy, count overflow and input validation. Real PostgreSQL cases use an explicit disposable loopback database and the official pool/ledger migrations with disabled constraints preserved. Cases verify unbound underlying booking demand, expired pending items, linked conversion outside the window, historical explicit-start gaps, exact scope, read-only execution, repeatable-read coherence, grant revocation, row/byte overflow and count-query lock timeout.
 

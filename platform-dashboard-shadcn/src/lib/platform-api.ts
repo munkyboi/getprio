@@ -41,6 +41,7 @@ import helpCenterSeed from "../../../shared/helpCenterSeed.json"
 import { platformAuth } from "@/lib/platform-auth"
 import { resolvePlatformApiBaseUrl } from "@/lib/platform-api-url"
 import type { AiInferenceApi, AiStatus } from "@/lib/ai-inference-contracts"
+import type { ResourceInventoryApi } from "@/lib/resource-inventory-contracts"
 
 const API_BASE_URL = resolvePlatformApiBaseUrl(import.meta.env.VITE_API_URL, window.location.hostname, import.meta.env.DEV)
 
@@ -978,4 +979,8 @@ export const aiInferenceApi: AiInferenceApi = {
   preview: (policy, reason) => writePlatform(API_BASE_URL, '/platform/ai-inference/preview', { policy, reason }, crypto.randomUUID()),
   save: (preview, reason, operationKey) => writePlatform(API_BASE_URL, '/platform/ai-inference/policy',
     { policy: preview.policy, reason, expectedRevision: preview.revision }, operationKey, 'POST', { 'X-Transaction-Confirmation': preview.confirmation.token }),
+}
+export const resourceInventoryApi: ResourceInventoryApi = {
+  searchScopes: query => readAi(`/platform/resource-inventory/scopes?q=${encodeURIComponent(query)}`),
+  read: input => readAi(`/platform/resource-inventory/report?${new URLSearchParams(input).toString()}`),
 }

@@ -101,7 +101,23 @@ The policy boundary is designed to reject old results after a disable or policy 
 | **Privacy approval: not recorded** | The required resource capture privacy approval has not been recorded. A mode change does not supply it. |
 | **Forecast support, latency, errors and last evidence: not collected** | These measurements are unavailable. This does not mean zero errors, zero latency or successful forecasts. |
 
-The page shows sanitized policy/readiness metadata. It does not expose customer identities, raw resource inventory, model artifacts or provider credentials.
+The page shows sanitized policy/readiness metadata and a private read-only resource evidence view. It does not expose customer identities, unsanitized source rows, model artifacts or provider credentials.
+
+## Resource inventory and reconciliation
+
+Platform Admins with `platform.resource_inventory.read` can use this separate card to inspect a specific vendor branch. Search the business or location name, select the exact location (with tenant/location IDs), review the UTC window and choose **Load resource report**. The window must span no more than eight hours and contain the server's observation time. **Reset window around now** provides an initial window based on your browser clock; the server validates it independently.
+
+Reports load manually. Search, location or window changes clear previous results; session expiry or access revocation clears private evidence. Check the displayed vendor/location, observed time and scan status before interpreting counts. Completion time is not a new observation, and reports do not automatically refresh.
+
+- **Complete** means the bounded source scan completed. Readiness remains **Not ready**.
+- **Unavailable** means counts and details could not be assessed; it does not mean zero demand or zero issues.
+- **Row limit exceeded** preserves exact source counts and suppresses all inventory/finding evaluation.
+- **Byte limit exceeded** suppresses inventory and finding counts. Source counts remain exact if available.
+- Finding counts and classifications are separate from the **at most 32 examples**. Examples can omit counted issues.
+
+Open a collection to inspect details, with 25 records per page. Current held allocations and released conversion history are separate; an expected end never releases capacity. Unknown fields remain unknown. Timestamp display uses milliseconds; internal capacity comparisons use PostgreSQL microseconds.
+
+This view performs no historical repair, tracking activation, inference activation, capture or export. Customer estimates remain unchanged. Stable IDs and timestamps are private linkable operational data. See the [report contract and access boundary](../plan/resource-inventory-reconciliation-report.md).
 
 ## Troubleshooting
 

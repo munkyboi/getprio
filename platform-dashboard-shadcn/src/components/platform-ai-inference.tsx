@@ -34,6 +34,7 @@ import {
 } from "@/components/ui/select"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { aiInferenceApi } from "@/lib/platform-api"
+import { PlatformResourceInventory } from "@/components/platform-resource-inventory"
 import type {
   AiInferenceApi,
   AiMode,
@@ -64,12 +65,14 @@ export function PlatformAiInference({
   live,
   canRead,
   canManage,
+  canReadResources = false,
   onSessionExpired,
   api = aiInferenceApi
 }: {
   live: boolean
   canRead: boolean
   canManage: boolean
+  canReadResources?: boolean
   onSessionExpired: () => void
   api?: AiInferenceApi
 }) {
@@ -708,6 +711,7 @@ export function PlatformAiInference({
               </p>
             </CardContent>
           </Card>
+          <PlatformResourceInventory live={live} canRead={canReadResources} onSessionExpired={onSessionExpired} />
         </>
       ) : null}
     </div>
