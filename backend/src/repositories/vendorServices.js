@@ -10,6 +10,8 @@ const SERVICE_COLUMNS = `
   image_url,
   allow_booking_quantity,
   booking_quantity_label,
+  booking_quantity_min,
+  booking_quantity_max,
   manual_payment_required,
   booking_capacity_scope,
   price_amount_cents,
@@ -65,6 +67,8 @@ function mapVendorService(row) {
     imageUrl: row.image_url || "",
     allowBookingQuantity: Boolean(row.allow_booking_quantity),
     bookingQuantityLabel: row.booking_quantity_label || "Units",
+    bookingQuantityMin: Number(row.booking_quantity_min ?? 1),
+    bookingQuantityMax: Number(row.booking_quantity_max ?? 24),
     manualPaymentRequired: Boolean(row.manual_payment_required),
     bookingCapacityScope: row.booking_capacity_scope || "service",
     priceAmountCents: Number(row.price_amount_cents),
@@ -157,6 +161,8 @@ async function createService(data, options = {}) {
         image_url,
         allow_booking_quantity,
         booking_quantity_label,
+        booking_quantity_min,
+        booking_quantity_max,
         manual_payment_required,
         booking_capacity_scope,
         price_amount_cents,
@@ -165,7 +171,7 @@ async function createService(data, options = {}) {
         is_active,
         sort_order
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
       RETURNING ${SERVICE_COLUMNS}
     `,
     [
@@ -177,6 +183,8 @@ async function createService(data, options = {}) {
       data.imageUrl || null,
       Boolean(data.allowBookingQuantity),
       data.bookingQuantityLabel || "Units",
+      data.bookingQuantityMin ?? 1,
+      data.bookingQuantityMax ?? 24,
       Boolean(data.manualPaymentRequired),
       data.bookingCapacityScope || "service",
       Number(data.priceAmountCents || 0),
@@ -202,6 +210,8 @@ async function updateService(serviceId, changes, options = {}) {
     imageUrl: "image_url",
     allowBookingQuantity: "allow_booking_quantity",
     bookingQuantityLabel: "booking_quantity_label",
+    bookingQuantityMin: "booking_quantity_min",
+    bookingQuantityMax: "booking_quantity_max",
     manualPaymentRequired: "manual_payment_required",
     bookingCapacityScope: "booking_capacity_scope",
     priceAmountCents: "price_amount_cents",

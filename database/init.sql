@@ -993,6 +993,9 @@ CREATE TABLE vendor_services (
   image_url TEXT,
   allow_booking_quantity BOOLEAN NOT NULL DEFAULT FALSE,
   booking_quantity_label TEXT NOT NULL DEFAULT 'Units',
+  booking_quantity_min INTEGER NOT NULL DEFAULT 1,
+  booking_quantity_max INTEGER NOT NULL DEFAULT 24,
+  CONSTRAINT vendor_services_quantity_bounds CHECK (booking_quantity_min BETWEEN 1 AND 24 AND booking_quantity_max BETWEEN booking_quantity_min AND 24),
   manual_payment_required BOOLEAN NOT NULL DEFAULT FALSE,
   booking_capacity_scope TEXT NOT NULL DEFAULT 'service'
     CHECK (booking_capacity_scope IN ('service', 'location')),

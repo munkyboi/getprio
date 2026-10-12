@@ -259,3 +259,17 @@ test("counter slugs normalize punctuation and long separator inputs", () => {
   const result = helpers.buildLocationLinks({_id: "1", slug: "main", queueBoardId: boardId}, {slug: "demo"}, {appBaseUrl: "https://getprio.online/"});
   assert.equal(result.monitorUrl, `https://getprio.online/queue-board/${boardId}`);
 });
+
+test("service duration unit bounds default, preserve partial updates, and reject invalid ranges", () => {
+  const base = {name:"Consultation",durationMinutes:30,allowBookingQuantity:true};
+  assert.equal(helpers.normalizeServicePayload(base).bookingQuantityMin, 1);
+  assert.equal(helpers.normalizeServicePayload(base).bookingQuantityMax, 24);
+  const existing = helpers.normalizeServicePayload({...base,bookingQuantityMin:2,bookingQuantityMax:6});
+  assert.equal(helpers.normalizeServicePayload({name:"Updated"}, existing).bookingQuantityMin, 2);
+  assert.equal(helpers.normalizeServicePayload({name:"Updated"}, existing).bookingQuantityMax, 6);
+  assert.equal(helpers.normalizeServicePayload({bookingQuantityMax:8}, existing).bookingQuantityMin, 2);
+  for (const range of [{bookingQuantityMin:0},{bookingQuantityMax:25},{bookingQuantityMin:1.5},{bookingQuantityMin:null},{bookingQuantityMin:true},{bookingQuantityMin:[2]},{bookingQuantityMin:""},{bookingQuantityMin:7,bookingQuantityMax:6}]) {
+    assert.throws(()=>helpers.normalizeServicePayload({...base,...range}), {statusCode:400});
+  }
+  assert.equal(helpers.formatVendorService({_id:"1",tenantId:"1",...existing}).bookingQuantityMax,6);
+});

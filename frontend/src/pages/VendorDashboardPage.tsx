@@ -1,3 +1,4 @@
+import DurationUnitControls from "../components/DurationUnitControls";
 import { queueBoardReturnPath } from "../utils/queueBoardReturnPath";
 import { counterBlockMessage, selectCounterDispatch } from "../utils/counterDispatch";
 import { QueueBoardScanner, QueueBoardSettings } from "../components/QueueBoardAccess";
@@ -405,6 +406,8 @@ const emptyServiceForm: SaveVendorServiceRequest = {
   imageUrl: "",
   allowBookingQuantity: false,
   bookingQuantityLabel: "Units",
+  bookingQuantityMin: 1,
+  bookingQuantityMax: 24,
   manualPaymentRequired: false,
   bookingCapacityScope: "service",
   priceAmountCents: 0,
@@ -3226,6 +3229,8 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       durationMinutes: service?.durationMinutes || 30,
       allowBookingQuantity: service?.allowBookingQuantity || false,
       bookingQuantityLabel: service?.bookingQuantityLabel || "Units",
+      bookingQuantityMin: service?.bookingQuantityMin ?? 1,
+      bookingQuantityMax: service?.bookingQuantityMax ?? 24,
       manualPaymentRequired: service?.manualPaymentRequired || false,
       bookingCapacityScope: service?.bookingCapacityScope || "service",
       priceAmountCents: service?.priceAmountCents || 0,
@@ -6744,19 +6749,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     }
                   />
                   {serviceForm.allowBookingQuantity ? (
-                    <TextInput
-                      label="Duration unit name"
-                      description="The name customers see when choosing duration units, such as Hours or Sessions."
-                      maxLength={40}
-                      required
-                      value={serviceForm.bookingQuantityLabel || "Units"}
-                      onChange={(event) =>
-                        setServiceForm((current) => ({
-                          ...current,
-                          bookingQuantityLabel: event.target.value
-                        }))
-                      }
-                    />
+                    <DurationUnitControls value={serviceForm} onChange={(changes) => setServiceForm((current) => ({ ...current, ...changes }))} />
                   ) : null}
                   <Select
                     allowDeselect={false}

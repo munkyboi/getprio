@@ -55,7 +55,7 @@ import {
   formatDateInputValue,
   toTimestamp
 } from "../utils/dates";
-import { getMaxBookableHours } from "../utils/availability";
+import { durationUnitBounds, clampDurationUnits, sharedDurationUnitBounds } from "../utils/durationUnits";
 import { getErrorMessage } from "../utils/errors";
 import { showCustomerError, showCustomerSuccess } from "../utils/customerNotifications";
 
@@ -343,17 +343,6 @@ export default function BookingRequestPage() {
     () => locationServices.find((service) => service.slug === selectedServiceSlug) || null,
     [locationServices, selectedServiceSlug]
   );
-  const selectedLocation = useMemo(
-    () => vendor?.locations.find((location) => location.slug === selectedLocationSlug) || null,
-    [selectedLocationSlug, vendor]
-  );
-  const allowBookingQuantity = selectedService?.allowBookingQuantity === true;
-  const maxBookableQuantity = getMaxBookableHours(
-    selectedLocation?.hours || [],
-    new Date(`${bookingDate}T00:00:00`).getDay()
-  );
-  const quantityForRequest = allowBookingQuantity ? bookingQuantity : 1;
-
   const selectedBundleServices = useMemo(() => {
     {
       const selectedSlugs = new Set(selectedBundleServiceSlugs);
@@ -368,22 +357,14 @@ export default function BookingRequestPage() {
     selectedBundleServiceSlugs,
     selectedService
   ]);
+  const synchronizedBounds = useMemo(() => sharedDurationUnitBounds(selectedBundleServices, executionMode), [executionMode, selectedBundleServices]);
+  const shouldSynchronizeTogetherQuantities = synchronizedBounds !== null;
+  const primaryBounds = synchronizedBounds || durationUnitBounds(selectedService);
+  const quantityForRequest = clampDurationUnits(bookingQuantity, primaryBounds);
   const getBundleItemQuantity = useCallback((service: PublicVendorService) => {
-    if (!service.allowBookingQuantity) return 1;
-    if (service.slug === selectedServiceSlug) return bookingQuantity;
-    return bundleQuantities[service.slug] || 1;
-  }, [bookingQuantity, bundleQuantities, selectedServiceSlug]);
-  const shouldSynchronizeTogetherQuantities = useMemo(() => {
-    if (executionMode !== "parallel" || selectedBundleServices.length < 2) {
-      return false;
-    }
-
-    const sharedDuration = selectedBundleServices[0]?.durationMinutes;
-    return selectedBundleServices.every((service) => (
-      service.allowBookingQuantity
-      && service.durationMinutes === sharedDuration
-    ));
-  }, [executionMode, selectedBundleServices]);
+    const bounds = synchronizedBounds || durationUnitBounds(service);
+    return clampDurationUnits(service.slug === selectedServiceSlug ? bookingQuantity : bundleQuantities[service.slug] ?? bounds.min, bounds);
+  }, [bookingQuantity, bundleQuantities, selectedServiceSlug, synchronizedBounds]);
   const bundleAmountCents = selectedBundleServices.reduce((sum, service) => {
     return sum + getServiceLineAmountCents(service, getBundleItemQuantity(service));
   }, 0);
@@ -392,10 +373,8 @@ export default function BookingRequestPage() {
   const isMobileViewport = useMediaQuery("(max-width: 47.99em)");
 
   useEffect(() => {
-    if (!allowBookingQuantity && bookingQuantity !== 1) {
-      setBookingQuantity(1);
-    }
-  }, [allowBookingQuantity, bookingQuantity]);
+    setBookingQuantity((current) => clampDurationUnits(current, { min: primaryBounds.min, max: primaryBounds.max }));
+  }, [primaryBounds.min, primaryBounds.max]);
 
   useEffect(() => {
     if ((!selectedServiceSlug)) {
@@ -407,15 +386,11 @@ export default function BookingRequestPage() {
   }, [selectedServiceSlug]);
 
   useEffect(() => {
-
-  }, [bookingQuantity, maxBookableQuantity]);
-
-  useEffect(() => {
     if (!shouldSynchronizeTogetherQuantities) {
       return;
     }
 
-    const synchronizedQuantity = Math.max(1, Math.min(bookingQuantity, maxBookableQuantity));
+    const synchronizedQuantity = clampDurationUnits(bookingQuantity, synchronizedBounds!);
     if (synchronizedQuantity !== bookingQuantity) {
       setBookingQuantity(synchronizedQuantity);
     }
@@ -433,7 +408,7 @@ export default function BookingRequestPage() {
 
       return changed ? next : current;
     });
-  }, [bookingQuantity, maxBookableQuantity, selectedBundleServices, selectedServiceSlug, shouldSynchronizeTogetherQuantities]);
+  }, [bookingQuantity, synchronizedBounds, selectedBundleServices, selectedServiceSlug, shouldSynchronizeTogetherQuantities]);
 
   const updateServiceQuantity = useCallback((service: PublicVendorService, quantity: number) => {
     setSelectedSlotStartAt("");
@@ -896,6 +871,7 @@ export default function BookingRequestPage() {
                                 const isSelected = selectedBundleServiceSlugs.includes(service.slug);
                                 const quantityLabel = getBookingQuantityLabel(service);
                                 const quantity = getBundleItemQuantity(service);
+                                const bounds = synchronizedBounds || durationUnitBounds(service);
 
                                 return (
                                   <Stack className="booking-bundle-option" gap="xs" key={service.slug}>
@@ -913,17 +889,17 @@ export default function BookingRequestPage() {
                                             {formatBookingQuantityValue(quantity, quantityLabel)}
                                           </Badge>
                                         </Group>
-                                        <Slider
+                                        {bounds.min === bounds.max ? <Text size="xs" c="dimmed">Fixed at {formatBookingQuantityValue(bounds.min, quantityLabel)}.</Text> : <Slider
                                           aria-label={`${service.name} ${quantityLabel}`}
                                           className="booking-value-slider"
                                           disabled={Boolean(otp) || !isSelected}
                                           label={(value) => formatBookingQuantityValue(value, quantityLabel)}
-                                          max={maxBookableQuantity}
-                                          min={1}
+                                          max={bounds.max}
+                                          min={bounds.min}
                                           onChange={(value) => updateServiceQuantity(service, value)}
                                           step={1}
                                           value={quantity}
-                                        />
+                                        />}
                                       </Stack>
                                     ) : null}
                                   </Stack>
@@ -931,7 +907,7 @@ export default function BookingRequestPage() {
                               })}
                             </SimpleGrid>
                           </Checkbox.Group>
-                          <Text c="dimmed" size="sm">Set each selected service&apos;s quantity with its slider. The maximum follows the selected date&apos;s store hours.</Text>
+                          <Text c="dimmed" size="sm">Choose duration units within each service’s limits. Available times follow the selected date’s branch hours.</Text>
                           {selectedBundleServices.length > 1 ? (
                             <Stack gap={4}>
                               <SegmentedControl

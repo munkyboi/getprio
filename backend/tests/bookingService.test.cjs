@@ -2066,3 +2066,24 @@ test("composed catalog loading drains sibling reads before propagating a databas
   finishSibling({ ...service, _id: "other", slug: "other" });
   assert.match((await result).message, /Catalog query failed/);
 });
+
+test("booking slots enforce configured duration unit bounds including fixed quantities", async () => {
+  const service = buildBookingService({serviceOverride:{allowBookingQuantity:true,bookingQuantityMin:2,bookingQuantityMax:4},availability:{blocks:[],exceptions:[]}});
+  const request = {tenantSlug:"demo",locationSlug:"main",serviceSlug:"consultation",date:"2026-07-06"};
+  for (const quantity of [1,5]) {
+    await assert.rejects(service.listBookingSlots({...request,bookingQuantity:quantity}), {statusCode:400,message:"This service requires between 2 and 4 duration units."});
+  }
+  for (const quantity of [2,4]) await service.listBookingSlots({...request,bookingQuantity:quantity});
+  const fixed = buildBookingService({serviceOverride:{allowBookingQuantity:true,bookingQuantityMin:3,bookingQuantityMax:3},availability:{blocks:[],exceptions:[]}});
+  await fixed.listBookingSlots({...request,bookingQuantity:3});
+  await assert.rejects(fixed.listBookingSlots({...request,bookingQuantity:2}),{statusCode:400});
+});
+
+test("composed plans validate every new item but retain frozen existing quantities", async () => {
+  const bookingService = buildBookingService({serviceOverride:{allowBookingQuantity:true,bookingQuantityMin:2,bookingQuantityMax:4}});
+  const request = {tenant,location,items:[{serviceSlug:"consultation",bookingQuantity:1}],executionMode:"sequential"};
+  await assert.rejects(bookingService.createComposedBookingPlan(request),{statusCode:400});
+  const frozen = await bookingService.createComposedBookingPlan({...request,existingBooking:{serviceId:"service-1",scheduledStartAt:"2026-07-06T01:00:00.000Z",scheduledEndAt:"2026-07-06T02:00:00.000Z"}});
+  assert.equal(frozen.items[0].bookingQuantity,1);
+  assert.equal(frozen.items[0].durationMinutes,60);
+});
