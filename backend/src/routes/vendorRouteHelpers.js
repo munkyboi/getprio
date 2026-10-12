@@ -301,6 +301,9 @@ function normalizeServicePayload(body, existingService = null) {
   if (bookingQuantityMin > bookingQuantityMax) {
     throw Object.assign(new Error("Minimum duration units must not exceed maximum duration units."), { statusCode: 400 });
   }
+  if (allowBookingQuantity && durationMinutes * bookingQuantityMin > 1440) {
+    throw Object.assign(new Error("Minimum quantity must fit within a 24-hour booking. Reduce the quantity or duration."), { statusCode: 400 });
+  }
   const manualPaymentRequired = Object.prototype.hasOwnProperty.call(body, "manualPaymentRequired")
     ? body.manualPaymentRequired === true
     : existingService?.manualPaymentRequired ?? false;

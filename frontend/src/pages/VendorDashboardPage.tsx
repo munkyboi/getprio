@@ -1,3 +1,4 @@
+import { quantityInputChanges } from "../utils/durationUnits";
 import DurationUnitControls from "../components/DurationUnitControls";
 import { queueBoardReturnPath } from "../utils/queueBoardReturnPath";
 import { counterBlockMessage, selectCounterDispatch } from "../utils/counterDispatch";
@@ -6740,18 +6741,13 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     checked={serviceForm.allowBookingQuantity === true}
                     label="Allow quantity input"
                     description={`Let customers choose a quantity. Each unit adds ${serviceForm.durationMinutes} minutes and the unit price to the booking. A quantity of 2 doubles the time and price.`}
-                    onChange={(event) =>
-                      setServiceForm((current) => ({
-                        ...current,
-                        allowBookingQuantity: event.currentTarget.checked,
-                        bookingQuantityLabel: event.currentTarget.checked
-                          ? current.bookingQuantityLabel || "Units"
-                          : current.bookingQuantityLabel
-                      }))
-                    }
+                    onChange={(event) => {
+                      const enabled = event.currentTarget.checked;
+                      setServiceForm((current) => ({ ...current, ...quantityInputChanges({ bookingQuantityLabel: current.bookingQuantityLabel || "Units" }, enabled) }));
+                    }}
                   />
                   {serviceForm.allowBookingQuantity ? (
-                    <DurationUnitControls value={serviceForm} onChange={(changes) => setServiceForm((current) => ({ ...current, ...changes }))} />
+                    <DurationUnitControls durationMinutes={serviceForm.durationMinutes} value={serviceForm} onChange={(changes) => setServiceForm((current) => ({ ...current, ...changes }))} />
                   ) : null}
                   <Select
                     allowDeselect={false}

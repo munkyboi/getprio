@@ -14,3 +14,9 @@ export function sharedDurationUnitBounds(services: UnitService[], executionMode:
   const max = Math.min(...services.map(service => durationUnitBounds(service).max));
   return min <= max ? { min, max } : null;
 }
+
+export function quantityInputChanges(value: Pick<PublicVendorService, "bookingQuantityLabel">, enabled: boolean) {
+  return enabled
+    ? { allowBookingQuantity: true, bookingQuantityLabel: value.bookingQuantityLabel || "Units" }
+    : { allowBookingQuantity: false, bookingQuantityMin: 1, bookingQuantityMax: 24 };
+}

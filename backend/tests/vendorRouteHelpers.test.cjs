@@ -273,3 +273,12 @@ test("service duration unit bounds default, preserve partial updates, and reject
   }
   assert.equal(helpers.formatVendorService({_id:"1",tenantId:"1",...existing}).bookingQuantityMax,6);
 });
+
+test("enabled minimum quantity must fit the booking slot duration ceiling", () => {
+  const base = {name:"Long service",durationMinutes:480,allowBookingQuantity:true,bookingQuantityMin:3,bookingQuantityMax:6};
+  assert.equal(helpers.normalizeServicePayload(base).bookingQuantityMin,3);
+  assert.throws(()=>helpers.normalizeServicePayload({...base,bookingQuantityMin:4}),{statusCode:400});
+  const existing=helpers.normalizeServicePayload({...base,durationMinutes:360,bookingQuantityMin:4});
+  assert.throws(()=>helpers.normalizeServicePayload({durationMinutes:480},existing),{statusCode:400});
+  assert.equal(helpers.normalizeServicePayload({...base,allowBookingQuantity:false,bookingQuantityMin:4}).allowBookingQuantity,false);
+});
