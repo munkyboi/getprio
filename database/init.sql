@@ -5,6 +5,8 @@ BEGIN;
 -- Running it manually against an existing database will remove app data.
 
 DROP TABLE IF EXISTS queue_ticket_barcodes CASCADE;
+DROP TABLE IF EXISTS ai_inference_policy_operations CASCADE;
+DROP TABLE IF EXISTS ai_inference_policy CASCADE;
 DROP TABLE IF EXISTS service_resource_requirements CASCADE;
 DROP TABLE IF EXISTS resource_ledger_commands CASCADE;
 DROP TABLE IF EXISTS resource_allocations CASCADE;

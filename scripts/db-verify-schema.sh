@@ -169,6 +169,8 @@ BEGIN
   SELECT array_agg(table_name)
   INTO missing_tables
   FROM (VALUES
+    ('ai_inference_policy'),
+    ('ai_inference_policy_operations'),
     ('queue_ticket_barcodes'),
     ('resource_ledger_scopes'),
     ('resource_ledger_reservations'),
