@@ -66,7 +66,7 @@ function buildResourceInventoryReport({ reportVersion, scope, window, observedAt
       dispatchPaused: null, version: id(row.version), deadlineVersion: id(row.deadline_version), lastReconciledAt: time(row.last_reconciled_at), reconciliationErrorPresent: row.reconciliation_error === true })),
     segments: data.segments.map(row => ({ segmentRef: reference('segment',row.id), workRef: reference('ticket',row.ticket_id), queueDayRef: reference('day',row.queue_day_id),
       sequence: integer(row.sequence,1,2147483647), priorityBand: choice(row.priority_band,['normal','recovery','carry_over','checked_in_booking']), activatedAt: time(row.activated_at), legacyInferred: row.legacy_inferred === true })),
-    work: [], allocations: [], protectedBindings: [], linkedBindings: [], bookingItems: []
+    work: [], allocations: [], historicalConversions: [], protectedBindings: [], linkedBindings: [], bookingItems: []
   };
   if (!data.pools.length || data.pools.some(row => row.tracking_enabled !== true)) result.blockers.push('tracking_disabled');
   for (const row of data.work) {
@@ -80,7 +80,7 @@ function buildResourceInventoryReport({ reportVersion, scope, window, observedAt
       executionMode: choice(row.execution_mode,['parallel','sequential']), capturedAt: time(row.plan_captured_at), revision: null, items } : null;
     if (plan) plan.contentFingerprint = createHash('sha256').update(JSON.stringify({ source: plan.source, executionMode: plan.executionMode, items })).digest('hex');
     inventory.work.push({ workRef, queueStatus: choice(row.status,['waiting','called','pending_carry_over','served','cancelled','unserved','skipped']),
-      channel: choice(row.join_channel,['vendor','online','qr']), developerLinked: row.developer_linked === true,
+      channel: choice(row.join_channel,['vendor','online','qr']), developerLinked: row.developer_linked === true, customerConfirmed: row.customer_confirmed === true,
       observedDemandState: held ? 'held_allocation' : row.service_started_at && !row.service_ended_at ? 'timing_only_in_progress' : 'queue_work',
       serviceStartedAt: time(row.service_started_at), serviceEndedAt: time(row.service_ended_at),
       orderEvidence: { priorityBand: choice(row.service_priority_band,['normal','recovery','carry_over','checked_in_booking']),
@@ -99,6 +99,37 @@ function buildResourceInventoryReport({ reportVersion, scope, window, observedAt
     if (row.developer_linked || !['vendor','online','qr'].includes(row.join_channel)) finding('unsupported_channel_provenance','work',workRef,'evidence_gap');
     if (row.status === 'pending_carry_over') finding('carry_over_dispatch_not_attested','work',workRef,'evidence_gap');
   }
+  function reconcileConversion(row,work,binding,recordType,allocationRef) {
+    const capturedItems = Array.isArray(work?.items) ? work.items : [];
+    const capturedResource = capturedItems.length === 1 ? capturedItems[0]?.resource : null;
+    if (work?.plan_source && (!capturedResource?.known || !id(capturedResource.poolId) || !integer(capturedResource.unitsRequired)
+      || !id(capturedResource.poolRevision) || !id(capturedResource.requirementRevision)))
+      finding('captured_resource_evidence_unknown',recordType,allocationRef,'evidence_gap');
+    if (work?.plan_source && !['booking','staff_selection'].includes(work.plan_source))
+      finding('captured_plan_source_unknown',recordType,allocationRef,'evidence_gap');
+    if (capturedResource?.known === true && (id(capturedResource.poolId) !== row.pool_id || capturedResource.unitsRequired !== row.units
+      || (id(capturedResource.poolRevision) && id(capturedResource.poolRevision) !== row.pool_revision)))
+      finding('allocation_captured_demand_mismatch',recordType,allocationRef);
+    if (row.reservation_id && (!binding || binding.state !== 'converted' || binding.pool_id !== row.pool_id || binding.units !== row.units
+      || binding.pool_revision !== row.pool_revision || row.reservation_end_matches === false || row.reservation_start_valid === false)) finding('allocation_conversion_mismatch',recordType,allocationRef);
+    if (work?.plan_source === 'booking') {
+      const capturedItemIds = capturedItems.map(item => id(item?.bookingItemId)).filter(Boolean);
+      if (!row.reservation_id || !binding || (capturedItemIds.length && !capturedItemIds.includes(binding.booking_item_id))
+        || (work.booking_id && binding.booking_id !== work.booking_id))
+        finding('allocation_booking_conversion_lineage_mismatch',recordType,allocationRef);
+      if (!capturedItemIds.length || !work.booking_id)
+        finding('captured_booking_lineage_unknown',recordType,allocationRef,'evidence_gap');
+      const capturedItem = capturedItems.length === 1 ? capturedItems[0] : null;
+      if (!time(capturedItem?.scheduledStartAt) || !time(capturedItem?.scheduledEndAt))
+        finding('captured_booking_interval_unknown',recordType,allocationRef,'evidence_gap');
+      if (binding && capturedItem && ((id(capturedResource?.requirementRevision) && id(capturedResource.requirementRevision) !== binding.requirement_revision)
+        || (time(capturedItem.scheduledStartAt) && time(capturedItem.scheduledStartAt) !== time(binding.starts_at))
+        || (time(capturedItem.scheduledEndAt) && time(capturedItem.scheduledEndAt) !== time(binding.ends_at))))
+        finding('conversion_captured_binding_mismatch',recordType,allocationRef);
+    }
+    if (work?.plan_source === 'staff_selection' && row.reservation_id)
+      finding('staff_allocation_with_booking_conversion',recordType,allocationRef);
+  }
   const heldUnits = new Map();
   for (const row of data.allocations) {
     const allocationRef = reference('allocation',row.id), work = workById.get(row.ticket_id), binding = bindingById.get(row.reservation_id);
@@ -111,31 +142,30 @@ function buildResourceInventoryReport({ reportVersion, scope, window, observedAt
     if (!work) finding('allocation_without_scoped_work','allocation',allocationRef);
     else if (!time(work.service_started_at) || row.ticket_start_matches === false) finding('allocation_ticket_start_mismatch','allocation',allocationRef);
     if (work?.service_ended_at) finding('ended_ticket_with_unreleased_allocation','allocation',allocationRef);
-    const capturedItems = Array.isArray(work?.items) ? work.items : [];
-    const capturedResource = capturedItems.length === 1 ? capturedItems[0]?.resource : null;
-    if (capturedResource?.known === true && (id(capturedResource.poolId) !== row.pool_id || capturedResource.unitsRequired !== row.units
-      || (id(capturedResource.poolRevision) && id(capturedResource.poolRevision) !== row.pool_revision)))
-      finding('allocation_captured_demand_mismatch','allocation',allocationRef);
+    if (work && work.status !== 'called') finding('held_allocation_ticket_not_called','allocation',allocationRef);
+    if (work && ['online','qr'].includes(work.join_channel) && work.customer_confirmed !== true)
+      finding('held_allocation_confirmation_missing','allocation',allocationRef);
+    reconcileConversion(row,work,binding,'allocation',allocationRef);
     if (!poolById.has(row.pool_id)) finding('allocation_pool_missing','allocation',allocationRef);
     if (!time(row.expected_end_at)) finding('allocation_expected_end_unknown','allocation',allocationRef,'forecast_support_gap');
     else if (Date.parse(time(row.expected_end_at)) <= now) finding('allocation_expected_end_overdue','allocation',allocationRef,'forecast_support_gap');
-    if (row.reservation_id && (!binding || binding.state !== 'converted' || binding.pool_id !== row.pool_id || binding.units !== row.units
-      || binding.pool_revision !== row.pool_revision || row.reservation_end_matches === false)) finding('allocation_conversion_mismatch','allocation',allocationRef);
-    if (work?.plan_source === 'booking') {
-      const capturedItemIds = capturedItems.map(item => id(item?.bookingItemId)).filter(Boolean);
-      if (!row.reservation_id || !binding || (capturedItemIds.length && !capturedItemIds.includes(binding.booking_item_id))
-        || (work.booking_id && binding.booking_id !== work.booking_id))
-        finding('allocation_booking_conversion_lineage_mismatch','allocation',allocationRef);
-      if (!capturedItemIds.length || !work.booking_id)
-        finding('captured_booking_lineage_unknown','allocation',allocationRef,'evidence_gap');
-      const capturedItem = capturedItems.length === 1 ? capturedItems[0] : null;
-      if (binding && capturedItem && ((id(capturedResource?.requirementRevision) && id(capturedResource.requirementRevision) !== binding.requirement_revision)
-        || (time(capturedItem.scheduledStartAt) && time(capturedItem.scheduledStartAt) !== time(binding.starts_at))
-        || (time(capturedItem.scheduledEndAt) && time(capturedItem.scheduledEndAt) !== time(binding.ends_at))))
-        finding('conversion_captured_binding_mismatch','allocation',allocationRef);
-    }
-    if (work?.plan_source === 'staff_selection' && row.reservation_id)
-      finding('staff_allocation_with_booking_conversion','allocation',allocationRef);
+  }
+  for (const row of data.historicalConversions) {
+    const allocationRef = reference('allocation',row.id);
+    const work = row.work_id ? { items:row.plan_items,plan_source:row.plan_source,booking_id:row.plan_booking_id } : null;
+    const binding = { state:'converted',pool_id:row.binding_pool_id,pool_revision:row.binding_pool_revision,units:row.binding_units,
+      booking_id:row.binding_booking_id,booking_item_id:row.binding_item_id,requirement_revision:row.requirement_revision,starts_at:row.starts_at,ends_at:row.ends_at };
+    inventory.historicalConversions.push({ allocationRef,workRef:reference('ticket',row.ticket_id),
+      reservationRef:reference('reservation',row.reservation_id),poolRef:reference('pool',row.pool_id),
+      frozenPoolRevision:id(row.pool_revision),units:integer(row.units),startedAt:time(row.started_at),
+      expectedEndAt:time(row.expected_end_at),releasedAt:time(row.released_at),occupancyState:'released' });
+    reconcileConversion(row,work,binding,'historical_allocation',allocationRef);
+    if (!work || !Array.isArray(work.items) || !work.items.length || !work.plan_source)
+      finding('historical_conversion_plan_unknown','historical_allocation',allocationRef,'evidence_gap');
+    if (!time(row.service_started_at)) finding('historical_conversion_service_start_unknown','historical_allocation',allocationRef,'evidence_gap');
+    else if (row.ticket_start_matches === false) finding('allocation_ticket_start_mismatch','historical_allocation',allocationRef);
+    if (row.booking_interval_matches !== true) finding('converted_booking_interval_mismatch','historical_allocation',allocationRef);
+    if (row.booking_status === 'pending') finding('pending_booking_with_conversion','historical_allocation',allocationRef);
   }
   for (const row of data.bindings) {
     const entry = { reservationRef: reference('reservation',row.id), bookingItemRef: reference('booking_item',row.booking_item_id), poolRef: reference('pool',row.pool_id),
@@ -166,6 +196,7 @@ function buildResourceInventoryReport({ reportVersion, scope, window, observedAt
     for (const binding of bindings.filter(item => item.state === 'converted')) {
       if (binding.booking_interval_matches !== true)
         finding('converted_booking_interval_mismatch','binding',reference('reservation',binding.id));
+      if (row.booking_status === 'pending') finding('pending_booking_with_conversion','binding',reference('reservation',binding.id));
     }
     for (const binding of bindings.filter(item => item.state === 'protected')) {
       const bindingRef = reference('reservation',binding.id);

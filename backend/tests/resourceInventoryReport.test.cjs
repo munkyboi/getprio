@@ -139,6 +139,15 @@ test('frozen allocation and captured booking evidence cannot silently diverge',(
   input.data.work[0].plan_source='staff_selection';
   assert.ok(has(buildResourceInventoryReport(input),'staff_allocation_with_booking_conversion'));
 });
+test('missing frozen intervals and pending conversion are visible',()=>{
+  const input=fixture(); input.data.work=[{id:'1',plan_source:'booking',booking_id:'5',items:[{bookingItemId:'7',scheduledStartAt:'invalid'}]}];
+  input.data.allocations=[{id:'1',ticket_id:'1',reservation_id:'9'}];
+  input.data.bindings=[{id:'9',booking_id:'5',booking_item_id:'7',state:'converted',booking_interval_matches:true}];
+  input.data.bookingItems=[{id:'7',booking_status:'pending'}];
+  const report=buildResourceInventoryReport(input);
+  assert.equal(report.findings.counts.find(i=>i.code==='captured_booking_interval_unknown').classification,'evidence_gap');
+  assert.ok(has(report,'pending_booking_with_conversion'));
+});
 test('row overflow keeps exact totals but does not evaluate partial inventory',()=>{
   const input=fixture(); input.exceeded=['work']; input.counts.work='10001';
   const report=buildResourceInventoryReport(input);
@@ -164,7 +173,7 @@ test('real PostgreSQL scoped inventory, reconciliation, authorization and read b
       CREATE TABLE vendor_services(id BIGINT PRIMARY KEY,tenant_id BIGINT,UNIQUE(id,tenant_id));
       CREATE TABLE location_services(location_id BIGINT,service_id BIGINT,UNIQUE(location_id,service_id));
       CREATE TABLE tickets(id BIGINT PRIMARY KEY,tenant_id BIGINT,location_id BIGINT,status TEXT,join_channel TEXT,
-        developer_project_id BIGINT,created_at TIMESTAMPTZ DEFAULT now(),service_started_at TIMESTAMPTZ,service_ended_at TIMESTAMPTZ,
+        developer_project_id BIGINT,customer_confirmed_at TIMESTAMPTZ,created_at TIMESTAMPTZ DEFAULT now(),service_started_at TIMESTAMPTZ,service_ended_at TIMESTAMPTZ,
         service_priority_band TEXT DEFAULT 'normal',carry_over_count INTEGER DEFAULT 0,current_queue_day_id BIGINT,original_queue_day_id BIGINT,
         customer_email TEXT DEFAULT 'PRIVATE',UNIQUE(id,tenant_id,location_id));
       CREATE TABLE bookings(id BIGINT PRIMARY KEY,tenant_id BIGINT,location_id BIGINT,status TEXT,pending_expires_at TIMESTAMPTZ,
@@ -216,6 +225,40 @@ test('real PostgreSQL scoped inventory, reconciliation, authorization and read b
       assert.equal((await pool.query('SELECT state FROM resource_ledger_reservations')).rows[0].state,'converted');
       await assert.rejects(pool.query('UPDATE location_resource_pools SET tracking_enabled=true WHERE id=100'),/resource_pools_tracking_disabled_check/);
       await assert.rejects(pool.query('UPDATE resource_ledger_scopes SET writer_coverage_complete=true'),/resource_ledger_coverage_disabled_check/);
+    });
+    await t.test('early allocation and unconfirmed non-called work violate held lifecycle evidence',async()=>{
+      await pool.query(`UPDATE resource_allocations SET started_at=started_at-interval '1 minute' WHERE ticket_id=1;
+        UPDATE tickets SET status='waiting',join_channel='online',service_started_at=(SELECT started_at FROM resource_allocations WHERE ticket_id=1) WHERE id=1;
+        UPDATE bookings SET status='pending' WHERE id=2;`);
+      const report=await read()(input());
+      assert.ok(has(report,'allocation_conversion_mismatch'));
+      assert.ok(has(report,'held_allocation_ticket_not_called'));
+      assert.ok(has(report,'held_allocation_confirmation_missing'));
+      assert.ok(has(report,'pending_booking_with_conversion'));
+      await pool.query(`UPDATE resource_allocations SET started_at=(SELECT starts_at FROM resource_ledger_reservations WHERE id=1) WHERE ticket_id=1;
+        UPDATE tickets SET status='called',join_channel='vendor',service_started_at=(SELECT started_at FROM resource_allocations WHERE ticket_id=1) WHERE id=1;
+        UPDATE bookings SET status='confirmed' WHERE id=2;`);
+    });
+    await t.test('released conversions are validated separately and never count as occupancy',async()=>{
+      const intervals=(await pool.query('SELECT starts_at,ends_at FROM resource_ledger_reservations WHERE id=1')).rows[0];
+      const item={serviceId:'1000',bookingItemId:'2',durationMinutes:60,scheduledStartAt:intervals.starts_at.toISOString(),scheduledEndAt:intervals.ends_at.toISOString(),
+        resource:{known:true,poolId:'100',poolRevision:1,requirementRevision:1,unitsRequired:1}};
+      await pool.query("INSERT INTO ticket_service_plans(ticket_id,tenant_id,location_id,booking_id,source,execution_mode,items) VALUES(1,1,10,2,'booking','parallel',$1)",[JSON.stringify([item])]);
+      await pool.query(`UPDATE resource_allocations SET released_at=now(),outcome='completed' WHERE ticket_id=1;
+        UPDATE tickets SET status='served',service_ended_at=now() WHERE id=1;`);
+      const valid=await read()(input());
+      assert.equal(valid.counts.historicalConversions,'1'); assert.equal(valid.inventory.allocations.length,0);
+      assert.equal(valid.inventory.historicalConversions[0].occupancyState,'released');
+      assert.ok(!valid.findings.counts.some(i=>i.recordType==='historical_allocation'));
+      await pool.query('UPDATE resource_allocations SET units=2 WHERE ticket_id=1');
+      const invalid=await read()(input());
+      assert.ok(invalid.findings.counts.some(i=>i.recordType==='historical_allocation' && i.code==='allocation_conversion_mismatch'));
+      assert.ok(!has(invalid,'historical_conversion_without_allocation'));
+      await pool.query('DELETE FROM ticket_service_plans WHERE ticket_id=1');
+      const gap=await read()(input());
+      assert.ok(gap.findings.counts.some(i=>i.code==='historical_conversion_plan_unknown' && i.classification==='evidence_gap'));
+      await pool.query(`UPDATE resource_allocations SET units=1,released_at=NULL,outcome=NULL WHERE ticket_id=1;
+        UPDATE tickets SET status='called',service_ended_at=NULL WHERE id=1;`);
     });
     await t.test('recoverable skipped work, plan and active segment remain inventoried',async()=>{
       await pool.query(`INSERT INTO tickets(id,tenant_id,location_id,status,join_channel) VALUES(7,1,10,'skipped','vendor');
