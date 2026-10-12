@@ -118,7 +118,7 @@ async function replaceUserLocationAssignments(data, options = {}) {
 
 async function ensureUserLocationAssignments({ userIds, tenantId, locationId, assignedByUserId }, options = {}) {
   const client = options.client || db.pool;
-  const normalizedUserIds = [...new Set((userIds || []).map(Number).filter(Number.isFinite))];
+  const normalizedUserIds = [...new Set((userIds || []).map(String))];
   if (!normalizedUserIds.length) return;
 
   const memberships = await client.query(
@@ -128,7 +128,7 @@ async function ensureUserLocationAssignments({ userIds, tenantId, locationId, as
        AND user_id = ANY($2::BIGINT[])
        AND role = 'staff'
        AND is_active = TRUE`,
-    [Number(tenantId), normalizedUserIds]
+    [String(tenantId), normalizedUserIds]
   );
   for (const membership of memberships.rows) {
     await client.query(
@@ -136,7 +136,7 @@ async function ensureUserLocationAssignments({ userIds, tenantId, locationId, as
          tenant_membership_id, location_id, assignment_source, assigned_by_user_id
        ) VALUES ($1, $2, 'explicit', $3)
        ON CONFLICT (tenant_membership_id, location_id) DO NOTHING`,
-      [membership.id, Number(locationId), assignedByUserId ? Number(assignedByUserId) : null]
+      [membership.id, String(locationId), assignedByUserId ? String(assignedByUserId) : null]
     );
   }
 }

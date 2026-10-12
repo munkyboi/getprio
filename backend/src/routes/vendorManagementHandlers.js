@@ -1,3 +1,4 @@
+const counterConfiguration = require("../services/counterConfigurationService");
 const businessCategories = require("../repositories/businessCategories");
 const PDFDocument = require("pdfkit");
 const sanitizeHtml = require("sanitize-html");
@@ -155,38 +156,34 @@ async function handleListCounters({ req, res, getAuthorizedTenant, assertTenantP
   res.json({ counterLimit: entitlements.counters || 0, counters: counters.map((counter) => ({ id: counter._id, tenantId: counter.tenantId, locationId: counter.locationId, name: counter.name, slug: counter.slug, isActive: counter.isActive, assignedUserIds: counter.assignedUserIds })) });
 }
 
-async function handleUpdateCounter({ req, res, getAuthorizedTenant, assertTenantPermission, getLocationForTenant, billingService, serviceCounterRepository, getCounterForLocation, tenantMembershipLocationRepository }) {
+async function handleCreateCounter({ req, res, getAuthorizedTenant, assertTenantPermission, getLocationForTenant, counterService = counterConfiguration }) {
   const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
   assertTenantPermission(req.user, tenant._id, "tenant.counter.manage");
   const location = await getLocationForTenant(tenant, req.query.location);
-  const counter = await getCounterForLocation(location, req.params.counterSlug);
-  const entitlements = await billingService.getTenantEntitlements(tenant._id);
-  const counters = await serviceCounterRepository.listCountersByLocationId(location._id);
-  if (req.body.isActive === true && !counter.isActive && counters.filter((item) => item.isActive).length >= Number(entitlements.counters || 0)) {
-    const error = new Error("Counter limit exceeded for this subscription plan.");
-    error.statusCode = 403;
-    throw error;
-  }
-  const slug = normalizeCounterSlug(req.body.slug || req.body.name);
-  assertPublicTextFieldsAllowed({ "Counter name": req.body.name, "Counter slug": slug });
-  const updatedCounter = await serviceCounterRepository.updateCounter(counter._id, { name: req.body.name, slug, isActive: req.body.isActive !== false });
-  const assignedUserIds = req.body.assignedUserIds || [];
-  await serviceCounterRepository.replaceAssignments(updatedCounter._id, assignedUserIds);
-  await tenantMembershipLocationRepository.ensureUserLocationAssignments({
-    userIds: assignedUserIds,
-    tenantId: tenant._id,
-    locationId: location._id,
-    assignedByUserId: req.user?._id
-  });
-  res.json({ counter: updatedCounter });
+  const slug = String(req.body.slug || req.body.name).trim().toLowerCase().replace(/\s+/g, "-");
+  const counter = await counterService.mutate({ tenantId: tenant._id, locationId: location._id,
+    actorUserId: req.user._id, action: "create", data: { ...req.body, slug } });
+  res.status(201).json({ counter });
 }
 
-async function handleDeleteCounter({ req, res, getAuthorizedTenant, assertTenantPermission, getLocationForTenant, serviceCounterRepository, getCounterForLocation }) {
+async function handleUpdateCounter({ req, res, getAuthorizedTenant, assertTenantPermission, getLocationForTenant, counterService = counterConfiguration }) {
   const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
   assertTenantPermission(req.user, tenant._id, "tenant.counter.manage");
   const location = await getLocationForTenant(tenant, req.query.location);
-  const counter = await getCounterForLocation(location, req.params.counterSlug);
-  await serviceCounterRepository.deleteCounter(counter._id);
+  const slug = normalizeCounterSlug(req.body.slug || req.body.name);
+  assertPublicTextFieldsAllowed({ "Counter name": req.body.name, "Counter slug": slug });
+  const counter = await counterService.mutate({ tenantId: tenant._id, locationId: location._id,
+    actorUserId: req.user._id, action: "update", counterSlug: req.params.counterSlug,
+    data: { ...req.body, slug } });
+  res.json({ counter });
+}
+
+async function handleDeleteCounter({ req, res, getAuthorizedTenant, assertTenantPermission, getLocationForTenant, counterService = counterConfiguration }) {
+  const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+  assertTenantPermission(req.user, tenant._id, "tenant.counter.manage");
+  const location = await getLocationForTenant(tenant, req.query.location);
+  await counterService.mutate({ tenantId: tenant._id, locationId: location._id,
+    actorUserId: req.user._id, action: "delete", counterSlug: req.params.counterSlug });
   res.status(204).send();
 }
 
@@ -242,4 +239,4 @@ async function handleInviteStaff({ req, res, getAuthorizedTenant, assertTenantPe
   res.status(201).json({ userId: user._id });
 }
 
-module.exports = { handleUpdateSettings, handleGetNotificationSettings, handleUpdateNotificationSettings, handleListHistory, handleListClients, handleListCounters, handleUpdateCounter, handleDeleteCounter, handleCheckCounterSlugAvailability, handleListStaff, handleInviteStaff, toCsvValue, HISTORY_RANGE_DAYS, PDFDocument };
+module.exports = { handleUpdateSettings, handleGetNotificationSettings, handleUpdateNotificationSettings, handleListHistory, handleListClients, handleListCounters, handleCreateCounter, handleUpdateCounter, handleDeleteCounter, handleCheckCounterSlugAvailability, handleListStaff, handleInviteStaff, toCsvValue, HISTORY_RANGE_DAYS, PDFDocument };
