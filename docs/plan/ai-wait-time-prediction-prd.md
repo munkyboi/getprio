@@ -168,7 +168,17 @@ Before Stage D, product/runtime/AI owners must predeclare numerical acceptance l
 
 Existing prior art includes pure snapshot/projection and inference-contract checks, strict offline dataset/evaluation validation, seeded simulations, and real PostgreSQL ledger/lifecycle regressions. Good tests exercise observable contracts, authorization, accepted results and atomic outcomes rather than internal helper structure.
 
-The proposed implementation test scope covers operational snapshot consistency, prediction/order/capacity behavior, inference deadlines/freshness, capture/export privacy and earliest-attempt selection, evaluation labels/provenance, and public target/fallback delivery. This is a proposed future scope pending the user's module preference; creating this PRD does not authorize executing new tests or changing runtime code.
+The user confirmed automated tests for **all five areas** in the implementation plan:
+
+| Area | Required automated behavior coverage |
+| --- | --- |
+| Resource-state snapshots | Authorization, exact scope, coherent inventory/revisions, freshness, cross-date work and reconciliation/readiness gates. |
+| Prediction | Ordering, reservations, parallel/competing capacity, missing or unsupported plans, overrun/interruption fallbacks, inference deadlines and accepted-result freshness. |
+| Private observation capture/export | All issued-ticket channels independent of screen views/claims, exactly-once work identity, earliest-attempt selection including fallbacks, frozen outcomes, keyed pseudonyms, privacy and bounded output. |
+| Evaluation | Authentic target-specific labels, pending/censored outcomes, starts before acceptance, provenance separation, temporal leakage checks where applicable, support and accuracy metrics. |
+| Customer estimate delivery | Target labels, same-target fallback/unavailability, scope isolation, refresh/invalidation, web/mobile contract compatibility, bounded failure behavior and pilot rollback. |
+
+Each implementation slice must include relevant automated regressions and verification evidence before it is treated as complete. This decision approves test coverage in the implementation plan; this documentation update itself adds no runtime implementation or executable tests.
 
 Static documentation review must check internal links, current status claims, target vocabulary and coordination ownership. Live database capture, tracked resource execution, mobile delivery and customer estimate behavior require separate authorized verification. Existing CI/release evidence cannot substitute for representative prediction accuracy.
 
