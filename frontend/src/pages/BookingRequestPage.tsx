@@ -55,7 +55,7 @@ import {
   formatDateInputValue,
   toTimestamp
 } from "../utils/dates";
-import { durationUnitBounds, clampDurationUnits, sharedDurationUnitBounds } from "../utils/durationUnits";
+import { durationUnitBounds, clampDurationUnits, sharedDurationUnitBounds, bundleDurationUnitBounds } from "../utils/durationUnits";
 import { getErrorMessage } from "../utils/errors";
 import { showCustomerError, showCustomerSuccess } from "../utils/customerNotifications";
 
@@ -361,10 +361,13 @@ export default function BookingRequestPage() {
   const shouldSynchronizeTogetherQuantities = synchronizedBounds !== null;
   const primaryBounds = synchronizedBounds || durationUnitBounds(selectedService);
   const quantityForRequest = clampDurationUnits(bookingQuantity, primaryBounds);
+  const getBundleItemBounds = useCallback((service: PublicVendorService) => {
+    return bundleDurationUnitBounds(service, selectedBundleServices, synchronizedBounds);
+  }, [selectedBundleServices, synchronizedBounds]);
   const getBundleItemQuantity = useCallback((service: PublicVendorService) => {
-    const bounds = synchronizedBounds || durationUnitBounds(service);
+    const bounds = getBundleItemBounds(service);
     return clampDurationUnits(service.slug === selectedServiceSlug ? bookingQuantity : bundleQuantities[service.slug] ?? bounds.min, bounds);
-  }, [bookingQuantity, bundleQuantities, selectedServiceSlug, synchronizedBounds]);
+  }, [bookingQuantity, bundleQuantities, selectedServiceSlug, getBundleItemBounds]);
   const bundleAmountCents = selectedBundleServices.reduce((sum, service) => {
     return sum + getServiceLineAmountCents(service, getBundleItemQuantity(service));
   }, 0);
@@ -871,7 +874,7 @@ export default function BookingRequestPage() {
                                 const isSelected = selectedBundleServiceSlugs.includes(service.slug);
                                 const quantityLabel = getBookingQuantityLabel(service);
                                 const quantity = getBundleItemQuantity(service);
-                                const bounds = synchronizedBounds || durationUnitBounds(service);
+                                const bounds = getBundleItemBounds(service);
 
                                 return (
                                   <Stack className="booking-bundle-option" gap="xs" key={service.slug}>
