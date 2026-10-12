@@ -148,6 +148,10 @@ test('missing frozen intervals and pending conversion are visible',()=>{
   assert.equal(report.findings.counts.find(i=>i.code==='captured_booking_interval_unknown').classification,'evidence_gap');
   assert.ok(has(report,'pending_booking_with_conversion'));
 });
+test('expired work retains its stored lifecycle status',()=>{
+  const input=fixture(); input.data.work=[{id:'1',status:'expired',service_started_at:input.observedAt}];
+  assert.equal(buildResourceInventoryReport(input).inventory.work[0].queueStatus,'expired');
+});
 test('row overflow keeps exact totals but does not evaluate partial inventory',()=>{
   const input=fixture(); input.exceeded=['work']; input.counts.work='10001';
   const report=buildResourceInventoryReport(input);
@@ -272,6 +276,15 @@ test('real PostgreSQL scoped inventory, reconciliation, authorization and read b
         DELETE FROM booking_bundle_items WHERE id=8;
         DELETE FROM bookings WHERE id=8;
         DELETE FROM tickets WHERE id=8;`);
+      for(const state of ['protected','cancelled']){
+        await pool.query('UPDATE resource_ledger_reservations SET state=$1 WHERE id=1',[state]);
+        const altered=await read()(input());
+        assert.equal(altered.counts.historicalConversions,'1');
+        assert.equal(altered.inventory.historicalConversions[0].bindingState,state);
+        assert.equal(altered.inventory.allocations.length,0);
+        assert.ok(altered.findings.counts.some(i=>i.recordType==='historical_allocation' && i.code==='allocation_conversion_mismatch'));
+      }
+      await pool.query("UPDATE resource_ledger_reservations SET state='converted' WHERE id=1");
       await pool.query('UPDATE resource_allocations SET units=2 WHERE ticket_id=1');
       const invalid=await read()(input());
       assert.ok(invalid.findings.counts.some(i=>i.recordType==='historical_allocation' && i.code==='allocation_conversion_mismatch'));

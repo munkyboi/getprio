@@ -79,7 +79,7 @@ function buildResourceInventoryReport({ reportVersion, scope, window, observedAt
     const plan = row.plan_source ? { source: choice(row.plan_source,['booking','staff_selection']),
       executionMode: choice(row.execution_mode,['parallel','sequential']), capturedAt: time(row.plan_captured_at), revision: null, items } : null;
     if (plan) plan.contentFingerprint = createHash('sha256').update(JSON.stringify({ source: plan.source, executionMode: plan.executionMode, items })).digest('hex');
-    inventory.work.push({ workRef, queueStatus: choice(row.status,['waiting','called','pending_carry_over','served','cancelled','unserved','skipped']),
+    inventory.work.push({ workRef, queueStatus: choice(row.status,['waiting','called','pending_carry_over','served','cancelled','unserved','skipped','expired']),
       channel: choice(row.join_channel,['vendor','online','qr']), developerLinked: row.developer_linked === true, customerConfirmed: row.customer_confirmed === true,
       observedDemandState: held ? 'held_allocation' : row.service_started_at && !row.service_ended_at ? 'timing_only_in_progress' : 'queue_work',
       serviceStartedAt: time(row.service_started_at), serviceEndedAt: time(row.service_ended_at),
@@ -153,12 +153,12 @@ function buildResourceInventoryReport({ reportVersion, scope, window, observedAt
   for (const row of data.historicalConversions) {
     const allocationRef = reference('allocation',row.id);
     const work = row.work_id ? { items:row.plan_items,plan_source:row.plan_source,booking_id:row.plan_booking_id } : null;
-    const binding = { state:'converted',pool_id:row.binding_pool_id,pool_revision:row.binding_pool_revision,units:row.binding_units,
+    const binding = { state:choice(row.binding_state,['protected','converted','cancelled']),pool_id:row.binding_pool_id,pool_revision:row.binding_pool_revision,units:row.binding_units,
       booking_id:row.binding_booking_id,booking_item_id:row.binding_item_id,requirement_revision:row.requirement_revision,starts_at:row.starts_at,ends_at:row.ends_at };
     inventory.historicalConversions.push({ allocationRef,workRef:reference('ticket',row.ticket_id),
       reservationRef:reference('reservation',row.reservation_id),poolRef:reference('pool',row.pool_id),
       frozenPoolRevision:id(row.pool_revision),units:integer(row.units),startedAt:time(row.started_at),
-      expectedEndAt:time(row.expected_end_at),releasedAt:time(row.released_at),occupancyState:'released' });
+      expectedEndAt:time(row.expected_end_at),releasedAt:time(row.released_at),occupancyState:'released',bindingState:binding.state });
     reconcileConversion(row,work,binding,'historical_allocation',allocationRef);
     if (!work || !Array.isArray(work.items) || !work.items.length || !work.plan_source)
       finding('historical_conversion_plan_unknown','historical_allocation',allocationRef,'evidence_gap');
