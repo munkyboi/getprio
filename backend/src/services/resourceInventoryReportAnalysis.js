@@ -12,6 +12,35 @@ function time(value) {
   return Number.isFinite(parsed) ? new Date(parsed).toISOString() : null;
 }
 function choice(value, values) { return values.includes(value) ? value : 'unknown'; }
+function observedDemandState(row,held) {
+  if (held) return 'held_allocation';
+  if (row.service_started_at && !row.service_ended_at) return 'timing_only_in_progress';
+  return 'queue_work';
+}
+function capturedBindingDiffers(binding,item,resource) {
+  if (!binding || !item) return false;
+  return Boolean((id(resource?.requirementRevision) && id(resource.requirementRevision) !== binding.requirement_revision)
+    || (time(item.scheduledStartAt) && time(item.scheduledStartAt) !== time(binding.starts_at))
+    || (time(item.scheduledEndAt) && time(item.scheduledEndAt) !== time(binding.ends_at)));
+}
+function conversionDiffers(row,binding) {
+  if (!binding) return true;
+  return binding.state !== 'converted' || binding.pool_id !== row.pool_id || binding.units !== row.units
+    || binding.pool_revision !== row.pool_revision || row.reservation_end_matches === false || row.reservation_start_valid === false;
+}
+function classifyBooking(expired,active,supported,mapping,bindings) {
+  if (expired) return 'expired_pending';
+  if (!active) return 'not_eligible';
+  if (!supported) return 'unsupported_composition';
+  if (!mapping) return 'unmapped';
+  if (!bindings.length) return 'unadmitted_demand';
+  return bindings[0].state;
+}
+function compareCapacityEvents(a,b) {
+  if (a[0] < b[0]) return -1;
+  if (a[0] > b[0]) return 1;
+  return a[1]-b[1];
+}
 function buildResourceInventoryReport({ reportVersion, scope, window, observedAt, observedAtUs, ledger, counts, data, exceeded, bounds }) {
   const reference = (kind, value) => id(value) ? `${kind}:${scope.tenantId}:${scope.locationId}:${id(value)}` : null;
   const result = { reportVersion, scope, window, observedAt, completedAt: null,
@@ -74,7 +103,7 @@ function buildResourceInventoryReport({ reportVersion, scope, window, observedAt
     return liveBindingsByItem;
   }
   function inspectWorkPlan(row,plan,workRef) {
-    if (!plan || !plan.items.length) { finding('missing_captured_plan','work',workRef,'forecast_support_gap'); return; }
+    if (!plan?.items.length) { finding('missing_captured_plan','work',workRef,'forecast_support_gap'); return; }
     if (plan.items.length !== 1) { finding('unsupported_composition','work',workRef,'forecast_support_gap'); return; }
     const item = plan.items[0], raw = row.items[0], current = mappingByService.get(id(raw?.serviceId));
     if (!item.resource.known || !item.resource.poolRef || !item.resource.units || !item.durationMinutes) finding('unknown_executable_demand','work',workRef,'forecast_support_gap');
@@ -84,11 +113,6 @@ function buildResourceInventoryReport({ reportVersion, scope, window, observedAt
     if (!current) return true;
     return current.pool_id !== id(raw.resource.poolId) || current.revision !== id(raw.resource.requirementRevision)
       || current.units_required !== raw.resource.unitsRequired || poolById.get(current.pool_id)?.revision !== id(raw.resource.poolRevision);
-  }
-  function observedDemandState(row,held) {
-    if (held) return 'held_allocation';
-    if (row.service_started_at && !row.service_ended_at) return 'timing_only_in_progress';
-    return 'queue_work';
   }
   function inspectWork(row) {
     const workRef = reference('ticket',row.id), held = allocationByWork.get(row.id);
@@ -121,17 +145,6 @@ function buildResourceInventoryReport({ reportVersion, scope, window, observedAt
     if (capturedResource?.known === true && (id(capturedResource.poolId) !== row.pool_id || capturedResource.unitsRequired !== row.units
       || (id(capturedResource.poolRevision) && id(capturedResource.poolRevision) !== row.pool_revision)))
       finding('allocation_captured_demand_mismatch',recordType,allocationRef);
-  }
-  function capturedBindingDiffers(binding,item,resource) {
-    if (!binding || !item) return false;
-    return (id(resource?.requirementRevision) && id(resource.requirementRevision) !== binding.requirement_revision)
-      || (time(item.scheduledStartAt) && time(item.scheduledStartAt) !== time(binding.starts_at))
-      || (time(item.scheduledEndAt) && time(item.scheduledEndAt) !== time(binding.ends_at));
-  }
-  function conversionDiffers(row,binding) {
-    if (!binding) return true;
-    return binding.state !== 'converted' || binding.pool_id !== row.pool_id || binding.units !== row.units
-      || binding.pool_revision !== row.pool_revision || row.reservation_end_matches === false || row.reservation_start_valid === false;
   }
   function inspectBookingLineage(row,work,binding,capturedItems,capturedResource,recordType,allocationRef) {
     const capturedItemIds = capturedItems.map(item => id(item?.bookingItemId)).filter(Boolean);
@@ -201,14 +214,6 @@ function buildResourceInventoryReport({ reportVersion, scope, window, observedAt
     else inventory.linkedBindings.push(entry);
     if (row.state === 'protected' && allocationByBinding.has(row.id)) finding('protected_binding_already_allocated','binding',entry.reservationRef);
   }
-  function classifyBooking(expired,active,supported,mapping,bindings) {
-    if (expired) return 'expired_pending';
-    if (!active) return 'not_eligible';
-    if (!supported) return 'unsupported_composition';
-    if (!mapping) return 'unmapped';
-    if (!bindings.length) return 'unadmitted_demand';
-    return bindings[0].state;
-  }
   function inspectBookingEligibility(expired,active,supported,mapping,bindings,bookingItemRef) {
     if (expired) finding('expired_pending_booking','booking_item',bookingItemRef,'evidence_gap');
     if (active && !supported) finding('unsupported_booking_composition','booking_item',bookingItemRef,'forecast_support_gap');
@@ -251,14 +256,12 @@ function buildResourceInventoryReport({ reportVersion, scope, window, observedAt
     for (const binding of data.bindings.filter(item => item.state === 'protected' && item.pool_id === row.id && overlaps(item) !== false)) {
       const start = binding.starts_at_us ? BigInt(binding.starts_at_us) : BigInt(Date.parse(time(binding.starts_at)))*1000n;
       const end = binding.ends_at_us ? BigInt(binding.ends_at_us) : BigInt(Date.parse(time(binding.ends_at)))*1000n;
-      events.push([start > lower ? start : lower,binding.units], [end < upper ? end : upper,-binding.units]);
+      let clippedStart = start, clippedEnd = end;
+      if (clippedStart < lower) clippedStart = lower;
+      if (clippedEnd > upper) clippedEnd = upper;
+      events.push([clippedStart,binding.units], [clippedEnd,-binding.units]);
     }
     return events;
-  }
-  function compareCapacityEvents(a,b) {
-    if (a[0] < b[0]) return -1;
-    if (a[0] > b[0]) return 1;
-    return a[1]-b[1];
   }
   function inspectCapacityEvents(events,row,used,observation) {
     events.sort(compareCapacityEvents);
