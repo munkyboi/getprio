@@ -2,6 +2,8 @@
 
 Issue #380 supplies the Platform Admin controller for PRD #378. It does not activate a model, resource tracking, observation capture, or customer estimates.
 
+For dashboard operation and troubleshooting, see the [AI Inference Platform Admin guide](../platform/ai-inference-admin-guide.md).
+
 ## Policy and authority
 
 `/ai-inference` is a dedicated Platform sidebar route. `platform.ai_inference.read` and `platform.ai_inference.manage` belong to the existing Platform Admin role. Other roles and release observers receive neither capability. Server middleware and the service enforce authorization independently of navigation visibility. Reads are `no-store`.

@@ -285,6 +285,8 @@ The optional resource-capacity foundation provides a separate read-only reservat
 
 ### Platform operations
 
+For AI policy controls, saving, global disable and readiness troubleshooting, see the [AI Inference Platform Admin guide](docs/platform/ai-inference-admin-guide.md).
+
 - `GET /api/platform/overview`
 - `GET /api/platform/queue-fees`
 - `PATCH /api/platform/queue-fees`
