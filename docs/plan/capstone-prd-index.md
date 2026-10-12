@@ -8,6 +8,8 @@ The older v1 stability PRDs remain useful implementation history for the queue p
 
 ## PRD Set
 
+- [AI Wait-Time Prediction PRD](ai-wait-time-prediction-prd.md) — implementation inventory, runtime dependencies, private evaluation and staged rollout gates.
+
 - [Marketplace and Booking Product PRD](/Users/carloabella/Projects/getprio/dev/docs/plan/capstone-marketplace-booking-prd.md)
 - [Role-Based HCI Screen PRD](/Users/carloabella/Projects/getprio/dev/docs/plan/capstone-role-based-hci-screens-prd.md)
 - [IAS Security and Privacy PRD](/Users/carloabella/Projects/getprio/dev/docs/plan/capstone-ias-security-privacy-prd.md)
