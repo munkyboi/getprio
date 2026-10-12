@@ -52,7 +52,7 @@ export default function SecureQueueBoardPage() {
           }
         }
       } catch (cause) {
-        if (active) { setSnapshot(null); setError(getErrorMessage(cause)); }
+        if (active && !source) { setSnapshot(null); setError(getErrorMessage(cause)); }
       } finally { checking = false; }
     };
     void check();

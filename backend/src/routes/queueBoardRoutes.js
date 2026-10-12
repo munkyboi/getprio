@@ -18,6 +18,9 @@ const audit = require("../services/securityAuditService");
 const publicRouter = express.Router();
 const vendorRouter = express.Router();
 const pairingLimiter = rateLimit({ windowMs: 60000, limit: 10, standardHeaders: true, legacyHeaders: false, keyGenerator: (req) => ipKeyGenerator(req.ip) });
+// Access polling is separate from snapshot/stream reads so multiple venue displays
+// sharing one IP can renew their browser grants without exhausting read capacity.
+const accessLimiter = rateLimit({ windowMs: 60000, limit: 900, standardHeaders: true, legacyHeaders: false, keyGenerator: (req) => ipKeyGenerator(req.ip) });
 const readLimiter = rateLimit({ windowMs: 60000, limit: 90, standardHeaders: true, legacyHeaders: false, keyGenerator: (req) => ipKeyGenerator(req.ip) });
 function cookieName(boardId) { return `${env.authCookieSecure ? "__Host-" : ""}prio_board_${boardId}`; }
 function browserSecret(req, boardId) { return parseCookies(req.headers.cookie)[cookieName(boardId)] || ""; }
@@ -35,7 +38,7 @@ async function snapshotFor(board) {
   const location = await locations.findLocationByTenantAndSlug(String(board.tenant_id), board.slug);
   return boardSnapshot(await getQueueSnapshot(tenant, { location }));
 }
-publicRouter.get("/:boardId/access", readLimiter, asyncHandler(async (req, res) => {
+publicRouter.get("/:boardId/access", accessLimiter, asyncHandler(async (req, res) => {
   const board = await boardForRequest(req);
   const allowed = await access.canRead(board, browserSecret(req, board.queue_board_id));
   if (allowed && !board.queue_board_public) {

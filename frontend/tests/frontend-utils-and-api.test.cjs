@@ -1212,7 +1212,7 @@ test("signup forms use provider icons, helpful labels, and touch-friendly action
   assert.match(fs.readFileSync(path.join(frontendRoot, "src", "components", "BusinessCategorySelect.tsx"), "utf8"), /withAsterisk=\{false\}/);
   assert.match(vendorSource, /<SignupFieldLabel label="Phone"/);
   assert.match(vendorSource, /className="auth-primary-action"/);
-  assert.match(vendorSource, /navigate\(boardApprovalReturn \? `\/dashboard\/account\?next=\$\{encodeURIComponent\(boardApprovalReturn\)\}` : "\/dashboard\/account", \{ replace: true \}\)/);
+  assert.match(vendorSource, /navigate\("\/dashboard\/account", \{ replace: true \}\)/);
   assert.match(customerSource, /<SignupFieldLabel label="Phone"/);
   assert.match(customerSource, /className="auth-primary-action"/);
   assert.match(vendorSource, /className="onboarding-layout"/);

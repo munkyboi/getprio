@@ -48,7 +48,7 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
       CREATE TABLE tenant_membership_locations(tenant_membership_id BIGINT,location_id BIGINT,assignment_source TEXT DEFAULT 'explicit',assigned_by_user_id BIGINT,UNIQUE(tenant_membership_id,location_id));
       CREATE TABLE service_counters(id BIGINT,tenant_id BIGINT,location_id BIGINT,is_active BOOLEAN);
       CREATE TABLE service_counter_assignments(user_id BIGINT,counter_id BIGINT);
-      CREATE TABLE store_locations(id BIGINT PRIMARY KEY,tenant_id BIGINT,is_active BOOLEAN,service_timing_enabled BOOLEAN,UNIQUE(id,tenant_id));
+      CREATE TABLE store_locations(id BIGINT PRIMARY KEY,queue_board_id UUID DEFAULT gen_random_uuid(),queue_board_public BOOLEAN DEFAULT FALSE,tenant_id BIGINT,is_active BOOLEAN,service_timing_enabled BOOLEAN,UNIQUE(id,tenant_id));
       ALTER TABLE tenant_membership_locations ADD FOREIGN KEY(tenant_membership_id) REFERENCES tenant_memberships(id) ON DELETE CASCADE,
         ADD FOREIGN KEY(location_id) REFERENCES store_locations(id) ON DELETE CASCADE,ADD FOREIGN KEY(assigned_by_user_id) REFERENCES users(id) ON DELETE SET NULL;
       CREATE TABLE location_resource_pools(id BIGINT PRIMARY KEY,tenant_id BIGINT,location_id BIGINT,capacity INTEGER,revision INTEGER,tracking_enabled BOOLEAN,UNIQUE(id,tenant_id,location_id));
