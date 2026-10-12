@@ -54,6 +54,19 @@ test('ambiguous or inferred active segments cannot create authoritative order an
   f.input.exceeded=['work'];f.input.counts.work='10001';
   const limited=f.read();assert.equal(limited.sourceAssessment,null);assert.equal(limited.reportEvidence.counts.work,'10001');
 });
+test('an observed coverage flag never substitutes for proven writer guarantees or activates readiness',()=>{
+  const f=pureFixture();f.input.ledger.writer_coverage_complete=true;
+  const result=f.read();assert.equal(result.reportEvidence.revisionEvidence.writerCoverageComplete,true);
+  assert.ok(result.sourceAssessment.provenance.gaps.includes('writer_guarantees_unproven'));
+  assert.ok(!result.sourceAssessment.provenance.gaps.includes('writer_coverage_incomplete'));
+  assert.equal(result.readiness,'not_ready');assert.equal(result.snapshot,null);
+});
+test('shared dispatch SQL rejects unrecognized interpolation aliases',()=>{
+  const rules=require('../src/services/queueDispatchRules');
+  assert.throws(()=>rules.bookingCallNotReady('tickets; SELECT 1'),/alias/);
+  assert.throws(()=>rules.waitingPriorityOrder('unknown.'),/alias/);
+  assert.throws(()=>rules.priorityBandRank('unknown.'),/alias/);
+});
 test('request selectors cannot assert assessment mode, provenance or completeness',async()=>{
   const read=createResourceSourceAssessment({pool:{connect:()=>assert.fail('connect')},sourceBinding:'server',authorize:async()=>true,includeSourceAssessment:false});
   const input={tenantId:'1',locationId:'10',windowFrom:'2026-10-12T00:00:00Z',windowTo:'2026-10-12T02:00:00Z'};
