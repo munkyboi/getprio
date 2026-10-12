@@ -154,6 +154,12 @@ test('row overflow keeps exact totals but does not evaluate partial inventory',(
   assert.equal(report.scanStatus,'row_limit_exceeded'); assert.equal(report.counts.work,'10001');
   assert.equal(report.inventory,null); assert.equal(report.findings.counts,null);
 });
+test('released history overflow cannot accept conversion existence as evaluated evidence',()=>{
+  const input=fixture(); input.exceeded=['historicalConversions']; input.counts.historicalConversions='10001';
+  const report=buildResourceInventoryReport(input);
+  assert.equal(report.counts.historicalConversions,'10001'); assert.equal(report.scanStatus,'row_limit_exceeded');
+  assert.equal(report.inventory,null); assert.equal(report.findings.status,'not_evaluated');
+});
 test('scope and window validation happens before connecting',async()=>{
   const read=createResourceInventoryReconciliationReport({pool:{connect:()=>assert.fail('connect')},sourceBinding:'test',authorize:async()=>true});
   await assert.rejects(read({...scope,tenantId:'9223372036854775808'}),/scope/);
@@ -250,6 +256,22 @@ test('real PostgreSQL scoped inventory, reconciliation, authorization and read b
       assert.equal(valid.counts.historicalConversions,'1'); assert.equal(valid.inventory.allocations.length,0);
       assert.equal(valid.inventory.historicalConversions[0].occupancyState,'released');
       assert.ok(!valid.findings.counts.some(i=>i.recordType==='historical_allocation'));
+      await pool.query(`INSERT INTO tickets(id,tenant_id,location_id,status,join_channel) VALUES(8,1,10,'served','vendor');
+        INSERT INTO bookings SELECT 8,1,10,'confirmed',NULL,NULL,scheduled_start_at,scheduled_end_at,NULL FROM bookings WHERE id=2;
+        INSERT INTO booking_bundle_items(id,booking_id,tenant_id,location_id,service_id,scheduled_start_at,scheduled_end_at)
+          SELECT 8,8,1,10,1000,scheduled_start_at,scheduled_end_at FROM bookings WHERE id=8;
+        INSERT INTO resource_ledger_reservations(id,tenant_id,location_id,booking_id,booking_item_id,pool_id,pool_revision,requirement_revision,units,starts_at,ends_at,state)
+          SELECT 8,1,10,8,8,100,1,1,1,scheduled_start_at,scheduled_end_at,'converted' FROM bookings WHERE id=8;
+        INSERT INTO resource_allocations(tenant_id,location_id,ticket_id,pool_id,pool_revision,units,reservation_id,started_at,expected_end_at,released_at,outcome)
+          SELECT 1,10,8,100,1,1,8,starts_at,ends_at,now(),'completed' FROM resource_ledger_reservations WHERE id=8;`);
+      const bounded=await read({limits:{historicalConversions:1}})(input());
+      assert.equal(bounded.counts.historicalConversions,'2'); assert.equal(bounded.inventory,null);
+      assert.equal(bounded.findings.status,'not_evaluated');
+      await pool.query(`DELETE FROM resource_allocations WHERE ticket_id=8;
+        DELETE FROM resource_ledger_reservations WHERE id=8;
+        DELETE FROM booking_bundle_items WHERE id=8;
+        DELETE FROM bookings WHERE id=8;
+        DELETE FROM tickets WHERE id=8;`);
       await pool.query('UPDATE resource_allocations SET units=2 WHERE ticket_id=1');
       const invalid=await read()(input());
       assert.ok(invalid.findings.counts.some(i=>i.recordType==='historical_allocation' && i.code==='allocation_conversion_mismatch'));
