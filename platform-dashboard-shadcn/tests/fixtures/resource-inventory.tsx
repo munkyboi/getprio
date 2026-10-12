@@ -10,26 +10,46 @@ const params = new URLSearchParams(location.search);
 if (params.has("dark")) document.documentElement.classList.add("dark");
 let calls = 0;
 const completed: number[] = [];
+function throwFixtureFailure(request: number) {
+  if (params.has("expire"))
+    throw Object.assign(new Error("Session expired"), { status: 401 });
+  if (params.has("scopegone") && request === 1)
+    throw Object.assign(new Error("Location no longer available"), {
+      status: 404,
+      code: "resource_report_location_not_found",
+    });
+  if (params.has("forbidden"))
+    throw Object.assign(new Error("Access revoked"), { status: 403 });
+  if (params.has("raceerror") && request === 1)
+    throw new Error("Old request failed");
+}
+function fixtureScanStatus() {
+  if (params.has("unavailable")) return "unavailable";
+  if (params.has("overflow")) return "row_limit_exceeded";
+  if (params.has("byte")) return "byte_limit_exceeded";
+  return "complete";
+}
 const api: ResourceInventoryApi = {
-  searchScopes: async () => ({
-    scopes: [
-      {
-        tenantId: "1",
-        locationId: "10",
-        tenantName: params.has("long")
-          ? "VendorName".repeat(24)
-          : "Test vendor",
-        locationName: "Main location",
-      },
-      {
-        tenantId: "2",
-        locationId: "20",
-        tenantName: "Other vendor",
-        locationName: "Other location",
-      },
-    ],
-    limited: params.has("limited"),
-  }),
+  searchScopes: () =>
+    Promise.resolve({
+      scopes: [
+        {
+          tenantId: "1",
+          locationId: "10",
+          tenantName: params.has("long")
+            ? "VendorName".repeat(24)
+            : "Test vendor",
+          locationName: "Main location",
+        },
+        {
+          tenantId: "2",
+          locationId: "20",
+          tenantName: "Other vendor",
+          locationName: "Other location",
+        },
+      ],
+      limited: params.has("limited"),
+    }),
   read: async (input) => {
     const request = ++calls;
     document.getElementById("qa-calls")!.textContent = `Report calls: ${calls}`;
@@ -44,17 +64,7 @@ const api: ResourceInventoryApi = {
     completed.push(request);
     document.getElementById("qa-completed")!.textContent =
       `Completed calls: ${completed.join(",")}`;
-    if (params.has("expire"))
-      throw Object.assign(Error("Session expired"), { status: 401 });
-    if (params.has("scopegone") && request === 1)
-      throw Object.assign(Error("Location no longer available"), {
-        status: 404,
-        code: "resource_report_location_not_found",
-      });
-    if (params.has("forbidden"))
-      throw Object.assign(Error("Access revoked"), { status: 403 });
-    if (params.has("raceerror") && request === 1)
-      throw Error("Old request failed");
+    throwFixtureFailure(request);
     const unavailable = params.has("unavailable");
     const overflow = params.has("overflow");
     const byte = params.has("byte");
@@ -76,13 +86,7 @@ const api: ResourceInventoryApi = {
       readiness: "not_ready",
       snapshot: null,
       authoritativeInventoryComplete: false,
-      scanStatus: unavailable
-        ? "unavailable"
-        : overflow
-          ? "row_limit_exceeded"
-          : byte
-            ? "byte_limit_exceeded"
-            : "complete",
+      scanStatus: fixtureScanStatus(),
       countsStatus: unavailable ? "unavailable" : "exact",
       counts: unavailable
         ? null

@@ -1,8 +1,9 @@
 // Run through the supported CUA browser surface against the local fixture only.
 const root='http://127.0.0.1:5193/tests/fixtures/resource-inventory.html';
-const check=(condition,message)=>{if(!condition)throw Error(message);};
+const check=(condition,message)=>{if(!condition)throw new Error(message);};
 export async function prepareReport(tab,params='') {
-  await tab.goto(`${root}${params?`?${params}`:''}`);
+  const query=params ? "?"+params : "";
+  await tab.goto(root+query);
   await tab.playwright.domSnapshot();
   await tab.playwright.getByRole('button',{name:'Find locations',exact:true}).click();
   await tab.playwright.getByRole('combobox',{name:'Location',exact:true}).click();
