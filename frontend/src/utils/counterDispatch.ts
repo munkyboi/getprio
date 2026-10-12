@@ -18,3 +18,8 @@ export function selectCounterDispatch(snapshot: QueueSnapshot | null, tenantSlug
   const ticket = snapshot.calledTickets?.find((entry) => entry.id === lane?.currentTicketId) || null;
   return { lane, ticket };
 }
+
+export function countCalledTicketsForQueueDay(snapshot: QueueSnapshot | null): number {
+  if (!snapshot?.queueDay.id) return 0;
+  return (snapshot.calledTickets || []).filter((ticket) => ticket.currentQueueDayId === snapshot.queueDay.id).length;
+}

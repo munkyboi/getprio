@@ -11,7 +11,6 @@ import {
   ScrollArea,
   SimpleGrid,
   Stack,
-  Table,
   Text,
   Textarea,
   Title
@@ -38,10 +37,7 @@ import {
   getQueueStateSummary,
   isQueueAcceptingJoins
 } from "../utils/queueStatus";
-import {
-  getQueueCustomerDisplayName,
-  getQueueCustomerFullNameLabel
-} from "../utils/queueNames";
+import { getQueueCustomerFullNameLabel } from "../utils/queueNames";
 
 function hexToRgba(hex: string, alpha: number): string {
   const normalized = /^#[0-9a-f]{6}$/i.test(hex) ? hex : "#ffffff";
@@ -348,30 +344,6 @@ export default function JoinedQueuePage() {
     !ticketIsWaiting &&
     !vendorIsInactive &&
     !locationIsClosed;
-  const queueProgressTickets = [
-    ...(snapshot?.current
-      ? [
-          {
-            id: `current-${snapshot.current.id}`,
-            ticketNumber: snapshot.current.ticketNumber,
-            customerName: getQueueCustomerDisplayName(
-              snapshot.current.customerName,
-              snapshot.current.customerDisplayName
-            ),
-            progressLabel: "Now serving"
-          }
-        ]
-      : []),
-    ...((snapshot?.nextUp || []).map((ticket) => ({
-      id: ticket.id,
-      ticketNumber: ticket.ticketNumber,
-      customerName: getQueueCustomerDisplayName(
-        ticket.customerName,
-        ticket.customerDisplayName
-      ),
-      progressLabel: `#${ticket.position}`
-    })))
-  ].slice(0, 10);
   const userIsCustomer = Boolean(user?.roles?.includes("customer"));
   const storedAccess = getJoinedQueueAccess(lookupCode);
   const cancellationContact = {
@@ -1212,56 +1184,6 @@ export default function JoinedQueuePage() {
                 </Title>
               </Paper>
             </SimpleGrid>
-            <Text c={bodyColor} fw={700}>
-              Currently serving: {snapshot?.current?.ticketNumber || "--"}
-            </Text>
-          </Stack>
-        </Paper>
-
-        <Paper className="ticket-page-queue-list-section" p="xl" shadow="lg" style={cardStyle}>
-          <Stack gap="md">
-            <Group justify="space-between" align="flex-start">
-              <div>
-                <Text c={subheaderColor} fw={800} size="xs" tt="uppercase" lts={2}>
-                  Queue list
-                </Text>
-                <Title className="vendor-section-title ticket-page-section-title" order={2}>Up next and waiting</Title>
-              </div>
-            </Group>
-            <Table.ScrollContainer minWidth={560}>
-              <Table verticalSpacing="sm">
-                <Table.Thead>
-                  <Table.Tr>
-                    <Table.Th>Ticket</Table.Th>
-                    <Table.Th>Customer</Table.Th>
-                    <Table.Th ta="right">Position</Table.Th>
-                  </Table.Tr>
-                </Table.Thead>
-                <Table.Tbody>
-                  {queueProgressTickets.length ? (
-                    queueProgressTickets.map((ticket) => (
-                      <Table.Tr key={ticket.id}>
-                        <Table.Td>
-                          <Text c={headerColor} fw={800}>{ticket.ticketNumber}</Text>
-                        </Table.Td>
-                        <Table.Td>
-                          <Text c={bodyColor} size="sm">{ticket.customerName}</Text>
-                        </Table.Td>
-                        <Table.Td ta="right">
-                          <Badge radius="xl" variant="light">{ticket.progressLabel}</Badge>
-                        </Table.Td>
-                      </Table.Tr>
-                    ))
-                  ) : (
-                    <Table.Tr>
-                      <Table.Td colSpan={3}>
-                        <Text c={bodyColor}>The queue is currently empty.</Text>
-                      </Table.Td>
-                    </Table.Tr>
-                  )}
-                </Table.Tbody>
-              </Table>
-            </Table.ScrollContainer>
           </Stack>
         </Paper>
       </Container>

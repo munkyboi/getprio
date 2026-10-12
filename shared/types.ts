@@ -1332,6 +1332,7 @@ export interface QueueUsage {
 }
 
 export interface QueueCurrentTicket {
+  currentQueueDayId?: string | null;
   id: string;
   ticketNumber: string;
   customerName: string;

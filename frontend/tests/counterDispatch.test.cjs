@@ -1,7 +1,7 @@
 require("tsx/cjs");
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { selectCounterDispatch } = require("../src/utils/counterDispatch.ts");
+const { selectCounterDispatch, countCalledTicketsForQueueDay } = require("../src/utils/counterDispatch.ts");
 const { queueBoardReturnPath } = require("../src/utils/queueBoardReturnPath.ts");
 const snapshot = { tenant: { slug: "vendor" }, location: { slug: "main" }, current: { id: "wrong-summary" },
   calledTickets: [{ id: "a", serviceCounterId: "1" }, { id: "legacy", serviceCounterId: null }],
@@ -27,4 +27,14 @@ test("missing/loading/stale location context disables dispatch and clears curren
     const value = selectCounterDispatch(data, tenant, location, counter);
     assert.equal(value.lane, undefined); assert.equal(value.ticket, null);
   }
+});
+
+test("close warnings count every current-day called lane and exclude older calls", () => {
+  assert.equal(countCalledTicketsForQueueDay(null), 0);
+  assert.equal(countCalledTicketsForQueueDay({ queueDay: {}, calledTickets: [] }), 0);
+  const value = { queueDay: {id: "today"}, current: {id: "old"}, calledTickets: [
+    {id: "a", currentQueueDayId: "today"}, {id: "b", currentQueueDayId: "today"},
+    {id: "old", currentQueueDayId: "yesterday"}, {id: "legacy", currentQueueDayId: null}
+  ] };
+  assert.equal(countCalledTicketsForQueueDay(value), 2);
 });

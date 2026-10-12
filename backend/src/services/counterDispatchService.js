@@ -60,6 +60,7 @@ function formatCalledTicket(ticket) {
   return {
     id: String(ticket._id), ticketNumber: ticket.ticketNumber,
     serviceCounterId: ticket.serviceCounterId || null,
+    currentQueueDayId: ticket.currentQueueDayId || null,
     customerName: ticket.customerName, customerDisplayName: ticket.customerDisplayName || null,
     calledAt: ticket.calledAt, serviceStartedAt: ticket.serviceStartedAt,
     joinChannel: ticket.joinChannel, customerConfirmedAt: ticket.customerConfirmedAt || null,

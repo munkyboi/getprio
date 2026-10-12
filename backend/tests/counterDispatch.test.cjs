@@ -26,6 +26,11 @@ test('dispatch advice distinguishes occupied, inactive, empty, closed and legacy
   assert.ok(dispatch.buildCounterDispatch(counters, called, 1, false).every(a => a.blockReason === 'QUEUE_DAY_CLOSED'));
 });
 
+test('called ticket projection retains the owning Queue Day for close warnings', () => {
+  assert.equal(dispatch.formatCalledTicket({ _id: '1', currentQueueDayId: 'today' }).currentQueueDayId, 'today');
+  assert.equal(dispatch.formatCalledTicket({ _id: '2' }).currentQueueDayId, null);
+});
+
 test('missing counter, unassigned dispatch and missing ticket fail before database work', async () => {
   const client = { query: () => assert.fail('must not query') };
   await assert.rejects(dispatch.claimNext(client, scope, {}), { code: 'COUNTER_REQUIRED' });

@@ -4,6 +4,7 @@ import { useParams } from "react-router-dom";
 import type { QueueSnapshot } from "@shared";
 import { API_BASE_URL, apiRequest } from "../api/client";
 import { getErrorMessage } from "../utils/errors";
+import { QUEUE_BOARD_POLL_INTERVAL, queueBoardPollingState } from "../utils/queueBoardPolling";
 import StyledQRCode from "../components/StyledQRCode";
 import PublicQueuePage from "./PublicQueuePage";
 
@@ -20,16 +21,27 @@ export default function SecureQueueBoardPage() {
     let checking = false;
     let requestedPairing = false;
     let refreshCookieAfter = 0;
+    let nextCheckAt = 0;
+    let pairingExpiresAt: number | null = null;
+    let expiryChecked = false;
     const base = `/queue-board/${encodeURIComponent(boardId)}`;
     setSnapshot(null); setPairing(null); setError("");
     const check = async () => {
       if (checking || !active || (source && Date.now() < refreshCookieAfter)) return;
+      const pollState = queueBoardPollingState(Date.now(), nextCheckAt, pairingExpiresAt, expiryChecked);
+      if (pollState === "expired") {
+        setError("This access request has expired. Refresh the access request to try again.");
+        return;
+      }
+      if (pollState === "wait") return;
+      if (pollState === "final-check") expiryChecked = true;
+      nextCheckAt = Date.now() + QUEUE_BOARD_POLL_INTERVAL;
       checking = true;
       try {
         const status = await apiRequest<{ allowed: boolean }>(`${base}/access`);
         if (!active) return;
         if (status.allowed) {
-          requestedPairing = false;
+          requestedPairing = false; pairingExpiresAt = null;
           refreshCookieAfter = Date.now() + 12 * 60 * 60 * 1000;
           if (source) return;
           const data = await apiRequest<QueueSnapshot>(`${base}/queue`);
@@ -39,7 +51,7 @@ export default function SecureQueueBoardPage() {
           source.onmessage = (event) => { if (active) { setSnapshot(JSON.parse(event.data)); setError(""); } };
           source.addEventListener("access-revoked", () => {
             source?.close(); source = undefined;
-            if (active) { setSnapshot(null); setPairing(null); requestedPairing = false; void check(); }
+            if (active) { setSnapshot(null); setPairing(null); requestedPairing = false; pairingExpiresAt = null; expiryChecked = false; nextCheckAt = 0; void check(); }
           });
           source.onerror = () => {
             source?.close(); source = undefined;
@@ -48,9 +60,10 @@ export default function SecureQueueBoardPage() {
         } else {
           source?.close(); source = undefined;
           setSnapshot(null);
+          if (pollState === "final-check") setError("This access request has expired. Refresh the access request to try again.");
           if (!requestedPairing) {
             const request = await apiRequest<Pairing>(`${base}/pairing`, { method: "POST", body: {} });
-            if (active) { setPairing(request); setError(""); requestedPairing = true; }
+            if (active) { setPairing(request); setError(""); requestedPairing = true; pairingExpiresAt = new Date(request.expiresAt).getTime(); }
           }
         }
       } catch (cause) {
@@ -58,7 +71,7 @@ export default function SecureQueueBoardPage() {
       } finally { checking = false; }
     };
     void check();
-    const timer = window.setInterval(() => { void check(); }, 2000);
+    const timer = window.setInterval(() => { void check(); }, QUEUE_BOARD_POLL_INTERVAL);
     return () => { active = false; source?.close(); window.clearInterval(timer); };
   }, [boardId, attempt]);
   if (snapshot) return <PublicQueuePage snapshot={snapshot} />;
