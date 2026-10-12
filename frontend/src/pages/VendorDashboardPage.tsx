@@ -143,7 +143,6 @@ import * as vendorDashboardBootstrap from "../api/vendorDashboardBootstrap";
 import * as vendorDashboardExport from "../api/vendorDashboardExport";
 import { useAuth } from "../context/AuthContext";
 import { ConfirmActionModal } from "../components/ConfirmActionModal";
-import { VendorWaitingTicketCancellation } from "../components/VendorWaitingTicketCancellation";
 import EmailChangePanel from "../components/EmailChangePanel";
 import PhoneChangePanel from "../components/PhoneChangePanel";
 import {
@@ -850,7 +849,7 @@ function QueueIntakeGauge({
   const remaining = Math.max(threshold - waitingCount, 0);
 
   return (
-    <Paper withBorder radius="md" p="md">
+    <div>
       <Stack gap={8} align="center">
         <Text className="neura-label">Queue intake</Text>
         <svg aria-hidden="true" height="96" viewBox="0 0 140 90" width="140">
@@ -894,7 +893,7 @@ function QueueIntakeGauge({
               : `${remaining} slot${remaining === 1 ? "" : "s"} before auto-pause.`}
         </Text>
       </Stack>
-    </Paper>
+    </div>
   );
 }
 
@@ -4926,19 +4925,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
   function renderQueuePage() {
     const activeCounters = serviceCounters.filter((counter) => counter.isActive);
     const activeTicket = selectedCalledTicket;
-    const waitingTicketManagement = selectedTenantRole ? (
-      <VendorWaitingTicketCancellation
-        key={`${selectedTenantSlug}:${selectedLocationSlug}`}
-        token={token}
-        tenantSlug={selectedTenantSlug}
-        locationQuery={locationQuery}
-        locationName={selectedLocation?.name || "Selected location"}
-        onCancelled={(nextSnapshot) => {
-          if (nextSnapshot) setSnapshot(current => selectFreshestQueueSnapshot(current, nextSnapshot));
-          showSuccessNotification("Ticket cancelled", "The ticket was removed from the waiting queue.");
-        }}
-      />
-    ) : null;
+
 
     return (
       <Stack gap="md">
@@ -5117,11 +5104,11 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   reverse these outcomes.
                 </Alert>
               ) : null}
-              {queueView !== "current" ? waitingTicketManagement : null}
               {queueView === "current" ? (
                 <>
-                  <Group justify="space-between" align="flex-end">
+                  <div className="vendor-queue-action-layout">
                     <Select
+                      className="vendor-queue-counter-select"
                       data={[...activeCounters.map((counter) => ({ label: counter.name, value: counter.slug })),
                         ...(snapshot?.counterDispatch || []).filter((lane) => lane.counterSlug && lane.currentTicketId && !activeCounters.some((counter) => counter.slug === lane.counterSlug)).map((lane) => ({ label: `${lane.counterName} (inactive)`, value: lane.counterSlug! })),
                         ...(snapshot?.counterDispatch?.some((lane) => lane.counterSlug === null && lane.currentTicketId) ? [{ label: "Unassigned legacy ticket", value: "__unassigned__" }] : [])]}
@@ -5131,15 +5118,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       value={selectedCounterSlug || null}
                       onChange={(value) => setSelectedCounterSlug(value || "")}
                     />
-                    {snapshot?.queueDay?.closureReason ? (
-                      <Text c="dimmed" size="sm" maw={280} ta="right">
-                        {snapshot.queueDay.closureReason}
-                      </Text>
-                    ) : null}
-                  </Group>
-                  {selectedLane?.blockReason && !activeTicket ? <Text size="sm" c="dimmed">{counterBlockMessage(selectedLane.blockReason)}</Text> : null}
-                  <div className="vendor-queue-action-layout">
-                    <Group className="vendor-queue-primary-actions">
+                    <Group className="vendor-queue-primary-actions" gap="xs">
                       <Button
                         className="neura-primary-button"
                         disabled={
@@ -5168,16 +5147,29 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                           onClick={async () => {
                             const tracking = snapshot?.location?.serviceTimingEnabled || Boolean(activeTicket.serviceStartedAt);
                             const action = activeTicket.serviceStartedAt ? "complete" : "start";
-                            const success = await runAction(tracking ? `service-${action}` : "serve-current", () =>
-                              tracking
-                                ? vendorDashboardQueue.recordTicketService(token, selectedTenantSlug, locationQuery, activeTicket.id, action)
-                                : vendorDashboardQueue.serveCurrentTicket(token, selectedTenantSlug, locationQuery, activeTicket.id, selectedLane?.counterSlug ?? null)
-                            );
-                            if (success) {
-                              showSuccessNotification(
-                                tracking && action === "start" ? "Service started" : "Customer served",
-                                tracking && action === "start" ? "The actual service start has been recorded." : "The ticket was marked as served."
+                            const execute = async () => {
+                              const success = await runAction(tracking ? `service-${action}` : "serve-current", () =>
+                                tracking
+                                  ? vendorDashboardQueue.recordTicketService(token, selectedTenantSlug, locationQuery, activeTicket.id, action)
+                                  : vendorDashboardQueue.serveCurrentTicket(token, selectedTenantSlug, locationQuery, activeTicket.id, selectedLane?.counterSlug ?? null)
                               );
+                              if (success) {
+                                showSuccessNotification(
+                                  tracking && action === "start" ? "Service started" : "Customer served",
+                                  tracking && action === "start" ? "The actual service start has been recorded." : "The ticket was marked as served."
+                                );
+                              }
+                            };
+                            if (activeTicket.serviceStartedAt) {
+                              setConfirmAction({
+                                title: "Complete service?",
+                                description: `Mark ticket ${activeTicket.ticketNumber} as served and record the service end time.`,
+                                confirmLabel: "Complete service",
+                                confirmColor: "blue",
+                                onConfirm: execute
+                              });
+                            } else {
+                              await execute();
                             }
                           }}
                         >
@@ -5200,14 +5192,23 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       <Button
                         variant="default"
                         disabled={Boolean(busyAction) || !activeTicket || Boolean(activeTicket.serviceStartedAt)}
-                        onClick={async () => {
-                          const success = await runAction("skip-current", () =>
-                            vendorDashboardQueue.skipCurrentTicket(token, selectedTenantSlug, locationQuery, activeTicket!.id, selectedLane?.counterSlug ?? null)
-                          );
-                          if (success) {
-                            showSuccessNotification("Ticket skipped", "The current ticket was skipped.");
-                            setQueueView("current");
-                          }
+                        onClick={() => {
+                          if (!activeTicket) return;
+                          setConfirmAction({
+                            title: "Skip current ticket?",
+                            description: `Skip ticket ${activeTicket.ticketNumber} at the selected counter.`,
+                            confirmLabel: "Skip ticket",
+                            confirmColor: "orange",
+                            onConfirm: async () => {
+                              const success = await runAction("skip-current", () =>
+                                vendorDashboardQueue.skipCurrentTicket(token, selectedTenantSlug, locationQuery, activeTicket.id, selectedLane?.counterSlug ?? null)
+                              );
+                              if (success) {
+                                showSuccessNotification("Ticket skipped", "The current ticket was skipped.");
+                                setQueueView("current");
+                              }
+                            }
+                          });
                         }}
                       >
                         Skip current
@@ -5228,10 +5229,11 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                         </Button>
                       ) : null}
                     </Group>
-                  {waitingTicketManagement ? <div className="vendor-queue-management-action">{waitingTicketManagement}</div> : null}
                   </div>
-                  <SimpleGrid cols={{ base: 1, sm: intakeState?.autoPauseEnabled ? 3 : 2 }} spacing="md">
-                    <Paper withBorder radius="md" p="md">
+                  {snapshot?.queueDay?.closureReason ? <Text c="dimmed" size="sm">{snapshot.queueDay.closureReason}</Text> : null}
+                  {selectedLane?.blockReason && !activeTicket ? <Text size="sm" c="dimmed">{counterBlockMessage(selectedLane.blockReason)}</Text> : null}
+                  <div className="vendor-queue-status-columns" data-columns={intakeState?.autoPauseEnabled ? 3 : 2}>
+                    <div className="vendor-queue-status-column">
                       <Text className="neura-label">{activeTicket?.serviceStartedAt ? "In service" : snapshot?.location?.serviceTimingEnabled ? "Called ticket" : "Now serving"}</Text>
                       <Group gap="xs">
                         <Title order={3}>{activeTicket?.ticketNumber || "--"}</Title>
@@ -5255,8 +5257,8 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                           Booking {activeTicket.linkedBookingReference}
                         </Text>
                       ) : null}
-                    </Paper>
-                    <Paper withBorder radius="md" p="md">
+                    </div>
+                    <div className="vendor-queue-status-column">
                       <Text className="neura-label">Queue day</Text>
                       <Title order={3}>
                         {queueDayReconciling
@@ -5284,9 +5286,9 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                               ? `Scheduled close ${formatDateTime(snapshot.queueDay.currentClosesAt)}`
                               : "Customers can continue joining this queue"}
                       </Text>
-                    </Paper>
+                    </div>
                     {intakeState?.autoPauseEnabled && intakeState.autoPauseThreshold ? (
-                      <QueueIntakeGauge
+                      <div className="vendor-queue-status-column"><QueueIntakeGauge
                         waitingCount={intakeState.currentWaitingCount}
                         threshold={intakeState.autoPauseThreshold}
                         resumeWaitingCount={intakeState.resumeWaitingCount}
@@ -5299,9 +5301,9 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                               : "open"
                         }
                         stateLabel={intakeState.stateLabel}
-                      />
+                      /></div>
                     ) : null}
-                  </SimpleGrid>
+                  </div>
                   <Table.ScrollContainer minWidth={640}>
                     <Table verticalSpacing="sm">
                       <Table.Thead>

@@ -5,7 +5,7 @@ export function ConfirmActionModal({
   title,
   description,
   confirmLabel,
-  cancelLabel = "Keep editing",
+  cancelLabel = "Cancel",
   confirmColor = "red",
   loading = false,
   onConfirm,
