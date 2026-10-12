@@ -1029,7 +1029,7 @@ test("booking services use their own stepped quantity sliders", () => {
   assert.match(source, /aria-label=\{`\$\{service\.name\} \$\{quantityLabel\}`\}/);
   assert.match(source, /const updateServiceQuantity = useCallback/);
   assert.match(source, /onChange=\{\(value\) => updateServiceQuantity\(service, value\)\}/);
-  assert.match(source, /max=\{maxBookableQuantity\}/);
+  assert.match(source, /max=\{bounds.max\}/);
   assert.match(source, /disabled=\{Boolean\(otp\) \|\| !isSelected\}/);
   assert.doesNotMatch(source, /selectedBundleServices\.length\} item/);
 });
@@ -1041,9 +1041,7 @@ test("together bookings synchronize matching-duration service quantity sliders",
     "utf8"
   );
 
-  assert.match(source, /const shouldSynchronizeTogetherQuantities = useMemo/);
-  assert.match(source, /executionMode !== "parallel"/);
-  assert.match(source, /service\.durationMinutes === sharedDuration/);
+  assert.match(source, /sharedDurationUnitBounds\(selectedBundleServices, executionMode\)/);
   assert.match(source, /const updateServiceQuantity = useCallback/);
   assert.match(source, /if \(shouldSynchronizeTogetherQuantities\) \{/);
   assert.match(source, /onChange=\{\(value\) => updateServiceQuantity\(service, value\)\}/);

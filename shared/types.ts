@@ -298,6 +298,8 @@ export interface VendorServiceSummary {
   imageUrl: string;
   allowBookingQuantity: boolean;
   bookingQuantityLabel: string;
+  bookingQuantityMin?: number;
+  bookingQuantityMax?: number;
   manualPaymentRequired: boolean;
   bookingCapacityScope: BookingCapacityScope;
   priceAmountCents: number;
@@ -348,6 +350,8 @@ export interface SaveVendorServiceRequest {
   durationMinutes: number;
   allowBookingQuantity?: boolean;
   bookingQuantityLabel?: string;
+  bookingQuantityMin?: number;
+  bookingQuantityMax?: number;
   manualPaymentRequired?: boolean;
   bookingCapacityScope?: BookingCapacityScope;
   priceAmountCents: number;
@@ -1604,6 +1608,8 @@ export interface PublicVendorService {
   durationMinutes: number;
   allowBookingQuantity: boolean;
   bookingQuantityLabel: string;
+  bookingQuantityMin?: number;
+  bookingQuantityMax?: number;
   manualPaymentRequired: boolean;
   priceAmountCents: number;
   currency: "PHP";

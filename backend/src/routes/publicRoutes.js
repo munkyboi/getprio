@@ -85,6 +85,8 @@ function formatPublicVendorService(service) {
     imageUrl: service.imageUrl || "",
     allowBookingQuantity: service.allowBookingQuantity,
     bookingQuantityLabel: service.bookingQuantityLabel,
+    bookingQuantityMin: service.bookingQuantityMin ?? 1,
+    bookingQuantityMax: service.bookingQuantityMax ?? 24,
     manualPaymentRequired: service.manualPaymentRequired,
     priceAmountCents: service.priceAmountCents,
     currency: service.currency,

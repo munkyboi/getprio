@@ -1,3 +1,5 @@
+import { quantityInputChanges } from "../utils/durationUnits";
+import DurationUnitControls from "../components/DurationUnitControls";
 import { queueBoardReturnPath } from "../utils/queueBoardReturnPath";
 import { counterBlockMessage, selectCounterDispatch } from "../utils/counterDispatch";
 import { QueueBoardScanner, QueueBoardSettings } from "../components/QueueBoardAccess";
@@ -405,6 +407,8 @@ const emptyServiceForm: SaveVendorServiceRequest = {
   imageUrl: "",
   allowBookingQuantity: false,
   bookingQuantityLabel: "Units",
+  bookingQuantityMin: 1,
+  bookingQuantityMax: 24,
   manualPaymentRequired: false,
   bookingCapacityScope: "service",
   priceAmountCents: 0,
@@ -3226,6 +3230,8 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       durationMinutes: service?.durationMinutes || 30,
       allowBookingQuantity: service?.allowBookingQuantity || false,
       bookingQuantityLabel: service?.bookingQuantityLabel || "Units",
+      bookingQuantityMin: service?.bookingQuantityMin ?? 1,
+      bookingQuantityMax: service?.bookingQuantityMax ?? 24,
       manualPaymentRequired: service?.manualPaymentRequired || false,
       bookingCapacityScope: service?.bookingCapacityScope || "service",
       priceAmountCents: service?.priceAmountCents || 0,
@@ -3281,7 +3287,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
             return;
           }
           setServiceSlugAvailable(response.available && response.valid);
-          setServiceSlugMessage(response.message);
+          setServiceSlugMessage(response.valid ? (response.available ? "This booking link name is available." : "This booking link name is already in use.") : "Use letters or numbers for the booking link name.");
         })
         .catch((availabilityError) => {
           if (!isCurrent || (availabilityError instanceof DOMException && availabilityError.name === "AbortError")) {
@@ -3311,7 +3317,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
 
     try {
       if (!serviceSlugAvailable) {
-        setError(serviceSlugMessage || "Choose an available service slug before saving.");
+        setError(serviceSlugMessage || "Choose an available booking link name before saving.");
         return;
       }
 
@@ -6597,7 +6603,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
           <Stack gap={2}>
             <Text className="service-dialog__modal-eyebrow">{editingServiceSlug ? "EDIT" : "ADD"} SERVICE</Text>
             <Text className="service-dialog__modal-title">
-              {serviceForm.name ? `Service: ${serviceForm.name}` : "Service: New service"}
+              {editingServiceSlug ? `Edit ${serviceForm.name || "service"}` : "Add a service"}
             </Text>
           </Stack>
         }
@@ -6621,7 +6627,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                 <Stack gap="md">
                   <div>
                     <Text className="service-dialog__label">Basics</Text>
-                    <Text fw={700}>Identity and timing</Text>
+                    <Text fw={700}>Name, image, and duration</Text>
                   </div>
                   <FileInput
                     accept="image/png,image/jpeg,image/webp"
@@ -6632,7 +6638,8 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     onChange={(file) => uploadServiceImage(file)}
                   />
                   <TextInput
-                    label="Service image URL"
+                    label="Image link (optional)"
+                    description="Paste an image link, or upload an image above."
                     value={serviceForm.imageUrl || ""}
                     onChange={(event) => setServiceForm((current) => ({ ...current, imageUrl: event.target.value }))}
                   />
@@ -6651,8 +6658,8 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     }}
                   />
                   <TextInput
-                    label="Booking link identifier"
-                    description={checkingServiceSlug ? "Checking link availability..." : serviceSlugMessage || "Generated from the service name. Changing it changes this service’s booking link."}
+                    label="Booking link name"
+                    description={checkingServiceSlug ? "Checking link availability..." : serviceSlugMessage || "Used in this service’s booking link. Created from the service name; changing it changes the link."}
                     error={
                       !checkingServiceSlug && !serviceSlugAvailable && serviceForm.slug && serviceSlugMessage
                         ? serviceSlugMessage
@@ -6665,8 +6672,8 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     }}
                   />
                   <NumberInput
-                    label="Service duration"
-                    description="Time reserved for one booking unit."
+                    label={serviceForm.allowBookingQuantity ? "Duration per unit" : "Service duration"}
+                    description={serviceForm.allowBookingQuantity ? "Time reserved for a quantity of 1." : "Time reserved for one booking."}
                     min={5}
                     max={480}
                     required
@@ -6680,7 +6687,8 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     }
                   />
                   <NumberInput
-                    label="Display order"
+                    label="List order"
+                    description="Lower numbers appear first in your service list."
                     value={serviceForm.sortOrder || 0}
                     onChange={(value) =>
                       setServiceForm((current) => ({ ...current, sortOrder: Number(value) || 0 }))
@@ -6693,12 +6701,12 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                 <Stack gap="md">
                   <div>
                     <Text className="service-dialog__label">Pricing</Text>
-                    <Text fw={700}>Payment and display rules</Text>
+                    <Text fw={700}>Price, payment, and quantity</Text>
                   </div>
                   <NumberInput
                     decimalScale={2}
                     fixedDecimalScale
-                    label="Price"
+                    label={serviceForm.allowBookingQuantity ? "Price per unit" : "Service price"}
                     min={0}
                     prefix="PHP "
                     value={(serviceForm.priceAmountCents || 0) / 100}
@@ -6710,9 +6718,9 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     }
                   />
                   <TextInput
-                    label="Customer price label (optional)"
-                    description="Changes the displayed label only. The numeric price determines the fee unless the branch has a price override."
-                    placeholder="Leave blank to use the formatted price"
+                    label="Price text shown to customers (optional)"
+                    description="Use custom text instead of the formatted price. The booking total uses the price above, or the branch price below."
+                    placeholder="For example, PHP 500 per session"
                     value={serviceForm.priceDisplay || ""}
                     onChange={(event) =>
                       setServiceForm((current) => ({ ...current, priceDisplay: event.target.value }))
@@ -6720,8 +6728,8 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   />
                   <Switch
                     checked={serviceForm.manualPaymentRequired === true}
-                    label="Require payment proof before confirmation"
-                    description="Customers submit a payment reference and receipt for you to review. This does not collect payment automatically."
+                    label="Require proof of payment"
+                    description="Customers pay separately, then submit a receipt and payment reference. Review their payment before confirming the booking."
                     onChange={(event) =>
                       setServiceForm((current) => ({
                         ...current,
@@ -6731,47 +6739,30 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   />
                   <Switch
                     checked={serviceForm.allowBookingQuantity === true}
-                    label="Allow multiple duration units"
-                    description={`Each unit adds ${serviceForm.durationMinutes} minutes and the service price. This is not the number of people or resources reserved.`}
-                    onChange={(event) =>
-                      setServiceForm((current) => ({
-                        ...current,
-                        allowBookingQuantity: event.currentTarget.checked,
-                        bookingQuantityLabel: event.currentTarget.checked
-                          ? current.bookingQuantityLabel || "Units"
-                          : current.bookingQuantityLabel
-                      }))
-                    }
+                    label="Allow quantity input"
+                    description={`Let customers choose a quantity. Each unit adds ${serviceForm.durationMinutes} minutes and the unit price to the booking. A quantity of 2 doubles the time and price.`}
+                    onChange={(event) => {
+                      const enabled = event.currentTarget.checked;
+                      setServiceForm((current) => ({ ...current, ...quantityInputChanges({ bookingQuantityLabel: current.bookingQuantityLabel || "Units" }, enabled) }));
+                    }}
                   />
                   {serviceForm.allowBookingQuantity ? (
-                    <TextInput
-                      label="Duration unit name"
-                      description="The name customers see when choosing duration units, such as Hours or Sessions."
-                      maxLength={40}
-                      required
-                      value={serviceForm.bookingQuantityLabel || "Units"}
-                      onChange={(event) =>
-                        setServiceForm((current) => ({
-                          ...current,
-                          bookingQuantityLabel: event.target.value
-                        }))
-                      }
-                    />
+                    <DurationUnitControls durationMinutes={serviceForm.durationMinutes} value={serviceForm} onChange={(changes) => setServiceForm((current) => ({ ...current, ...changes }))} />
                   ) : null}
                   <Select
                     allowDeselect={false}
                     data={[
                       {
                         value: "service",
-                        label: "Separate capacity for this service"
+                        label: "Only this service"
                       },
                       {
                         value: "location",
-                        label: "Share capacity with all branch services"
+                        label: "All services at the branch"
                       }
                     ]}
-                    label="Which bookings share capacity?"
-                    description="Separate counts this service only. Shared also counts other services at the branch. An all-services weekly rule always shares capacity."
+                    label="Booking limit applies to"
+                    description="Choose which services count toward the booking limit. Weekly schedules covering all services always share one limit."
                     value={serviceForm.bookingCapacityScope || "service"}
                     onChange={(value) =>
                       setServiceForm((current) => ({
@@ -6784,7 +6775,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   <div>
                     <Text fw={700}>Branches offering this service</Text>
                     <Text c="dimmed" size="sm">
-                      Enable each branch where this service can be booked. Capacity counts overlapping booking items, not people or physical resources.
+                      Turn on each branch where customers can book this service. Set how many service bookings can run at the same time.
                     </Text>
                   </div>
                   {(serviceForm.locationServices || []).map((assignment, index) => (
@@ -6801,7 +6792,8 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                         }}
                       />
                       <NumberInput
-                        label={`${locations.find((location) => location.slug === assignment.locationSlug)?.name || assignment.locationSlug} booking capacity`}
+                        label={`${locations.find((location) => location.slug === assignment.locationSlug)?.name || assignment.locationSlug} bookings allowed at the same time`}
+                        description="Counts service bookings, rather than the number of guests."
                         min={1}
                         max={100}
                         allowDecimal={false}
@@ -6813,7 +6805,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                         }))}
                       />
                       <NumberInput
-                        label="Branch price override (optional)"
+                        label="Price at this branch (optional)"
                         description="Leave blank to use the service price above."
                         decimalScale={2}
                         fixedDecimalScale
@@ -6830,8 +6822,8 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                         }))}
                       />
                       <TextInput
-                        label="Branch customer price label (optional)"
-                        description="Display text only; it does not change the numeric booking price."
+                        label="Price text for this branch (optional)"
+                        description="Custom text shown to customers at this branch. It does not change the amount charged."
                         disabled={assignment.isActive === false}
                         value={assignment.priceDisplay || ""}
                         onChange={(event) => {
@@ -6845,7 +6837,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     </Stack>
                   ))}
                   <Text c="dimmed" size="xs">
-                    The current booking limit uses the higher of this branch service capacity and the matching weekly rule or date exception capacity.
+                    If a weekly schedule or special date allows more bookings at the same time, the higher limit applies.
                   </Text>
 
                 </Stack>
@@ -6856,11 +6848,12 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
               <Stack gap="md">
                 <div>
                   <Text className="service-dialog__label">Notes</Text>
-                  <Text fw={700}>Description and activation</Text>
+                  <Text fw={700}>Description and availability</Text>
                 </div>
                 <Textarea
                   autosize
-                  label="Description"
+                  label="Service description"
+                  description="Tell customers what is included and what they should know before booking."
                   minRows={4}
                   value={serviceForm.description || ""}
                   onChange={(event) =>
@@ -6870,7 +6863,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                 <Switch
                   checked={serviceForm.isActive !== false}
                   label="Offer this service for booking"
-                  description="When off, customers cannot make new bookings. Existing bookings remain in your records."
+                  description="Turn off to stop new bookings. Existing bookings stay in your records."
                   onChange={(event) =>
                     setServiceForm((current) => ({ ...current, isActive: event.currentTarget.checked }))
                   }
@@ -6882,8 +6875,8 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
           <Group justify="space-between" align="center" className="service-dialog__footer">
               <Text c="dimmed" size="sm">
                 {editingServiceSlug
-                  ? "Update this service and keep the catalog ready for booking flows."
-                  : "Create the service before exposing it to customers and queue scheduling."}
+                  ? "Save your changes to update this service."
+                  : "Save this service with the settings above."}
               </Text>
               <Group gap="sm">
                 <Button variant="default" onClick={() => setServiceDialogOpen(false)}>

@@ -74,7 +74,7 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
       CREATE TABLE platform_membership_effects(kind TEXT,user_id BIGINT);
       CREATE TABLE counters(tenant_id BIGINT,location_id BIGINT,key TEXT,date_key TEXT,value INTEGER,PRIMARY KEY(tenant_id,location_id,key,date_key));
       CREATE TABLE vendor_services(id BIGINT PRIMARY KEY,tenant_id BIGINT,name TEXT,duration_minutes INTEGER,is_active BOOLEAN,
-        slug TEXT,description TEXT,image_url TEXT,allow_booking_quantity BOOLEAN,booking_quantity_label TEXT,manual_payment_required BOOLEAN,
+        slug TEXT,description TEXT,image_url TEXT,allow_booking_quantity BOOLEAN,booking_quantity_label TEXT,booking_quantity_min INTEGER DEFAULT 1,booking_quantity_max INTEGER DEFAULT 24,manual_payment_required BOOLEAN,
         booking_capacity_scope TEXT,price_amount_cents INTEGER,currency TEXT,price_display TEXT,sort_order INTEGER,created_at TIMESTAMPTZ,updated_at TIMESTAMPTZ);
       CREATE TABLE location_services(service_id BIGINT,tenant_id BIGINT,location_id BIGINT,is_active BOOLEAN);
       CREATE TABLE vendor_availability_blocks(id BIGSERIAL PRIMARY KEY,tenant_id BIGINT,location_id BIGINT,service_id BIGINT,

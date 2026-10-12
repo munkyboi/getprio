@@ -99,6 +99,13 @@ function normalizeServiceBookingQuantity(service, value) {
     error.statusCode = 400;
     throw error;
   }
+  if (service.allowBookingQuantity) {
+    const min = service.bookingQuantityMin ?? 1;
+    const max = service.bookingQuantityMax ?? 24;
+    if (bookingQuantity < min || bookingQuantity > max) {
+      throw Object.assign(new Error(`This service requires between ${min} and ${max} duration units.`), { statusCode: 400 });
+    }
+  }
   return service.allowBookingQuantity ? bookingQuantity : 1;
 }
 

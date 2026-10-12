@@ -289,6 +289,21 @@ function normalizeServicePayload(body, existingService = null) {
   const bookingQuantityLabel = typeof body.bookingQuantityLabel === "string" && body.bookingQuantityLabel.trim()
     ? body.bookingQuantityLabel.trim().slice(0, 40)
     : existingService?.bookingQuantityLabel || "Units";
+  const unitLimit = (field, fallback) => {
+    const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : existingService?.[field] ?? fallback;
+    if ((typeof value !== "number" && typeof value !== "string") || !String(value).trim() || !Number.isInteger(Number(value)) || Number(value) < 1 || Number(value) > 24) {
+      throw Object.assign(new Error(`${field} must be a whole number between 1 and 24.`), { statusCode: 400 });
+    }
+    return Number(value);
+  };
+  const bookingQuantityMin = unitLimit("bookingQuantityMin", 1);
+  const bookingQuantityMax = unitLimit("bookingQuantityMax", 24);
+  if (bookingQuantityMin > bookingQuantityMax) {
+    throw Object.assign(new Error("Minimum duration units must not exceed maximum duration units."), { statusCode: 400 });
+  }
+  if (allowBookingQuantity && durationMinutes * bookingQuantityMin > 1440) {
+    throw Object.assign(new Error("Minimum quantity must fit within a 24-hour booking. Reduce the quantity or duration."), { statusCode: 400 });
+  }
   const manualPaymentRequired = Object.prototype.hasOwnProperty.call(body, "manualPaymentRequired")
     ? body.manualPaymentRequired === true
     : existingService?.manualPaymentRequired ?? false;
@@ -321,6 +336,8 @@ function normalizeServicePayload(body, existingService = null) {
     durationMinutes,
     allowBookingQuantity,
     bookingQuantityLabel,
+    bookingQuantityMin,
+    bookingQuantityMax,
     manualPaymentRequired,
     bookingCapacityScope,
     priceAmountCents,
@@ -449,6 +466,8 @@ function formatVendorService(service) {
     imageUrl: service.imageUrl || "",
     allowBookingQuantity: service.allowBookingQuantity,
     bookingQuantityLabel: service.bookingQuantityLabel,
+    bookingQuantityMin: service.bookingQuantityMin ?? 1,
+    bookingQuantityMax: service.bookingQuantityMax ?? 24,
     manualPaymentRequired: service.manualPaymentRequired,
     bookingCapacityScope: service.bookingCapacityScope || "service",
     priceAmountCents: service.priceAmountCents,
