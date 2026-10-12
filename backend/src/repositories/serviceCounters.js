@@ -67,7 +67,7 @@ async function findCounterByLocationAndSlug(locationId, slug, options = {}) {
     `,
     [Number(locationId), slug]
   );
-  return mapCounter(result.rows[0]);
+  return result.rows[0] ? mapCounter(result.rows[0]) : null;
 }
 
 async function findCounterById(counterId, options = {}) {

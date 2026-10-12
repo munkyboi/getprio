@@ -783,34 +783,39 @@ async function countServedToday(tenantId, dateKey, options = {}) {
   return result.rows[0]?.count || 0;
 }
 
-async function findCurrentCalledTicket(tenantId, options = {}) {
-  const queryClient = buildQueryClient(options.client);
+// Unscoped reads are summaries only. Mutations supply an explicit counter lane.
+async function listCalledTickets(tenantId, options = {}) {
   const values = [Number(tenantId)];
-  let locationFilter = "";
-  let dateFilter = "";
-
-  if (options.locationId) {
-    values.push(Number(options.locationId));
-    locationFilter = `AND location_id = $${values.length}`;
+  const filters = ["tenant_id = $1", "status = 'called'"];
+  for (const [key, column] of [["locationId", "location_id"], ["dateKey", "date_key"], ["ticketId", "id"]]) {
+    if (options[key] != null) {
+      values.push(options[key]);
+      filters.push(`${column} = $${values.length}`);
+    }
   }
-
-  if (options.dateKey) {
-    values.push(String(options.dateKey));
-    dateFilter = `AND date_key = $${values.length}`;
+  if (Object.hasOwn(options, "serviceCounterId")) {
+    values.push(options.serviceCounterId ?? null);
+    filters.push(`service_counter_id IS NOT DISTINCT FROM $${values.length}::bigint`);
   }
+  const result = await buildQueryClient(options.client).query(`
+    SELECT ${withLinkedBookingReferenceSelect()} FROM tickets
+    WHERE ${filters.join(" AND ")}
+    ORDER BY called_at ASC NULLS LAST, created_at ASC, id ASC
+    ${options.limit === 1 ? "LIMIT 1" : ""} ${options.forUpdate ? "FOR UPDATE" : ""}`, values);
+  return result.rows.map(mapTicket);
+}
 
-  const result = await queryClient.query(
-    `
-      SELECT ${withLinkedBookingReferenceSelect()}
-      FROM tickets
-      WHERE tenant_id = $1 ${locationFilter} ${dateFilter} AND status = 'called'
-      ORDER BY called_at ASC NULLS LAST, created_at ASC
-      LIMIT 1 ${options.forUpdate ? "FOR UPDATE" : ""}
-    `,
-    values
-  );
+async function findCurrentCalledTicket(tenantId, options = {}) {
+  return (await listCalledTickets(tenantId, { ...options, limit: 1 }))[0] || null;
+}
 
-  return mapTicket(result.rows[0]);
+// Read and claim share the booking readiness predicate and database clock.
+async function countReadyWaitingTickets(tenantId, options = {}) {
+  const result = await buildQueryClient(options.client).query(`
+    SELECT COUNT(*)::int AS count FROM tickets
+    WHERE tenant_id=$1 AND location_id=$2 AND date_key=$3 AND status='waiting'
+      AND NOT ${BOOKING_CALL_NOT_READY}`, [tenantId, options.locationId, options.dateKey]);
+  return result.rows[0].count;
 }
 
 async function callNextWaitingTicket(tenantId, options = {}) {
@@ -1199,6 +1204,8 @@ module.exports = {
   getCustomerTicketStats,
   countServedToday,
   findCurrentCalledTicket,
+  listCalledTickets,
+  countReadyWaitingTickets,
   confirmCurrentCalledTicket,
   callNextWaitingTicket,
   updateCurrentCalledTicketStatus,

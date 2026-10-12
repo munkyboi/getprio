@@ -1,3 +1,4 @@
+const counterDispatchService = require("./counterDispatchService");
 const ticketBarcodeService = require("./ticketBarcodeService");
 const ticketServicePlanService = require("./ticketServicePlanService");
 const storeHoursService = require("./storeHoursService");
@@ -691,50 +692,11 @@ async function callNextTicket(tenant, options = {}) {
   const result = await withOpenVendorQueueTransaction(tenant, location, options, "tenant.queue.operate", async (client, scope) => {
     location = scope.location;
     dateKey = scope.dateKey;
-    if (options.serviceCounter) {
-      const id = String(options.serviceCounter._id);
-      if (!/^[1-9]\d*$/u.test(id) || !Number.isSafeInteger(Number(id))) {
-        throw Object.assign(new Error("Counter not found."), { statusCode: 404 });
-      }
-      const counter = await client.query(`SELECT id FROM service_counters
-        WHERE id=$1 AND tenant_id=$2 AND location_id=$3 AND is_active=TRUE FOR SHARE`, [id, tenant._id, location._id]);
-      if (!counter.rows.length) throw Object.assign(new Error("Counter not found."), { statusCode: 404 });
-    }
-    const activeTicket = await ticketRepository.findCurrentCalledTicket(tenant._id, {
-      client,
-      forUpdate: true,
-      locationId: location?._id,
-      dateKey
-    });
-    if (activeTicket) {
-      const error = new Error("Serve or skip the current ticket before calling the next one.");
-      error.statusCode = 400;
-      throw error;
-    }
-
-    const nextWaitingTicket = (await ticketRepository.listWaitingTickets(tenant._id, {
-      client,
-      locationId: location?._id,
-      dateKey,
-      limit: 1
-    }))[0];
-    if (!nextWaitingTicket) {
-      return null;
-    }
-
-    queueLifecycle.assertValidTransition(nextWaitingTicket.status, "called");
-    const nextTicket = await ticketRepository.callNextWaitingTicket(tenant._id, {
-      client,
-      locationId: location?._id,
-      serviceCounterId: options.serviceCounter?._id,
-      dateKey
-    });
-    if (!nextTicket) {
-      const error = new Error("No waiting ticket is ready to be called yet. Arrived bookings become ready at their scheduled start.");
-      error.statusCode = 409;
-      error.code = "NO_READY_WAITING_TICKET";
-      throw error;
-    }
+    const nextTicket = await counterDispatchService.claimNext(client, {
+      tenantId: tenant._id, locationId: location._id, dateKey
+    }, options);
+    if (!nextTicket) return null;
+    queueLifecycle.assertValidTransition("waiting", "called");
 
     const actor = buildQueueEventActor({
       actorUserId: options.actorUserId,
@@ -804,15 +766,9 @@ async function updateCurrentTicketStatus(tenant, status, options = {}) {
     dateKey = options.queueDateKey || (activeQueueDay?.businessDate
       ? String(activeQueueDay.businessDate).replaceAll("-", "")
       : getDateKey(new Date(), location.timezone));
-    const currentTicket = await ticketRepository.findCurrentCalledTicket(tenant._id, {
-      client,
-      forUpdate: true,
-      locationId: location?._id,
-      dateKey
-    });
-    if (!currentTicket) {
-      return null;
-    }
+    const currentTicket = await counterDispatchService.lockCurrent(client, {
+      tenantId: tenant._id, locationId: location._id, dateKey
+    }, options);
     if (String(currentTicket.tenantId) !== String(tenant._id)
       || String(currentTicket.locationId) !== String(location._id)) {
       throw Object.assign(new Error("Ticket not found."), { statusCode: 404 });
@@ -923,15 +879,9 @@ async function confirmCurrentTicket(tenant, lookupCode, options = {}) {
   const result = await withOpenVendorQueueTransaction(tenant, location, options, "tenant.ticket.update_state", async (client, scope) => {
     location = scope.location;
     const dateKey = scope.dateKey;
-    const currentTicket = await ticketRepository.findCurrentCalledTicket(tenant._id, {
-      client,
-      forUpdate: true,
-      locationId: location?._id,
-      dateKey
-    });
-    if (!currentTicket) {
-      return null;
-    }
+    const currentTicket = await counterDispatchService.lockCurrent(client, {
+      tenantId: tenant._id, locationId: location._id, dateKey
+    }, options);
 
     await ticketBarcodeService.assertConfirmationCredential(client, currentTicket, {
       lookupCode: normalizedLookupCode, barcodeToken: options.barcodeToken

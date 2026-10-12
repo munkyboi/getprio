@@ -1,3 +1,6 @@
+const counterDispatchService = require("./counterDispatchService");
+const serviceCounterRepository = require("../repositories/serviceCounters");
+const queueDayRepository = require("../repositories/queueDays");
 const env = require("../config/env");
 const publicBoardThemeRepository = require("../repositories/publicBoardThemes");
 const queueDayClosureRepository = require("../repositories/queueDayClosures");
@@ -65,7 +68,15 @@ async function buildQueueSnapshot(tenant, options = {}, getTenantUsage) {
     ? await queueDayPauseRepository.findActivePause(tenant._id, locationToUse._id, dateKey)
     : null;
   const overflowDateKey = queueDayClosure?.nextQueueDateKey || dateKey;
-  const current = await ticketRepository.findCurrentCalledTicket(tenant._id, { locationId, dateKey });
+  const called = await ticketRepository.listCalledTickets(tenant._id, { locationId, dateKey });
+  const current = called[0] || null;
+  const calledTickets = called.map(counterDispatchService.formatCalledTicket);
+  const counters = locationId ? await serviceCounterRepository.listCountersByLocationId(locationId) : [];
+  const readyWaitingCount = locationId
+    ? await ticketRepository.countReadyWaitingTickets(tenant._id, { locationId, dateKey }) : 0;
+  const queueOpen = !queueDayClosure && (locationToUse?.queueLifecycleMode !== "enforced"
+    || await queueDayRepository.isOpenForDispatch(tenant._id, locationId, dateKey));
+  const counterDispatch = counterDispatchService.buildCounterDispatch(counters, calledTickets, readyWaitingCount, queueOpen);
   const waitingTickets = await ticketRepository.listWaitingTickets(tenant._id, { locationId, dateKey });
   const overflowTickets = await ticketRepository.listWaitingTickets(tenant._id, {
     locationId,
@@ -340,20 +351,11 @@ async function buildQueueSnapshot(tenant, options = {}, getTenantUsage) {
         averageServiceMinutes: tenant.averageServiceMinutes
       }).estimatedWaitMinutes
     },
-    current: current
-      ? {
-          id: String(current._id),
-          ticketNumber: current.ticketNumber,
-          customerName: current.customerName,
-          customerDisplayName: current.customerDisplayName || null,
-          calledAt: current.calledAt,
-          serviceStartedAt: current.serviceStartedAt,
-          joinChannel: current.joinChannel,
-          customerConfirmedAt: current.customerConfirmedAt || null,
-          servicePriorityBand: current.servicePriorityBand || "normal",
-          linkedBookingReference: current.linkedBookingReference || null
-        }
-      : null,
+    // Compatibility summary only; vendor actions use a counter lane and ticket ID.
+    current: calledTickets[0] || null,
+    calledTickets,
+    readyWaitingCount,
+    counterDispatch,
     nextUp,
     overflow,
     recovery: recoveryTickets.map((ticket) => ({

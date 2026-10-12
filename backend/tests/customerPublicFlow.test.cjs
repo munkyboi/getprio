@@ -1040,6 +1040,7 @@ test("public queue snapshots redact tenant and location contact details", async 
   const queueDayPauseRepository = require("../src/repositories/queueDayPauses");
   const storeLocationRepository = require("../src/repositories/storeLocations");
   const ticketRepository = require("../src/repositories/tickets");
+  const serviceCounters = require("../src/repositories/serviceCounters");
   const queueFeeService = require("../src/services/queueFeeService");
   const storeHoursService = require("../src/services/storeHoursService");
 
@@ -1052,6 +1053,9 @@ test("public queue snapshots redact tenant and location contact details", async 
     [storeLocationRepository, "listHoursByLocationId"],
     [storeLocationRepository, "findPrimaryLocationByTenantId"],
     [ticketRepository, "findCurrentCalledTicket"],
+    [ticketRepository, "listCalledTickets"],
+    [ticketRepository, "countReadyWaitingTickets"],
+    [serviceCounters, "listCountersByLocationId"],
     [ticketRepository, "listWaitingTickets"],
     [ticketRepository, "listPendingCarryOverTickets"],
     [ticketRepository, "listSkippedTickets"],
@@ -1072,6 +1076,9 @@ test("public queue snapshots redact tenant and location contact details", async 
     storeLocationRepository.listHoursByLocationId = async () => [];
     storeLocationRepository.findPrimaryLocationByTenantId = async () => null;
     ticketRepository.findCurrentCalledTicket = async () => null;
+    ticketRepository.listCalledTickets = async () => [];
+    ticketRepository.countReadyWaitingTickets = async () => 0;
+    serviceCounters.listCountersByLocationId = async () => [];
     ticketRepository.listWaitingTickets = async () => [];
     ticketRepository.listPendingCarryOverTickets = async () => [];
     ticketRepository.listSkippedTickets = async () => [];
@@ -1151,6 +1158,7 @@ test("public queue snapshots use the ticket location for lookup-code requests", 
   const queueDayPauseRepository = require("../src/repositories/queueDayPauses");
   const storeLocationRepository = require("../src/repositories/storeLocations");
   const ticketRepository = require("../src/repositories/tickets");
+  const serviceCounters = require("../src/repositories/serviceCounters");
   const queueFeeService = require("../src/services/queueFeeService");
   const storeHoursService = require("../src/services/storeHoursService");
 
@@ -1164,6 +1172,9 @@ test("public queue snapshots use the ticket location for lookup-code requests", 
     [storeLocationRepository, "findPrimaryLocationByTenantId"],
     [storeLocationRepository, "findLocationById"],
     [ticketRepository, "findCurrentCalledTicket"],
+    [ticketRepository, "listCalledTickets"],
+    [ticketRepository, "countReadyWaitingTickets"],
+    [serviceCounters, "listCountersByLocationId"],
     [ticketRepository, "listWaitingTickets"],
     [ticketRepository, "listPendingCarryOverTickets"],
     [ticketRepository, "listSkippedTickets"],
@@ -1204,6 +1215,9 @@ test("public queue snapshots use the ticket location for lookup-code requests", 
           }
         : null;
     ticketRepository.findCurrentCalledTicket = async () => null;
+    ticketRepository.listCalledTickets = async () => [];
+    ticketRepository.countReadyWaitingTickets = async () => 0;
+    serviceCounters.listCountersByLocationId = async () => [];
     ticketRepository.listWaitingTickets = async (_tenantId, options = {}) =>
       options.locationId === "location-2"
         ? [

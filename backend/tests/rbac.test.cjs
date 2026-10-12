@@ -898,6 +898,7 @@ test("vendor staff is denied owner-only settings route but can operate queue and
       getResolvedTheme: async () => ({ scope: "fallback", theme: {} })
     },
     "../repositories/serviceCounters": {
+      findCounterByLocationAndSlug: async () => ({ _id: "1" }),
       listCountersByLocationId: async () => [],
       listAssignedCounterIdsByUserIds: async () => new Map()
     },
@@ -956,7 +957,7 @@ test("vendor staff is denied owner-only settings route but can operate queue and
         "Content-Type": "application/json",
         "x-test-tenant-role": "staff"
       },
-      body: JSON.stringify({})
+      body: JSON.stringify({ counterSlug: "one" })
     });
     assert.equal(queueResponse.status, 200);
 

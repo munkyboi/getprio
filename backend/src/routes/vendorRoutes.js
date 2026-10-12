@@ -1119,6 +1119,14 @@ router.post(
   })
 );
 
+async function getCurrentCounterTarget(req, location) {
+  if (!Object.hasOwn(req.body, "counterSlug") || (req.body.counterSlug !== null && !normalizeRequestText(req.body.counterSlug))) {
+    throw Object.assign(new Error("Select the counter for this called ticket."), { statusCode: 400, code: "COUNTER_REQUIRED" });
+  }
+  return { ticketId: req.body.ticketId,
+    serviceCounter: await getCounterForLocation(location, normalizeRequestText(req.body.counterSlug)) };
+}
+
 router.post(
   "/tenant/:tenantSlug/queue/call-next",
   asyncHandler(async (req, res) => {
@@ -1126,6 +1134,9 @@ router.post(
     assertTenantPermission(req.user, tenant._id, "tenant.queue.operate");
     const location = await getLocationForTenant(tenant, normalizeRequestText(req.query.location));
     await assertQueueLocationAccess(req.user, tenant, location);
+    if (!normalizeRequestText(req.body.counterSlug)) {
+      throw Object.assign(new Error("Select an active counter before calling a customer."), { statusCode: 400, code: "COUNTER_REQUIRED" });
+    }
     const serviceCounter = await getCounterForLocation(location, normalizeRequestText(req.body.counterSlug));
     const result = await callNextTicket(tenant, {
       location,
@@ -1265,6 +1276,7 @@ router.post(
 
     const result = await confirmCurrentTicket(tenant, lookupCode, {
       location,
+      ...await getCurrentCounterTarget(req, location),
       ...(barcodeToken ? { barcodeToken } : {}),
       actorUserId: req.user?._id,
       actorRole: "vendor",
@@ -1329,6 +1341,7 @@ router.post(
     await assertQueueLocationAccess(req.user, tenant, location);
     const result = await updateCurrentTicketStatus(tenant, "served", {
       location,
+      ...await getCurrentCounterTarget(req, location),
       actorUserId: req.user?._id,
       actorRole: "vendor",
       source: "vendor"
@@ -1360,6 +1373,7 @@ router.post(
     await assertQueueLocationAccess(req.user, tenant, location);
     const result = await updateCurrentTicketStatus(tenant, "skipped", {
       location,
+      ...await getCurrentCounterTarget(req, location),
       actorUserId: req.user?._id,
       actorRole: "vendor",
       source: "vendor"

@@ -57,6 +57,15 @@ function queryClient(client) {
   return client || db.pool;
 }
 
+async function isOpenForDispatch(tenantId, locationId, dateKey, options = {}) {
+  const result = await queryClient(options.client).query(`SELECT EXISTS (
+    SELECT 1 FROM queue_days WHERE tenant_id=$1 AND location_id=$2
+      AND business_date=to_date($3,'YYYYMMDD') AND state='open'
+      AND current_closes_at>clock_timestamp()
+  ) AS open`, [tenantId, locationId, dateKey]);
+  return result.rows[0].open;
+}
+
 async function findByScope(tenantId, locationId, businessDate, options = {}) {
   const lock = options.forUpdate ? " FOR UPDATE" : "";
   const result = await queryClient(options.client).query(
@@ -364,6 +373,7 @@ async function listDiagnostics(options = {}) {
 }
 
 module.exports = {
+  isOpenForDispatch,
   allocateSequence,
   close,
   extendDeadline,
