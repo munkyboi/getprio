@@ -139,7 +139,7 @@ test("vendor queue UI blocks calling next while a current ticket is unresolved",
 
   assert.match(
     dashboard,
-    /disabled=\{[\s\S]*?busyAction === "call-next"[\s\S]*?Boolean\(activeTicket\)[\s\S]*?\}/
+    /disabled=\{[\s\S]*?!selectedLane\?\.canCallNext[\s\S]*?Boolean\(activeTicket\)[\s\S]*?\}/
   );
 });
 

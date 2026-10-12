@@ -567,7 +567,7 @@ test("public queue board uses the compact calendar and status clock", () => {
 
 test("public and customer queue streams retain EventSource automatic reconnect", () => {
   const frontendRoot = path.resolve(__dirname, "..");
-  for (const file of ["JoinQueuePage.tsx", "PublicQueuePage.tsx", "JoinedQueuePage.tsx"]) {
+  for (const file of ["JoinQueuePage.tsx", "JoinedQueuePage.tsx"]) {
     const source = fs.readFileSync(path.join(frontendRoot, "src", "pages", file), "utf8");
     assert.match(source, /Live (queue )?updates interrupted\. Reconnecting…/);
     const onError = source.match(/eventSource\.onerror = \(\) => \{([\s\S]*?)\n    \};/);
@@ -1642,7 +1642,7 @@ test("vendor location card URLs copy to the clipboard with confirmation", () => 
   assert.match(source, /copyLocationUrl\("Join URL", locationItem\.joinUrl\)/);
   assert.match(source, /copyLocationUrl\("Monitor URL", locationItem\.monitorUrl\)/);
   assert.match(source, /title="Click to copy Join URL"/);
-  assert.match(source, /title="Click to copy Monitor URL"/);
+  assert.match(source, /title="Click to copy queue board URL"/);
 });
 
 test("vendor queue public links copy to the clipboard with confirmation", () => {

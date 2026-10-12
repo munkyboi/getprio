@@ -7,7 +7,7 @@ const {
   appBaseUrl: configuredAppBaseUrl,
   mobileQrBaseUrl: configuredMobileQrBaseUrl
 } = require("../config/env");
-const { buildJoinUrl, buildMonitorUrl, buildQueueQrUrl } = require("../publicLinks.ts");
+const { buildJoinUrl, buildQueueQrUrl } = require("../publicLinks.ts");
 
 const BOOKING_CAPACITY_SCOPES = new Set(["service", "location"]);
 
@@ -87,7 +87,7 @@ function buildLocationLinks(location, tenant, options = {}) {
       location.slug,
       location.queueJoinId
     ),
-    monitorUrl: buildMonitorUrl(appBaseUrl, tenant.slug, location.slug)
+    monitorUrl: location.queueBoardId ? `${appBaseUrl}/queue-board/${location.queueBoardId}` : ""
   };
 }
 

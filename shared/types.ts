@@ -1486,6 +1486,9 @@ export interface UnfinishedServiceTiming {
 }
 
 export interface QueueSnapshot {
+  calledTickets?: (QueueCurrentTicket & { serviceCounterId: string | null })[];
+  readyWaitingCount?: number;
+  counterDispatch?: { serviceCounterId: string | null; counterSlug: string | null; counterName: string; currentTicketId: string | null; canCallNext: boolean; blockReason: string | null }[];
   unfinishedServiceTiming?: UnfinishedServiceTiming[];
   tenant: TenantSummary;
   location: StoreLocationSummary | null;

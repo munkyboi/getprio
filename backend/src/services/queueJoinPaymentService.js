@@ -5,7 +5,6 @@ const paymentRepository = require("../repositories/queueJoinPayments");
 const tenantRepository = require("../repositories/tenants");
 const storeLocationRepository = require("../repositories/storeLocations");
 const queueDayRepository = require("../repositories/queueDays");
-const { buildMonitorUrl } = require("../publicLinks");
 const queueFeeService = require("./queueFeeService");
 const queueDayLifecycleService = require("./queueDayLifecycleService");
 const pushNotificationService = require("./pushNotificationService");
@@ -764,7 +763,7 @@ async function getMonitorUrlForPayment(payment) {
     return null;
   }
 
-  return `${buildMonitorUrl(env.appBaseUrl, tenant.slug, payment.payload?.locationSlug)}?ticket=${payment.ticketLookupCode}`;
+  return `${env.appBaseUrl.replace(/\/$/, "")}/ticket/${tenant.slug}${payment.payload?.locationSlug ? `/${payment.payload.locationSlug}` : ""}?ticket=${payment.ticketLookupCode}`;
 }
 
 module.exports = {

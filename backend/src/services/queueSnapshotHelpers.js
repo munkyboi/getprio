@@ -15,7 +15,7 @@ const {
   getQueueIntakeState,
   redactPublicContactDetails
 } = require("./queueHelpers");
-const { buildJoinUrl, buildMonitorUrl } = require("../publicLinks.ts");
+const { buildJoinUrl } = require("../publicLinks.ts");
 
 async function resolveLocation(tenant, options = {}) {
   if (options.location) {
@@ -274,7 +274,7 @@ async function buildQueueSnapshot(tenant, options = {}, getTenantUsage) {
       autoResumeEnabled: Boolean(tenant.autoResumeEnabled),
       autoResumeVacancyPercent: tenant.autoResumeVacancyPercent ?? null,
       joinUrl: buildJoinUrl(env.appBaseUrl, tenant.slug, locationToUse?.slug),
-      monitorUrl: buildMonitorUrl(env.appBaseUrl, tenant.slug, locationToUse?.slug),
+      monitorUrl: locationToUse?.queueBoardId ? `${env.appBaseUrl}/queue-board/${locationToUse.queueBoardId}` : "",
       isActive: Boolean(activeSubscription),
       queueFee
     }),
@@ -296,7 +296,7 @@ async function buildQueueSnapshot(tenant, options = {}, getTenantUsage) {
             isPrimary: locationToUse.isPrimary,
             isActive: locationToUse.isActive,
             joinUrl: buildJoinUrl(env.appBaseUrl, tenant.slug, locationToUse.slug),
-            monitorUrl: buildMonitorUrl(env.appBaseUrl, tenant.slug, locationToUse.slug),
+            monitorUrl: locationToUse.queueBoardId ? `${env.appBaseUrl}/queue-board/${locationToUse.queueBoardId}` : "",
             openStatus,
             hours: hours.map((hour) => ({
               weekday: hour.weekday,

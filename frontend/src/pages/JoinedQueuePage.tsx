@@ -27,7 +27,7 @@ import { ArrivalBarcodeController, type ArrivalBarcode, type ArrivalBarcodeState
 import ArrivalQRCode from "../components/ArrivalQRCode";
 import ResourceErrorState from "../components/ResourceErrorState";
 import { useAuth } from "../context/AuthContext";
-import { buildJoinPath, buildJoinedQueuePathWithTicket, buildMonitorPath } from "../queuePaths";
+import { buildJoinPath, buildJoinedQueuePathWithTicket } from "../queuePaths";
 import ContactForm from "../components/ContactForm";
 import FiveStarRatingInput from "../components/FiveStarRatingInput";
 import { clearJoinedQueueAccess, getJoinedQueueAccess } from "../utils/joinedQueueAccess";
@@ -562,7 +562,7 @@ export default function JoinedQueuePage() {
   }
 
   if (missingLookupCode) {
-    return <Navigate replace to={buildMonitorPath(tenantSlugValue, locationSlug)} />;
+    return <Navigate replace to={buildJoinPath(tenantSlugValue, locationSlug)} />;
   }
 
   if ([401, 403, 404].includes(responseStatus || 0)) {

@@ -9,6 +9,7 @@ import billingRoutes from "./routes/billingRoutes";
 import paymongoWebhookRoutes from "./routes/paymongoWebhookRoutes";
 import platformRoutes from "./routes/platformRoutes";
 import publicRoutes from "./routes/publicRoutes";
+import queueBoardRoutes from "./routes/queueBoardRoutes";
 import pushRoutes from "./routes/pushRoutes";
 import mobilePushRoutes from "./routes/mobilePushRoutes";
 import mobileQueueJoinRoutes from "./routes/mobileQueueJoinRoutes";
@@ -125,6 +126,8 @@ app.use("/api/mobile/auth", mobileOAuthRoutes);
 app.use("/api/mobile/auth", mobileSandboxAuthRoutes);
 app.use("/api/mobile/push", mobilePushRoutes);
 app.use("/api/mobile", mobileQueueJoinRoutes);
+app.use("/api/queue-board", queueBoardRoutes.publicRouter);
+app.use("/api/vendor", queueBoardRoutes.vendorRouter);
 app.use("/api/vendor", vendorRoutes);
 app.use("/v1", developerApiRoutes);
 
@@ -144,6 +147,8 @@ app.use("/api/v1/mobile/push", mobilePushRoutes);
 app.use("/api/v1/mobile", mobileTicketLinkRoutes);
 app.use("/api/v1/mobile", mobileTicketRoutes);
 app.use("/api/v1/mobile", mobileQueueJoinRoutes);
+app.use("/api/v1/queue-board", queueBoardRoutes.publicRouter);
+app.use("/api/v1/vendor", queueBoardRoutes.vendorRouter);
 app.use("/api/v1/vendor", vendorRoutes);
 
 app.use(errorHandler);

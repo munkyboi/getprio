@@ -1,3 +1,5 @@
+import { selectCounterDispatch } from "../utils/counterDispatch";
+import { QueueBoardScanner, QueueBoardSettings } from "../components/QueueBoardAccess";
 import { OtpInputField } from "../components/OtpInputField";
 import { BookingTableRow } from "../components/BookingTableRow";
 import { BookingCheckInNotice } from "../components/BookingCheckInNotice";
@@ -148,7 +150,7 @@ import {
   shouldEnableVendorDashboardBootstrap
 } from "../lib/vendorDashboardBootstrap";
 import { canAccessVendorSection } from "../lib/vendorDashboardNavigation";
-import { buildJoinUrl, buildMonitorUrl } from "../queuePaths";
+import { buildJoinUrl } from "../queuePaths";
 import {
   formatDateInputValue,
   formatDateTime,
@@ -689,7 +691,7 @@ const presetBackgroundImageUrls = new Set(
 
 type DashboardSection = "queue" | "tenants" | "services" | "bookings" | "group-funded" | "staff" | "clients" | "history" | "reports" | "ratings" | "settings" | "account";
 type AccountTab = "subscription" | "billing" | "profile" | "security";
-type SettingsTab = "contact" | "queue" | "notifications";
+type SettingsTab = "contact" | "queue" | "notifications" | "board";
 type QueueView = "current" | "overflow" | "recovery";
 type ClientSort = "latestVisitDesc" | "latestVisitAsc" | "nameAsc" | "nameDesc" | "visitsDesc" | "visitsAsc";
 type HistorySort = "updatedDesc" | "updatedAsc" | "ticketAsc" | "ticketDesc" | "customerAsc" | "customerDesc";
@@ -1114,6 +1116,9 @@ export default function VendorDashboardPage() {
   const [billingInterval, setBillingInterval] = useState<"monthly" | "annual">("monthly");
   const [billingPaymentMode, setBillingPaymentMode] = useState<"manual" | "automatic">("manual");
   const [selectedCounterSlug, setSelectedCounterSlug] = useState("");
+  const { lane: selectedLane, ticket: selectedCalledTicket } = selectCounterDispatch(snapshot, selectedTenantSlug, selectedLocationSlug, selectedCounterSlug);
+  const [scannerTarget, setScannerTarget] = useState<{ ticketId: string; counterSlug: string | null; tenantSlug: string; locationQuery: string; ticketNumber: string } | null>(null);
+
   const [counterDialogOpen, setCounterDialogOpen] = useState(false);
   const [editingCounterSlug, setEditingCounterSlug] = useState("");
   const [editingCounterId, setEditingCounterId] = useState("");
@@ -2577,7 +2582,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     monitorUrl:
       snapshot?.location?.monitorUrl ||
       snapshot?.tenant.monitorUrl ||
-      buildMonitorUrl(window.location.origin, selectedTenantSlug, selectedLocationSlug)
+      ""
   };
   const ticketLimit =
     activeSubscription?.entitlements.monthlyTickets ||
@@ -2833,6 +2838,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
   }
 
   async function handleConfirmCalledTicket(lookupCode: string): Promise<boolean> {
+    if (!scannerTarget || scannerTarget.tenantSlug !== selectedTenantSlug || scannerTarget.locationQuery !== locationQuery) { setTicketScannerError("Queue context changed. Close the scanner and select the ticket again."); return false; }
     setTicketScannerError("");
     setBusyAction("confirm-current");
 
@@ -2840,8 +2846,10 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       const data = await vendorDashboardQueue.confirmCurrentTicket(
         token,
         selectedTenantSlug,
-        locationQuery,
-        lookupCode
+        scannerTarget.locationQuery,
+        lookupCode,
+        scannerTarget.ticketId,
+        scannerTarget.counterSlug
       );
       const confirmedSnapshot = data.snapshot;
       if (confirmedSnapshot) {
@@ -4836,8 +4844,8 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="md">
         <MetricCard
           label={snapshot?.location?.serviceTimingEnabled ? "Current ticket" : "Now serving"}
-          value={snapshot?.current?.ticketNumber || "--"}
-          detail={snapshot?.current?.customerName || "No active ticket"}
+          value={selectedCalledTicket?.ticketNumber || "--"}
+          detail={selectedCalledTicket?.customerName || "No active ticket for selected counter"}
         />
         <MetricCard
           label="Waiting"
@@ -4915,7 +4923,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
 
   function renderQueuePage() {
     const activeCounters = serviceCounters.filter((counter) => counter.isActive);
-    const activeTicket = snapshot?.current || null;
+    const activeTicket = selectedCalledTicket;
     const waitingTicketManagement = selectedTenantRole ? (
       <VendorWaitingTicketCancellation
         key={`${selectedTenantSlug}:${selectedLocationSlug}`}
@@ -5112,10 +5120,10 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                 <>
                   <Group justify="space-between" align="flex-end">
                     <Select
-                      data={activeCounters.map((counter) => ({
-                        label: counter.name,
-                        value: counter.slug
-                      }))}
+                      data={[...activeCounters.map((counter) => ({ label: counter.name, value: counter.slug })),
+                        ...(snapshot?.counterDispatch || []).filter((lane) => lane.counterSlug && lane.currentTicketId && !activeCounters.some((counter) => counter.slug === lane.counterSlug)).map((lane) => ({ label: `${lane.counterName} (inactive)`, value: lane.counterSlug! })),
+                        ...(snapshot?.counterDispatch?.some((lane) => lane.counterSlug === null && lane.currentTicketId) ? [{ label: "Unassigned legacy ticket", value: "__unassigned__" }] : [])]}
+                      disabled={Boolean(busyAction) || ticketScannerOpen}
                       label="Serving from"
                       placeholder="Select counter"
                       value={selectedCounterSlug || null}
@@ -5127,13 +5135,14 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       </Text>
                     ) : null}
                   </Group>
+                  {selectedLane?.blockReason && !activeTicket ? <Text size="sm" c="dimmed">{selectedLane.blockReason}</Text> : null}
                   <div className="vendor-queue-action-layout">
                     <Group className="vendor-queue-primary-actions">
                       <Button
                         className="neura-primary-button"
                         disabled={
-                          busyAction === "call-next" ||
-                          !selectedCounterSlug ||
+                          Boolean(busyAction) ||
+                          !selectedLane?.canCallNext ||
                           queueDayClosed ||
                           Boolean(activeTicket)
                         }
@@ -5160,7 +5169,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                             const success = await runAction(tracking ? `service-${action}` : "serve-current", () =>
                               tracking
                                 ? vendorDashboardQueue.recordTicketService(token, selectedTenantSlug, locationQuery, activeTicket.id, action)
-                                : vendorDashboardQueue.serveCurrentTicket(token, selectedTenantSlug, locationQuery)
+                                : vendorDashboardQueue.serveCurrentTicket(token, selectedTenantSlug, locationQuery, activeTicket.id, selectedLane?.counterSlug ?? null)
                             );
                             if (success) {
                               showSuccessNotification(
@@ -5179,6 +5188,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                           leftSection={<IconQrcode size={16} />}
                           onClick={() => {
                             setTicketScannerError("");
+                            if (activeTicket) setScannerTarget({ ticketId: activeTicket.id, ticketNumber: activeTicket.ticketNumber, counterSlug: selectedLane?.counterSlug ?? null, tenantSlug: selectedTenantSlug, locationQuery });
                             setTicketScannerOpen(true);
                           }}
                         >
@@ -5190,7 +5200,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                         disabled={Boolean(busyAction) || !activeTicket || Boolean(activeTicket.serviceStartedAt)}
                         onClick={async () => {
                           const success = await runAction("skip-current", () =>
-                            vendorDashboardQueue.skipCurrentTicket(token, selectedTenantSlug, locationQuery)
+                            vendorDashboardQueue.skipCurrentTicket(token, selectedTenantSlug, locationQuery, activeTicket!.id, selectedLane?.counterSlug ?? null)
                           );
                           if (success) {
                             showSuccessNotification("Ticket skipped", "The current ticket was skipped.");
@@ -5541,7 +5551,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
           </Grid.Col>
 
           <Grid.Col span={{ base: 12, lg: 4 }}>
-          <Card className="neura-card" h="100%" padding="lg">
+          <Card className="neura-card" padding="lg">
             <Stack gap="md">
               <Group justify="space-between">
                 <div>
@@ -5615,7 +5625,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     value={queueLinks.qrUrl}
                   />
                   <TextInput
-                    label="Monitor URL"
+                    label="Queue board URL"
                     onClick={() => void copyLocationUrl("Monitor URL", queueLinks.monitorUrl)}
                     onFocus={(event) => event.currentTarget.select()}
                     onKeyDown={(event) => {
@@ -5628,13 +5638,14 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     rightSection={<IconCopy aria-hidden="true" size={16} />}
                     rightSectionPointerEvents="none"
                     styles={{ input: { cursor: "copy" } }}
-                    title="Click to copy Monitor URL"
+                    title="Click to copy queue board URL"
                     value={queueLinks.monitorUrl}
                   />
                 </Stack>
               </Group>
             </Stack>
           </Card>
+          {token && selectedTenantSlug && selectedLocationSlug ? <QueueBoardScanner key={`${selectedTenantSlug}:${selectedLocationSlug}`} token={token} tenantSlug={selectedTenantSlug} locationSlug={selectedLocationSlug} /> : null}
           </Grid.Col>
         </Grid>
 
@@ -6451,7 +6462,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                 value={locationItem.qrJoinUrl || locationItem.joinUrl}
               />
               <TextInput
-                label="Monitor URL"
+                label="Queue board URL"
                 onClick={() => void copyLocationUrl("Monitor URL", locationItem.monitorUrl)}
                 onFocus={(event) => event.currentTarget.select()}
                 onKeyDown={(event) => {
@@ -6464,7 +6475,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                 rightSection={<IconCopy aria-hidden="true" size={16} />}
                 rightSectionPointerEvents="none"
                 styles={{ input: { cursor: "copy" } }}
-                title="Click to copy Monitor URL"
+                title="Click to copy queue board URL"
                 value={locationItem.monitorUrl}
               />
               <Group>
@@ -9113,7 +9124,12 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
               <Tabs.Tab value="contact">Business profile</Tabs.Tab>
               <Tabs.Tab value="queue">Queue settings</Tabs.Tab>
               <Tabs.Tab value="notifications">Notifications</Tabs.Tab>
+              {isOwner || isAdmin ? <Tabs.Tab value="board">Queue Board</Tabs.Tab> : null}
             </Tabs.List>
+
+            <Tabs.Panel pt="lg" value="board">
+              {token && selectedTenantSlug && selectedLocationSlug && (isOwner || isAdmin) ? <QueueBoardSettings key={`${selectedTenantSlug}:${selectedLocationSlug}`} token={token} tenantSlug={selectedTenantSlug} locationSlug={selectedLocationSlug} onChanged={() => void reloadDashboardSnapshot()} /> : <Text>Select a location to manage its queue board.</Text>}
+            </Tabs.Panel>
 
             <Tabs.Panel pt="lg" value="contact">
               <form onSubmit={handleSaveBusinessProfile}>
@@ -10330,7 +10346,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         }}
         onConfirm={handleConfirmCalledTicket}
         opened={ticketScannerOpen}
-        ticketNumber={snapshot?.current?.ticketNumber}
+        ticketNumber={scannerTarget?.ticketNumber}
       />
       <Drawer
         classNames={{ body: "neura-drawer-body", content: "neura-drawer-content", header: "neura-drawer-header" }}
