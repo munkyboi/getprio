@@ -1,5 +1,5 @@
 import { queueBoardReturnPath } from "../utils/queueBoardReturnPath";
-import { selectCounterDispatch } from "../utils/counterDispatch";
+import { counterBlockMessage, selectCounterDispatch } from "../utils/counterDispatch";
 import { QueueBoardScanner, QueueBoardSettings } from "../components/QueueBoardAccess";
 import { OtpInputField } from "../components/OtpInputField";
 import { BookingTableRow } from "../components/BookingTableRow";
@@ -1566,7 +1566,7 @@ export default function VendorDashboardPage() {
     if (requiresMfaEnrollment) {
       setAccountTab("security");
       if (currentSection !== "account") {
-        navigate("/dashboard/account", { replace: true });
+        navigate(boardApprovalReturn ? `/dashboard/account?next=${encodeURIComponent(boardApprovalReturn)}` : "/dashboard/account", { replace: true });
       }
       return;
     }
@@ -1574,7 +1574,7 @@ export default function VendorDashboardPage() {
     if (selectedTenantRole === "staff" && (accountTab === "subscription" || accountTab === "billing")) {
       setAccountTab("profile");
     }
-  }, [accountTab, currentSection, navigate, requiresMfaEnrollment, selectedTenantRole]);
+  }, [accountTab, boardApprovalReturn, currentSection, navigate, requiresMfaEnrollment, selectedTenantRole]);
 
   useEffect(() => {
     if (!dashboardBootstrapQuery.data) {
@@ -5137,7 +5137,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       </Text>
                     ) : null}
                   </Group>
-                  {selectedLane?.blockReason && !activeTicket ? <Text size="sm" c="dimmed">{selectedLane.blockReason}</Text> : null}
+                  {selectedLane?.blockReason && !activeTicket ? <Text size="sm" c="dimmed">{counterBlockMessage(selectedLane.blockReason)}</Text> : null}
                   <div className="vendor-queue-action-layout">
                     <Group className="vendor-queue-primary-actions">
                       <Button

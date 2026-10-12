@@ -1180,7 +1180,7 @@ test("login actions are mobile-first", () => {
 
   assert.ok((loginSource.match(/className="auth-primary-action"/g) || []).length >= 3);
   assert.match(loginSource, /<SocialAuthButtons iconOnly intent="login"/);
-  assert.match(loginSource, /result\.user\.mfaRequired && !result\.user\.mfaEnabled[\s\S]*?"\/dashboard\/account"/);
+  assert.match(loginSource, /result\.user\.mfaRequired && !result\.user\.mfaEnabled[\s\S]*?mfaEnrollmentPath/);
   assert.match(socialSource, /className="auth-social-action"/);
   assert.match(styles, /\.finazze-auth-card \.auth-primary-action,[\s\S]*?\.finazze-auth-card \.auth-social-action \{\s+width: 100%;\s+min-height: 3\.25rem;/);
 });
@@ -1212,7 +1212,7 @@ test("signup forms use provider icons, helpful labels, and touch-friendly action
   assert.match(fs.readFileSync(path.join(frontendRoot, "src", "components", "BusinessCategorySelect.tsx"), "utf8"), /withAsterisk=\{false\}/);
   assert.match(vendorSource, /<SignupFieldLabel label="Phone"/);
   assert.match(vendorSource, /className="auth-primary-action"/);
-  assert.match(vendorSource, /navigate\("\/dashboard\/account", \{ replace: true \}\)/);
+  assert.match(vendorSource, /navigate\(boardApprovalReturn \? `\/dashboard\/account\?next=\$\{encodeURIComponent\(boardApprovalReturn\)\}` : "\/dashboard\/account", \{ replace: true \}\)/);
   assert.match(customerSource, /<SignupFieldLabel label="Phone"/);
   assert.match(customerSource, /className="auth-primary-action"/);
   assert.match(vendorSource, /className="onboarding-layout"/);
@@ -1695,7 +1695,7 @@ test("vendor dashboard provides account-level MFA enrollment with a QR code", ()
   assert.match(dashboard, /<Tabs\.Tab value="security">Security<\/Tabs\.Tab>/);
   assert.match(dashboard, /<Tabs\.Panel pt="lg" value="security">[\s\S]*?\{renderSecurityPage\(\)\}/);
   assert.match(dashboard, /setAccountTab\("security"\)/);
-  assert.match(dashboard, /navigate\("\/dashboard\/account", \{ replace: true \}\)/);
+  assert.match(dashboard, /navigate\(boardApprovalReturn \? `\/dashboard\/account\?next=\$\{encodeURIComponent\(boardApprovalReturn\)\}` : "\/dashboard\/account", \{ replace: true \}\)/);
   assert.match(dashboard, /Your sign-in session remains active during setup\./);
   assert.match(dashboard, /navItems\.filter\(\(item\) => item\.section === "account"\)/);
   assert.match(dashboard, /!requiresMfaEnrollment \? <Card className="neura-card vendor-security-card"/);

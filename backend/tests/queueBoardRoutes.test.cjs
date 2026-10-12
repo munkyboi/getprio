@@ -61,7 +61,8 @@ test("board HTTP reads and streams enforce grants; staff cannot publish or appro
     assert.equal(approval.status, 200);
     allowed = true;
     const refreshed = await fetch(`${base}/board/${boardId}/access`);
-    assert.match(refreshed.headers.get("set-cookie"), /Max-Age=25055\d\d/);
+    const remainingSeconds = Number(refreshed.headers.get("set-cookie").match(/Max-Age=(\d+)/)[1]);
+    assert.ok(remainingSeconds >= 29 * 86400 - 1 && remainingSeconds <= 29 * 86400);
     const read = await fetch(`${base}/board/${boardId}/queue`);
     assert.equal(read.status, 200); assert.doesNotMatch(await read.text(), /Private|SECRET/);
     const controller = new AbortController();

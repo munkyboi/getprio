@@ -28,6 +28,7 @@ export default function SecureQueueBoardPage() {
         const status = await apiRequest<{ allowed: boolean }>(`${base}/access`);
         if (!active) return;
         if (status.allowed) {
+          requestedPairing = false;
           if (source) return;
           const data = await apiRequest<QueueSnapshot>(`${base}/queue`);
           if (!active) return;
