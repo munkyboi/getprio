@@ -51,13 +51,22 @@ const collectionNames: Record<string, string> = {
   queueDays: "Queue day evidence",
   segments: "Queue order evidence",
 };
-function Evidence({ value }: { value: EvidenceValue }) {
+function keyedValues<T>(values: readonly T[]) {
+  const occurrences = new Map<string, number>();
+  return values.map((value) => {
+    const identity = JSON.stringify(value);
+    const occurrence = occurrences.get(identity) || 0;
+    occurrences.set(identity, occurrence + 1);
+    return { value, key: `${identity}:${occurrence}` };
+  });
+}
+function Evidence({ value }: Readonly<{ value: EvidenceValue }>) {
   if (value === null) return <>Unknown / unavailable</>;
   if (Array.isArray(value))
     return (
       <ul className="flex flex-col gap-2">
-        {value.map((item, index) => (
-          <li key={index}>
+        {keyedValues(value).map(({ value: item, key }) => (
+          <li key={key}>
             <Evidence value={item} />
           </li>
         ))}
@@ -81,10 +90,10 @@ function Evidence({ value }: { value: EvidenceValue }) {
 function Collection({
   name,
   rows,
-}: {
+}: Readonly<{
   name: string;
   rows: Record<string, EvidenceValue>[];
-}) {
+}>) {
   const [page, setPage] = useState(0);
   const [open, setOpen] = useState(false);
   const pages = Math.max(1, Math.ceil(rows.length / 25));
@@ -98,16 +107,18 @@ function Collection({
           {!rows.length ? (
             <p>No records in this scanned collection.</p>
           ) : (
-            rows.slice(page * 25, page * 25 + 25).map((row, index) => (
-              <Card key={page * 25 + index} size="sm">
-                <CardHeader>
-                  <CardTitle>Record {page * 25 + index + 1}</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <Evidence value={row} />
-                </CardContent>
-              </Card>
-            ))
+            keyedValues(rows.slice(page * 25, page * 25 + 25)).map(
+              ({ value: row, key }, index) => (
+                <Card key={key} size="sm">
+                  <CardHeader>
+                    <CardTitle>Record {page * 25 + index + 1}</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <Evidence value={row} />
+                  </CardContent>
+                </Card>
+              ),
+            )
           )}
           {pages > 1 ? (
             <div className="flex flex-wrap items-center gap-3">
@@ -139,7 +150,9 @@ function Collection({
     </details>
   );
 }
-export function ResourceReportView({ report }: { report: ResourceReport }) {
+export function ResourceReportView({
+  report,
+}: Readonly<{ report: ResourceReport }>) {
   return (
     <section
       aria-label="Resource report results"
@@ -237,8 +250,8 @@ export function ResourceReportView({ report }: { report: ResourceReport }) {
             : "Examples may omit findings or evaluation is unavailable; use exact counts above."}
         </p>
         <ul className="flex flex-col gap-2">
-          {report.findings.examples.map((item, index) => (
-            <li key={index} className="break-all">
+          {keyedValues(report.findings.examples).map(({ value: item, key }) => (
+            <li key={key} className="break-all">
               {label(item.code)} · {label(item.recordType)} ·{" "}
               {label(item.classification)} · {item.ref}
             </li>
@@ -286,12 +299,12 @@ export function PlatformResourceInventory({
   canRead,
   onSessionExpired,
   api = resourceInventoryApi,
-}: {
+}: Readonly<{
   live: boolean;
   canRead: boolean;
   onSessionExpired: () => void;
   api?: ResourceInventoryApi;
-}) {
+}>) {
   const [query, setQuery] = useState("");
   const [scopes, setScopes] = useState<AiScope[]>([]);
   const [selected, setSelected] = useState("");
@@ -561,7 +574,7 @@ export function PlatformResourceInventory({
             </Button>
           </FieldGroup>
         </form>
-        {busy ? <p role="status">Loading private resource evidence…</p> : null}
+        {busy ? <output>Loading private resource evidence…</output> : null}
         {report ? (
           <div className="flex min-w-0 flex-col gap-4">
             <h3 className="break-all">{reportLocation}</h3>

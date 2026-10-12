@@ -4,8 +4,13 @@ const fs = require("node:fs");
 const vm = require("node:vm");
 const { randomUUID } = require("node:crypto");
 const express = require("express");
+const { rateLimit } = require("express-rate-limit");
 const { createCsrfProtection } = require("../src/middleware/csrfProtection");
-const { LOCAL_ACCESS_COOKIE, CSRF_COOKIE, signCsrfToken } = require("../src/services/browserSessionService");
+const {
+  LOCAL_ACCESS_COOKIE,
+  CSRF_COOKIE,
+  signCsrfToken,
+} = require("../src/services/browserSessionService");
 const permissions = require("../src/services/permissions");
 const reportModule = require("../src/services/resourceInventoryReconciliationReport");
 function loadService(pool) {
@@ -68,8 +73,15 @@ test("resource HTTP route denies non-admin roles, accepts only protected scalar 
     },
   );
   const app = express();
+  app.use(rateLimit({ windowMs: 60000, limit: 120 }));
   app.use(express.json());
-  app.use(createCsrfProtection({ allowedOrigins: ["https://platform.getprio.online"], csrfSecret: "resource-test", authCookieSecure: false }));
+  app.use(
+    createCsrfProtection({
+      allowedOrigins: ["https://platform.getprio.online"],
+      csrfSecret: "resource-test",
+      authCookieSecure: false,
+    }),
+  );
   app.use((req, _res, next) => {
     req.user = { _id: "1", roles: [req.get("x-test-role")] };
     req.auth = { session: { _id: "1" } };
@@ -77,7 +89,9 @@ test("resource HTTP route denies non-admin roles, accepts only protected scalar 
   });
   app.use("/resource", module.exports);
   app.use((error, _req, res, _next) =>
-    res.status(error.statusCode || 500).json({ message: error.message, code: error.code }),
+    res
+      .status(error.statusCode || 500)
+      .json({ message: error.message, code: error.code }),
   );
   const server = app.listen(0, "127.0.0.1");
   await new Promise((resolve) => server.once("listening", resolve));
@@ -158,14 +172,21 @@ test("resource HTTP route denies non-admin roles, accepts only protected scalar 
     );
     const csrfToken = signCsrfToken("1", "resource-test");
     for (const path of ["/report", "/scopes"]) {
-      const request = post("platform_admin", path === "/report" ? input : { q: "Vendor" });
+      const request = post(
+        "platform_admin",
+        path === "/report" ? input : { q: "Vendor" },
+      );
       request.headers.origin = "https://platform.getprio.online";
       request.headers.cookie = `${LOCAL_ACCESS_COOKIE}=local-session; ${CSRF_COOKIE}=${encodeURIComponent(csrfToken)}`;
       const before = calls.length;
       const denied = await fetch(root + path, request);
       assert.equal(denied.status, 403);
       assert.equal((await denied.json()).code, "CSRF_VALIDATION_FAILED");
-      assert.equal(calls.length, before, "CSRF denial must not invoke private reads");
+      assert.equal(
+        calls.length,
+        before,
+        "CSRF denial must not invoke private reads",
+      );
       request.headers["x-csrf-token"] = csrfToken;
       assert.equal((await fetch(root + path, request)).status, 200);
     }
