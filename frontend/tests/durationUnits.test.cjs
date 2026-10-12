@@ -1,7 +1,7 @@
 require("tsx/cjs");
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const {durationUnitBounds,clampDurationUnits,sharedDurationUnitBounds,quantityInputChanges} = require("../src/utils/durationUnits.ts");
+const {durationUnitBounds,clampDurationUnits,sharedDurationUnitBounds,bundleDurationUnitBounds,quantityInputChanges} = require("../src/utils/durationUnits.ts");
 const service = (min=1,max=24) => ({allowBookingQuantity:true,durationMinutes:30,bookingQuantityMin:min,bookingQuantityMax:max});
 test("duration unit selectors default and clamp per service, including fixed quantities",()=>{
   assert.deepEqual(durationUnitBounds({allowBookingQuantity:true}),{min:1,max:24});
@@ -50,4 +50,23 @@ test("disabling quantity input resets hidden inverted or invalid bounds",()=>{
     assert.equal(enabled.bookingQuantityMin,1);
     assert.equal(enabled.bookingQuantityMax,24);
   }
+});
+
+test("shared quantities only affect selected services, preserving unselected catalog duration and price",()=>{
+  const selected=[{...service(2,6),slug:"first"},{...service(3,4),slug:"second"}];
+  const shared=sharedDurationUnitBounds(selected,"parallel");
+  assert.deepEqual(shared,{min:3,max:4});
+  for(const item of selected) {
+    assert.deepEqual(bundleDurationUnitBounds(item,selected,shared),{min:3,max:4});
+  }
+  const unselected={...service(),slug:"single",allowBookingQuantity:false,priceCents:5000};
+  const bounds=bundleDurationUnitBounds(unselected,selected,shared);
+  assert.deepEqual(bounds,{min:1,max:1});
+  const quantity=clampDurationUnits(3,bounds);
+  assert.equal(quantity,1);
+  assert.equal(unselected.durationMinutes*quantity,30);
+  assert.equal(unselected.priceCents*quantity,5000);
+  const optional={...service(1,8),slug:"optional"};
+  assert.deepEqual(bundleDurationUnitBounds(optional,selected,shared),{min:1,max:8});
+  assert.deepEqual(bundleDurationUnitBounds(selected[0],selected,null),{min:2,max:6});
 });

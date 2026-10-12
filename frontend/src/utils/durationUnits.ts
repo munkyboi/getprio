@@ -9,6 +9,11 @@ export function durationUnitBounds(service: UnitService | null | undefined) {
 export function clampDurationUnits(value: number, bounds: { min: number; max: number }) {
   return Math.max(bounds.min, Math.min(Number.isFinite(value) ? Math.round(value) : bounds.min, bounds.max));
 }
+export function bundleDurationUnitBounds(service: UnitService & Pick<PublicVendorService, "slug">, selectedServices: Pick<PublicVendorService, "slug">[], sharedBounds: { min: number; max: number } | null) {
+  return sharedBounds && selectedServices.some(selected => selected.slug === service.slug)
+    ? sharedBounds
+    : durationUnitBounds(service);
+}
 export function sharedDurationUnitBounds(services: UnitService[], executionMode: string) {
   if (executionMode !== "parallel" || services.length < 2 || !services.every(service => service.allowBookingQuantity && service.durationMinutes === services[0].durationMinutes)) return null;
   const min = Math.max(...services.map(service => durationUnitBounds(service).min));
