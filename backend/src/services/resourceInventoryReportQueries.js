@@ -55,12 +55,12 @@ const CONTEXT = `WITH scope_tickets AS MATERIALIZED (
 )`;
 
 const HISTORICAL_CONVERSIONS = `FROM resource_allocations a
-  JOIN resource_ledger_reservations r ON (r.id,r.tenant_id,r.location_id)=(a.reservation_id,a.tenant_id,a.location_id)
+  LEFT JOIN resource_ledger_reservations r ON (r.id,r.tenant_id,r.location_id)=(a.reservation_id,a.tenant_id,a.location_id)
   LEFT JOIN tickets t ON (t.id,t.tenant_id,t.location_id)=(a.ticket_id,a.tenant_id,a.location_id)
   LEFT JOIN ticket_service_plans p ON (p.ticket_id,p.tenant_id,p.location_id)=(a.ticket_id,a.tenant_id,a.location_id)
   LEFT JOIN booking_bundle_items i ON (i.id,i.booking_id,i.tenant_id,i.location_id)=(r.booking_item_id,r.booking_id,r.tenant_id,r.location_id)
   LEFT JOIN bookings b ON (b.id,b.tenant_id,b.location_id)=(r.booking_id,r.tenant_id,r.location_id)
-  WHERE a.tenant_id=$1 AND a.location_id=$2 AND a.released_at IS NOT NULL AND r.state='converted'`;
+  WHERE a.tenant_id=$1 AND a.location_id=$2 AND a.released_at IS NOT NULL AND a.reservation_id IS NOT NULL`;
 
 const COLLECTIONS = {
   pools: { maximum: 100, count: 'SELECT COUNT(*) FROM location_resource_pools WHERE tenant_id=$1 AND location_id=$2',
@@ -84,6 +84,7 @@ const COLLECTIONS = {
       (a.expected_end_at IS NOT DISTINCT FROM r.ends_at) AS reservation_end_matches,
       (a.started_at>=r.starts_at AND a.started_at<r.ends_at) AS reservation_start_valid,
       r.pool_id::text AS binding_pool_id,r.pool_revision::text AS binding_pool_revision,r.units AS binding_units,
+      r.state AS binding_state,
       r.booking_id::text AS binding_booking_id,r.booking_item_id::text AS binding_item_id,
       r.requirement_revision::text,r.starts_at,r.ends_at,
       (r.starts_at=i.scheduled_start_at AND r.ends_at=i.scheduled_end_at) AS booking_interval_matches,
@@ -109,7 +110,8 @@ const COLLECTIONS = {
     sequence,priority_band,activated_at,legacy_inferred FROM relevant_segments ORDER BY id` }
 };
 
-const COUNTS = `${CONTEXT} SELECT ${Object.entries(COLLECTIONS).map(([name, collection]) => `(${collection.count})::text AS "${name}"`).join(',')},
+const collectionCounts = Object.entries(COLLECTIONS).map(([name, collection]) => `(${collection.count})::text AS "${name}"`).join(',');
+const COUNTS = `${CONTEXT} SELECT ${collectionCounts},
   (SELECT COUNT(*)::text FROM scope_tickets) AS "historicalTickets",
   (SELECT COUNT(*)::text FROM scope_tickets WHERE status='served' AND service_started_at IS NULL) AS "servedWithoutExplicitStart",
   (SELECT COUNT(*)::text FROM scope_tickets t WHERE service_started_at IS NOT NULL AND NOT EXISTS
