@@ -1,6 +1,10 @@
 # Safe maintenance mode
 
-Platform Admin → Service health → Safe maintenance mode. Settings-management permission and recent sign-in/MFA assurance are required to change the policy.
+Platform Admin → Service health → **Maintenance** tab → Safe maintenance mode. The **Observations** tab is the default and contains service metrics, search and refresh. Settings-management permission and recent sign-in/MFA assurance are required to change the policy.
+
+Switching tabs preserves observation filters and an unsaved maintenance draft. It does not submit the draft or refresh its saved policy. Inactive panels are hidden. Maintenance controls remain independently available during unrelated observation/read-model failures, once viewer authorization is known.
+
+For release checkpoints and outstanding acceptance work, see the [Platform dashboard rework tracker](../plan/platform-dashboard-rework-progress.md).
 
 1. Select **Pause new bookings and queue joins**.
 2. Optionally select **Show full maintenance screen on public/customer pages**.
