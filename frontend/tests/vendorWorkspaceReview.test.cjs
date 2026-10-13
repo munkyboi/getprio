@@ -89,3 +89,14 @@ test('context Retry re-establishes locations through bootstrap, alongside snapsh
   assert.equal(snapshotRefreshed, true);
   assert.equal(error, '');
 });
+
+test('explicit dialog discard clears its form before the exit animation unmounts it', () => {
+  const edits = createDirtyForms();
+  const profile = { id: 'profile', isConnected: true };
+  const scanner = { id: 'queue-board-pairing-form', isConnected: true };
+  edits.mark(profile); edits.mark(scanner);
+  edits.discardId('queue-board-pairing-form');
+  assert.equal(edits.hasEdits(), true);
+  edits.clear(profile);
+  assert.equal(edits.hasEdits(), false);
+});

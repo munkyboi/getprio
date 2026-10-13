@@ -1,3 +1,4 @@
+import { VendorPortal } from "./portal";
 import { useEffect, useRef, useState, type ReactNode, type ElementType } from "react";
 import { NavLink } from "react-router-dom";
 import { IconMenu2, IconSun, IconMoon, IconLogout } from "@tabler/icons-react";
@@ -52,7 +53,7 @@ export function VendorWorkspaceShell(props: Props) {
       </div>
     </div>;
   }
-  return <div ref={root} className="vendor-workspace" data-vendor-theme={theme} onChangeCapture={(event) => {
+  return <VendorPortal.Provider value={root}><div ref={root} className="vendor-workspace" data-vendor-theme={theme} onChangeCapture={(event) => {
     const form = event.target instanceof HTMLElement ? event.target.closest("form") : null;
     if (form) props.onEdit?.(form);
   }}>
@@ -77,5 +78,5 @@ export function VendorWorkspaceShell(props: Props) {
         {navigation()}
       </SheetContent>
     </Sheet>
-  </div>;
+  </div></VendorPortal.Provider>;
 }

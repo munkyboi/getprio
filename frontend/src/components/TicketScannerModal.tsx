@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { Alert, Button, Group, Modal, Stack, Text, TextInput } from "@mantine/core";
-import { IconQrcode, IconCamera, IconRefresh } from "@tabler/icons-react";
+import { TaskDialog } from "../vendor/TaskDialog";
+import { Button } from "../vendor/components/ui/button";
+import { Alert, AlertDescription } from "../vendor/components/ui/alert";
+import { Field, FieldLabel } from "../vendor/components/ui/field";
+import { Input } from "../vendor/components/ui/input";
 import type { IScannerControls } from "@zxing/browser";
 
 type TicketScannerModalProps = {
@@ -18,7 +21,7 @@ export default function TicketScannerModal({
   onClose,
   onConfirm,
   opened,
-  ticketNumber
+  ticketNumber,
 }: TicketScannerModalProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const controlsRef = useRef<IScannerControls | null>(null);
@@ -43,16 +46,20 @@ export default function TicketScannerModal({
         }
 
         const reader = new BrowserMultiFormatReader();
-        return reader.decodeFromVideoDevice(undefined, videoRef.current, (result, _error, controls) => {
-          if (!active || !result) {
-            return;
-          }
+        return reader.decodeFromVideoDevice(
+          undefined,
+          videoRef.current,
+          (result, _error, controls) => {
+            if (!active || !result) {
+              return;
+            }
 
-          controls.stop();
-          controlsRef.current = null;
-          setLookupCode(result.getText().trim().toUpperCase());
-          setScanning(false);
-        });
+            controls.stop();
+            controlsRef.current = null;
+            setLookupCode(result.getText().trim().toUpperCase());
+            setScanning(false);
+          },
+        );
       })
       .then((controls) => {
         if (!controls) {
@@ -66,7 +73,9 @@ export default function TicketScannerModal({
       })
       .catch(() => {
         if (active) {
-          setCameraError("Camera scanning is unavailable. Check camera permission or enter the ticket code manually.");
+          setCameraError(
+            "Camera scanning is unavailable. Check camera permission or enter the ticket code manually.",
+          );
           setScanning(false);
         }
       });
@@ -100,72 +109,89 @@ export default function TicketScannerModal({
   }
 
   return (
-    <Modal
-      centered
-      className="customer-modal ticket-scanner-modal"
-      closeOnClickOutside={!loading}
-      closeOnEscape={!loading}
-      onClose={onClose}
+    <TaskDialog
       opened={opened}
-      radius="xl"
-      size="md"
-      title={
-        <div>
-          <Text className="neura-label">QUEUE CHECK-IN</Text>
-          <Text fw={800} size="xl">Scan QR or ticket code for {ticketNumber || "called ticket"}</Text>
-        </div>
-      }
-    >
-      <Stack gap="md">
-        <Text c="dimmed" size="sm">
-          Scan the QR code or ticket code on the customer&apos;s ticket. Only the currently called ticket can be confirmed.
-        </Text>
-
-        <div className="ticket-scanner-camera">
-          <video aria-label="QR or ticket code camera preview" autoPlay muted playsInline ref={videoRef} />
-          <div className="ticket-scanner-guide" aria-hidden="true" />
-          <Text className="ticket-scanner-status" size="xs">
-            {scanning ? "Point the QR or ticket code inside the frame" : lookupCode ? "Code captured" : "Camera stopped"}
-          </Text>
-        </div>
-
-        {cameraError ? <Alert color="orange" icon={<IconCamera size={18} />}>{cameraError}</Alert> : null}
-        {error ? <Alert color="red" icon={<IconQrcode size={18} />}>{error}</Alert> : null}
-
-        <TextInput
-          autoCapitalize="characters"
-          description="Enter the value from the customer’s QR code, or their ticket code."
-          label="QR value or ticket code"
-          maxLength={34}
-          onChange={(event) => setLookupCode(event.currentTarget.value.toUpperCase())}
-          placeholder="Enter QR value or ticket code"
-          value={lookupCode}
-        />
-
-        <Group className="customer-modal-actions" justify="space-between">
-          <Button
-            disabled={loading || scanning}
-            leftSection={<IconRefresh size={16} />}
-            onClick={() => {
-              controlsRef.current?.stop();
-              controlsRef.current = null;
-              setLookupCode("");
-              setScanSession((current) => current + 1);
-            }}
-            variant="default"
-          >
-            Scan again
+      onClose={onClose}
+      busy={loading}
+      eyebrow="QUEUE CHECK-IN"
+      title={`Confirm ${ticketNumber || "called ticket"}`}
+      description="Scan the customer's QR or ticket code. Only the ticket currently called at this counter can be confirmed."
+      footer={
+        <>
+          <Button variant="outline" disabled={loading} onClick={onClose}>
+            Cancel
           </Button>
           <Button
-            className="neura-primary-button"
-            disabled={!lookupCode.trim()}
-            loading={loading}
+            disabled={!lookupCode.trim() || loading}
+            aria-busy={loading}
             onClick={() => void submitCode()}
           >
-            Confirm ticket
+            {loading ? "Confirming…" : "Confirm ticket"}
           </Button>
-        </Group>
-      </Stack>
-    </Modal>
+        </>
+      }
+    >
+      <div className="queue-stack">
+        <div className="ticket-scanner-camera">
+          <video
+            ref={videoRef}
+            autoPlay
+            muted
+            playsInline
+            aria-label="Ticket scanner camera preview"
+          />
+          <div className="ticket-scanner-guide" aria-hidden="true" />
+        </div>
+        <p className="queue-muted queue-small">
+          {scanning
+            ? "Point the QR or ticket code inside the camera view."
+            : lookupCode
+              ? "Code captured. Review it before confirming."
+              : "Enter the ticket code manually or retry the camera."}
+        </p>
+        <Button
+          variant="outline"
+          disabled={loading}
+          onClick={() => {
+            controlsRef.current?.stop();
+            controlsRef.current = null;
+            setLookupCode("");
+            setScanSession((current) => current + 1);
+          }}
+        >
+          Scan again
+        </Button>
+        <Field>
+          <FieldLabel htmlFor="vendor-ticket-lookup">
+            QR value or ticket code
+          </FieldLabel>
+          <Input
+            maxLength={34}
+            id="vendor-ticket-lookup"
+            value={lookupCode}
+            disabled={loading}
+            onChange={(event) => setLookupCode(event.currentTarget.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                void submitCode();
+              }
+            }}
+            placeholder="Enter or scan the ticket code"
+            autoComplete="off"
+          />
+        </Field>
+        {cameraError ? (
+          <Alert>
+            <AlertDescription>{cameraError}</AlertDescription>
+          </Alert>
+        ) : null}
+        {error ? (
+          <Alert variant="destructive" role="alert">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        ) : null}
+      </div>
+    </TaskDialog>
   );
 }

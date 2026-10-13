@@ -1,3 +1,11 @@
+import { WalkInDialog } from "../vendor/WalkInDialog";
+import { QueueConfirmation } from "../vendor/TaskDialog";
+import { QueueCounterPicker, QueueViewPicker, QueueCopyField, QueueEmptyState, LiveQueueIntake, LiveQueueSummary, CounterTickets } from "../vendor/LiveQueueWidgets";
+import { Button as QueueButton } from "../vendor/components/ui/button";
+import { Badge as QueueBadge } from "../vendor/components/ui/badge";
+import { Card as QueueCard, CardHeader as QueueCardHeader, CardTitle as QueueCardTitle, CardContent as QueueCardContent } from "../vendor/components/ui/card";
+import { Alert as QueueAlert, AlertTitle as QueueAlertTitle, AlertDescription as QueueAlertDescription } from "../vendor/components/ui/alert";
+import { Table as QueueTable, TableHeader as QueueTableHeader, TableBody as QueueTableBody, TableRow as QueueTableRow, TableHead as QueueTableHead, TableCell as QueueTableCell } from "../vendor/components/ui/table";
 import { createDirtyForms } from "../vendor/dirtyForms";
 import { VendorNavigationGuard } from "../vendor/navigationGuard";
 import { VendorWorkspaceShell } from "../vendor/VendorWorkspaceShell";
@@ -25,7 +33,6 @@ import {
   ColorInput,
   Divider,
   FileInput,
-  Grid,
   Image,
   Group,
   Modal,
@@ -133,7 +140,7 @@ import CampaignDescriptionEditor from "../components/CampaignDescriptionEditor";
 import RichCampaignDescription from "../components/RichCampaignDescription";
 import StyledQRCode, { getStyledQRCodeCanvas } from "../components/StyledQRCode";
 
-import VendorQueueLifecycleTray from "../components/VendorQueueLifecycleTray";
+import VendorQueueLifecycleTray from "../vendor/QueueLifecycleTray";
 import VendorCapacityPanel from "../components/VendorCapacityPanel";
 import TicketScannerModal from "../components/TicketScannerModal";
 import * as vendorDashboardBookings from "../api/vendorDashboardBookings";
@@ -829,78 +836,6 @@ function GroupFundedBookingIndicator({ booking }: { booking: VendorBookingSummar
   );
 }
 
-function QueueIntakeGauge({
-  waitingCount,
-  threshold,
-  resumeWaitingCount,
-  autoResumeEnabled,
-  stateLabel,
-  state
-}: {
-  waitingCount: number;
-  threshold: number;
-  resumeWaitingCount: number | null;
-  autoResumeEnabled: boolean;
-  stateLabel: string;
-  state: "open" | "near_limit" | "paused";
-}) {
-  const ratio = Math.max(0, Math.min(waitingCount / threshold, 1));
-  const color = state === "paused" ? "#e03131" : state === "near_limit" ? "#f08c00" : "#12b886";
-  const radius = 46;
-  const stroke = 12;
-  const circumference = Math.PI * radius;
-  const offset = circumference * (1 - ratio);
-  const remaining = Math.max(threshold - waitingCount, 0);
-
-  return (
-    <div>
-      <Stack gap={8} align="center">
-        <Text className="neura-label">Queue intake</Text>
-        <svg aria-hidden="true" height="96" viewBox="0 0 140 90" width="140">
-          <path
-            d="M 24 70 A 46 46 0 0 1 116 70"
-            fill="none"
-            stroke="#ebe4da"
-            strokeLinecap="round"
-            strokeWidth={stroke}
-          />
-          <path
-            d="M 24 70 A 46 46 0 0 1 116 70"
-            fill="none"
-            pathLength={circumference}
-            stroke={color}
-            strokeDasharray={circumference}
-            strokeDashoffset={offset}
-            strokeLinecap="round"
-            strokeWidth={stroke}
-          />
-          <text fill="#24160f" fontSize="18" fontWeight="700" textAnchor="middle" x="70" y="56">
-            {waitingCount}/{threshold}
-          </text>
-          <text fill="#6f6259" fontSize="10" textAnchor="middle" x="70" y="68">
-            {stateLabel}
-          </text>
-          <text fill="#8a7b70" fontSize="9" textAnchor="start" x="18" y="84">
-            0
-          </text>
-          <text fill="#8a7b70" fontSize="9" textAnchor="end" x="122" y="84">
-            {threshold}
-          </text>
-        </svg>
-        <Text c="dimmed" size="sm" ta="center">
-          {state === "paused"
-            ? autoResumeEnabled && resumeWaitingCount !== null
-              ? `Queue will reopen automatically at ${resumeWaitingCount} waiting tickets or below.`
-              : "Queue intake is paused until a staff member resumes it."
-            : remaining === 0
-              ? "Threshold reached."
-              : `${remaining} slot${remaining === 1 ? "" : "s"} before auto-pause.`}
-        </Text>
-      </Stack>
-    </div>
-  );
-}
-
 function mergeTheme(theme?: Partial<PublicBoardThemeSettings>): PublicBoardThemeSettings {
   const merged = {
     ...defaultPublicBoardTheme,
@@ -993,6 +928,7 @@ export default function VendorDashboardPage() {
   const [selectedTenantSlug, setSelectedTenantSlug] = useState("");
   const [selectedLocationSlug, setSelectedLocationSlug] = useState("");
   const [snapshot, setSnapshot] = useState<QueueSnapshot | null>(null);
+  const [boardScannerBusy, setBoardScannerBusy] = useState(false);
   const [savingQueueQr, setSavingQueueQr] = useState(false);
   const queueQrRef = useRef<HTMLDivElement>(null);
   const unsavedForm = useRef(createDirtyForms());
@@ -2148,7 +2084,7 @@ export default function VendorDashboardPage() {
     });
   }
 
-  async function copyLocationUrl(label: "Join URL" | "QR target" | "Monitor URL", url: string) {
+  async function copyLocationUrl(label: "Join URL" | "QR target" | "Monitor URL" | "Queue board URL", url: string) {
     try {
       if (!navigator.clipboard?.writeText) {
         throw new Error("Clipboard access is not available in this browser.");
@@ -4887,850 +4823,1065 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     const activeCounters = serviceCounters.filter((counter) => counter.isActive);
     const activeTicket = selectedCalledTicket;
 
-
     return (
-      <Stack gap="md">
-        {renderStats()}
-        {(snapshot?.unfinishedServiceTiming || []).some((record) => record.id !== activeTicket?.id) ? (
-          <Card className="neura-card" padding="lg">
-            <Stack gap="md">
-              <Title order={3}>Unfinished service records</Title>
-              <Text c="dimmed" size="sm">These services have a recorded start but no recorded end. Closing a queue does not finish service. The oldest 100 unfinished records are shown. Resolving a record here preserves its existing queue and booking outcome.</Text>
-              {(snapshot?.unfinishedServiceTiming || []).filter((record) => record.id !== activeTicket?.id).map((record) => (
-                <Paper key={record.id} withBorder p="md" radius="md">
-                  <Stack gap="xs">
-                    <Text fw={600}>{record.ticketNumber} · {record.status}</Text>
-                    <Text size="sm">Started {formatDateTime(record.serviceStartedAt)}</Text>
-                    <Group wrap="wrap">
-                      {(["complete", "interrupt"] as const).map((action) => (
-                        <Button key={action} variant="outline" mih={44} disabled={Boolean(busyAction)}
-                          onClick={() => setConfirmAction({
-                            title: action === "complete" ? "Record service completion?" : "Record interrupted service?",
-                            description: "The current time will be recorded as the service end. The existing queue and booking outcome will be preserved.",
-                            confirmLabel: action === "complete" ? "Record completion" : "Record interruption", confirmColor: "orange",
-                            onConfirm: async () => {
-                              await runAction(`service-${action}`, () => vendorDashboardQueue.recordTicketService(
-                                token, selectedTenantSlug, locationQuery, record.id, action
-                              ));
-                            }
-                          })}>
-                          {action === "complete" ? "Record completion" : "Record interruption"}
-                        </Button>
-                      ))}
-                    </Group>
-                  </Stack>
-                </Paper>
-              ))}
-            </Stack>
-          </Card>
-        ) : null}
-        <Grid gutter="md">
-          <Grid.Col span={{ base: 12, lg: 8 }}>
-          <Card className="neura-card" h="100%" padding="lg">
-            <Stack gap="md">
-              <Group justify="space-between" align="flex-start">
-                <SegmentedControl
-                  data={[
-                    { value: "current", label: "Current queue" },
-                    { value: "overflow", label: "Overflow queue" },
-                    { value: "recovery", label: "Missed recovery" }
-                  ]}
-                  value={queueView}
-                  onChange={(value) => setQueueView(value as QueueView)}
-                />
-                <Stack gap={6} align="flex-end">
-                  <Badge
-                    color={
-                      queueDayReconciling
-                        ? "orange"
-                        : queueDayClosed
-                          ? "red"
-                          : queueDayPaused
-                            ? "yellow"
-                            : queueDayExtended
-                              ? "blue"
-                              : "teal"
-                    }
-                    variant="light"
-                  >
-                    {queueDayReconciling
-                      ? "Queue closing"
-                      : queueDayUnopened
-                        ? "Queue not opened"
-                        : queueDayActuallyClosed
-                          ? "Queue day closed"
-                          : queueDayPaused
-                            ? "Queue intake paused"
-                            : queueDayExtended
-                              ? "Queue day extended"
-                              : "Queue day open"}
-                  </Badge>
-                  <Group gap="xs" justify="flex-end">
-                    {queueDayUnopened && canOperateQueueDay ? (
-                      <Button
-                        className="neura-primary-button"
-                        loading={busyAction === "queue-open"}
-                        onClick={() => void handleOpenQueueDay()}
-                      >
-                        Open queue
-                      </Button>
-                    ) : queueDayActuallyClosed && canReopenQueueDay ? (
-                      <Button
-                        className="neura-primary-button"
-                        disabled={busyAction === "queue-reopen"}
-                        onClick={async () => {
-                          const success = await runAction("queue-reopen", () =>
-                            vendorDashboardQueue.reopenQueueDay(token, selectedTenantSlug, locationQuery)
-                          );
-                          if (success) {
-                            showSuccessNotification(
-                              "Queue reopened",
-                              "The Queue Day is accepting joins again. Earlier ticket outcomes were not reversed."
-                            );
-                            setQueueView("current");
-                          }
-                        }}
-                      >
-                        {busyAction === "queue-reopen" ? "Reopening..." : "Reopen queue"}
-                      </Button>
-                    ) : !queueDayClosed && queueDayPaused ? (
-                      <Button
-                        color="yellow"
-                        variant="light"
-                        disabled={busyAction === "queue-resume"}
-                        onClick={async () => {
-                          const success = await runAction("queue-resume", () =>
-                            vendorDashboardQueue.resumeQueueDay(token, selectedTenantSlug, locationQuery)
-                          );
-                          if (success) {
-                            showSuccessNotification("Queue resumed", "Customers can join this queue again.");
-                          }
-                        }}
-                      >
-                        {busyAction === "queue-resume" ? "Resuming..." : "Resume intake"}
-                      </Button>
-                    ) : !queueDayClosed ? (
-                      <Button
-                        color="yellow"
-                        variant="light"
-                        disabled={busyAction === "queue-pause"}
-                        onClick={async () => {
-                          const success = await runAction("queue-pause", () =>
-                            vendorDashboardQueue.pauseQueueDay(token, selectedTenantSlug, locationQuery)
-                          );
-                          if (success) {
-                            showSuccessNotification("Queue paused", "New joins are paused while staff continues serving the active queue.");
-                          }
-                        }}
-                      >
-                        {busyAction === "queue-pause" ? "Pausing..." : "Pause intake"}
-                      </Button>
-                    ) : null}
-                    {!queueDayClosed && canOperateQueueDay ? (
-                      <Button
-                        color="red"
-                        variant="light"
-                        disabled={busyAction === "queue-close"}
-                        onClick={() => {
-                          setConfirmAction({
-                            title: `Close ${selectedLocation?.name || "this queue"} now?`,
-                            description:
-                              "Unresolved waiting tickets will carry over once or expire, called tickets become unserved, and skipped recovery ends. Reopening will not reverse these outcomes.",
-                            confirmLabel: "Close queue and reconcile",
-                            confirmColor: "red",
-                            onConfirm: async () => {
-                              await handleCloseQueueDay();
-                            }
-                          });
-                        }}
-                      >
-                        {busyAction === "queue-close" ? "Closing..." : "Close queue"}
-                      </Button>
-                    ) : null}
-                  </Group>
-                </Stack>
-              </Group>
-              {queueDayUnopened ? (
-                <Alert color="blue" icon={<IconInfoCircle size={18} />} variant="light">
-                  Store hours make this Queue Day eligible, but they do not open it automatically.
-                  An authorized operator must open the queue before customers can join.
-                </Alert>
-              ) : null}
-              {queueDayActuallyClosed && snapshot?.queueDay?.outcomeCounts ? (
-                <Alert color="gray" icon={<IconHistory size={18} />} title="Close reconciliation completed">
-                  {snapshot.queueDay.outcomeCounts.pendingCarryOver} saved for carry-over ·{" "}
-                  {snapshot.queueDay.outcomeCounts.expired} expired ·{" "}
-                  {snapshot.queueDay.outcomeCounts.unserved} unserved ·{" "}
-                  {snapshot.queueDay.outcomeCounts.skipped} skipped recovery ended. Reopening does not
-                  reverse these outcomes.
-                </Alert>
-              ) : null}
-              {queueView === "current" ? (
-                <>
-                  <div className="vendor-queue-action-layout">
-                    <Select
-                      className="vendor-queue-counter-select"
-                      data={[...activeCounters.map((counter) => ({ label: counter.name, value: counter.slug })),
-                        ...(snapshot?.counterDispatch || []).filter((lane) => lane.counterSlug && lane.currentTicketId && !activeCounters.some((counter) => counter.slug === lane.counterSlug)).map((lane) => ({ label: `${lane.counterName} (inactive)`, value: lane.counterSlug! })),
-                        ...(snapshot?.counterDispatch?.some((lane) => lane.counterSlug === null && lane.currentTicketId) ? [{ label: "Unassigned legacy ticket", value: "__unassigned__" }] : [])]}
-                      disabled={Boolean(busyAction) || ticketScannerOpen}
-                      label="Serving from"
-                      placeholder="Select counter"
-                      value={selectedCounterSlug || null}
-                      onChange={(value) => setSelectedCounterSlug(value || "")}
-                    />
-                    <Group className="vendor-queue-primary-actions" gap="xs">
-                      <Button
-                        className="neura-primary-button"
-                        disabled={
-                          Boolean(busyAction) ||
-                          !selectedLane?.canCallNext ||
-                          queueDayClosed ||
-                          Boolean(activeTicket)
-                        }
-                        onClick={async () => {
-                          const success = await runAction("call-next", () =>
-                            vendorDashboardQueue.callNextTicket(token, selectedTenantSlug, locationQuery, selectedCounterSlug)
-                          );
-                          if (success) {
-                            showSuccessNotification("Customer called", "The next customer has been called to the counter.");
-                          }
-                        }}
-                      >
-                        {busyAction === "call-next" ? "Calling..." : "Call next"}
-                      </Button>
-                      {activeTicket && (activeTicket.customerConfirmedAt || activeTicket.joinChannel === "vendor") ? (
-                        <Button
-                          className="neura-secondary-button"
-                          disabled={Boolean(busyAction)}
-                          leftSection={<IconCheck size={16} />}
-                          loading={["serve-current", "service-start", "service-complete"].includes(busyAction || "")}
-                          onClick={async () => {
-                            const tracking = snapshot?.location?.serviceTimingEnabled || Boolean(activeTicket.serviceStartedAt);
-                            const action = activeTicket.serviceStartedAt ? "complete" : "start";
-                            const execute = async () => {
-                              const success = await runAction(tracking ? `service-${action}` : "serve-current", () =>
-                                tracking
-                                  ? vendorDashboardQueue.recordTicketService(token, selectedTenantSlug, locationQuery, activeTicket.id, action)
-                                  : vendorDashboardQueue.serveCurrentTicket(token, selectedTenantSlug, locationQuery, activeTicket.id, selectedLane?.counterSlug ?? null)
-                              );
-                              if (success) {
-                                showSuccessNotification(
-                                  tracking && action === "start" ? "Service started" : "Customer served",
-                                  tracking && action === "start" ? "The actual service start has been recorded." : "The ticket was marked as served."
-                                );
-                              }
-                            };
-                            if (activeTicket.serviceStartedAt) {
-                              setConfirmAction({
-                                title: "Complete service?",
-                                description: `Mark ticket ${activeTicket.ticketNumber} as served and record the service end time.`,
-                                confirmLabel: "Complete service",
-                                confirmColor: "blue",
-                                onConfirm: execute
-                              });
-                            } else {
-                              await execute();
-                            }
-                          }}
-                        >
-                          {activeTicket.serviceStartedAt ? "Complete service" : snapshot?.location?.serviceTimingEnabled ? "Start service" : "Serve customer"}
-                        </Button>
-                      ) : (
-                        <Button
-                          className="neura-secondary-button"
-                          disabled={!activeTicket || Boolean(busyAction)}
-                          leftSection={<IconQrcode size={16} />}
-                          onClick={() => {
-                            setTicketScannerError("");
-                            if (activeTicket) setScannerTarget({ ticketId: activeTicket.id, ticketNumber: activeTicket.ticketNumber, counterSlug: selectedLane?.counterSlug ?? null, tenantSlug: selectedTenantSlug, locationQuery });
-                            setTicketScannerOpen(true);
-                          }}
-                        >
-                          Confirm ticket
-                        </Button>
-                      )}
-                      <Button
-                        variant="default"
-                        disabled={Boolean(busyAction) || !activeTicket || Boolean(activeTicket.serviceStartedAt)}
-                        onClick={() => {
-                          if (!activeTicket) return;
-                          setConfirmAction({
-                            title: "Skip current ticket?",
-                            description: `Skip ticket ${activeTicket.ticketNumber} at the selected counter.`,
-                            confirmLabel: "Skip ticket",
-                            confirmColor: "orange",
-                            onConfirm: async () => {
-                              const success = await runAction("skip-current", () =>
-                                vendorDashboardQueue.skipCurrentTicket(token, selectedTenantSlug, locationQuery, activeTicket.id, selectedLane?.counterSlug ?? null)
-                              );
-                              if (success) {
-                                showSuccessNotification("Ticket skipped", "The current ticket was skipped.");
-                                setQueueView("current");
-                              }
-                            }
-                          });
-                        }}
-                      >
-                        Skip current
-                      </Button>
-                      {activeTicket?.serviceStartedAt ? (
-                        <Button variant="outline" color="orange" mih={44} disabled={Boolean(busyAction)}
-                          onClick={() => setConfirmAction({
-                            title: "Interrupt service?",
-                            description: "Record that service ended without completion and mark the called ticket unserved. This is excluded from completed service duration samples.",
-                            confirmLabel: "Record interruption", confirmColor: "orange",
-                            onConfirm: async () => {
-                              await runAction("service-interrupt", () => vendorDashboardQueue.recordTicketService(
-                                token, selectedTenantSlug, locationQuery, activeTicket.id, "interrupt"
-                              ));
-                            }
-                          })}>
-                          Interrupt service
-                        </Button>
-                      ) : null}
-                    </Group>
-                  </div>
-                  {snapshot?.queueDay?.closureReason ? <Text c="dimmed" size="sm">{snapshot.queueDay.closureReason}</Text> : null}
-                  {selectedLane?.blockReason && !activeTicket ? <Text size="sm" c="dimmed">{counterBlockMessage(selectedLane.blockReason)}</Text> : null}
-                  <div className="vendor-queue-status-columns" data-columns={intakeState?.autoPauseEnabled ? 3 : 2}>
-                    <div className="vendor-queue-status-column">
-                      <Text className="neura-label">{activeTicket?.serviceStartedAt ? "In service" : snapshot?.location?.serviceTimingEnabled ? "Called ticket" : "Now serving"}</Text>
-                      <Group gap="xs">
-                        <Title order={3}>{activeTicket?.ticketNumber || "--"}</Title>
-                        {activeTicket && isCheckedInBookingTicket(activeTicket) ? (
-                          <Badge color="blue" variant="light">Booking</Badge>
-                        ) : null}
-                        {activeTicket?.customerConfirmedAt ? (
-                          <Badge color="teal" variant="light">Customer confirmed</Badge>
-                        ) : null}
-                      </Group>
-                      <Text c="dimmed" size="sm">
-                        {activeTicket?.customerName || "No active ticket"}
-                      </Text>
-                      {activeTicket?.serviceStartedAt ? (
-                        <Text c="teal" size="sm">Service started {formatDateTime(activeTicket.serviceStartedAt)}</Text>
-                      ) : snapshot?.location?.serviceTimingEnabled && activeTicket ? (
-                        <Text c="dimmed" size="sm">Called · service has not started</Text>
-                      ) : null}
-                      {activeTicket?.linkedBookingReference ? (
-                        <Text c="dimmed" size="xs">
-                          Booking {activeTicket.linkedBookingReference}
-                        </Text>
-                      ) : null}
-                    </div>
-                    <div className="vendor-queue-status-column">
-                      <Text className="neura-label">Queue day</Text>
-                      <Title order={3}>
-                        {queueDayReconciling
-                          ? "Closing"
-                          : queueDayUnopened
-                            ? "Not opened"
-                            : queueDayActuallyClosed
-                              ? "Closed"
-                              : queueDayPaused
-                                ? "Paused"
-                                : queueDayExtended
-                                  ? "Extended"
-                                  : "Open"}
-                      </Title>
-                      <Text c="dimmed" size="sm">
-                        {queueDayReconciling
-                          ? "Ticket outcomes are being reconciled"
-                          : queueDayUnopened
-                            ? "Waiting for an authorized operator to open the Queue Day"
-                            : queueDayClosed && snapshot?.queueDay?.closedAt
-                          ? `Closed ${formatDateTime(snapshot.queueDay.closedAt)}`
-                          : queueDayPaused && snapshot?.queueDay?.pausedAt
-                            ? `Paused ${formatDateTime(snapshot.queueDay.pausedAt)}`
-                            : snapshot?.queueDay?.currentClosesAt
-                              ? `Scheduled close ${formatDateTime(snapshot.queueDay.currentClosesAt)}`
-                              : "Customers can continue joining this queue"}
-                      </Text>
-                    </div>
-                    {intakeState?.autoPauseEnabled && intakeState.autoPauseThreshold ? (
-                      <div className="vendor-queue-status-column"><QueueIntakeGauge
-                        waitingCount={intakeState.currentWaitingCount}
-                        threshold={intakeState.autoPauseThreshold}
-                        resumeWaitingCount={intakeState.resumeWaitingCount}
-                        autoResumeEnabled={intakeState.autoResumeEnabled}
-                        state={
-                          intakeState.state === "paused"
-                            ? "paused"
-                            : intakeState.state === "near_limit"
-                              ? "near_limit"
-                              : "open"
-                        }
-                        stateLabel={intakeState.stateLabel}
-                      /></div>
-                    ) : null}
-                  </div>
-                  <Table.ScrollContainer minWidth={640}>
-                    <Table verticalSpacing="sm">
-                      <Table.Thead>
-                        <Table.Tr>
-                          <Table.Th>ID</Table.Th>
-                          <Table.Th>Up next</Table.Th>
-                          <Table.Th>Channel</Table.Th>
-                          <Table.Th>Source</Table.Th>
-                          <Table.Th>Joined</Table.Th>
-                          <Table.Th>Actions</Table.Th>
-                        </Table.Tr>
-                      </Table.Thead>
-                      <Table.Tbody>
-                        {currentQueueTickets.length ? (
-                          currentQueueTickets.map((ticket) => (
-                            <Table.Tr key={ticket.id}>
-                              <Table.Td fw={700}>{ticket.id}</Table.Td>
-                              <Table.Td>
-                                <Text fw={700}>{ticket.ticketNumber}</Text>
-                                <Text c="dimmed" size="sm">
-                                  {getQueueCustomerFullNameLabel(
-                                    ticket.customerName,
-                                    ticket.customerDisplayName
-                                  )}
-                                </Text>
-                                {ticket.linkedBookingReference ? (
-                                  <Stack gap={2}>
-                                    <Text c="dimmed" size="xs">Booking {ticket.linkedBookingReference}</Text>
-                                    {ticket.bookingScheduledStartAt ? <Text c="dimmed" size="xs">Earliest call: {formatDateTime(ticket.bookingScheduledStartAt)}</Text> : null}
-                                  </Stack>
-                                ) : null}
-                              </Table.Td>
-                              <Table.Td><Badge variant="light">{ticket.joinChannel}</Badge></Table.Td>
-                              <Table.Td>
-                                <Group gap={6}>
-                                  {isCheckedInBookingTicket(ticket) ? (
-                                    <Badge color="blue" variant="light">Booking</Badge>
-                                  ) : null}
-                                  <Badge color={ticket.isCarriedOver ? "orange" : "gray"} variant="light">
-                                    {ticket.isCarriedOver ? "Carry-over" : "Same-day"}
-                                  </Badge>
-                                </Group>
-                              </Table.Td>
-                              <Table.Td>{formatDateTime(ticket.createdAt)}</Table.Td>
-                              <Table.Td>
-                                {selectedTenantRole && ticket.status === "waiting" ? (
-                                  <Button
-                                    variant="light"
-                                    color="red"
-                                    size="xs"
-                                    mih={44}
-                                    disabled={Boolean(busyAction)}
-                                    aria-label={`Cancel waiting ticket ${ticket.ticketNumber}`}
-                                    onClick={() => openWaitingTicketCancellation(ticket)}
-                                  >
-                                    Cancel ticket
-                                  </Button>
-                                ) : null}
-                              </Table.Td>
-                            </Table.Tr>
-                          ))
-                        ) : (
-                          <Table.Tr>
-                            <Table.Td colSpan={6}>
-                              <DashboardEmptyState
-                                title="No one is waiting right now."
-                                text="Fresh same-day joins will appear here once the carry-over backlog is cleared."
-                              />
-                            </Table.Td>
-                          </Table.Tr>
-                        )}
-                      </Table.Tbody>
-                    </Table>
-                  </Table.ScrollContainer>
-                </>
-              ) : queueView === "overflow" ? (
-                <>
-                  <Group justify="space-between" align="flex-start">
-                    <div>
-                      <Text className="neura-label">Overflow queue</Text>
-                      <Title order={3}>Carry-over tickets</Title>
-                    </div>
-                    <Badge variant="light">
-                      {overflowTickets.length} ticket{overflowTickets.length === 1 ? "" : "s"}
-                    </Badge>
-                  </Group>
-                  <Table.ScrollContainer minWidth={420}>
-                    <Table verticalSpacing="sm">
-                      <Table.Thead>
-                        <Table.Tr>
-                          <Table.Th>ID</Table.Th>
-                          <Table.Th>Ticket</Table.Th>
-                          <Table.Th>Channel</Table.Th>
-                          <Table.Th>Status</Table.Th>
-                          <Table.Th>Activated at</Table.Th>
-                          <Table.Th>Joined</Table.Th>
-                        </Table.Tr>
-                      </Table.Thead>
-                      <Table.Tbody>
-                        {overflowTickets.length ? (
-                          overflowTickets.map((ticket) => (
-                            <Table.Tr key={ticket.id}>
-                              <Table.Td fw={700}>{ticket.id}</Table.Td>
-                              <Table.Td>
-                                <Text fw={700}>{ticket.ticketNumber}</Text>
-                                <Text c="dimmed" size="sm">{ticket.customerName}</Text>
-                              </Table.Td>
-                              <Table.Td><Badge variant="light">{ticket.joinChannel}</Badge></Table.Td>
-                              <Table.Td>
-                                <Badge
-                                  color={ticket.status === "pending_carry_over" ? "blue" : "orange"}
-                                  variant="light"
-                                >
-                                  {ticket.status === "pending_carry_over"
-                                    ? getTicketStateSummary(ticket.status).label
-                                    : "Carried over"}
-                                </Badge>
-                              </Table.Td>
-                              <Table.Td>{ticket.carriedOverAt ? formatDateTime(ticket.carriedOverAt) : "--"}</Table.Td>
-                              <Table.Td>{formatDateTime(ticket.createdAt)}</Table.Td>
-                            </Table.Tr>
-                          ))
-                        ) : (
-                          <Table.Tr>
-                            <Table.Td colSpan={6}>
-                              <DashboardEmptyState
-                                title="No overflow tickets."
-                                text="Waiting tickets carried over from a previous queue day will appear here."
-                              />
-                            </Table.Td>
-                          </Table.Tr>
-                        )}
-                      </Table.Tbody>
-                    </Table>
-                  </Table.ScrollContainer>
-                </>
-              ) : (
-                <>
-                  <Group justify="space-between" align="flex-start">
-                    <div>
-                      <Text className="neura-label">Missed ticket recovery</Text>
-                      <Title order={3}>Skipped tickets</Title>
-                    </div>
-                    <Badge variant="light">
-                      {recoverableTickets.length} ticket{recoverableTickets.length === 1 ? "" : "s"}
-                    </Badge>
-                  </Group>
-                  {queueDayClosed || queueDayPaused || restoreBlockedByThreshold ? (
-                    <Alert color={queueDayClosed ? "red" : "yellow"} variant="light" radius="md">
-                      {queueDayClosed
-                        ? "Missed tickets cannot be restored while the queue day is closed."
+      <div className="queue-stack vendor-live-queue">
+        <LiveQueueSummary snapshot={snapshot} />
+        <QueueCard>
+          <QueueCardHeader>
+            <QueueCardTitle>Queue controls</QueueCardTitle>
+          </QueueCardHeader>
+          <QueueCardContent className="queue-stack">
+            <div className="queue-row queue-between">
+              <div className="queue-stack">
+                <QueueBadge variant="outline">
+                  {queueDayReconciling
+                    ? "Queue closing"
+                    : queueDayUnopened
+                      ? "Queue not opened"
+                      : queueDayActuallyClosed
+                        ? "Queue day closed"
                         : queueDayPaused
-                          ? "Missed tickets cannot be restored while queue intake is paused."
-                          : `Missed tickets cannot be restored while the queue is at its intake threshold of ${intakeState?.autoPauseThreshold} waiting tickets.`}
-                    </Alert>
+                          ? "Queue intake paused"
+                          : queueDayExtended
+                            ? "Queue day extended"
+                            : "Queue day open"}
+                </QueueBadge>
+                <div className="queue-row">
+                  {queueDayUnopened && canOperateQueueDay ? (
+                    <QueueButton
+                      variant="default"
+                      disabled={Boolean(busyAction) || boardScannerBusy}
+                      aria-busy={busyAction === "queue-open"}
+                      onClick={() => void handleOpenQueueDay()}
+                    >
+                      Open queue
+                    </QueueButton>
+                  ) : queueDayActuallyClosed && canReopenQueueDay ? (
+                    <QueueButton
+                      variant="default"
+                      disabled={Boolean(busyAction) || boardScannerBusy}
+                      onClick={async () => {
+                        const success = await runAction("queue-reopen", () =>
+                          vendorDashboardQueue.reopenQueueDay(
+                            token,
+                            selectedTenantSlug,
+                            locationQuery,
+                          ),
+                        );
+                        if (success) {
+                          showSuccessNotification(
+                            "Queue reopened",
+                            "The Queue Day is accepting joins again. Earlier ticket outcomes were not reversed.",
+                          );
+                          setQueueView("current");
+                        }
+                      }}
+                    >
+                      {busyAction === "queue-reopen"
+                        ? "Reopening..."
+                        : "Reopen queue"}
+                    </QueueButton>
+                  ) : !queueDayClosed && queueDayPaused ? (
+                    <QueueButton
+                      variant="secondary"
+                      disabled={Boolean(busyAction) || boardScannerBusy}
+                      onClick={async () => {
+                        const success = await runAction("queue-resume", () =>
+                          vendorDashboardQueue.resumeQueueDay(
+                            token,
+                            selectedTenantSlug,
+                            locationQuery,
+                          ),
+                        );
+                        if (success) {
+                          showSuccessNotification(
+                            "Queue resumed",
+                            "Customers can join this queue again.",
+                          );
+                        }
+                      }}
+                    >
+                      {busyAction === "queue-resume"
+                        ? "Resuming..."
+                        : "Resume intake"}
+                    </QueueButton>
+                  ) : !queueDayClosed ? (
+                    <QueueButton
+                      variant="secondary"
+                      disabled={Boolean(busyAction) || boardScannerBusy}
+                      onClick={async () => {
+                        const success = await runAction("queue-pause", () =>
+                          vendorDashboardQueue.pauseQueueDay(
+                            token,
+                            selectedTenantSlug,
+                            locationQuery,
+                          ),
+                        );
+                        if (success) {
+                          showSuccessNotification(
+                            "Queue paused",
+                            "New joins are paused while staff continues serving the active queue.",
+                          );
+                        }
+                      }}
+                    >
+                      {busyAction === "queue-pause"
+                        ? "Pausing..."
+                        : "Pause intake"}
+                    </QueueButton>
                   ) : null}
-                  <Table.ScrollContainer minWidth={620}>
-                    <Table verticalSpacing="sm">
-                      <Table.Thead>
-                        <Table.Tr>
-                          <Table.Th>ID</Table.Th>
-                          <Table.Th>Ticket</Table.Th>
-                          <Table.Th>Joined</Table.Th>
-                          <Table.Th>Recovery</Table.Th>
-                          <Table.Th>Action</Table.Th>
-                        </Table.Tr>
-                      </Table.Thead>
-                      <Table.Tbody>
-                        {recoverableTickets.length ? (
-                          recoverableTickets.map((ticket) => {
-                            const priorityRecovery = isRecoveryWindowActive(ticket.rejoinDeadlineAt);
-
-                            return (
-                              <Table.Tr key={ticket.id}>
-                                <Table.Td fw={700}>{ticket.id}</Table.Td>
-                                <Table.Td>
-                                  <Text fw={700}>{ticket.ticketNumber}</Text>
-                                  <Text c="dimmed" size="sm">{ticket.customerName}</Text>
-                                </Table.Td>
-                                <Table.Td>{formatDateTime(ticket.createdAt)}</Table.Td>
-                                <Table.Td>
-                                  <Badge color={priorityRecovery ? "blue" : "gray"} variant="light">
-                                    {priorityRecovery ? "recovery" : "normal"}
-                                  </Badge>
-                                  <Text c="dimmed" size="sm" mt={4}>
-                                    {ticket.rejoinDeadlineAt
-                                      ? priorityRecovery
-                                        ? `Priority until ${formatDateTime(ticket.rejoinDeadlineAt)}`
-                                        : `Recovery expired ${formatDateTime(ticket.rejoinDeadlineAt)}`
-                                      : "No recovery deadline"}
-                                  </Text>
-                                </Table.Td>
-                                <Table.Td>
-                                  <Button
-                                    disabled={
-                                      busyAction === `restore-${ticket.id}` ||
-                                      !ticket.lookupCode ||
-                                      queueDayClosed ||
-                                      queueDayPaused ||
-                                      restoreBlockedByThreshold
-                                    }
-                                    onClick={async () => {
-                                      const success = await runAction(`restore-${ticket.id}`, () =>
-                                        vendorDashboardQueue.restoreSkippedTicket(
-                                          token,
-                                          selectedTenantSlug,
-                                          ticket.id,
-                                          locationQuery,
-                                          ticket.lookupCode || ""
-                                        )
-                                      );
-
-                                      if (success) {
-                                        showSuccessNotification(
-                                          "Ticket restored",
-                                          priorityRecovery
-                                            ? "The skipped ticket was restored with recovery priority."
-                                            : "The skipped ticket was restored at normal priority."
-                                        );
-                                        setQueueView("current");
-                                      }
-                                    }}
-                                    size="xs"
-                                    variant="light"
-                                  >
-                                    Restore
-                                  </Button>
-                                </Table.Td>
-                              </Table.Tr>
-                            );
-                          })
-                        ) : (
-                          <Table.Tr>
-                            <Table.Td colSpan={5}>
-                              <DashboardEmptyState
-                                title="No skipped tickets to recover."
-                                text="Skipped tickets will appear here while they are still relevant for operator recovery."
-                              />
-                            </Table.Td>
-                          </Table.Tr>
-                        )}
-                      </Table.Tbody>
-                    </Table>
-                  </Table.ScrollContainer>
-                </>
-              )}
-            </Stack>
-          </Card>
-          </Grid.Col>
-
-          <Grid.Col span={{ base: 12, lg: 4 }}>
-          <Card className="neura-card" padding="lg">
-            <Stack gap="md">
-              <Group justify="space-between">
-                <div>
-                  <Text className="neura-label">QR and public links</Text>
-                  <Title order={3}>Customer self-service entry</Title>
+                  {!queueDayClosed && canOperateQueueDay ? (
+                    <QueueButton
+                      variant="destructive"
+                      disabled={Boolean(busyAction) || boardScannerBusy}
+                      onClick={() => {
+                        setConfirmAction({
+                          title: `Close ${selectedLocation?.name || "this queue"} now?`,
+                          description:
+                            "Unresolved waiting tickets will carry over once or expire, called tickets become unserved, and skipped recovery ends. Reopening will not reverse these outcomes.",
+                          confirmLabel: "Close queue and reconcile",
+                          confirmColor: "red",
+                          onConfirm: async () => {
+                            await handleCloseQueueDay();
+                          },
+                        });
+                      }}
+                    >
+                      {busyAction === "queue-close"
+                        ? "Closing..."
+                        : "Close queue"}
+                    </QueueButton>
+                  ) : null}
                 </div>
-                <Group gap="sm">
-                  <Button component="a" href={queueLinks.monitorUrl} target="_blank" variant="default">
-                    Open board
-                  </Button>
-                  <Button
-                    className="neura-primary-button"
-                    disabled={queueDayClosed || queueDayPaused}
-                    leftSection={<IconUserPlus size={16} />}
-                    onClick={() => setWalkInDialogOpen(true)}
-                  >
-                    Add walk-in
-                  </Button>
-                </Group>
-              </Group>
-              <Group align="flex-start" gap="lg">
-                <Paper className="neura-qr-card" p="md">
-                  {queueLinks.qrUrl ? (
-                    <div ref={queueQrRef}>
-                      <StyledQRCode size={160} value={queueLinks.qrUrl} />
-                    </div>
-                  ) : (
-                    <QueueQrUnavailable />
+              </div>
+            </div>
+            {queueDayUnopened ? (
+              <QueueAlert>
+                <QueueAlertDescription>
+                  Store hours make this Queue Day eligible, but they do not open
+                  it automatically. An authorized operator must open the queue
+                  before customers can join.
+                </QueueAlertDescription>
+              </QueueAlert>
+            ) : null}
+            {queueDayActuallyClosed && snapshot?.queueDay?.outcomeCounts ? (
+              <QueueAlert>
+                <QueueAlertTitle>Close reconciliation completed</QueueAlertTitle>
+                <QueueAlertDescription>
+                  {snapshot.queueDay.outcomeCounts.pendingCarryOver} saved for
+                  carry-over · {snapshot.queueDay.outcomeCounts.expired} expired ·{" "}
+                  {snapshot.queueDay.outcomeCounts.unserved} unserved ·{" "}
+                  {snapshot.queueDay.outcomeCounts.skipped} skipped recovery
+                  ended. Reopening does not reverse these outcomes.
+                </QueueAlertDescription>
+              </QueueAlert>
+            ) : null}
+            <div className="vendor-queue-action-layout">
+              <QueueCounterPicker
+                className="vendor-queue-counter-select"
+                data={[
+                  ...activeCounters.map((counter) => ({
+                    label: counter.name,
+                    value: counter.slug,
+                  })),
+                  ...(snapshot?.counterDispatch || [])
+                    .filter(
+                      (lane) =>
+                        lane.counterSlug &&
+                        lane.currentTicketId &&
+                        !activeCounters.some(
+                          (counter) => counter.slug === lane.counterSlug,
+                        ),
+                    )
+                    .map((lane) => ({
+                      label: `${lane.counterName} (inactive)`,
+                      value: lane.counterSlug!,
+                    })),
+                  ...(snapshot?.counterDispatch?.some(
+                    (lane) => lane.counterSlug === null && lane.currentTicketId,
+                  )
+                    ? [
+                        {
+                          label: "Unassigned legacy ticket",
+                          value: "__unassigned__",
+                        },
+                      ]
+                    : []),
+                ]}
+                disabled={Boolean(busyAction) || ticketScannerOpen}
+                label="Serving from"
+                placeholder="Select counter"
+                value={selectedCounterSlug || null}
+                onChange={(value) => setSelectedCounterSlug(value || "")}
+              />
+              <div className="queue-row vendor-queue-primary-actions">
+                <QueueButton
+                  variant="default"
+                  disabled={Boolean(
+                    Boolean(busyAction) ||
+                    !selectedLane?.canCallNext ||
+                    queueDayClosed ||
+                    Boolean(activeTicket),
                   )}
-                  <Group gap={6} justify="center" mt="sm">
-                    <IconQrcode size={16} />
-                    <Text className="neura-label">Join QR</Text>
-                  </Group>
-                  <Button disabled={!queueLinks.qrUrl} fullWidth leftSection={<IconDownload size={16} />} loading={savingQueueQr} mt="md" onClick={() => void saveQueueQr()} variant="default">
-                    Save QR
-                  </Button>
-                </Paper>
-                <Stack flex={1} gap="sm">
-                  <TextInput
-                    label="Join URL"
-                    onClick={() => void copyLocationUrl("Join URL", queueLinks.joinUrl)}
-                    onFocus={(event) => event.currentTarget.select()}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter" || event.key === " ") {
-                        event.preventDefault();
-                        void copyLocationUrl("Join URL", queueLinks.joinUrl);
+                  onClick={async () => {
+                    const success = await runAction("call-next", () =>
+                      vendorDashboardQueue.callNextTicket(
+                        token,
+                        selectedTenantSlug,
+                        locationQuery,
+                        selectedCounterSlug,
+                      ),
+                    );
+                    if (success) {
+                      showSuccessNotification(
+                        "Customer called",
+                        "The next customer has been called to the counter.",
+                      );
+                    }
+                  }}
+                >
+                  {busyAction === "call-next" ? "Calling..." : "Call next"}
+                </QueueButton>
+                {activeTicket &&
+                (activeTicket.customerConfirmedAt ||
+                  activeTicket.joinChannel === "vendor") ? (
+                  <QueueButton
+                    variant="outline"
+                    disabled={
+                      Boolean(busyAction) ||
+                      Boolean(
+                        [
+                          "serve-current",
+                          "service-start",
+                          "service-complete",
+                        ].includes(busyAction || ""),
+                      )
+                    }
+                    aria-busy={[
+                      "serve-current",
+                      "service-start",
+                      "service-complete",
+                    ].includes(busyAction || "")}
+                    onClick={async () => {
+                      const tracking =
+                        snapshot?.location?.serviceTimingEnabled ||
+                        Boolean(activeTicket.serviceStartedAt);
+                      const action = activeTicket.serviceStartedAt
+                        ? "complete"
+                        : "start";
+                      const execute = async () => {
+                        const success = await runAction(
+                          tracking ? `service-${action}` : "serve-current",
+                          () =>
+                            tracking
+                              ? vendorDashboardQueue.recordTicketService(
+                                  token,
+                                  selectedTenantSlug,
+                                  locationQuery,
+                                  activeTicket.id,
+                                  action,
+                                )
+                              : vendorDashboardQueue.serveCurrentTicket(
+                                  token,
+                                  selectedTenantSlug,
+                                  locationQuery,
+                                  activeTicket.id,
+                                  selectedLane?.counterSlug ?? null,
+                                ),
+                        );
+                        if (success) {
+                          showSuccessNotification(
+                            tracking && action === "start"
+                              ? "Service started"
+                              : "Customer served",
+                            tracking && action === "start"
+                              ? "The actual service start has been recorded."
+                              : "The ticket was marked as served.",
+                          );
+                        }
+                      };
+                      if (activeTicket.serviceStartedAt) {
+                        setConfirmAction({
+                          title: "Complete service?",
+                          description: `Mark ticket ${activeTicket.ticketNumber} as served and record the service end time.`,
+                          confirmLabel: "Complete service",
+                          confirmColor: "blue",
+                          onConfirm: execute,
+                        });
+                      } else {
+                        await execute();
                       }
                     }}
-                    readOnly
-                    rightSection={<IconCopy aria-hidden="true" size={16} />}
-                    rightSectionPointerEvents="none"
-                    styles={{ input: { cursor: "copy" } }}
-                    title="Click to copy Join URL"
-                    value={queueLinks.joinUrl}
-                  />
-                  <TextInput
-                    label="QR target"
-                    onClick={() => void copyLocationUrl("QR target", queueLinks.qrUrl)}
-                    onFocus={(event) => event.currentTarget.select()}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter" || event.key === " ") {
-                        event.preventDefault();
-                        void copyLocationUrl("QR target", queueLinks.qrUrl);
-                      }
+                  >
+                    <IconCheck data-icon="inline-start" />
+                    {activeTicket.serviceStartedAt
+                      ? "Complete service"
+                      : snapshot?.location?.serviceTimingEnabled
+                        ? "Start service"
+                        : "Serve customer"}
+                  </QueueButton>
+                ) : (
+                  <QueueButton
+                    variant="outline"
+                    disabled={Boolean(!activeTicket || Boolean(busyAction))}
+                    onClick={() => {
+                      setTicketScannerError("");
+                      if (activeTicket)
+                        setScannerTarget({
+                          ticketId: activeTicket.id,
+                          ticketNumber: activeTicket.ticketNumber,
+                          counterSlug: selectedLane?.counterSlug ?? null,
+                          tenantSlug: selectedTenantSlug,
+                          locationQuery,
+                        });
+                      setTicketScannerOpen(true);
                     }}
-                    readOnly
-                    rightSection={<IconCopy aria-hidden="true" size={16} />}
-                    rightSectionPointerEvents="none"
-                    styles={{ input: { cursor: "copy" } }}
-                    title="Click to copy QR target"
-                    value={queueLinks.qrUrl}
+                  >
+                    <IconQrcode data-icon="inline-start" />
+                    Confirm ticket
+                  </QueueButton>
+                )}
+                <QueueButton
+                  variant="outline"
+                  disabled={Boolean(
+                    Boolean(busyAction) ||
+                    !activeTicket ||
+                    Boolean(activeTicket.serviceStartedAt),
+                  )}
+                  onClick={() => {
+                    if (!activeTicket) return;
+                    setConfirmAction({
+                      title: "Skip current ticket?",
+                      description: `Skip ticket ${activeTicket.ticketNumber} at the selected counter.`,
+                      confirmLabel: "Skip ticket",
+                      confirmColor: "orange",
+                      onConfirm: async () => {
+                        const success = await runAction("skip-current", () =>
+                          vendorDashboardQueue.skipCurrentTicket(
+                            token,
+                            selectedTenantSlug,
+                            locationQuery,
+                            activeTicket.id,
+                            selectedLane?.counterSlug ?? null,
+                          ),
+                        );
+                        if (success) {
+                          showSuccessNotification(
+                            "Ticket skipped",
+                            "The current ticket was skipped.",
+                          );
+                          setQueueView("current");
+                        }
+                      },
+                    });
+                  }}
+                >
+                  Skip current
+                </QueueButton>
+                {activeTicket?.serviceStartedAt ? (
+                  <QueueButton
+                    variant="outline"
+                    disabled={Boolean(busyAction)}
+                    onClick={() =>
+                      setConfirmAction({
+                        title: "Interrupt service?",
+                        description:
+                          "Record that service ended without completion and mark the called ticket unserved. This is excluded from completed service duration samples.",
+                        confirmLabel: "Record interruption",
+                        confirmColor: "orange",
+                        onConfirm: async () => {
+                          await runAction("service-interrupt", () =>
+                            vendorDashboardQueue.recordTicketService(
+                              token,
+                              selectedTenantSlug,
+                              locationQuery,
+                              activeTicket.id,
+                              "interrupt",
+                            ),
+                          );
+                        },
+                      })
+                    }
+                  >
+                    Interrupt service
+                  </QueueButton>
+                ) : null}
+              </div>
+            </div>
+            {snapshot?.queueDay?.closureReason ? (
+              <p className="queue-text queue-muted queue-small">
+                {snapshot.queueDay.closureReason}
+              </p>
+            ) : null}
+            {selectedLane?.blockReason && !activeTicket ? (
+              <p className="queue-text queue-muted queue-small">
+                {counterBlockMessage(selectedLane.blockReason)}
+              </p>
+            ) : null}
+            <div
+              className="vendor-queue-status-columns"
+              data-columns={intakeState?.autoPauseEnabled ? 3 : 2}
+            >
+              <div className="vendor-queue-status-column">
+                <p className="queue-text vendor-eyebrow">
+                  {activeTicket?.serviceStartedAt
+                    ? "In service"
+                    : snapshot?.location?.serviceTimingEnabled
+                      ? "Called ticket"
+                      : "Now serving"}
+                </p>
+                <div className="queue-row">
+                  <h3 className="queue-heading">
+                    {activeTicket?.ticketNumber || "--"}
+                  </h3>
+                  {activeTicket && isCheckedInBookingTicket(activeTicket) ? (
+                    <QueueBadge variant="outline">Booking</QueueBadge>
+                  ) : null}
+                  {activeTicket?.customerConfirmedAt ? (
+                    <QueueBadge variant="outline">Customer confirmed</QueueBadge>
+                  ) : null}
+                </div>
+                <p className="queue-text queue-muted queue-small">
+                  {activeTicket?.customerName || "No active ticket"}
+                </p>
+                {activeTicket?.serviceStartedAt ? (
+                  <p className="queue-text queue-muted queue-small">
+                    Service started{" "}
+                    {formatDateTime(activeTicket.serviceStartedAt)}
+                  </p>
+                ) : snapshot?.location?.serviceTimingEnabled && activeTicket ? (
+                  <p className="queue-text queue-muted queue-small">
+                    Called · service has not started
+                  </p>
+                ) : null}
+                {activeTicket?.linkedBookingReference ? (
+                  <p className="queue-text queue-muted queue-small">
+                    Booking {activeTicket.linkedBookingReference}
+                  </p>
+                ) : null}
+              </div>
+              <div className="vendor-queue-status-column">
+                <p className="queue-text vendor-eyebrow">Queue day</p>
+                <h3 className="queue-heading">
+                  {queueDayReconciling
+                    ? "Closing"
+                    : queueDayUnopened
+                      ? "Not opened"
+                      : queueDayActuallyClosed
+                        ? "Closed"
+                        : queueDayPaused
+                          ? "Paused"
+                          : queueDayExtended
+                            ? "Extended"
+                            : "Open"}
+                </h3>
+                <p className="queue-text queue-muted queue-small">
+                  {queueDayReconciling
+                    ? "Ticket outcomes are being reconciled"
+                    : queueDayUnopened
+                      ? "Waiting for an authorized operator to open the Queue Day"
+                      : queueDayClosed && snapshot?.queueDay?.closedAt
+                        ? `Closed ${formatDateTime(snapshot.queueDay.closedAt)}`
+                        : queueDayPaused && snapshot?.queueDay?.pausedAt
+                          ? `Paused ${formatDateTime(snapshot.queueDay.pausedAt)}`
+                          : snapshot?.queueDay?.currentClosesAt
+                            ? `Scheduled close ${formatDateTime(snapshot.queueDay.currentClosesAt)}`
+                            : "Customers can continue joining this queue"}
+                </p>
+              </div>
+              {intakeState?.autoPauseEnabled && intakeState.autoPauseThreshold ? (
+                <div className="vendor-queue-status-column">
+                  <LiveQueueIntake
+                    waitingCount={intakeState.currentWaitingCount}
+                    threshold={intakeState.autoPauseThreshold}
+                    resumeWaitingCount={intakeState.resumeWaitingCount}
+                    autoResumeEnabled={intakeState.autoResumeEnabled}
+                    state={
+                      intakeState.state === "paused"
+                        ? "paused"
+                        : intakeState.state === "near_limit"
+                          ? "near_limit"
+                          : "open"
+                    }
+                    stateLabel={intakeState.stateLabel}
                   />
-                  <TextInput
-                    label="Queue board URL"
-                    onClick={() => void copyLocationUrl("Monitor URL", queueLinks.monitorUrl)}
-                    onFocus={(event) => event.currentTarget.select()}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter" || event.key === " ") {
-                        event.preventDefault();
-                        void copyLocationUrl("Monitor URL", queueLinks.monitorUrl);
-                      }
-                    }}
-                    readOnly
-                    rightSection={<IconCopy aria-hidden="true" size={16} />}
-                    rightSectionPointerEvents="none"
-                    styles={{ input: { cursor: "copy" } }}
-                    title="Click to copy queue board URL"
-                    value={queueLinks.monitorUrl}
-                  />
-                </Stack>
-              </Group>
-            </Stack>
-          </Card>
-          {token && selectedTenantSlug && selectedLocationSlug ? <QueueBoardScanner key={`${selectedTenantSlug}:${selectedLocationSlug}`} token={token} tenantSlug={selectedTenantSlug} locationSlug={selectedLocationSlug} /> : null}
-          </Grid.Col>
-        </Grid>
+                </div>
+              ) : null}
+            </div>
+          </QueueCardContent>
+        </QueueCard>
 
-      </Stack>
+        <CounterTickets
+          snapshot={snapshot}
+          selectedTicketId={activeTicket?.id}
+          disabled={Boolean(busyAction) || ticketScannerOpen}
+          onSelect={(counter) => {
+            setSelectedCounterSlug(counter);
+            setQueueView("current");
+          }}
+          onEnd={(ticket, action) =>
+            setConfirmAction({
+              title:
+                action === "complete"
+                  ? `Complete service for ${ticket.ticketNumber}?`
+                  : `Interrupt service for ${ticket.ticketNumber}?`,
+              description:
+                action === "complete"
+                  ? "Mark this ticket as served and record the service end time."
+                  : "Record that service ended without completion and mark this ticket unserved.",
+              confirmLabel:
+                action === "complete"
+                  ? "Complete service"
+                  : "Record interruption",
+              confirmColor: action === "complete" ? "blue" : "orange",
+              onConfirm: async () => {
+                await runAction(`service-${action}`, () =>
+                  vendorDashboardQueue.recordTicketService(
+                    token,
+                    selectedTenantSlug,
+                    locationQuery,
+                    ticket.id,
+                    action,
+                  ),
+                );
+              },
+            })
+          }
+        />
+
+        <div className="queue-page-grid">
+          <div className="queue-page-column">
+            <QueueCard>
+              <QueueCardHeader>
+                <QueueCardTitle>Waiting and recovery</QueueCardTitle>
+              </QueueCardHeader>
+              <QueueCardContent className="queue-stack">
+                <div className="queue-stack">
+                  <QueueViewPicker
+                    data={[
+                      { value: "current", label: "Current queue" },
+                      { value: "overflow", label: "Overflow queue" },
+                      { value: "recovery", label: "Missed recovery" },
+                    ]}
+                    value={queueView}
+                    onChange={(value) => setQueueView(value as QueueView)}
+                  />
+
+                  {queueView === "current" ? (
+                    <>
+                      <div className="queue-table-wrapper">
+                        <QueueTable aria-label="Waiting queue" role="table">
+                          <QueueTableHeader>
+                            <QueueTableRow>
+                              <QueueTableHead scope="col">ID</QueueTableHead>
+                              <QueueTableHead scope="col">Up next</QueueTableHead>
+                              <QueueTableHead scope="col">Channel</QueueTableHead>
+                              <QueueTableHead scope="col">Source</QueueTableHead>
+                              <QueueTableHead scope="col">Joined</QueueTableHead>
+                              <QueueTableHead scope="col">Actions</QueueTableHead>
+                            </QueueTableRow>
+                          </QueueTableHeader>
+                          <QueueTableBody>
+                            {currentQueueTickets.length ? (
+                              currentQueueTickets.map((ticket) => (
+                                <QueueTableRow key={ticket.id}>
+                                  <QueueTableCell data-label="ID">
+                                    {ticket.id}
+                                  </QueueTableCell>
+                                  <QueueTableCell data-label="Ticket">
+                                    <p className="queue-text queue-strong">
+                                      {ticket.ticketNumber}
+                                    </p>
+                                    <p className="queue-text queue-muted queue-small">
+                                      {getQueueCustomerFullNameLabel(
+                                        ticket.customerName,
+                                        ticket.customerDisplayName,
+                                      )}
+                                    </p>
+                                    {ticket.linkedBookingReference ? (
+                                      <div className="queue-stack">
+                                        <p className="queue-text queue-muted queue-small">
+                                          Booking {ticket.linkedBookingReference}
+                                        </p>
+                                        {ticket.bookingScheduledStartAt ? (
+                                          <p className="queue-text queue-muted queue-small">
+                                            Earliest call:{" "}
+                                            {formatDateTime(
+                                              ticket.bookingScheduledStartAt,
+                                            )}
+                                          </p>
+                                        ) : null}
+                                      </div>
+                                    ) : null}
+                                  </QueueTableCell>
+                                  <QueueTableCell data-label="Channel">
+                                    <QueueBadge variant="outline">
+                                      {ticket.joinChannel}
+                                    </QueueBadge>
+                                  </QueueTableCell>
+                                  <QueueTableCell data-label="Source">
+                                    <div className="queue-row">
+                                      {isCheckedInBookingTicket(ticket) ? (
+                                        <QueueBadge variant="outline">
+                                          Booking
+                                        </QueueBadge>
+                                      ) : null}
+                                      <QueueBadge variant="outline">
+                                        {ticket.isCarriedOver
+                                          ? "Carry-over"
+                                          : "Same-day"}
+                                      </QueueBadge>
+                                    </div>
+                                  </QueueTableCell>
+                                  <QueueTableCell data-label="Joined">
+                                    {formatDateTime(ticket.createdAt)}
+                                  </QueueTableCell>
+                                  <QueueTableCell data-label="Actions">
+                                    {selectedTenantRole &&
+                                    ticket.status === "waiting" ? (
+                                      <QueueButton
+                                        variant="destructive"
+                                        disabled={Boolean(busyAction)}
+                                        aria-label={`Cancel waiting ticket ${ticket.ticketNumber}`}
+                                        onClick={() =>
+                                          openWaitingTicketCancellation(ticket)
+                                        }
+                                      >
+                                        Cancel ticket
+                                      </QueueButton>
+                                    ) : null}
+                                  </QueueTableCell>
+                                </QueueTableRow>
+                              ))
+                            ) : (
+                              <QueueTableRow>
+                                <QueueTableCell colSpan={6}>
+                                  <QueueEmptyState
+                                    title="No one is waiting right now."
+                                    text="Fresh same-day joins will appear here once the carry-over backlog is cleared."
+                                  />
+                                </QueueTableCell>
+                              </QueueTableRow>
+                            )}
+                          </QueueTableBody>
+                        </QueueTable>
+                      </div>
+                    </>
+                  ) : queueView === "overflow" ? (
+                    <>
+                      <div className="queue-row queue-between">
+                        <div>
+                          <p className="queue-text vendor-eyebrow">
+                            Overflow queue
+                          </p>
+                          <h3 className="queue-heading">Carry-over tickets</h3>
+                        </div>
+                        <QueueBadge variant="outline">
+                          {overflowTickets.length} ticket
+                          {overflowTickets.length === 1 ? "" : "s"}
+                        </QueueBadge>
+                      </div>
+                      <div className="queue-table-wrapper">
+                        <QueueTable aria-label="Carry-over queue" role="table">
+                          <QueueTableHeader>
+                            <QueueTableRow>
+                              <QueueTableHead scope="col">ID</QueueTableHead>
+                              <QueueTableHead scope="col">Ticket</QueueTableHead>
+                              <QueueTableHead scope="col">Channel</QueueTableHead>
+                              <QueueTableHead scope="col">Status</QueueTableHead>
+                              <QueueTableHead scope="col">
+                                Activated at
+                              </QueueTableHead>
+                              <QueueTableHead scope="col">Joined</QueueTableHead>
+                            </QueueTableRow>
+                          </QueueTableHeader>
+                          <QueueTableBody>
+                            {overflowTickets.length ? (
+                              overflowTickets.map((ticket) => (
+                                <QueueTableRow key={ticket.id}>
+                                  <QueueTableCell data-label="ID">
+                                    {ticket.id}
+                                  </QueueTableCell>
+                                  <QueueTableCell data-label="Ticket">
+                                    <p className="queue-text queue-strong">
+                                      {ticket.ticketNumber}
+                                    </p>
+                                    <p className="queue-text queue-muted queue-small">
+                                      {ticket.customerName}
+                                    </p>
+                                  </QueueTableCell>
+                                  <QueueTableCell data-label="Channel">
+                                    <QueueBadge variant="outline">
+                                      {ticket.joinChannel}
+                                    </QueueBadge>
+                                  </QueueTableCell>
+                                  <QueueTableCell data-label="Status">
+                                    <QueueBadge variant="outline">
+                                      {ticket.status === "pending_carry_over"
+                                        ? getTicketStateSummary(ticket.status)
+                                            .label
+                                        : "Carried over"}
+                                    </QueueBadge>
+                                  </QueueTableCell>
+                                  <QueueTableCell data-label="Activated">
+                                    {ticket.carriedOverAt
+                                      ? formatDateTime(ticket.carriedOverAt)
+                                      : "--"}
+                                  </QueueTableCell>
+                                  <QueueTableCell data-label="Joined">
+                                    {formatDateTime(ticket.createdAt)}
+                                  </QueueTableCell>
+                                </QueueTableRow>
+                              ))
+                            ) : (
+                              <QueueTableRow>
+                                <QueueTableCell colSpan={6}>
+                                  <QueueEmptyState
+                                    title="No overflow tickets."
+                                    text="Waiting tickets carried over from a previous queue day will appear here."
+                                  />
+                                </QueueTableCell>
+                              </QueueTableRow>
+                            )}
+                          </QueueTableBody>
+                        </QueueTable>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="queue-row queue-between">
+                        <div>
+                          <p className="queue-text vendor-eyebrow">
+                            Missed ticket recovery
+                          </p>
+                          <h3 className="queue-heading">Skipped tickets</h3>
+                        </div>
+                        <QueueBadge variant="outline">
+                          {recoverableTickets.length} ticket
+                          {recoverableTickets.length === 1 ? "" : "s"}
+                        </QueueBadge>
+                      </div>
+                      {queueDayClosed ||
+                      queueDayPaused ||
+                      restoreBlockedByThreshold ? (
+                        <QueueAlert>
+                          <QueueAlertDescription>
+                            {queueDayClosed
+                              ? "Missed tickets cannot be restored while the queue day is closed."
+                              : queueDayPaused
+                                ? "Missed tickets cannot be restored while queue intake is paused."
+                                : `Missed tickets cannot be restored while the queue is at its intake threshold of ${intakeState?.autoPauseThreshold} waiting tickets.`}
+                          </QueueAlertDescription>
+                        </QueueAlert>
+                      ) : null}
+                      <div className="queue-table-wrapper">
+                        <QueueTable
+                          aria-label="Missed ticket recovery"
+                          role="table"
+                        >
+                          <QueueTableHeader>
+                            <QueueTableRow>
+                              <QueueTableHead scope="col">ID</QueueTableHead>
+                              <QueueTableHead scope="col">Ticket</QueueTableHead>
+                              <QueueTableHead scope="col">Joined</QueueTableHead>
+                              <QueueTableHead scope="col">
+                                Recovery
+                              </QueueTableHead>
+                              <QueueTableHead scope="col">Action</QueueTableHead>
+                            </QueueTableRow>
+                          </QueueTableHeader>
+                          <QueueTableBody>
+                            {recoverableTickets.length ? (
+                              recoverableTickets.map((ticket) => {
+                                const priorityRecovery = isRecoveryWindowActive(
+                                  ticket.rejoinDeadlineAt,
+                                );
+
+                                return (
+                                  <QueueTableRow key={ticket.id}>
+                                    <QueueTableCell data-label="ID">
+                                      {ticket.id}
+                                    </QueueTableCell>
+                                    <QueueTableCell data-label="Ticket">
+                                      <p className="queue-text queue-strong">
+                                        {ticket.ticketNumber}
+                                      </p>
+                                      <p className="queue-text queue-muted queue-small">
+                                        {ticket.customerName}
+                                      </p>
+                                    </QueueTableCell>
+                                    <QueueTableCell data-label="Joined">
+                                      {formatDateTime(ticket.createdAt)}
+                                    </QueueTableCell>
+                                    <QueueTableCell data-label="Recovery">
+                                      <QueueBadge variant="outline">
+                                        {priorityRecovery ? "recovery" : "normal"}
+                                      </QueueBadge>
+                                      <p className="queue-text queue-muted queue-small">
+                                        {ticket.rejoinDeadlineAt
+                                          ? priorityRecovery
+                                            ? `Priority until ${formatDateTime(ticket.rejoinDeadlineAt)}`
+                                            : `Recovery expired ${formatDateTime(ticket.rejoinDeadlineAt)}`
+                                          : "No recovery deadline"}
+                                      </p>
+                                    </QueueTableCell>
+                                    <QueueTableCell data-label="Action">
+                                      <QueueButton
+                                        variant="secondary"
+                                        disabled={Boolean(
+                                          busyAction === `restore-${ticket.id}` ||
+                                          !ticket.lookupCode ||
+                                          queueDayClosed ||
+                                          queueDayPaused ||
+                                          restoreBlockedByThreshold,
+                                        )}
+                                        onClick={async () => {
+                                          const success = await runAction(
+                                            `restore-${ticket.id}`,
+                                            () =>
+                                              vendorDashboardQueue.restoreSkippedTicket(
+                                                token,
+                                                selectedTenantSlug,
+                                                ticket.id,
+                                                locationQuery,
+                                                ticket.lookupCode || "",
+                                              ),
+                                          );
+
+                                          if (success) {
+                                            showSuccessNotification(
+                                              "Ticket restored",
+                                              priorityRecovery
+                                                ? "The skipped ticket was restored with recovery priority."
+                                                : "The skipped ticket was restored at normal priority.",
+                                            );
+                                            setQueueView("current");
+                                          }
+                                        }}
+                                      >
+                                        Restore
+                                      </QueueButton>
+                                    </QueueTableCell>
+                                  </QueueTableRow>
+                                );
+                              })
+                            ) : (
+                              <QueueTableRow>
+                                <QueueTableCell colSpan={5}>
+                                  <QueueEmptyState
+                                    title="No skipped tickets to recover."
+                                    text="Skipped tickets will appear here while they are still relevant for operator recovery."
+                                  />
+                                </QueueTableCell>
+                              </QueueTableRow>
+                            )}
+                          </QueueTableBody>
+                        </QueueTable>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </QueueCardContent>
+            </QueueCard>
+          </div>
+
+          <div className="queue-page-column">
+            <QueueCard>
+              <QueueCardHeader>
+                <QueueCardTitle>Customer self-service entry</QueueCardTitle>
+              </QueueCardHeader>
+              <QueueCardContent className="queue-stack">
+                <div className="queue-stack">
+                  <div className="queue-row queue-between">
+                    <div>
+                      <p className="vendor-eyebrow">QR and public links</p>
+                    </div>
+                    <div className="queue-row">
+                      <QueueButton
+                        variant="outline"
+                        disabled={!queueLinks.monitorUrl}
+                        nativeButton={false}
+                        render={
+                          <a
+                            href={queueLinks.monitorUrl || undefined}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                          />
+                        }
+                      >
+                        Open board
+                      </QueueButton>
+                      <QueueButton
+                        variant="default"
+                        disabled={Boolean(queueDayClosed || queueDayPaused || busyAction) || boardScannerBusy}
+                        onClick={() => setWalkInDialogOpen(true)}
+                      >
+                        <IconUserPlus data-icon="inline-start" />
+                        Add walk-in
+                      </QueueButton>
+                    </div>
+                  </div>
+                  <div className="queue-row">
+                    <article className="queue-paper neura-qr-card queue-surface">
+                      {queueLinks.qrUrl ? (
+                        <div ref={queueQrRef}>
+                          <StyledQRCode size={160} value={queueLinks.qrUrl} />
+                        </div>
+                      ) : (
+                        <QueueQrUnavailable />
+                      )}
+                      <div className="queue-row">
+                        <IconQrcode size={16} />
+                        <p className="queue-text vendor-eyebrow">Join QR</p>
+                      </div>
+                      <QueueButton
+                        variant="outline"
+                        disabled={
+                          Boolean(!queueLinks.qrUrl) || Boolean(savingQueueQr)
+                        }
+                        aria-busy={savingQueueQr}
+                        className="queue-full-width"
+                        onClick={() => void saveQueueQr()}
+                      >
+                        <IconDownload data-icon="inline-start" />
+                        Save QR
+                      </QueueButton>
+                    </article>
+                    <div className="queue-stack">
+                      <QueueCopyField
+                        label="Join URL"
+                        onClick={() =>
+                          void copyLocationUrl("Join URL", queueLinks.joinUrl)
+                        }
+                        value={queueLinks.joinUrl}
+                      />
+                      <QueueCopyField
+                        label="QR target"
+                        onClick={() =>
+                          void copyLocationUrl("QR target", queueLinks.qrUrl)
+                        }
+                        value={queueLinks.qrUrl}
+                      />
+                      <QueueCopyField
+                        label="Queue board URL"
+                        onClick={() =>
+                          void copyLocationUrl(
+                            "Queue board URL",
+                            queueLinks.monitorUrl,
+                          )
+                        }
+                        value={queueLinks.monitorUrl}
+                      />
+                    </div>
+                  </div>
+                </div>
+              </QueueCardContent>
+            </QueueCard>
+            {token && selectedTenantSlug && selectedLocationSlug ? (
+              <QueueBoardScanner
+                key={`${selectedTenantSlug}:${selectedLocationSlug}`}
+                token={token}
+                tenantSlug={selectedTenantSlug}
+                locationSlug={selectedLocationSlug}
+                onBusyChange={setBoardScannerBusy}
+                onDiscard={() =>
+                  unsavedForm.current.discardId("queue-board-pairing-form")
+                }
+              />
+            ) : null}
+          </div>
+        </div>
+
+        {(snapshot?.unfinishedServiceTiming || []).some(
+          (record) =>
+            !snapshot?.calledTickets?.some((ticket) => ticket.id === record.id),
+        ) ? (
+          <QueueCard>
+            <QueueCardHeader>
+              <QueueCardTitle>Unfinished service records</QueueCardTitle>
+            </QueueCardHeader>
+            <QueueCardContent className="queue-stack">
+              <div className="queue-stack">
+                <p className="queue-text queue-muted queue-small">
+                  These services have a recorded start but no recorded end.
+                  Closing a queue does not finish service. The oldest 100
+                  unfinished records are shown. Resolving a record here preserves
+                  its existing queue and booking outcome.
+                </p>
+                {(snapshot?.unfinishedServiceTiming || [])
+                  .filter(
+                    (record) =>
+                      !snapshot?.calledTickets?.some(
+                        (ticket) => ticket.id === record.id,
+                      ),
+                  )
+                  .map((record) => (
+                    <article
+                      className="queue-paper queue-surface"
+                      key={record.id}
+                    >
+                      <div className="queue-stack">
+                        <p className="queue-text queue-strong">
+                          {record.ticketNumber} · {record.status}
+                        </p>
+                        <p className="queue-text queue-small">
+                          Started {formatDateTime(record.serviceStartedAt)}
+                        </p>
+                        <div className="queue-row">
+                          {(["complete", "interrupt"] as const).map((action) => (
+                            <QueueButton
+                              variant="outline"
+                              disabled={Boolean(busyAction)}
+                              key={action}
+                              onClick={() =>
+                                setConfirmAction({
+                                  title:
+                                    action === "complete"
+                                      ? "Record service completion?"
+                                      : "Record interrupted service?",
+                                  description:
+                                    "The current time will be recorded as the service end. The existing queue and booking outcome will be preserved.",
+                                  confirmLabel:
+                                    action === "complete"
+                                      ? "Record completion"
+                                      : "Record interruption",
+                                  confirmColor: "orange",
+                                  onConfirm: async () => {
+                                    await runAction(`service-${action}`, () =>
+                                      vendorDashboardQueue.recordTicketService(
+                                        token,
+                                        selectedTenantSlug,
+                                        locationQuery,
+                                        record.id,
+                                        action,
+                                      ),
+                                    );
+                                  },
+                                })
+                              }
+                            >
+                              {action === "complete"
+                                ? "Record completion"
+                                : "Record interruption"}
+                            </QueueButton>
+                          ))}
+                        </div>
+                      </div>
+                    </article>
+                  ))}
+              </div>
+            </QueueCardContent>
+          </QueueCard>
+        ) : null}
+      </div>
     );
   }
 
   function renderWalkInDialog() {
     const intakeUnavailable = queueDayClosed || queueDayPaused;
-
-    return (
-      <Modal
-        centered
-        className="customer-modal walk-in-modal"
-        closeOnClickOutside={busyAction !== "walk-in"}
-        closeOnEscape={busyAction !== "walk-in"}
-        onClose={() => {
-          if (busyAction !== "walk-in") {
-            setWalkInDialogOpen(false);
-          }
-        }}
-        opened={walkInDialogOpen}
-        radius="xl"
-        size="lg"
-        title={
-          <div>
-            <Text className="neura-label">WALK-IN CUSTOMER</Text>
-            <Text fw={800} size="xl">Add customer at counter</Text>
-          </div>
-        }
-      >
-        <form className="task-modal-form" onSubmit={handleCreateWalkIn}>
-          <Text className="walk-in-modal__guidance" c="dimmed" size="sm">
-            Create a same-day queue ticket for a customer who is already at this location.
-          </Text>
-          <Stack className="task-modal-form__main" gap="md">
-            {intakeUnavailable ? (
-              <Alert color="orange" icon={<IconInfoCircle size={18} />}>
-                {queueDayClosed ? "Open the queue before adding a walk-in customer." : "Resume intake before adding a walk-in customer."}
-              </Alert>
-            ) : null}
-            <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
-              <TextInput
-                autoFocus
-                disabled={intakeUnavailable}
-                label="Customer name"
-                data-autofocus
-                name="walkInCustomerName"
-                onChange={(event) =>
-                  setWalkInForm((current) => ({ ...current, customerName: event.target.value }))
-                }
-                required
-                value={walkInForm.customerName}
-              />
-              <TextInput
-                disabled={intakeUnavailable}
-                label="Email"
-                name="walkInCustomerEmail"
-                onChange={(event) =>
-                  setWalkInForm((current) => ({ ...current, customerEmail: event.target.value }))
-                }
-                type="email"
-                value={walkInForm.customerEmail}
-              />
-              <PhilippineMobileInput
-                disabled={intakeUnavailable}
-                label="Phone"
-                name="walkInCustomerPhone"
-                onChange={(nextValue) =>
-                  setWalkInForm((current) => ({ ...current, customerPhone: nextValue }))
-                }
-                value={walkInForm.customerPhone}
-              />
-              <Textarea
-                disabled={intakeUnavailable}
-                label="Notes"
-                minRows={2}
-                name="walkInNotes"
-                onChange={(event) =>
-                  setWalkInForm((current) => ({ ...current, notes: event.target.value }))
-                }
-                value={walkInForm.notes}
-              />
-            </SimpleGrid>
-            {ticketServiceOptionsQuery.isError ? <Alert color="orange">Service choices could not be loaded. Retry opening this form, or issue a ticket without a service.</Alert> : null}
-            <Select
-              label="Service (optional)"
-              description="Select the service this customer needs."
-              placeholder="No service specified"
-              clearable
-              disabled={intakeUnavailable || busyAction === "walk-in" || ticketServiceOptionsQuery.isFetching}
-              styles={{ input: { minHeight: 44 }, option: { minHeight: 44 } }}
-              data={(ticketServiceOptionsQuery.data?.services || [])
-                .map((service) => ({ value: service.id, label: `${service.name} · ${service.durationMinutes} min` }))}
-              value={walkInForm.serviceId || null}
-              onChange={(serviceId) => setWalkInForm((current) => ({ ...current, serviceId: serviceId || "" }))}
-            />
-            <Checkbox
-              checked={walkInForm.notifyByEmail}
-              disabled={intakeUnavailable}
-              label="Send email alerts"
-              name="walkInNotifyByEmail"
-              onChange={(event) =>
-                setWalkInForm((current) => ({ ...current, notifyByEmail: event.target.checked }))
-              }
-            />
-          </Stack>
-          <Group className="customer-modal-actions walk-in-modal__footer" justify="flex-end">
-            <Button
-              className="neura-primary-button"
-              disabled={intakeUnavailable}
-              loading={busyAction === "walk-in"}
-              type="submit"
-            >
-              Issue ticket
-            </Button>
-          </Group>
-        </form>
-      </Modal>
-    );
+    return <WalkInDialog opened={walkInDialogOpen} busy={busyAction === "walk-in"} unavailable={intakeUnavailable} closed={queueDayClosed}
+      form={walkInForm} options={ticketServiceOptionsQuery.data?.services || []} optionsLoading={ticketServiceOptionsQuery.isFetching} optionsError={ticketServiceOptionsQuery.isError}
+      onChange={(change) => setWalkInForm((current) => ({ ...current, ...change }))} onClose={() => { unsavedForm.current.discardId("vendor-walk-in"); setWalkInDialogOpen(false); }} onSubmit={handleCreateWalkIn} />;
   }
 
   function renderThemePreview() {
@@ -9572,6 +9723,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
   }
 
   function renderDashboardAlertOverlay() {
+    const Confirmation = currentSection === "queue" ? QueueConfirmation : ConfirmActionModal;
     const overlayAlerts = [
       ...activeQueueAlerts.map((ticket) => ({
         actionLabel: "Open queue",
@@ -10017,8 +10169,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
             </Stack>
           ) : null}
         </Modal>
-        <ConfirmActionModal
-          className="confirm-action-modal"
+        <Confirmation
           opened={Boolean(confirmAction)}
           title={confirmAction?.title || ""}
           description={confirmAction?.description || ""}
@@ -10089,7 +10240,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
   }
 
   const canLeaveFeature = () => {
-    if (busyAction || accountProfileBusy || passwordBusy || mfaBusy) return false;
+    if (busyAction || boardScannerBusy || accountProfileBusy || passwordBusy || mfaBusy) return false;
     const editing = unsavedForm.current.hasEdits() || locationDialogOpen || themeDialogOpen;
     if (editing && !window.confirm("You have unsaved edits. Leave this view?")) return false;
     unsavedForm.current.clear();
@@ -10160,6 +10311,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     );
   }
 
+  const ContextPicker = currentSection === "queue" ? QueueCounterPicker : Select;
   const canSwitchWorkspace = (isOwner || isAdmin) && !requiresMfaEnrollment;
   const workspace = sectionWorkspace(currentSection, new URLSearchParams(location.search).get("workspace"), canSwitchWorkspace);
   const workspaceNavItems = workspaceItems(visibleNavItems, workspace);
@@ -10179,8 +10331,8 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       onBeforeNavigate={canLeaveFeature} onEdit={(form) => unsavedForm.current.mark(form)}
       onWorkspace={switchWorkspace} onLogout={() => { if (canLeaveFeature()) void logout(); }} search={location.search} hash={location.hash}
       context={!requiresMfaEnrollment ? <>
-        <Select label="Business" data={activeTenants.map((tenant) => ({ value: tenant.slug, label: tenant.name }))}
-          value={selectedTenantSlug} disabled={Boolean(busyAction)} onChange={(value) => {
+        <ContextPicker label="Business" data={activeTenants.map((tenant) => ({ value: tenant.slug, label: tenant.name }))}
+          value={selectedTenantSlug} disabled={Boolean(busyAction) || boardScannerBusy} onChange={(value) => {
             if (!value || value === selectedTenantSlug || !canLeaveFeature()) return;
             setSnapshot(null); setLocations([]); setSelectedLocationSlug(""); setSelectedCounterSlug("");
             setServices([]); setStaff([]); setServiceCounters([]); setVendorBookings([]); setClients(null); setHistory(null); setBilling(null);
@@ -10196,7 +10348,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
             navigate(workspacePath(currentSection === "account" ? "account" : nextWorkspace === "administration" ? "settings" : "queue",
               nextWorkspace, location.search, location.hash));
           }} />
-        <Select data={locationOptions} label="Location" value={selectedLocationSlug} disabled={Boolean(busyAction)}
+        <ContextPicker data={locationOptions} label="Location" value={selectedLocationSlug} disabled={Boolean(busyAction) || boardScannerBusy}
           onChange={(value) => { if (value && value !== selectedLocationSlug && canLeaveFeature()) { setSnapshot(null); setServiceCounters([]); setAvailabilityBlocks([]); setAvailabilityExceptions([]); setAvailabilitySummary(null); setSelectedCounterSlug(""); setSelectedLocationSlug(value); } }} />
       </> : <Badge color="orange" variant="light">MFA setup required</Badge>}
       dialogs={<>

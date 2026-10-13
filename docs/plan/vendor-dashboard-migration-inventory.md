@@ -108,3 +108,7 @@ See [cross-thread coordination](vendor-dashboard-ai-coordination.md) for shared-
 Cover owner/admin/staff, required-MFA state, expired workflow entitlement, resource pilot on/off, one/multiple permitted stations and tenant/location switching. Test browser back, deep links, checkout/OAuth returns and query-cache/socket scope. Exercise dark/light modes, system preference and explicit persistence, unsaved changes, loading/error/empty states and accessible dialogs. Keep customer/public/Mantine pages visually and functionally stable while styles coexist. Ordinary queue regression and operational concurrency tests belong to backend interfaces, not just screenshot checks.
 
 This inventory is source inspection and planning evidence. It does not establish installed shadcn/React Flow, a migrated route, a database change, successful runtime tests or deployment.
+
+## Live Queue implementation update (13 October 2026)
+
+The existing vendor route and API handlers remain canonical. Presentation now composes `vendor/LiveQueueWidgets.tsx`, `vendor/WalkInDialog.tsx`, `vendor/QueueLifecycleTray.tsx`, `vendor/TaskDialog.tsx` and the scoped primitives. The vendor-only ticket scanner and operational board scanner use the shared task dialog; Administration board settings retain their current implementation. Retired the unused legacy VendorQueueLifecycleTray after migrating its consumer and tests. Multi-counter presentation consumes calledTickets/counterDispatch; resource allocation and workflow journey consumers remain gated by their missing operational contracts.
