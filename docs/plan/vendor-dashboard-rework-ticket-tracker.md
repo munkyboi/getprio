@@ -8,12 +8,12 @@ Updated 13 October 2026. This is the current work-item ledger for this chat's re
 | VD-02 Live Queue and operational scanners | Merged #401 | Retain auto-close, timing and secure board approval behavior; authenticated/device acceptance is separate. |
 | VD-03 Bookings, Clients and History | Merged #404/#407 | Preserve payment/check-in/frozen booking and reschedule guards. |
 | VD-04 Locations, Resources and Counters | Merged #409 (`9fd91e56`) | Local design approved; post-merge review corrections are merged in PR #414 (`c3baacbf`). Runtime resource activation remains separate. |
-| VD-05 Services and Availability | Implemented locally; awaiting review | 194 frontend tests/typecheck/lint/build and synthetic browser checks pass. Local code review completed; present locally and address defects within this slice. Next screen and PR publication await Carlo. |
-| VD-06 Staff management | Pending local approval gate | Preserve seats, memberships, assignment and removal/deactivation guards; coordinate API owner. |
-| VD-07 Settings, business profile and Queue Board management | Pending local approval gate | Preserve public/private URL rotation, display grant renewal/revocation and permission boundaries. |
-| VD-08 Account, subscription/billing and security | Pending local approval gate | Preserve MFA/recovery, owner/admin distinctions, upgrades/credits/plan exit and deletion. |
-| VD-09 Reports and Ratings | Pending local approval gate | Preserve period/retention/exports, server metrics, moderation and paid-plan eligibility. |
-| VD-10 Shared notifications, onboarding and authentication | Pending local approval gate | Preserve delivery/account synchronization, auth returns and role-specific journeys; coordinate mobile/platform. |
+| VD-05 Services and Availability | Implemented locally; review available | 194 frontend tests/typecheck/lint/build and synthetic browser checks pass. Address feedback; continuation to other screens is authorized. PR publication remains separate. |
+| VD-06 Staff management | Authorized; pending implementation | Preserve seats, memberships, assignment and removal/deactivation guards; coordinate API owner. |
+| VD-07 Settings, business profile and Queue Board management | Authorized; pending implementation | Preserve public/private URL rotation, display grant renewal/revocation and permission boundaries. |
+| VD-08 Account, subscription/billing and security | Authorized; pending implementation | Preserve MFA/recovery, owner/admin distinctions, upgrades/credits/plan exit and deletion. |
+| VD-09 Reports and Ratings | Authorized; pending implementation | Preserve period/retention/exports, server metrics, moderation and paid-plan eligibility. |
+| VD-10 Shared notifications, onboarding and authentication | Authorized; pending implementation | Preserve delivery/account synchronization, auth returns and role-specific journeys; coordinate mobile/platform. |
 | VD-11 Workflow/station and resource runtime consumers | Blocked on authoritative server contracts and pilot readiness | Queue runtime owns allocations, writer/reconciliation/concurrency coverage and capability gates. Configuration does not activate runtime. |
 | VD-12 Legacy presentation retirement and final acceptance | Pending migrated callers and evidence | Remove only unused code/styles; verify role/context/route compatibility, authenticated mutations and device behavior. |
 
@@ -21,7 +21,7 @@ Updated 13 October 2026. This is the current work-item ledger for this chat's re
 
 The `Continue vendor dashboard rework` heartbeat checks this chat hourly. Refresh actual issue/PR/check state and connected-chat ownership before choosing work. Continue implementation, current-slice defects/review comments, tests and documentation autonomously. Do not duplicate an active turn or another chat's owned changes. Record meaningful completion/blockers in progress and this ledger.
 
-Carlo's local review is the gate before another screen slice. While awaiting that review, continue independently actionable defects and acceptance work in the current slice; do not silently advance screens. PR publication follows explicit authorization for the slice. Merge/deployment and runtime/pilot activation require their own authorization and evidence. Keep notifications quiet when nothing actionable changed; report reviewable results, meaningful failures or decisions requiring Carlo.
+Carlo authorized end-to-end implementation on 13 October 2026, superseding the per-screen local approval stop. Continue across all unblocked remaining slices while presenting reviewable local milestones and incorporating feedback. Maintain coordinated ownership and documented external blockers, and continue other work when one item is blocked. PR publication still follows separate authorization; merge/deployment and runtime/pilot activation require their own authorization and evidence. Keep notifications quiet when nothing actionable changed; report reviewable results, meaningful failures or decisions requiring Carlo. Historical checkpoints below retain their original authorization context.
 
 ## PR triage checkpoint: 13 October 2026, 12:45 UTC
 

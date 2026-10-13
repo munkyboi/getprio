@@ -1,5 +1,7 @@
 # Vendor dashboard rework progress
 
+Current authorization, 13 October 2026: Carlo expanded the recurring task to complete the full dashboard rework end to end. The per-screen local approval stop is superseded: continue remaining unblocked screens and final implementation/acceptance work autonomously, with coordinated ownership, updated documentation/rules and reviewable local milestones. PR publication, merging, deployment and runtime activation retain separate authorization/evidence requirements. Earlier slice checkpoints below describe their historical gates.
+
 Current status: shared shell, Live Queue, Bookings/Clients/History and Locations/Resources/Counters are merged (#398/#401/#404/#407/#409). Services and Availability is the authorized local review slice on `codex/vendor-services-availability`, based on main `9fd91e56`. Local approval, hosted review/checks, deployment and authenticated/device acceptance remain separate.
 
 13 October 2026. Historical audit source baseline `f7435a22`; implementation branch `codex/vendor-workspace-shell`.
