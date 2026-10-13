@@ -4,6 +4,7 @@ const { projectOperationalBooking } = require("./vendorBookingReadModel");
 const permissions = require("../services/permissions");
 const staffAccessEmailService = require("../services/staffAccessEmailService");
 const staffRemovalResourceService = require("../services/staffRemovalResourceService");
+const staffAccessResourceService = require("../services/staffAccessResourceService");
 const express = require("express");
 const tenantRepository = require("../repositories/tenants");
 const storeLocationRepository = require("../repositories/storeLocations");
@@ -1432,92 +1433,19 @@ router.get("/tenant/:tenantSlug/staff", asyncHandler((req, res) => handleListSta
 
 router.post("/tenant/:tenantSlug/staff", asyncHandler((req, res) => handleInviteStaff({ req, res, getAuthorizedTenant, assertTenantPermission, billingService, userRepository, staffAccessEmailService })));
 
-function staffUpdateError(message, statusCode) {
-  const error = new Error(message);
-  error.statusCode = statusCode;
-  return error;
-}
-
-function requestedStaffChanges(body) {
-  return {
-    role: Object.hasOwn(body, "role"),
-    status: Object.hasOwn(body, "isActive"),
-    locations: Object.hasOwn(body, "assignedLocationIds")
-  };
-}
-
-async function assertOwnerChangeAllowed({ membership, changes, body, tenantId, options }) {
-  if (membership.role !== "owner") return;
-  if (changes.status && body.isActive === false) {
-    throw staffUpdateError("Tenant owners cannot be disabled from staff management.", 400);
-  }
-  if (!changes.role || body.role === "owner") return;
-  const staff = await userRepository.listUsersByTenantId(tenantId, options);
-  const ownerCount = staff.filter((member) => member.tenantMemberships.some(
-    (item) => String(item.tenantId) === String(tenantId) && item.role === "owner"
-  )).length;
-  if (ownerCount <= 1) throw staffUpdateError("At least one tenant owner is required.", 400);
-}
-
-function assertStaffChangesAllowed({ req, membership, requesterRole, changes }) {
-  if (!changes.role && !changes.status && !changes.locations) {
-    throw staffUpdateError("No staff updates were provided.", 400);
-  }
-  if (changes.role && requesterRole !== "owner") {
-    throw staffUpdateError("Only tenant owners can change staff roles.", 403);
-  }
-  const prospectiveRole = changes.role ? req.body.role : membership.role;
-  if (changes.locations && prospectiveRole !== "staff") {
-    throw staffUpdateError("Location assignments apply only to Vendor Staff.", 400);
-  }
-}
-
-async function applyStaffChanges({ req, tenant, user, membership, changes, options }) {
-  if (changes.role) {
-    const nextRole = ["owner", "admin"].includes(req.body.role) ? req.body.role : "staff";
-    if (nextRole === "owner" && membership.role !== "owner") {
-      throw staffUpdateError("Only one tenant owner is allowed per vendor.", 400);
-    }
-    await userRepository.updateTenantMembershipRole(user._id, tenant._id, nextRole, options);
-  }
-  if (changes.status) {
-    await userRepository.updateTenantMembershipStatus(user._id, tenant._id, req.body.isActive !== false, options);
-  }
-  if (changes.locations) {
-    await tenantMembershipLocationRepository.replaceUserLocationAssignments({
-      userId: user._id,
-      tenantId: tenant._id,
-      locationIds: req.body.assignedLocationIds,
-      assignedByUserId: req.user?._id
-    }, options);
-  }
-}
-
-async function updateStaffAccess(req, tenant, options) {
-  if (String(req.user._id) === String(req.params.userId)) {
-    throw staffUpdateError("You cannot edit your own tenant staff account.", 400);
-  }
-  const user = await userRepository.findUserById(req.params.userId, options);
-  const membership = user?.tenantMemberships.find((item) => String(item.tenantId) === String(tenant._id));
-  if (!membership) throw staffUpdateError("Staff member not found.", 404);
-  const requesterMembership = req.user.tenantMemberships?.find(
-    (item) => String(item.tenantId) === String(tenant._id) && item.isActive !== false
-  );
-  const changes = requestedStaffChanges(req.body);
-  assertStaffChangesAllowed({ req, membership, requesterRole: requesterMembership?.role || null, changes });
-  await assertOwnerChangeAllowed({ membership, changes, body: req.body, tenantId: tenant._id, options });
-  await applyStaffChanges({ req, tenant, user, membership, changes, options });
-}
-
 router.patch(
   "/tenant/:tenantSlug/staff/:userId",
   asyncHandler(async (req, res) => {
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
     assertTenantPermission(req.user, tenant._id, "tenant.staff.manage");
-    await staffAccessEmailService.change(
-      { tenant, userId: req.params.userId, actorId: req.user._id },
-      (options) => updateStaffAccess(req, tenant, options)
+    const requester = req.user.tenantMemberships?.find(
+      member => String(member.tenantId) === String(tenant._id) && member.isActive !== false
     );
+    if (Object.hasOwn(req.body, "role") && requester?.role !== "owner") {
+      throw Object.assign(new Error("Only tenant owners can change staff roles."), { statusCode: 403 });
+    }
+    await staffAccessResourceService.update({ tenant, userId: req.params.userId,
+      actorId: req.user._id, body: req.body });
     res.json({ userId: req.params.userId });
   })
 );
