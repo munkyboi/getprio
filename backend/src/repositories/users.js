@@ -91,7 +91,7 @@ function buildQueryClient(client) {
 }
 
 function normalizeIds(ids) {
-  return [...new Set(ids.filter(Boolean).map((id) => Number(id)))];
+  return [...new Set(ids.filter(Boolean).map(String))];
 }
 
 async function loadOauthAccounts(userIds, client) {
@@ -173,7 +173,7 @@ async function findUserById(id, options = {}) {
   const queryClient = buildQueryClient(options.client);
   const result = await queryClient.query(
     `SELECT ${USER_COLUMNS} FROM users WHERE id = $1 LIMIT 1`,
-    [Number(id)]
+    [String(id)]
   );
   const users = await hydrateUsers(result.rows, queryClient);
   return users[0] || null;
@@ -434,7 +434,7 @@ async function listUsersByTenantId(tenantId, options = {}) {
       WHERE tenant_memberships.tenant_id = $1
       ORDER BY users.name ASC, users.email ASC
     `,
-    [Number(tenantId)]
+    [String(tenantId)]
   );
 
   return hydrateUsers(result.rows, queryClient);
@@ -472,7 +472,7 @@ async function removeTenantMembership(userId, tenantId, options = {}) {
   const queryClient = buildQueryClient(options.client);
   await queryClient.query(
     `DELETE FROM tenant_memberships WHERE user_id = $1 AND tenant_id = $2`,
-    [Number(userId), Number(tenantId)]
+    [String(userId), String(tenantId)]
   );
 }
 

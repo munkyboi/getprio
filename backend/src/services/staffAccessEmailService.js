@@ -12,8 +12,8 @@ function accessState(user, tenantId, locationIds = []) {
 }
 
 function createStaffAccessEmailService({ database = db, userRepository = users, locationRepository = locations, uuid = randomUUID } = {}) {
-  async function change({ tenant, userId, actorId }, mutate) {
-    return database.withTransaction(async client => {
+  async function change({ tenant, userId, actorId }, mutate, transaction = {}) {
+    const operation = async client => {
       // Serialize changes for one vendor, including a new membership with no row to lock yet.
       await client.query('SELECT id FROM tenants WHERE id = $1 FOR UPDATE', [tenant._id]);
       const options = { client };
@@ -43,7 +43,8 @@ function createStaffAccessEmailService({ database = db, userRepository = users, 
         [eventId, tenant._id, user._id, user.email, audience, JSON.stringify({ ...payload, email: buildTemplateEmail(payload, audience) })]);
       }
       return result;
-    });
+    };
+    return transaction.client ? operation(transaction.client) : database.withTransaction(operation);
   }
   return { change };
 }

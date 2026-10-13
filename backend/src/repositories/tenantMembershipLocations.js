@@ -44,7 +44,7 @@ async function userHasLocationAssignment(userId, tenantId, locationId, options =
 }
 
 async function listAssignedLocationIdsByUserIds(tenantId, userIds, options = {}) {
-  const normalizedIds = (userIds || []).map(Number).filter(Number.isFinite);
+  const normalizedIds = (userIds || []).map(String).filter(id => /^[1-9]\d*$/.test(id));
   const assignments = new Map();
   if (!normalizedIds.length) {
     return assignments;
@@ -57,7 +57,7 @@ async function listAssignedLocationIdsByUserIds(tenantId, userIds, options = {})
      WHERE membership.tenant_id = $1
        AND membership.user_id = ANY($2::BIGINT[])
      ORDER BY assignment.location_id`,
-    [Number(tenantId), normalizedIds]
+    [String(tenantId), normalizedIds]
   );
   for (const row of result.rows) {
     const key = String(row.user_id);
