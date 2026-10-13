@@ -321,3 +321,13 @@
 .vendor-workspace .report-intervals progress { width: 100%; accent-color: var(--primary); }
 
 .vendor-workspace .rating-comment { white-space: pre-wrap; overflow-wrap: anywhere; }
+
+.vendor-workspace.vendor-auth { display: block; min-height: 0; border-radius: 16px; padding: 20px; }
+.vendor-auth-layout { display: flex; flex-direction: column; gap: 24px; }
+.vendor-auth h1 { font-size: 1.75rem; line-height: 1.2; margin-block: 12px; }
+.vendor-auth-guide img { width: 100%; height: auto; max-height: 240px; object-fit: contain; }
+.vendor-auth-actions { margin-top: 20px; }
+@media (min-width: 48.0625em) {
+ .vendor-auth-layout { display: grid; grid-template-columns: minmax(0,2fr) minmax(0,1fr); align-items: start; }
+ .vendor-workspace.vendor-auth { padding: 32px; }
+}

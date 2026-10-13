@@ -133,3 +133,7 @@ Existing Account routes and membership gates are retained. Profile/Security/Subs
 ### VD-09 local Reports/Ratings migration
 
 Reports now consumes scoped snapshot metrics and capability-gated period usage with loading/error/retry/unknown states. `vendor/reportState.ts` owns the actual recorded interval transformation. Unused legacy MetricCard/stat/chart presentation retired after its consumers migrated. Ratings uses scoped vendor primitives, actor/business/page query identity and guarded exact visibility writes. Existing backend endpoints, moderation/aggregate policy and staff navigation remain unchanged.
+
+### VD-10 vendor registration/onboarding local migration
+
+`/register/vendor` now uses VendorAuthLayout, scoped native fields/actions, configured provider controls and ref-compatible form primitives. Both signup and authenticated completion remain on the same routes/endpoints/identity; shared `/login`, customer registration and callbacks are still pending/unchanged. useVendorTheme centralizes existing dashboard/auth preference behavior; VendorPortal prevents category dropdowns escaping auth theme scope. No provider or registration policy was forked.

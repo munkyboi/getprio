@@ -1,5 +1,6 @@
 import {
   createContext,
+  forwardRef,
   useContext,
   useId,
   useMemo,
@@ -61,12 +62,10 @@ type Guidance = {
   description?: ReactNode;
   error?: ReactNode;
 };
-export function ConfigurationInput({
-  label,
-  description,
-  error,
-  ...props
-}: ComponentProps<typeof Input> & Guidance) {
+export const ConfigurationInput = forwardRef<
+  HTMLInputElement,
+  ComponentProps<typeof Input> & Guidance
+>(function ConfigurationInput({ label, description, error, ...props }, ref) {
   const id = useId(),
     busy = useContext(Busy);
   return (
@@ -74,6 +73,7 @@ export function ConfigurationInput({
       <FieldLabel htmlFor={id}>{label}</FieldLabel>
       <Input
         id={id}
+        ref={ref}
         {...props}
         disabled={props.disabled || busy}
         aria-invalid={Boolean(error)}
@@ -90,7 +90,7 @@ export function ConfigurationInput({
       ) : null}
     </Field>
   );
-}
+});
 export function ConfigurationNumber({
   value,
   onChange,
@@ -182,10 +182,22 @@ export function ConfigurationCheck({
   return (
     <Field className="config-check">
       <label htmlFor={id}>
-        <input id={id} type="checkbox" {...props} disabled={disabled || busy} aria-describedby={[props["aria-describedby"], description ? `${id}-help` : undefined].filter(Boolean).join(" ") || undefined} />
+        <input
+          id={id}
+          type="checkbox"
+          {...props}
+          disabled={disabled || busy}
+          aria-describedby={
+            [props["aria-describedby"], description ? `${id}-help` : undefined]
+              .filter(Boolean)
+              .join(" ") || undefined
+          }
+        />
         <span>{label}</span>
       </label>
-      {description ? <FieldDescription id={`${id}-help`}>{description}</FieldDescription> : null}
+      {description ? (
+        <FieldDescription id={`${id}-help`}>{description}</FieldDescription>
+      ) : null}
     </Field>
   );
 }

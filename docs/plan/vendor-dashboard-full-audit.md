@@ -134,3 +134,7 @@ The API owner verified that vendor phone change supports only `phone-change/star
 ### VD-09 recorded activity correction
 
 The legacy Reports chart derived “service time” from adjacent ticket `updatedAt` values and inserted a configured average for its final point. These are not service durations. The migration preserves supplied activity through explicitly labeled intervals between actual served-ticket update records, omits inferred points and retains zero simultaneous intervals. True service-duration/resource reports remain dependent on authoritative runtime/session contracts. Ratings retains settings permission, paid-plan eligibility, moderation and aggregate semantics; no staff Reports access was added.
+
+### VD-10 onboarding preservation
+
+Vendor registration and authenticated/provider workspace completion retain all existing identity/auth and availability contracts under `/register/vendor`. The form now uses scoped vendor primitives, clearer Business link/optional Phone labels and shared theme behavior; category portals inherit the auth root. Existing E164 account phone is normalized to the form's PH convention before schema validation. Shared Login, customer fallback, callback/return policy and notification delivery contracts are not implicitly migrated or activated by this checkpoint.

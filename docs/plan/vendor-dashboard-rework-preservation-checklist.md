@@ -70,3 +70,7 @@ Retain user-wide identity/contact changes, required MFA versus optional removal,
 ### VD-09 preservation evidence
 
 Preserved current location/day metrics, resource usage periods, unknown versus zero and existing report role restrictions. Removed inferred service-time values while retaining actual recorded activity with accurate labels. Ratings fixtures exercised read error/retry, 409 retaining checked state then exact `{visible:false}` retry, moderation-disabled control, pagination/empty page and pending navigation lock. Paid-plan/server permission remains authoritative. Synthetic review data is not production moderation or provider acceptance.
+
+### VD-10 onboarding checkpoint
+
+Synthetic fixtures verified generated business-link/username fields, categoryId, optional normalized PH phone, 409 preserving signup inputs then exact retry payload, Account continuation, authenticated completion without password, prefilled E164-phone normalization, customer social/card fallback, both themes/four widths and system/explicit theme behavior with scoped category portals. Native ref forwarding preserves form-registration/prefill/error-focus capability. Real OAuth redirect/completion, email/MFA delivery and device keyboard acceptance remain separate. Shared Login/notifications/callback presentation remains unfinished.

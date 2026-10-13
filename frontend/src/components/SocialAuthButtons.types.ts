@@ -4,4 +4,6 @@ export interface SocialAuthButtonsProps {
   intent: AuthIntent;
   returnPath?: string;
   iconOnly?: boolean;
+  vendor?: boolean;
+  disabled?: boolean;
 }

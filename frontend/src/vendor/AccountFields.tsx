@@ -1,5 +1,6 @@
 import {
   useState,
+  forwardRef,
   type ComponentProps,
   type ComponentPropsWithoutRef,
 } from "react";
@@ -15,13 +16,18 @@ import { Badge as VendorBadge } from "./components/ui/badge";
 import { TaskDialog } from "./TaskDialog";
 import type { ReactNode } from "react";
 
-export function ConfigurationPassword(
-  props: ComponentProps<typeof ConfigurationInput>,
-) {
+export const ConfigurationPassword = forwardRef<
+  HTMLInputElement,
+  ComponentProps<typeof ConfigurationInput>
+>(function ConfigurationPassword(props, ref) {
   const [visible, setVisible] = useState(false);
   return (
     <div className="queue-stack">
-      <ConfigurationInput {...props} type={visible ? "text" : "password"} />
+      <ConfigurationInput
+        {...props}
+        ref={ref}
+        type={visible ? "text" : "password"}
+      />
       <OperationButton
         variant="ghost"
         disabled={props.disabled}
@@ -33,7 +39,7 @@ export function ConfigurationPassword(
       </OperationButton>
     </div>
   );
-}
+});
 
 // Narrow presentation adapters let shared account tasks retain their existing handlers.
 export function Card(
@@ -138,11 +144,11 @@ export function Button(
           ? "destructive"
           : props["aria-pressed"] === true
             ? "default"
-          : props.variant === "default" || props.variant === "light"
-            ? "outline"
-            : props.variant === "subtle"
-              ? "ghost"
-              : "default"
+            : props.variant === "default" || props.variant === "light"
+              ? "outline"
+              : props.variant === "subtle"
+                ? "ghost"
+                : "default"
       }
     >
       {props.children}

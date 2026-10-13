@@ -1202,18 +1202,18 @@ test("signup forms use provider icons, helpful labels, and touch-friendly action
 
   assert.match(socialSource, /IconBrandGoogle/);
   assert.match(socialSource, /IconBrandFacebook/);
-  assert.match(socialSource, /leftSection=\{<ProviderIcon/);
+  assert.match(socialSource, /leftSection=\{\s*<ProviderIcon/);
   assert.match(labelSource, /<Tooltip label=\{tooltip\}/);
   assert.match(labelSource, /IconInfoCircle/);
   assert.match(labelSource, /signup-label-required/);
-  assert.match(vendorSource, /<BusinessCategorySelect required/);
+  assert.match(vendorSource, /<BusinessCategorySelect[\s\S]*?vendor[\s\S]*?required/);
   assert.match(fs.readFileSync(path.join(frontendRoot, "src", "components", "BusinessCategorySelect.tsx"), "utf8"), /withAsterisk=\{false\}/);
-  assert.match(vendorSource, /<SignupFieldLabel label="Phone"/);
-  assert.match(vendorSource, /className="auth-primary-action"/);
+  assert.match(vendorSource, /label="Phone \(optional\)"/);
+  assert.match(vendorSource, /<OperationButton[\s\S]*?type="submit"/);
   assert.match(vendorSource, /navigate\("\/dashboard\/account", \{ replace: true \}\)/);
   assert.match(customerSource, /<SignupFieldLabel label="Phone"/);
   assert.match(customerSource, /className="auth-primary-action"/);
-  assert.match(vendorSource, /className="onboarding-layout"/);
+  assert.match(vendorSource, /className="vendor-auth-layout"/);
   assert.match(customerSource, /className="onboarding-layout"/);
   assert.match(styles, /\.onboarding-layout \{\s+display: grid;\s+grid-template-columns: minmax\(0, 3fr\) minmax\(18rem, 2fr\);/);
 });
