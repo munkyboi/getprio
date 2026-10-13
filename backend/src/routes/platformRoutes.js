@@ -87,6 +87,7 @@ router.post("/release-readiness/evidence", asyncHandler(async (req, res) => {
 }));
 
 router.use(authenticate);
+router.use('/maintenance', require('./platformMaintenanceRoutes'));
 router.use('/resource-inventory', require('./platformResourceInventoryRoutes'));
 router.use('/ai-inference', require('./platformAiInferenceRoutes'));
 

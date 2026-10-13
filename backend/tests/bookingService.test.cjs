@@ -39,6 +39,8 @@ function resolveMockPath(requestPath, baseDir) {
 }
 
 function requireWithMocks(targetPath, mocks) {
+  const fixture = require('./helpers/maintenanceFixture.cjs');
+  mocks = { '../config/db': fixture.database, './platformMaintenanceService': fixture.maintenance, ...mocks };
   const resolvedTarget = require.resolve(targetPath);
   const originals = new Map();
 
@@ -161,7 +163,7 @@ function buildBookingService({
     "../repositories/resourceLedger": {
       withSystemExpiryTransaction: async (_options, callback) => callback({query:async () => ({rows:[]})},{}),
       withScopeTransaction: scopedTransaction || (async (options, callback) => {
-        const client = { query: async (sql) => ({ rows: sql.includes("FROM users") ? [{ id: options.actorUserId, role: "owner", roles: [] }] : [] }) };
+        const client = { query: async (sql) => ({ rows: sql.includes('FROM platform_maintenance') ? [require('./helpers/maintenanceFixture.cjs').row] : sql.includes("FROM users") ? [{ id: options.actorUserId, role: "owner", roles: [] }] : [] }) };
         if (await options.authorize(client, options) !== true) {
           const error = new Error("Resource operation is not authorized.");
           error.statusCode = 403;

@@ -155,7 +155,9 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
     const service=loadService(mocks);
     const record=(id,action,actor='1',selected=location) => service.recordTicketService(tenant,id,action,{location:selected,actorUserId:actor});
     await pool.query(fs.readFileSync(path.resolve(__dirname,'../../database/migrations/20261011_add_rotating_ticket_barcodes.sql'),'utf8'));
+    await pool.query(fs.readFileSync(path.resolve(__dirname,'../../database/migrations/20261013_add_platform_maintenance.sql'),'utf8'));
     async function reset(capacity=4,enabled=true) {
+      await pool.query('UPDATE platform_maintenance SET enabled=FALSE,force_screen=FALSE');
       await pool.query(`TRUNCATE resource_ledger_commands,resource_allocations,resource_ledger_reservations,resource_ledger_scopes,
         ticket_service_plans,tickets,booking_bundle_items,bookings,service_resource_requirements,location_resource_pools,
         store_locations,tenant_membership_locations,service_counter_assignments,service_counters,tenant_memberships,tenants,users,events,carry_over_outbox,webhooks,booking_audit,platform_membership_effects,queue_ticket_segments,queue_day_state,intake_state,queue_day_pauses,lifecycle_notifications,counters,vendor_services,location_services,vendor_availability_blocks,vendor_availability_exceptions,store_hours,allowance_audit,queue_email_slots,queue_email_journeys,queue_join_payments,payment_allowance,tenant_subscriptions,queue_fee_settings RESTART IDENTITY CASCADE`);
@@ -964,6 +966,7 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
       const confirmed=await confirm();
       assert.equal(confirmed.ticket.dateKey,'20261007');
       assert.ok(confirmed.ticket.customerConfirmedAt);
+      await pool.query('UPDATE platform_maintenance SET enabled=TRUE');
       await assert.rejects(operationalQueue.updateCurrentTicketStatus(tenant,'served',{location,actorUserId:'1',queueDateKey:'20261008',ticketId:'1',serviceCounter:{_id:'9001'}}),{code:'CURRENT_TICKET_CHANGED'});
       const served=await operationalQueue.updateCurrentTicketStatus(tenant,'served',{location,actorUserId:'1',queueDateKey:'20261008',ticketId:'1',serviceCounter:{_id:'9000'}});
       assert.equal(served.ticket.dateKey,'20261007'); assert.equal(served.ticket.status,'served');

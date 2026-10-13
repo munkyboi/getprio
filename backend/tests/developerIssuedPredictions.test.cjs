@@ -12,6 +12,7 @@ function fixture(environment = "sandbox", { failCapture = false } = {}) {
   const client = {
     async query(sql, params) {
       queries.push(sql);
+      if (sql.includes('FROM platform_maintenance')) return { rows: [require('./helpers/maintenanceFixture.cjs').row] };
       if (sql.includes("FROM developer_api_queues")) return { rows: [{ queue_id: input.queueId, session_state: "open", intake_enabled: true, queue_prefix: "MAIN" }] };
       if (sql.includes("INSERT INTO developer_sandbox_daily_allowances")) return { rows: [{ issued_tickets: 1 }] };
       if (sql.includes("MAX(sequence)")) return { rows: [{ next_sequence: 1 }] };

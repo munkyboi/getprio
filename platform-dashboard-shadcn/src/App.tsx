@@ -52,6 +52,7 @@ import { PlatformAccountSettings } from "@/components/platform-account-settings"
 import { PlanMatrix } from "@/components/plan-matrix"
 import { PlatformHelpCenterManager } from "@/components/platform-help-center"
 import { PlatformSettingsEditor } from "@/components/platform-settings-editor"
+import { PlatformMaintenance } from "@/components/platform-maintenance"
 import { PlatformAiInference } from "@/components/platform-ai-inference"
 import { PlatformLogin } from "@/components/platform-login"
 import { platformAuth } from "@/lib/platform-auth"
@@ -1585,9 +1586,11 @@ function App() {
         return
       }
       if (viewerResponse.state !== "available" || !viewerResponse.data) {
+        setViewer(null)
         setError("The Platform read model is not available.")
         return
       }
+      setViewer(viewerResponse.data)
       const capabilities = new Set(viewerResponse.data.capabilities)
       const can = (capability: string) => capabilities.has(capability)
       const deletionQueuePromise = can("platform.account_deletion.manage")
@@ -1859,10 +1862,10 @@ function App() {
               {activeRoute === "AI Inference" ? <PlatformAiInference live={usesLiveData} canRead={availableCapabilities.has('platform.ai_inference.read')} canManage={availableCapabilities.has('platform.ai_inference.manage')} canReadResources={availableCapabilities.has('platform.resource_inventory.read')} onSessionExpired={handleAccountSessionExpired} />
                 : activeRoute === "My account" ? <PlatformAccountSettings live={usesLiveData} onPasswordChanged={() => { setAuthStatus("signed-out"); setViewer(null) }} onSessionExpired={handleAccountSessionExpired} />
                 : isHelpCenterRoute && viewer && availableCapabilities.has("platform.help_center.manage") ? <PlatformHelpCenterManager page={activeRoute.replace("Help Center / ", "").toLowerCase() as "overview" | "topics" | "guides" | "faqs"} onNavigate={(page) => navigate(`Help Center / ${page[0].toUpperCase()}${page.slice(1)}`)} />
+                  : activeRoute === "Service health" ? <div className="grid gap-5">{viewer ? <PlatformMaintenance live={usesLiveData} editable={usesLiveData && availableCapabilities.has("platform.settings.manage")} /> : <p className="text-sm text-muted-foreground">Waiting for Platform authorization…</p>}{error ? <Alert variant="destructive"><AlertTriangle /><AlertTitle>Service health data unavailable</AlertTitle><AlertDescription>{error}</AlertDescription></Alert> : serviceHealth ? <ServiceHealth health={serviceHealth} /> : <p className="text-sm text-muted-foreground">Loading service health…</p>}</div>
                   : error ? <Alert variant="destructive"><AlertTriangle /><AlertTitle>Platform unavailable</AlertTitle><AlertDescription>{error}</AlertDescription></Alert>
                     : overview && viewer && serviceHealth && queueOperations && tenants && releaseReadiness
                       ? activeRoute === "Overview" ? <Overview overview={overview} health={serviceHealth} viewer={viewer} />
-                        : activeRoute === "Service health" ? <ServiceHealth health={serviceHealth} />
                           : activeRoute === "Queues & recovery" ? <QueueOperations operations={queueOperations} onPreview={handleQueueRepairPreview} onExecute={handleQueueRepairExecute} />
                             : activeRoute === "Tenants" ? <Tenants tenants={tenants} canManageOverrides={availableCapabilities.has("platform.entitlement_overrides.manage")} canGrantCredits={availableCapabilities.has("platform.credit_grants.manage")} canRevokeCredits={availableCapabilities.has("platform.credit_revocations.manage")} onInspect={handleTenantInspect} onPreviewEntitlement={handleTenantEntitlementPreview} onExecuteEntitlement={handleTenantEntitlementExecute} onGrantCredits={handleTenantCreditGrant} onRevokeCredits={handleTenantCreditRevoke} />
                               : activeRoute === "Users" && users ? <PlatformUsers users={users} viewerId={viewer.user.id} canManage={availableCapabilities.has("platform.user_sessions.revoke")} canManageRoles={availableCapabilities.has("platform.user_roles.manage")} deletionRequests={accountDeletionQueue} deletionError={accountDeletionError} canManageDeletion={availableCapabilities.has("platform.account_deletion.manage")} onCompleteDeletionTask={handleAccountDeletionTaskComplete} onPreview={handleUserSessionRevokePreview} onExecute={handleUserSessionRevokeExecute} onPageChange={setUsersPage} onSearchChange={(search) => { setUsersPage(1); setUsersSearch(search) }} />
