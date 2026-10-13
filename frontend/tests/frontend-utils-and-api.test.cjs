@@ -1808,16 +1808,6 @@ test("registered customers can rate a served queue visit from the ticket page", 
   assert.match(source, />\s*Rating submitted\s*</);
 });
 
-test("vendor logout stays aligned across plan and tenant label lengths", () => {
-  const frontendRoot = path.resolve(__dirname, "..");
-  const dashboard = fs.readFileSync(path.join(frontendRoot, "src", "pages", "VendorDashboardPage.tsx"), "utf8");
-  const styles = fs.readFileSync(path.join(frontendRoot, "src", "styles.css"), "utf8");
-
-  assert.match(dashboard, /<Group align="flex-start" justify="space-between" gap="sm" wrap="nowrap">\s*<div className="neura-sidebar-account-copy">/);
-  assert.match(styles, /\.neura-sidebar-account-copy \{\s+flex: 1 1 auto;\s+min-width: 0;/);
-  assert.match(styles, /\.neura-sidebar-logout \{\s+flex: 0 0 auto;/);
-});
-
 test("vendor security supports password changes and role-aware MFA management", () => {
   const frontendRoot = path.resolve(__dirname, "..");
   const dashboard = fs.readFileSync(path.join(frontendRoot, "src", "pages", "VendorDashboardPage.tsx"), "utf8");

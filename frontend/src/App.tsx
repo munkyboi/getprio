@@ -1,3 +1,5 @@
+import { readPreference, preferenceKey, workspacePath, activeMemberships } from "./vendor/workspace";
+import { VendorNavigationGuard } from "./vendor/navigationGuard";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Anchor, Avatar, Box, Burger, Button, Container, Divider, Drawer, Group, Menu, Stack, Text } from "@mantine/core";
 import { Link, Navigate, NavLink, Route, Routes, useLocation, useParams } from "react-router-dom";
@@ -52,7 +54,8 @@ function AppShell({ children }: { children: ReactNode }) {
   const location = useLocation();
   const isDashboardRoute = location.pathname.startsWith("/dashboard");
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const primaryTenant = user?.tenants?.find((tenant) => tenant.isActive !== false) || user?.tenants?.[0] || null;
+  const navigationGuard = useRef<(() => boolean) | null>(null);
+  const primaryTenant = activeMemberships(user?.tenants || [])[0] || null;
   const isVendor = Boolean(primaryTenant);
 
   useEffect(() => {
@@ -60,6 +63,7 @@ function AppShell({ children }: { children: ReactNode }) {
   }, [location.pathname, location.hash]);
 
   const handleLogout = () => {
+    if (navigationGuard.current && !navigationGuard.current()) return;
     setMobileMenuOpen(false);
     logout();
   };
@@ -124,7 +128,15 @@ function AppShell({ children }: { children: ReactNode }) {
   ) : null;
 
   return (
-    <Box className={isDashboardRoute ? "app-shell dashboard-app-shell" : "app-shell finazze-app-shell"}>
+    <VendorNavigationGuard.Provider value={navigationGuard}>
+    <Box className={isDashboardRoute ? "app-shell dashboard-app-shell" : "app-shell finazze-app-shell"} onClickCapture={(event) => {
+      const link = event.target instanceof Element ? event.target.closest("a[href]") : null;
+      if (!link || link.getAttribute("href") === location.pathname + location.search + location.hash || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || link.getAttribute("target") === "_blank") return;
+      if (navigationGuard.current && !navigationGuard.current()) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+    }}>
       <Box className={isDashboardRoute ? "topbar dashboard-topbar" : "finazze-topbar"} component="header">
         <Container size={isDashboardRoute ? "100%" : "xl"} w="100%">
           <Group className="public-topbar-inner" justify="space-between" gap="lg">
@@ -209,6 +221,7 @@ function AppShell({ children }: { children: ReactNode }) {
         </Box>
       )}
     </Box>
+    </VendorNavigationGuard.Provider>
   );
 }
 
@@ -232,11 +245,17 @@ function LegacyMonitorRedirect() {
 
 function DashboardRedirect() {
   const location = useLocation();
+  const { user, loading } = useAuth();
+  const tenant = activeMemberships(user?.tenants || [])[0];
+  const role = tenant?.role;
+  const saved = user?.id && tenant?.slug ? readPreference(preferenceKey(user.id, tenant.slug)) : null;
+  const workspace = (role === "owner" || role === "admin") && saved === "administration" ? "administration" : "operations";
+  if (loading) return <Text>Loading vendor workspace...</Text>;
 
   return (
     <Navigate
       replace
-      to={`/dashboard/queue${location.search}${location.hash}`}
+      to={workspacePath(workspace === "administration" ? "settings" : "queue", workspace, location.search, location.hash)}
     />
   );
 }

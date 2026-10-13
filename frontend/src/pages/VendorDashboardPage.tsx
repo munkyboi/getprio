@@ -1,3 +1,7 @@
+import { createDirtyForms } from "../vendor/dirtyForms";
+import { VendorNavigationGuard } from "../vendor/navigationGuard";
+import { VendorWorkspaceShell } from "../vendor/VendorWorkspaceShell";
+import { sectionWorkspace, workspaceItems, workspacePath, preferenceKey, activeMemberships, rememberedTenantWorkspace, savePreference } from "../vendor/workspace";
 import { quantityInputChanges } from "../utils/durationUnits";
 import DurationUnitControls from "../components/DurationUnitControls";
 import { queueBoardReturnPath } from "../utils/queueBoardReturnPath";
@@ -9,19 +13,17 @@ import { BookingCheckInNotice } from "../components/BookingCheckInNotice";
 import { getBookingCheckInState } from "../utils/bookingCheckIn";
 import { VendorResourceConfiguration } from "../components/VendorResourceConfiguration";
 import { VendorRatingsPanel } from "../components/VendorRatingsPanel";
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from "react";
+import { useContext, useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Alert,
   ActionIcon,
   Badge,
-  Burger,
   Button,
   Card,
   Checkbox,
   ColorInput,
   Divider,
-  Drawer,
   FileInput,
   Grid,
   Image,
@@ -59,7 +61,6 @@ import {
   IconBriefcase,
   IconCalendar,
   IconCalendarCheck,
-  IconChevronRight,
   IconAlertTriangle,
   IconClipboardList,
   IconCheck,
@@ -69,7 +70,6 @@ import {
   IconHistory,
   IconHomeStats,
   IconInfoCircle,
-  IconLogout,
   IconMapPin,
   IconPhoto,
   IconPencil,
@@ -995,6 +995,14 @@ export default function VendorDashboardPage() {
   const [snapshot, setSnapshot] = useState<QueueSnapshot | null>(null);
   const [savingQueueQr, setSavingQueueQr] = useState(false);
   const queueQrRef = useRef<HTMLDivElement>(null);
+  const unsavedForm = useRef(createDirtyForms());
+  const navigationGuard = useContext(VendorNavigationGuard);
+  const activeTenants = useMemo(() => activeMemberships(user?.tenants || []), [user?.tenants]);
+  useEffect(() => {
+    const warn = (event: BeforeUnloadEvent) => { if (unsavedForm.current.hasEdits()) { event.preventDefault(); event.returnValue = ""; } };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, []);
   const [locations, setLocations] = useState<StoreLocationWithHours[]>([]);
   const [services, setServices] = useState<VendorServiceSummary[]>([]);
   const [availabilityBlocks, setAvailabilityBlocks] = useState<VendorAvailabilityBlockSummary[]>([]);
@@ -1117,7 +1125,6 @@ export default function VendorDashboardPage() {
   const [themeForm, setThemeForm] = useState<PublicBoardThemeSettings>(defaultPublicBoardTheme);
   const [businessProfileTheme, setBusinessProfileTheme] = useState<PublicBoardThemeSettings>(defaultPublicBoardTheme);
   const [applyThemeToAllLocations, setApplyThemeToAllLocations] = useState(false);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [billingInterval, setBillingInterval] = useState<"monthly" | "annual">("monthly");
   const [billingPaymentMode, setBillingPaymentMode] = useState<"manual" | "automatic">("manual");
   const [selectedCounterSlug, setSelectedCounterSlug] = useState("");
@@ -1178,7 +1185,7 @@ export default function VendorDashboardPage() {
     locations.find((locationItem) => locationItem.slug === availabilityBlockForm.locationSlug) ||
     selectedLocation;
   const selectedTenantRole =
-    user?.tenants.find((tenant) => tenant.slug === selectedTenantSlug)?.role || null;
+    activeTenants.find((tenant) => tenant.slug === selectedTenantSlug)?.role || null;
   const hasActiveSubscription =
     selectedTenantRole === "staff" || billing?.subscription?.status === "active";
   const isOwner = selectedTenantRole === "owner";
@@ -1302,6 +1309,12 @@ export default function VendorDashboardPage() {
     canAccessVendorSection(item.section, effectiveEntitlements, tenantPlan)
   );
   const defaultDashboardPath = `/dashboard/${visibleNavItems[0]?.section || "settings"}`;
+  useEffect(() => {
+    if (!user?.id || !selectedTenantSlug || !selectedTenantRole || requiresMfaEnrollment || effectiveEntitlementsQuery.isPending) return;
+    savePreference(preferenceKey(user.id, selectedTenantSlug), sectionWorkspace(currentSection,
+      new URLSearchParams(location.search).get("workspace"), isOwner || isAdmin));
+  }, [user?.id, selectedTenantSlug, selectedTenantRole, requiresMfaEnrollment, effectiveEntitlementsQuery.isPending,
+    currentSection, location.search, isOwner, isAdmin]);
   const queueLifecycleSnapshotQuery = useQuery({
     queryKey: ["vendor-dashboard-queue-lifecycle", token, selectedTenantSlug, selectedLocationSlug, locationQuery],
     queryFn: async () => {
@@ -1560,10 +1573,10 @@ export default function VendorDashboardPage() {
   }, [rescheduleDate, rescheduleDialogOpen, rescheduleStartAt, reschedulingBooking, selectedTenantSlug, token]);
 
   useEffect(() => {
-    if (!selectedTenantSlug && user?.tenants?.length) {
-      setSelectedTenantSlug(user.tenants[0].slug);
+    if (!activeTenants.some((tenant) => tenant.slug === selectedTenantSlug)) {
+      setSelectedTenantSlug(activeTenants[0]?.slug || "");
     }
-  }, [selectedTenantSlug, user]);
+  }, [selectedTenantSlug, activeTenants]);
 
   useEffect(() => {
     if (requiresMfaEnrollment) {
@@ -1615,9 +1628,11 @@ export default function VendorDashboardPage() {
       return;
     }
 
+    let active = true;
     vendorDashboardOperations.getTheme(token, selectedTenantSlug, "")
-      .then((data) => setBusinessProfileTheme(mergeTheme(data.theme)))
-      .catch((themeError) => setError(getErrorMessage(themeError)));
+      .then((data) => { if (active) setBusinessProfileTheme(mergeTheme(data.theme)); })
+      .catch((themeError) => { if (active) setError(getErrorMessage(themeError)); });
+    return () => { active = false; };
   }, [canManageContactSettings, selectedTenantSlug, token]);
 
   useEffect(() => {
@@ -1723,6 +1738,8 @@ export default function VendorDashboardPage() {
 
     setServiceCounters(countersQuery.data.counters);
     setCounterLimit(countersQuery.data.counterLimit);
+    setSelectedCounterSlug((current) => current && countersQuery.data.counters.some((counter) => counter.slug === current && counter.isActive)
+      ? current : countersQuery.data.counters.find((counter) => counter.isActive)?.slug || "");
   }, [countersQuery.data]);
 
   useEffect(() => {
@@ -1845,95 +1862,6 @@ export default function VendorDashboardPage() {
       setSavingNotificationSettings(false);
     }
   }
-
-  useEffect(() => {
-    if (!canLoadProtectedDashboard || !selectedTenantSlug || !selectedLocationSlug || !token) {
-      return;
-    }
-
-    vendorDashboardCatalog.getCounters(token, selectedTenantSlug, selectedLocationSlug)
-      .then((data) => {
-        setServiceCounters(data.counters);
-        setCounterLimit(data.counterLimit);
-        setSelectedCounterSlug((current) =>
-          current && data.counters.some((counter) => counter.slug === current && counter.isActive)
-            ? current
-            : data.counters.find((counter) => counter.isActive)?.slug || ""
-        );
-      })
-      .catch(() => {
-        setServiceCounters([]);
-        setCounterLimit(0);
-      });
-  }, [canLoadProtectedDashboard, selectedLocationSlug, selectedTenantSlug, token]);
-
-  useEffect(() => {
-    if (
-      !canLoadProtectedDashboard ||
-      !selectedTenantSlug ||
-      !token ||
-      !canAccessVendorSection("staff", effectiveEntitlements)
-    ) {
-      setStaff([]);
-      setStaffSeatLimit(0);
-      return;
-    }
-
-    vendorDashboardOperations.getStaff(token, selectedTenantSlug)
-      .then((data) => {
-        setStaff(data.staff);
-        setStaffSeatLimit(data.staffSeatLimit);
-      })
-      .catch(() => {
-        setStaff([]);
-        setStaffSeatLimit(0);
-      });
-  }, [canLoadProtectedDashboard, effectiveEntitlements, selectedTenantSlug, token]);
-
-  useEffect(() => {
-    if (
-      !canLoadProtectedDashboard ||
-      !selectedTenantSlug ||
-      !token ||
-      !(isOwner || isAdmin) ||
-      !canAccessVendorSection("services", effectiveEntitlements)
-    ) {
-      setServices([]);
-      return;
-    }
-
-    vendorDashboardCatalog.getServices(token, selectedTenantSlug)
-      .then((data) => {
-        setServices(data.services);
-      })
-      .catch(() => {
-        setServices([]);
-      });
-  }, [canLoadProtectedDashboard, effectiveEntitlements, isAdmin, isOwner, selectedTenantSlug, token]);
-
-  useEffect(() => {
-    if (
-      !selectedTenantSlug ||
-      !selectedLocationSlug ||
-      !token ||
-      !(isOwner || isAdmin) ||
-      !canAccessVendorSection("services", effectiveEntitlements)
-    ) {
-      setAvailabilityBlocks([]);
-      setAvailabilityExceptions([]);
-      return;
-    }
-
-    vendorDashboardCatalog.getAvailability(token, selectedTenantSlug, selectedLocationSlug)
-      .then((data) => {
-        setAvailabilityBlocks(data.blocks);
-        setAvailabilityExceptions(data.exceptions);
-      })
-      .catch(() => {
-        setAvailabilityBlocks([]);
-        setAvailabilityExceptions([]);
-      });
-  }, [effectiveEntitlements, isAdmin, isOwner, selectedLocationSlug, selectedTenantSlug, token]);
 
   useEffect(() => {
     if (!selectedTenantSlug || !token) {
@@ -2352,6 +2280,7 @@ export default function VendorDashboardPage() {
 
   async function handleAccountProfileSave(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const submittedForm = event.currentTarget;
     if (!token || !accountProfileForm.name.trim()) {
       return;
     }
@@ -2364,6 +2293,7 @@ export default function VendorDashboardPage() {
         displayName: accountProfileForm.displayName.trim()
       });
       await refreshUser();
+      unsavedForm.current.clear(submittedForm);
       showSuccessNotification("Account profile saved", "Your vendor account details were updated.");
     } catch (profileError) {
       setError(getErrorMessage(profileError));
@@ -2374,10 +2304,12 @@ export default function VendorDashboardPage() {
 
   async function handlePasswordChange(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const submittedForm = event.currentTarget;
     setPasswordBusy(true);
     setError("");
     try {
       await changePassword(passwordForm);
+      unsavedForm.current.clear(submittedForm);
       navigate("/login", { replace: true });
     } catch (passwordError) {
       setError(getErrorMessage(passwordError));
@@ -2872,12 +2804,14 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
 
   async function handleCreateWalkIn(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const submittedForm = event.currentTarget;
     const success = await runAction("walk-in", () =>
       vendorDashboardQueue.createWalkInTicket(token, selectedTenantSlug, locationQuery, walkInForm)
     );
 
     if (success) {
       setWalkInForm(emptyWalkIn);
+      unsavedForm.current.clear(submittedForm);
       setWalkInDialogOpen(false);
       showSuccessNotification("Ticket issued", "The walk-in ticket was added to the queue.");
     }
@@ -2924,6 +2858,11 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         bookingDateRange
       ]
     });
+  }
+
+  async function retryDashboardContext() {
+    setError("");
+    await Promise.all([dashboardBootstrapQuery.refetch(), queueLifecycleSnapshotQuery.refetch()]);
   }
 
   async function reloadDashboardSnapshot() {
@@ -3033,6 +2972,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
 
   async function handleRescheduleBooking(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const submittedForm = event.currentTarget;
     if (!reschedulingBooking || !rescheduleStartAt) {
       return;
     }
@@ -3052,6 +2992,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       );
       setBookingDetailBooking((current) => current?.id === response.booking.id ? response.booking : current);
       clearBookingAlert(response.booking.id);
+      unsavedForm.current.clear(submittedForm);
       setRescheduleDialogOpen(false);
       setReschedulingBooking(null);
       setRescheduleDate("");
@@ -3312,6 +3253,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
 
   async function handleSaveService(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const submittedForm = event.currentTarget;
     setBusyAction("service-save");
     setError("");
 
@@ -3328,6 +3270,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       }
       await reloadServices();
       await reloadBookings();
+      unsavedForm.current.clear(submittedForm);
       setServiceDialogOpen(false);
       showSuccessNotification(
         editingServiceSlug ? "Service updated" : "Service created",
@@ -3417,6 +3360,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
 
   async function handleSaveAvailabilityBlock(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const submittedForm = event.currentTarget;
     setBusyAction("availability-block-save");
     setError("");
 
@@ -3436,6 +3380,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       if (targetLocationSlug !== selectedLocationSlug) {
         setSelectedLocationSlug(targetLocationSlug);
       }
+      unsavedForm.current.clear(submittedForm);
       setAvailabilityBlockDialogOpen(false);
       showSuccessNotification(
         editingAvailabilityBlockId ? "Availability updated" : "Availability added",
@@ -3552,6 +3497,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
 
   async function handleSaveAvailabilityException(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const submittedForm = event.currentTarget;
     setBusyAction("availability-exception-save");
     setError("");
 
@@ -3576,6 +3522,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       }
       await reloadAvailability();
       await reloadBookings();
+      unsavedForm.current.clear(submittedForm);
       setAvailabilityExceptionDialogOpen(false);
       showSuccessNotification(
         editingAvailabilityExceptionId ? "Exception updated" : "Exception added",
@@ -3684,6 +3631,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
 
   async function handleSaveCounter(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const submittedForm = event.currentTarget;
     setBusyAction("counter-save");
     setError("");
     try {
@@ -3700,6 +3648,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       );
       await reloadCounters();
       await reloadBookings();
+      unsavedForm.current.clear(submittedForm);
       setCounterDialogOpen(false);
       showSuccessNotification(
         editingCounterSlug ? "Counter updated" : "Counter created",
@@ -3721,11 +3670,13 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
 
   async function handleAddStaff(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const submittedForm = event.currentTarget;
     setBusyAction("staff-save");
     try {
       await vendorDashboardOperations.addStaff(token, selectedTenantSlug, staffForm);
       await reloadStaff();
       await reloadBookings();
+      unsavedForm.current.clear(submittedForm);
       setStaffDialogOpen(false);
       setStaffForm({ email: "", role: "staff" });
       showSuccessNotification("Staff added", "The staff member now has access to this tenant.");
@@ -3861,15 +3812,18 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
 
   async function handleSaveSettings(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const submittedForm = event.currentTarget;
     const success = await runAction("settings", () => vendorDashboardOperations.updateSettings(token, selectedTenantSlug, settings));
 
     if (success) {
+      unsavedForm.current.clear(submittedForm);
       showSuccessNotification("Business profile saved", "Your business profile and queue settings were updated.");
     }
   }
 
   async function handleSaveBusinessProfile(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const submittedForm = event.currentTarget;
     const success = await runAction("settings", () => vendorDashboardOperations.updateSettings(token, selectedTenantSlug, settings));
     if (!success) {
       return;
@@ -3877,6 +3831,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
 
     const themeSaved = await handleSaveBusinessProfileTheme();
     if (themeSaved) {
+      unsavedForm.current.clear(submittedForm);
       showSuccessNotification("Business profile saved", "Your business details and default images were updated.");
     }
   }
@@ -9616,76 +9571,6 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     );
   }
 
-  function renderDashboardSidebar({ compact = false }: { compact?: boolean } = {}) {
-    return (
-      <Stack className={compact ? "neura-sidebar-content" : undefined} gap="lg" h="100%">
-        <Group gap="sm" className="neura-brand">
-          <img className="neura-logo" src="/logo-dark.svg" alt="" aria-hidden="true" />
-          <div>
-            <Text fw={800}>GetPrio</Text>
-            <Text size="xs" c="dimmed">Queue Platform</Text>
-          </div>
-        </Group>
-
-        <ScrollArea className="neura-nav-scroll">
-          <Stack gap={8}>
-            {visibleNavItems.map((item) => {
-              const Icon = item.icon;
-              return (
-                <NavLink
-                  className="neura-nav-link"
-                  key={item.section}
-                  onClick={() => setSidebarOpen(false)}
-                  to={`/dashboard/${item.section}`}
-                >
-                  <Icon size={18} />
-                  <span>{item.label}</span>
-                  <IconChevronRight className="neura-nav-chevron" size={16} />
-                </NavLink>
-              );
-            })}
-          </Stack>
-        </ScrollArea>
-
-        <Paper className="neura-sidebar-card" p="md">
-          <Group align="flex-start" justify="space-between" gap="sm" wrap="nowrap">
-            <div className="neura-sidebar-account-copy">
-              <Text size="xs" c="dimmed">Current tenant</Text>
-              <Text fw={700}>{snapshot?.tenant.name || user?.tenants[0]?.name || "Tenant"}</Text>
-              <Text size="sm" c="dimmed">{selectedLocation?.name || "Primary location"}</Text>
-              <Badge color={activeSubscription || tenantPlan?.planName ? "teal" : "orange"} mt="sm">
-                {activeSubscription?.planName || tenantPlan?.planName || "No active plan"}
-              </Badge>
-              <Divider my="sm" />
-              <Stack gap={2}>
-                <Text size="xs" c="dimmed">Logged in user:</Text>
-                <Text fw={600} size="sm">{user?.name || "Unknown user"}</Text>
-                <Badge color="gray" size="sm" variant="light">
-                  {selectedTenantRole
-                    ? selectedTenantRole.charAt(0).toUpperCase() + selectedTenantRole.slice(1)
-                    : "No tenant role"}
-                </Badge>
-              </Stack>
-            </div>
-            <Tooltip label="Log out" withArrow>
-              <ActionIcon
-                aria-label="Log out"
-                className="neura-sidebar-logout"
-                color="red"
-                onClick={logout}
-                radius="xl"
-                size={42}
-                variant="filled"
-              >
-                <IconLogout size={20} />
-              </ActionIcon>
-            </Tooltip>
-          </Group>
-        </Paper>
-      </Stack>
-    );
-  }
-
   function renderDashboardAlertOverlay() {
     const overlayAlerts = [
       ...activeQueueAlerts.map((ticket) => ({
@@ -10203,6 +10088,22 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     return renderSettingsPage();
   }
 
+  const canLeaveFeature = () => {
+    if (busyAction || accountProfileBusy || passwordBusy || mfaBusy) return false;
+    const editing = unsavedForm.current.hasEdits() || locationDialogOpen || themeDialogOpen;
+    if (editing && !window.confirm("You have unsaved edits. Leave this view?")) return false;
+    unsavedForm.current.clear();
+    setLocationDialogOpen(false); setServiceDialogOpen(false); setCounterDialogOpen(false);
+    setAvailabilityBlockDialogOpen(false); setAvailabilityExceptionDialogOpen(false);
+    setStaffDialogOpen(false); setRescheduleDialogOpen(false); setWalkInDialogOpen(false); setThemeDialogOpen(false);
+    return true;
+  };
+  useEffect(() => {
+    if (!navigationGuard) return;
+    navigationGuard.current = canLeaveFeature;
+    return () => { if (navigationGuard.current === canLeaveFeature) navigationGuard.current = null; };
+  });
+
   if (loading) {
     return <Card className="neura-card">Loading dashboard...</Card>;
   }
@@ -10240,7 +10141,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
   }
 
 
-  if (!user.tenants?.length) {
+  if (!activeTenants.length) {
     return (
       <Card className="neura-card neura-no-tenant-card" padding="xl">
         <SimpleGrid cols={{ base: 1, md: 2 }} spacing="xl">
@@ -10259,68 +10160,46 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     );
   }
 
+  const canSwitchWorkspace = (isOwner || isAdmin) && !requiresMfaEnrollment;
+  const workspace = sectionWorkspace(currentSection, new URLSearchParams(location.search).get("workspace"), canSwitchWorkspace);
+  const workspaceNavItems = workspaceItems(visibleNavItems, workspace);
+  const switchWorkspace = (next: "operations" | "administration") => {
+    if (!canSwitchWorkspace || !canLeaveFeature()) return;
+    const candidates = workspaceItems(visibleNavItems, next);
+    const destination = candidates.find((item) => item.section !== "account")?.section || "account";
+    savePreference(preferenceKey(user.id, selectedTenantSlug), next);
+    navigate(workspacePath(destination, next, location.search, location.hash));
+  };
   return (
-    <div className="neura-shell">
-      <aside className="neura-sidebar">
-        {renderDashboardSidebar()}
-      </aside>
-
-      <header className="neura-mobile-header">
-        <Group gap="sm" className="neura-mobile-brand">
-          <Burger
-            aria-label="Open dashboard navigation"
-            opened={sidebarOpen}
-            onClick={() => setSidebarOpen((current) => !current)}
-            size="sm"
-          />
-          <img className="neura-mobile-logo" src="/logo.svg" alt="" aria-hidden="true" />
-          <div>
-            <Text fw={800}>GetPrio</Text>
-            <Text size="xs" c="dimmed">Vendor Dashboard</Text>
-          </div>
-        </Group>
-      </header>
-
-      <main className="neura-main">
-        <header className="neura-header">
-          <Group align="flex-start" gap="md">
-            <div>
-              <Text className="neura-label">{requiresMfaEnrollment ? "Account security" : "Analytics dashboard"}</Text>
-              <Title order={1}>
-                {requiresMfaEnrollment
-                  ? "Secure your account"
-                  : currentSection === "queue"
-                  ? "Live queue"
-                  : navItems.find((item) => item.section === currentSection)?.label}
-              </Title>
-              <Text c="dimmed">
-                {requiresMfaEnrollment
-                  ? "Set up an authenticator to continue to your vendor workspace. Your sign-in session remains active during setup."
-                  : dashboardSectionDescriptions[currentSection]}
-              </Text>
-            </div>
-          </Group>
-          {!requiresMfaEnrollment ? <Select
-            className="neura-tenant-select"
-            data={locationOptions}
-            label="Location"
-            value={selectedLocationSlug}
-            onChange={(value) => value && setSelectedLocationSlug(value)}
-          /> : <Badge color="orange" variant="light">MFA setup required</Badge>}
-        </header>
-
-        {!requiresMfaEnrollment ? <VendorQueueLifecycleTray
-          busyAction={busyAction}
-          canOperate={canOperateQueueDay}
-          locationName={selectedLocation?.name || "This queue"}
-          onCloseNow={handleCloseQueueDay}
-          onExtend={handleExtendQueueDay}
-          onRefresh={reloadDashboardSnapshot}
-          snapshot={snapshot}
-        /> : null}
-        {error ? <Text c="red" fw={700}>{error}</Text> : null}
-        {renderCurrentSection()}
-      </main>
+    <VendorWorkspaceShell
+      workspace={workspace} canAdmin={canSwitchWorkspace} items={workspaceNavItems}
+      title={requiresMfaEnrollment ? "Secure your account" : currentSection === "queue" ? "Live queue" : navItems.find((item) => item.section === currentSection)?.label || "Account"}
+      description={requiresMfaEnrollment ? "Set up an authenticator to continue to your vendor workspace. Your sign-in session remains active during setup." : dashboardSectionDescriptions[currentSection] || "Manage your vendor workspace."}
+      name={user.name || "Vendor"} role={selectedTenantRole || "Vendor"} plan={activeSubscription?.planName || tenantPlan?.planName || "No active plan"}
+      onBeforeNavigate={canLeaveFeature} onEdit={(form) => unsavedForm.current.mark(form)}
+      onWorkspace={switchWorkspace} onLogout={() => { if (canLeaveFeature()) void logout(); }} search={location.search} hash={location.hash}
+      context={!requiresMfaEnrollment ? <>
+        <Select label="Business" data={activeTenants.map((tenant) => ({ value: tenant.slug, label: tenant.name }))}
+          value={selectedTenantSlug} disabled={Boolean(busyAction)} onChange={(value) => {
+            if (!value || value === selectedTenantSlug || !canLeaveFeature()) return;
+            setSnapshot(null); setLocations([]); setSelectedLocationSlug(""); setSelectedCounterSlug("");
+            setServices([]); setStaff([]); setServiceCounters([]); setVendorBookings([]); setClients(null); setHistory(null); setBilling(null);
+            setLocationDialogOpen(false); setServiceDialogOpen(false); setAvailabilityBlockDialogOpen(false); setAvailabilityExceptionDialogOpen(false);
+            setCounterDialogOpen(false); setStaffDialogOpen(false); setThemeDialogOpen(false); setRescheduleDialogOpen(false);
+            setTicketScannerOpen(false); setScannerTarget(null); setBookingDetailOpen(false); setBookingDetailBooking(null); setBookingDetailModalId(null);
+            setAvailabilityBlocks([]); setAvailabilityExceptions([]); setAvailabilitySummary(null); setBusinessProfileTheme(defaultPublicBoardTheme);
+            setPlanDialogOpen(false); setThemeLocation(null); setConfirmAction(null); setWalkInDialogOpen(false);
+            const target = activeTenants.find((tenant) => tenant.slug === value);
+            if (!target) return;
+            const nextWorkspace = rememberedTenantWorkspace(user.id, target);
+            setSelectedTenantSlug(value);
+            navigate(workspacePath(currentSection === "account" ? "account" : nextWorkspace === "administration" ? "settings" : "queue",
+              nextWorkspace, location.search, location.hash));
+          }} />
+        <Select data={locationOptions} label="Location" value={selectedLocationSlug} disabled={Boolean(busyAction)}
+          onChange={(value) => { if (value && value !== selectedLocationSlug && canLeaveFeature()) { setSnapshot(null); setServiceCounters([]); setAvailabilityBlocks([]); setAvailabilityExceptions([]); setAvailabilitySummary(null); setSelectedCounterSlug(""); setSelectedLocationSlug(value); } }} />
+      </> : <Badge color="orange" variant="light">MFA setup required</Badge>}
+      dialogs={<>
       {renderPlanDialog()}
       {renderLocationDialog()}
       {renderServiceDialog()}
@@ -10346,20 +10225,21 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         opened={ticketScannerOpen}
         ticketNumber={scannerTarget?.ticketNumber}
       />
-      <Drawer
-        classNames={{ body: "neura-drawer-body", content: "neura-drawer-content", header: "neura-drawer-header" }}
-        hiddenFrom="lg"
-        onClose={() => setSidebarOpen(false)}
-        opened={sidebarOpen}
-        padding="md"
-        position="left"
-        size={300}
-        title="Dashboard"
-      >
-        <ScrollArea h="100%" scrollbars="y">
-          {renderDashboardSidebar({ compact: true })}
-        </ScrollArea>
-      </Drawer>
-    </div>
+      </>}
+    >
+        {!requiresMfaEnrollment ? <VendorQueueLifecycleTray
+          busyAction={busyAction}
+          canOperate={canOperateQueueDay}
+          locationName={selectedLocation?.name || "This queue"}
+          onCloseNow={handleCloseQueueDay}
+          onExtend={handleExtendQueueDay}
+          onRefresh={reloadDashboardSnapshot}
+          snapshot={snapshot}
+        /> : null}
+        {error ? <Text c="red" fw={700}>{error}</Text> : null}
+        {requiresMfaEnrollment || currentSection === "account" || (snapshot?.tenant.slug === selectedTenantSlug && snapshot?.location?.slug === selectedLocationSlug)
+          ? renderCurrentSection()
+          : <Stack><Text>Loading this business and location...</Text><Button variant="default" onClick={() => void retryDashboardContext()}>Retry</Button></Stack>}
+    </VendorWorkspaceShell>
   );
 }

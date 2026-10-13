@@ -81,10 +81,14 @@ test("successful rescheduling refreshes matching open details with the server re
     let details = { ...booking, id: detailId };
     let list = [{ ...booking, id: "1" }];
     let dialogOpen = true;
+    const submittedForm = { isConnected: true };
+    const edits = require('../src/vendor/dirtyForms.js').createDirtyForms();
+    edits.mark(submittedForm);
     const noop = () => {};
     const handler = vm.runInNewContext(script, {
       reschedulingBooking: { id: "1" }, rescheduleStartAt: updated.scheduledStartAt,
       token: "fixture", selectedTenantSlug: "fixture",
+      unsavedForm: { current: edits },
       vendorDashboardBookings: { rescheduleBooking: async () => ({ booking: updated }) },
       setBookingDetailBooking: fn => { details = fn(details); },
       setVendorBookings: fn => { list = fn(list); },
@@ -94,8 +98,9 @@ test("successful rescheduling refreshes matching open details with the server re
       reloadBookings: async () => {}, reloadDashboardSnapshot: async () => {},
       showSuccessNotification: noop, getErrorMessage: error => error.message
     });
-    await handler({ preventDefault: noop });
+    await handler({ preventDefault: noop, currentTarget: submittedForm });
     assert.equal(dialogOpen, false);
+    assert.equal(edits.hasEdits(), false);
     assert.equal(list[0], updated);
     if (detailId === "1") {
       assert.equal(details, updated);
