@@ -145,4 +145,8 @@ The PR #414 Enter-key correction (`6d7d3348`) is also integrated locally. Search
 
 ### PR #414 merge inventory update
 
-Live GitHub verification confirms #414 merged at `c3baacbf`, final head `6d7d3348`, with CI/CodeQL/Sonar passed and review threads resolved. This supersedes the pending-check checkpoint above. The deployment workflow for descendant `1697ba5b` is in progress; deployment/live acceptance is not confirmed. Services/Availability and its PR publication still await Carlo's local review. Vendor code ownership remains in this chat; central PR coordination is collecting merge/check/deployment status.
+Live GitHub verification confirms #414 merged at `c3baacbf`, final head `6d7d3348`, with CI/CodeQL/Sonar passed and review threads resolved. This supersedes the pending-check checkpoint above. Correction: `1697ba5b` precedes #414 and does not contain it; #414 deployment run `38401906957` targets `c3baacbf` and is queued. Deployment/live acceptance is not confirmed. Services/Availability and its PR publication still await Carlo's local review. Vendor code ownership remains in this chat; central PR coordination is collecting merge/check/deployment status.
+
+### Delegated deployment follow-through
+
+Central coordination relayed Carlo's #414 merge confirmation and delegated vendor deployment triage here. Use exact run `38401906957` / merge `c3baacbf`; AI owner tracks #413 / `1697ba5b` in run `38401124094`. Explicit ancestry checks corrected the earlier combined-command inventory error: c3baacbf is not an ancestor of 1697ba5b; the reverse is true. Do not duplicate dispatch/SSH while the existing production-deploy queue runs. Public API currently serves `df5fc820`; full #414 deployment is still pending. Production vendor browser redirects to login and Bitwarden is locked, so authenticated counter interaction is a remaining acceptance gate. Local Services/Availability remains unpublished and review gated.
