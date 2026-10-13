@@ -40,6 +40,10 @@ export function CounterStaffAssignments({
         data-vendor-draft-ignore
         value={search}
         onChange={(event) => setSearch(event.currentTarget.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" && !event.nativeEvent.isComposing)
+            event.preventDefault();
+        }}
       />
       <p className="ops-muted" role="status">
         {filtered.length} of {staff.length} staff shown
