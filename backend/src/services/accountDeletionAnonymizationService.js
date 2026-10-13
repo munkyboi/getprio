@@ -1,4 +1,5 @@
 const { BEST_EFFORT_ANONYMIZATION_SOURCES, SAFE_CLEANUP_SOURCES } = require('./accountDeletionInventoryService');
+const { compareReferenceIds } = require('./accountDeletionReferenceOrder');
 
 const IDENTIFIER = /^[a-z_][a-z0-9_]*$/i;
 const DELETE_SOURCES = new Set([
@@ -50,8 +51,8 @@ async function applyBestEffortAnonymization(client, inventory, userId, reference
   const result = { anonymized: [], deleted: [] };
   for (const sourceInfo of populatedSources) {
     const { source, recordCount, items = [] } = sourceInfo;
-    const selectedIds = Array.isArray(referenceSelection[source]) ? [...referenceSelection[source]].sort() : [];
-    const actualIds = items.map((item) => item.id).sort();
+    const selectedIds = Array.isArray(referenceSelection[source]) ? [...referenceSelection[source]].sort(compareReferenceIds) : [];
+    const actualIds = items.map((item) => item.id).sort(compareReferenceIds);
     if (!sourceInfo.itemsComplete || items.length !== recordCount || selectedIds.length !== actualIds.length
       || selectedIds.some((id, index) => id !== actualIds[index])) {
       throw Object.assign(new Error(`The reviewed references changed or were not fully selected in ${source}.`), { code: 'CLEANUP_SELECTION_INVALID' });

@@ -541,7 +541,13 @@ function SubscriptionsPage({ token }: { token: string }) {
     setPlans(planData.plans);
   };
 
-  useEffect(() => { load(); }, [token]);
+  useEffect(() => {
+    let disposed = false;
+    load().catch((error: unknown) => {
+      if (!disposed) notifications.show({ color: "red", title: "Subscriptions unavailable", message: error instanceof Error ? error.message : "Unable to load subscription records." });
+    });
+    return () => { disposed = true; };
+  }, [token]);
 
   function openNewSubscription() {
     setForm({
