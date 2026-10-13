@@ -76,7 +76,7 @@ async function dispatchFcmIntent(intent, tenant, ticket, workerId, timeoutMs) {
     tenant, ticket, action: customerAction(intent.template_name), notificationId: `outbox:${intent.id}`
   });
   await notificationInbox.record({ userId, ...payload,
-    notificationId: inboxNotificationId(intent), occurredAt: intent.created_at });
+    notificationId: inboxNotificationId(intent), occurredAt: intent.created_at }, {eventType:payload.eventType});
   const registrations = await pushRegistrationRepository.listActiveByUserId(userId);
   await mobilePushOutboxDeliveryRepository.ensurePending(intent.id, registrations);
   const pending = await mobilePushOutboxDeliveryRepository.claimPending(intent.id, workerId);

@@ -257,7 +257,7 @@ async function sendUserNotification({
   }
 
   try {
-    await notificationInbox.record({ userId, ...payload, occurredAt });
+    await notificationInbox.record({ userId, ...payload, occurredAt }, {eventType:payload.eventType});
   } catch (error) {
     recentNotificationKeys.delete(dedupeKey);
     throw error;
