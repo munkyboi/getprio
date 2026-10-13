@@ -59,6 +59,7 @@ function requireWithMocks(targetPath, mocks) {
 test("push service saves normalized browser subscription payloads", async () => {
   const calls = [];
   const service = requireWithMocks("../src/services/pushNotificationService.js", {
+    "./customerNotificationInbox": { record: async () => null },
     "../config/env": {
       vapidPublicKey: "public-key",
       vapidPrivateKey: "private-key",
@@ -107,6 +108,7 @@ test("push service saves normalized browser subscription payloads", async () => 
 
 test("push service rejects invalid subscription payloads", async () => {
   const service = requireWithMocks("../src/services/pushNotificationService.js", {
+    "./customerNotificationInbox": { record: async () => null },
     "../config/env": {},
     "../repositories/pushSubscriptions": {},
     "../repositories/users": {
@@ -127,6 +129,7 @@ test("push service rejects invalid subscription payloads", async () => {
 test("push service deactivates stale subscriptions on gone responses", async () => {
   const deactivated = [];
   const service = requireWithMocks("../src/services/pushNotificationService.js", {
+    "./customerNotificationInbox": { record: async () => null },
     "../config/env": {
       vapidPublicKey: "public-key",
       vapidPrivateKey: "private-key",
@@ -175,6 +178,7 @@ test("push service sends customer booking notifications when booking alerts are 
   const notifications = [];
   const successes = [];
   const service = requireWithMocks("../src/services/pushNotificationService.js", {
+    "./customerNotificationInbox": { record: async () => null },
     "../config/env": {
       vapidPublicKey: "public-key",
       vapidPrivateKey: "private-key",
@@ -227,6 +231,7 @@ test("push service sends customer booking notifications when booking alerts are 
 test("push service skips customer notifications when the customer opted out", async () => {
   let subscriptionLookupCount = 0;
   const service = requireWithMocks("../src/services/pushNotificationService.js", {
+    "./customerNotificationInbox": { record: async () => null },
     "../config/env": {
       vapidPublicKey: "public-key",
       vapidPrivateKey: "private-key",
@@ -265,6 +270,7 @@ test("push service skips customer notifications when the customer opted out", as
 test("push service sends customer queue notifications with ticket links", async () => {
   const notifications = [];
   const service = requireWithMocks("../src/services/pushNotificationService.js", {
+    "./customerNotificationInbox": { record: async () => null },
     "../config/env": {
       vapidPublicKey: "public-key",
       vapidPrivateKey: "private-key",
@@ -362,6 +368,7 @@ test("queue lifecycle push targets the affected location and explains terminal e
   const vendorNotifications = [];
   const customerNotifications = [];
   const service = requireWithMocks("../src/services/pushNotificationService.js", {
+    "./customerNotificationInbox": { record: async () => null },
     "../config/env": {
       vapidPublicKey: "public-key",
       vapidPrivateKey: "private-key",
@@ -424,6 +431,7 @@ test("push service targets explicit vendor roles for payment proof review alerts
   const roleFilters = [];
   const notifications = [];
   const service = requireWithMocks("../src/services/pushNotificationService.js", {
+    "./customerNotificationInbox": { record: async () => null },
     "../config/env": {
       vapidPublicKey: "public-key",
       vapidPrivateKey: "private-key",
@@ -476,6 +484,7 @@ test("push service de-duplicates repeated sends with the same notification tag",
   let subscriptionLookups = 0;
   let sendCount = 0;
   const service = requireWithMocks("../src/services/pushNotificationService.js", {
+    "./customerNotificationInbox": { record: async () => null },
     "../config/env": {
       vapidPublicKey: "public-key",
       vapidPrivateKey: "private-key",
@@ -530,4 +539,36 @@ test("vendor walk-ins never send new-queue-join pushes", async () => {
     }
   });
   assert.deepEqual(await service.notifyVendorQueueJoin({ tenant: { _id: "1" }, ticket: { joinChannel: "vendor" } }), { attempted: 0, sent: 0 });
+});
+
+test("visible inbox content persists with no push configuration and excludes silent signals", async () => {
+  const records=[];
+  const service=requireWithMocks('../src/services/pushNotificationService.js',{
+    './customerNotificationInbox': {record:async payload=>{if(!payload.silent) records.push(payload);}},
+    '../config/env': {},
+    '../repositories/users': {findUserById:async()=>({notificationSettings:{}})},
+    '../repositories/pushSubscriptions': {},
+    '../../mobile/fcmRegistrationService': {isConfigured:()=>false,sendToUser:async()=>({attempted:0,sent:0})},
+    'web-push': {}
+  });
+  assert.deepEqual(await service.notifyCustomerBookingUpdate({booking:{customerUserId:'1',_id:'10'},action:'confirmed'}),{attempted:0,sent:0});
+  assert.equal(records.length,1);
+  await service.sendUserSignal({userId:'1',eventType:'queue_moved',notificationId:'silent',tag:'silent'});
+  assert.equal(records.length,1);
+  assert.equal(records[0].title,'Booking update');
+});
+
+test("inbox commit precedes failing push delivery and persistence failure permits retry", async () => {
+  let fail=true, attempts=0;
+  const records=[];
+  const service=requireWithMocks('../src/services/pushNotificationService.js',{
+    './customerNotificationInbox':{record:async payload=>{attempts++;if(fail)throw new Error('inbox unavailable');records.push(payload);}},
+    '../config/env':{}, '../repositories/pushSubscriptions':{},
+    '../../mobile/fcmRegistrationService':{sendToUser:async()=>{throw new Error('delivery failed');}}, 'web-push':{}
+  });
+  const payload={userId:'1',title:'Queue',body:'Ready',notificationId:'event',tag:'event'};
+  await assert.rejects(service.sendUserNotification(payload),/inbox unavailable/);
+  fail=false;
+  await assert.rejects(service.sendUserNotification(payload),/delivery failed/);
+  assert.equal(attempts,2);assert.equal(records.length,1);assert.equal(records[0].notificationId,'event');
 });

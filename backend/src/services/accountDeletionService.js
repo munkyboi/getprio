@@ -74,6 +74,7 @@ function createAccountDeletionService({ transaction = db.withTransaction, verify
         RETURNING id,status,due_at`, [id, userId, user.email]);
       await client.query('UPDATE users SET deletion_requested_at=COALESCE(deletion_requested_at,NOW()), avatar_url=NULL WHERE id=$1', [userId]);
       await revokeSessions(userId, 'account_deletion', { client });
+      await client.query('DELETE FROM customer_notification_inbox WHERE user_id=$1', [userId]);
       await client.query('DELETE FROM push_subscriptions WHERE user_id=$1', [userId]);
       await client.query('UPDATE mobile_push_registrations SET is_active=FALSE WHERE user_id=$1', [userId]);
       await client.query('UPDATE tickets SET notify_by_email=FALSE,notify_by_sms=FALSE WHERE user_id=$1', [userId]);

@@ -1,3 +1,4 @@
+const notificationInbox = require("./customerNotificationInbox");
 const crypto = require("node:crypto");
 const path = require("node:path");
 const webPush = require("web-push");
@@ -12,12 +13,6 @@ const recentNotificationKeys = new Map();
 
 function isPushConfigured(environment = "production") {
   return isWebPushConfigured() || mobilePushService.isConfigured(environment);
-}
-
-function isPushConfiguredForChannels(channels, environment = "production") {
-  const includeWebPush = channels?.webPush !== false;
-  const includeFcm = channels?.fcm !== false;
-  return (includeWebPush && isWebPushConfigured()) || (includeFcm && mobilePushService.isConfigured(environment));
 }
 
 function isWebPushConfigured() {
@@ -234,7 +229,8 @@ async function sendUserNotification({
   collapseId,
   silent = false,
   channels,
-  environment = "production"
+  environment = "production",
+  occurredAt
 }) {
   if (!userId) {
     return { attempted: 0, sent: 0 };
@@ -242,10 +238,6 @@ async function sendUserNotification({
 
   const includeWebPush = channels?.webPush !== false;
   const includeFcm = channels?.fcm !== false;
-  if (!includeWebPush && !includeFcm) {
-    return { attempted: 0, sent: 0 };
-  }
-
   const payload = {
     title,
     body,
@@ -259,10 +251,17 @@ async function sendUserNotification({
     ...(silent ? { silent: true } : {})
   };
 
-  if (!claimNotificationKey(`user:${userId}:${payload.tag}`)) {
+  const dedupeKey = `user:${userId}:${payload.tag}`;
+  if (!claimNotificationKey(dedupeKey)) {
     return { attempted: 0, sent: 0, deduped: true };
   }
 
+  try {
+    await notificationInbox.record({ userId, ...payload, occurredAt });
+  } catch (error) {
+    recentNotificationKeys.delete(dedupeKey);
+    throw error;
+  }
   const subscriptions = includeWebPush && isWebPushConfigured()
     ? await pushSubscriptionRepository.listActiveByUserId(userId)
     : [];
@@ -498,10 +497,6 @@ async function notifyCustomerBookingUpdate({ booking, action }) {
   }
 
   const environment = booking.environment === "sandbox" ? "sandbox" : "production";
-  if (!isPushConfigured(environment)) {
-    return { attempted: 0, sent: 0 };
-  }
-
   const allowed = await customerAllowsNotification(booking.customerUserId, "bookingAlerts");
   if (!allowed) {
     return { attempted: 0, sent: 0 };
@@ -559,16 +554,12 @@ function getQueueUpdateBody(tenant, ticket, action) {
   }
 }
 
-async function notifyCustomerQueueUpdate({ tenant, ticket, action, channels }) {
+async function notifyCustomerQueueUpdate({ tenant, ticket, action, channels, notificationId, occurredAt }) {
   if (!ticket?.userId) {
     return { attempted: 0, sent: 0 };
   }
 
   const environment = ticket.developerEnvironment === "sandbox" ? "sandbox" : "production";
-  if (!isPushConfiguredForChannels(channels, environment)) {
-    return { attempted: 0, sent: 0 };
-  }
-
   const allowed = await customerAllowsNotification(ticket.userId, "queueAlerts");
   if (!allowed) {
     return { attempted: 0, sent: 0 };
@@ -576,7 +567,8 @@ async function notifyCustomerQueueUpdate({ tenant, ticket, action, channels }) {
 
   return sendUserNotification({
     userId: ticket.userId,
-    ...buildCustomerQueueNotificationPayload({ tenant, ticket, action }),
+    ...buildCustomerQueueNotificationPayload({ tenant, ticket, action, notificationId }),
+    occurredAt,
     channels,
     environment
   });

@@ -4,6 +4,8 @@ BEGIN;
 -- Docker only runs this file when the Postgres data directory is empty.
 -- Running it manually against an existing database will remove app data.
 
+DROP TABLE IF EXISTS customer_notification_inbox CASCADE;
+DROP TABLE IF EXISTS customer_notification_inbox_policy CASCADE;
 DROP TABLE IF EXISTS queue_board_pairing_requests CASCADE;
 DROP TABLE IF EXISTS queue_board_display_grants CASCADE;
 DROP TABLE IF EXISTS queue_ticket_barcodes CASCADE;

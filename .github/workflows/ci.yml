@@ -28,6 +28,7 @@ jobs:
           --health-retries 5
 
     env:
+      NOTIFICATION_INBOX_TEST_DATABASE_URL: postgresql://getprio_test:getprio_test@127.0.0.1:5432/getprio_inbox_test
       ACCOUNT_DELETION_TEST_DATABASE_URL: postgresql://getprio_test:getprio_test@127.0.0.1:5432/getprio_deletion_test
       ALLOWANCE_TEST_DATABASE_URL: postgresql://getprio_test:getprio_test@127.0.0.1:5432/getprio_test
       RESOURCE_LEDGER_TEST_DATABASE_URL: postgresql://getprio_test:getprio_test@127.0.0.1:5432/getprio_test
@@ -66,13 +67,16 @@ jobs:
         run: npm run test:platform
 
       - name: Post-deploy smoke runner tests
-        run: node --test scripts/smoke-test.test.cjs
+        run: node --test scripts/smoke-test.test.cjs scripts/prepare-test-database.test.cjs
 
       - name: Frontend coverage
         run: npm run test:frontend:coverage
 
       - name: Prepare account deletion integration database
         run: node scripts/prepare-account-deletion-test.cjs
+
+      - name: Prepare notification inbox integration database
+        run: node scripts/prepare-notification-inbox-test.cjs
 
       - name: Backend coverage
         env:

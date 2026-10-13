@@ -22,6 +22,7 @@ test("FCM outbox delivery resolves stale installations without retrying accepted
   const marks = [];
   const deliveries = [];
   const service = requireWithMocks("../src/services/queueNotificationOutboxDispatcher.js", {
+    "./customerNotificationInbox": { record: async () => null },
     "../repositories/notificationDeliveries": {
       recordDelivery: async (data) => deliveries.push(data)
     },
@@ -114,6 +115,7 @@ test("FCM outbox delivery resolves stale installations without retrying accepted
 test("FCM outbox delivery leaves transient installations pending for the outbox retry", async () => {
   const marks = [];
   const service = requireWithMocks("../src/services/queueNotificationOutboxDispatcher.js", {
+    "./customerNotificationInbox": { record: async () => null },
     "../repositories/notificationDeliveries": {
       recordDelivery: async () => { throw new Error("must not record sent delivery"); }
     },
@@ -158,4 +160,28 @@ test("FCM outbox delivery leaves transient installations pending for the outbox 
     /FCM delivery failed for 1 installation/
   );
   assert.deepEqual(marks, [["43", "101", "network", { workerId: "queue-outbox-direct" }]]);
+});
+
+test('outbox records visible history without installations and shares channel event identity', async () => {
+  const records=[], web=[];
+  const service=requireWithMocks('../src/services/queueNotificationOutboxDispatcher.js',{
+    './customerNotificationInbox':{record:async value=>records.push(value)},
+    '../repositories/tenants':{findTenantById:async()=>({_id:'7',name:'Vendor'})},
+    '../repositories/tickets':{findTicketById:async()=>({_id:'9',userId:'21',ticketNumber:'T9'})},
+    '../repositories/users':{findUserById:async()=>({notificationSettings:{}})},
+    '../../mobile/pushRegistrationRepository':{listActiveByUserId:async()=>[]},
+    '../../mobile/mobilePushOutboxDeliveryRepository':{ensurePending:async()=>{},claimPending:async()=>[]},
+    './pushNotificationService':{
+      buildCustomerQueueNotificationPayload:({notificationId})=>({notificationId,title:'Queue update',body:'Ready'}),
+      notifyCustomerQueueUpdate:async payload=>web.push(payload)
+    },
+    '../repositories/notificationDeliveries':{recordDelivery:async()=>{}}
+  });
+  const intent={...buildIntent(),queue_event_id:'100',created_at:'2026-10-13T00:00:00Z'};
+  await service.dispatchIntent(intent);
+  await service.dispatchIntent({...intent,channel:'web_push',id:'43'});
+  assert.equal(records.length,1);
+  assert.equal(records[0].notificationId,web[0].notificationId);
+  assert.equal(records[0].occurredAt,intent.created_at);
+  assert.equal(web[0].occurredAt,intent.created_at);
 });
