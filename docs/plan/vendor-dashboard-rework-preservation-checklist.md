@@ -66,3 +66,7 @@ The original plan covers the overall design and architecture, but is **not suffi
 ### VD-08 source preservation checkpoint
 
 Retain user-wide identity/contact changes, required MFA versus optional removal, enrollment cancellation/replacement, one-time recovery display, Email OTP prerequisites, deletion authorization/receipt/retained-record warnings/session close, owner/admin commercial access and preview-token/revision contracts. Source review found and corrected selected-method visibility, billing failure-as-empty behavior, hidden perpetual MFA draft warnings and mislabeled daily ticket statistics. Browser fixtures are synthetic and cannot certify real email delivery, physical authenticator scanning, deletion processing or payment settlement. Phone removal remains a contract gap confirmed by the API owner.
+
+### VD-09 preservation evidence
+
+Preserved current location/day metrics, resource usage periods, unknown versus zero and existing report role restrictions. Removed inferred service-time values while retaining actual recorded activity with accurate labels. Ratings fixtures exercised read error/retry, 409 retaining checked state then exact `{visible:false}` retry, moderation-disabled control, pagination/empty page and pending navigation lock. Paid-plan/server permission remains authoritative. Synthetic review data is not production moderation or provider acceptance.

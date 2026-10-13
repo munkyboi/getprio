@@ -1,3 +1,4 @@
+import { servedTicketIntervals } from "../vendor/reportState";
 import { AccountPresentation, discardAccountTask } from "../vendor/AccountPresentation";
 import { Card as AccountCard, Stack as AccountStack, Group as AccountGroup, SimpleGrid as AccountGrid, Text as AccountText, Title as AccountTitle, Alert as AccountAlert, Badge as AccountBadge, Button as AccountButton, TextInput as AccountInput, PasswordInput as AccountPassword } from "../vendor/AccountFields";
 import { queueSettingsPayload, tenantSettingsFromSnapshot } from "../vendor/settingsState";
@@ -193,7 +194,7 @@ import { checkServiceSlugAvailability } from "../api/vendorDashboardCatalog";
 import { checkCounterSlugAvailability } from "../api/vendorDashboardOperations";
 
 const dashboardSections = new Set(["queue", "tenants", "services", "bookings", "staff", "clients", "history", "reports", "ratings", "settings", "account"]);
-const SERVICE_TREND_USER_LIMIT = 30;
+const RECORDED_INTERVAL_TICKET_LIMIT = 30;
 const timeZoneOptions = getTimeZoneOptions();
 
 function QueueQrUnavailable() {
@@ -824,28 +825,6 @@ function mergeTheme(theme?: Partial<PublicBoardThemeSettings>): PublicBoardTheme
   };
 }
 
-function MetricCard({
-  label,
-  value,
-  detail,
-  tone = "light"
-}: {
-  label: string;
-  value: string | number;
-  detail: string;
-  tone?: "light" | "dark";
-}) {
-  return (
-    <Card className={tone === "dark" ? "neura-card neura-card-dark" : "neura-card"} padding="lg">
-      <Stack gap={18}>
-        <Text className="neura-label">{label}</Text>
-        <Title order={2}>{value}</Title>
-        <Text className="neura-muted">{detail}</Text>
-      </Stack>
-    </Card>
-  );
-}
-
 function ActivationPanel({ onViewPlans }: { onViewPlans: () => void }) {
   return (
     <Card className="neura-card neura-activation-card" padding="xl">
@@ -951,6 +930,7 @@ export default function VendorDashboardPage() {
   });
   const [accountProfileBusy, setAccountProfileBusy] = useState(false);
   const [accountPanelBusy, setAccountPanelBusy] = useState(false);
+  const [ratingsBusy, setRatingsBusy] = useState(false);
   const [accountPanelDraft, setAccountPanelDraft] = useState(false);
   const [mfaEnabled, setMfaEnabled] = useState(Boolean(user?.mfaEnabled));
   const [mfaSecret, setMfaSecret] = useState("");
@@ -2422,7 +2402,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       snapshot?.tenant.monitorUrl ||
       ""
   };
-  const ticketUsage = !dashboardBootstrapQuery.error && snapshot?.tenant.slug === selectedTenantSlug && snapshot?.location.slug === selectedLocationSlug ? snapshot.stats.servedToday : "—";
+  const ticketUsage = !dashboardBootstrapQuery.error && snapshot?.tenant.slug === selectedTenantSlug && snapshot?.location?.slug === selectedLocationSlug ? snapshot.stats.servedToday : "—";
   const configuredEmailJourneyLimit = activeSubscription?.entitlements.emailAlerts
     ? activeSubscription.entitlements.monthlyQueueEmailJourneys ??
       activeSubscription.entitlements.monthlyTransactionalEmails ??
@@ -2441,37 +2421,9 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         ? "Journeys started this period"
         : "Journey tracking pending rollout";
   const historyTickets = useMemo(() => history?.tickets || snapshot?.history || [], [history, snapshot]);
-  const serviceTrendBars = useMemo(
-    () =>
-      historyTickets
-        .filter((ticket) => ticket.status === "served")
-        .slice(0, SERVICE_TREND_USER_LIMIT)
-        .map((ticket, index, historyItems) => {
-          const currentTime = getHistoryTimestamp(ticket.updatedAt);
-          const nextTime = historyItems[index + 1]
-            ? getHistoryTimestamp(historyItems[index + 1].updatedAt)
-            : currentTime - (snapshot?.tenant.averageServiceMinutes || 5) * 60 * 1000;
-          const minutes = Math.max(1, Math.round(Math.abs(currentTime - nextTime) / 60000));
-
-          return {
-            label: ticket.ticketNumber,
-            minutes
-          };
-        })
-        .reverse(),
-    [historyTickets, snapshot?.tenant.averageServiceMinutes]
-  );
-  const averageServiceMinutes = serviceTrendBars.length
-    ? Math.round(
-        serviceTrendBars.reduce((total, bar) => total + bar.minutes, 0) /
-          serviceTrendBars.length
-      )
-    : 0;
-  const trendMax = Math.max(
-    ...serviceTrendBars.map((bar) => bar.minutes),
-    averageServiceMinutes,
-    1
-  );
+  const recordedIntervals = useMemo(() => servedTicketIntervals(snapshot?.history || [], RECORDED_INTERVAL_TICKET_LIMIT), [snapshot?.history]);
+  const averageRecordedInterval = recordedIntervals.length ? Math.round(recordedIntervals.reduce((total, bar)=>total+bar.minutes,0)/recordedIntervals.length*10)/10 : 0;
+  const intervalMaximum = Math.max(...recordedIntervals.map(bar=>bar.minutes),averageRecordedInterval,1);
   const overflowTickets = useMemo(() => snapshot?.overflow || [], [snapshot]);
   const currentQueueTickets = useMemo(
     () => (snapshot?.nextUp || []).filter((ticket) => !ticket.isCarriedOver),
@@ -4792,86 +4744,10 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     );
   }
 
-  function renderStats() {
-    return (
-      <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="md">
-        <MetricCard
-          label={snapshot?.location?.serviceTimingEnabled ? "Current ticket" : "Now serving"}
-          value={selectedCalledTicket?.ticketNumber || "--"}
-          detail={selectedCalledTicket?.customerName || "No active ticket for selected counter"}
-        />
-        <MetricCard
-          label="Waiting"
-          value={snapshot?.stats?.waitingCount ?? 0}
-          detail={`${snapshot?.stats?.estimatedWaitMinutes ?? 0} mins estimated`}
-        />
-        <MetricCard
-          label="Served today"
-          value={snapshot?.stats?.servedToday ?? 0}
-          detail="Across the selected tenant"
-        />
-      </SimpleGrid>
-    );
-  }
-
-  function renderServiceTrend() {
-    const chartWidth = 600;
-    const chartHeight = 180;
-    const chartPadding = 18;
-    const chartInnerWidth = chartWidth - chartPadding * 2;
-    const chartInnerHeight = chartHeight - chartPadding * 2;
-    const barSlotWidth = serviceTrendBars.length
-      ? chartInnerWidth / serviceTrendBars.length
-      : chartInnerWidth;
-    const averageLineY =
-      chartPadding + chartInnerHeight - (averageServiceMinutes / trendMax) * chartInnerHeight;
-
-    return (
-      <Card className="neura-card neura-card-dark" padding="lg">
-        <Group justify="space-between" align="flex-start">
-          <div>
-            <Text className="neura-label">Service time</Text>
-            <Title order={3}>Recent trend</Title>
-          </div>
-          {averageServiceMinutes ? <Badge variant="white">Avg {averageServiceMinutes}m</Badge> : null}
-        </Group>
-        <div className="neura-chart">
-          {serviceTrendBars.length ? (
-            <svg role="img" viewBox={`0 0 ${chartWidth} ${chartHeight}`} preserveAspectRatio="none">
-              <title>Last {serviceTrendBars.length} users served today with average service time</title>
-              {serviceTrendBars.map((bar, index) => {
-                const barHeight = (bar.minutes / trendMax) * chartInnerHeight;
-                const x = chartPadding + index * barSlotWidth + barSlotWidth * 0.18;
-                const y = chartPadding + chartInnerHeight - barHeight;
-
-                return (
-                  <rect
-                    className="neura-chart-bar"
-                    height={Math.max(4, barHeight)}
-                    key={bar.label}
-                    rx={6}
-                    width={Math.max(6, barSlotWidth * 0.64)}
-                    x={x}
-                    y={y}
-                  >
-                    <title>{`${bar.label}: ${bar.minutes} mins`}</title>
-                  </rect>
-                );
-              })}
-              <line
-                className="neura-chart-line"
-                x1={chartPadding}
-                x2={chartWidth - chartPadding}
-                y1={averageLineY}
-                y2={averageLineY}
-              />
-            </svg>
-          ) : (
-            <Text c="dimmed">Service trend appears after served tickets.</Text>
-          )}
-        </div>
-      </Card>
-    );
+  function renderRecordedIntervals() {
+    return <OperationPanel><div className="queue-stack"><div><h2 className="account-panel-title">Recent ticket activity</h2><p className="ops-muted">Intervals between recorded update times for served tickets in the current location snapshot. Each point uses two recorded timestamps.</p></div>
+      {recordedIntervals.length ? <><OperationMetric label="Average interval" value={`${averageRecordedInterval} min`} detail={`From ${recordedIntervals.length + 1} served-ticket records`} /><div className="report-intervals">{recordedIntervals.map((bar,index)=><div className="queue-stack" key={`${bar.label}:${index}`}><div className="ops-row ops-between"><span>{bar.label}</span><span>{bar.minutes} min</span></div><progress aria-label={`${bar.label}: ${bar.minutes} minute recorded interval`} max={intervalMaximum} value={bar.minutes} /></div>)}</div></> : <OperationEmpty title="More recorded activity needed" text="Intervals appear when this snapshot includes two served tickets with valid update times." />}
+    </div></OperationPanel>;
   }
 
   function renderQueuePage() {
@@ -9301,26 +9177,12 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
   }
 
   function renderReportsPage() {
-    return (
-      <Stack gap="md">
-        {renderStats()}
-        <SimpleGrid cols={{ base: 1, lg: 2 }} spacing="md">
-          <Card className="neura-card" padding="lg">
-            <Stack gap="md">
-              <div>
-                <Text className="neura-label">Usage</Text>
-                <Title order={3}>Plan consumption</Title>
-              </div>
-              <SimpleGrid cols={2}>
-                <MetricCard label="Tickets served today" value={ticketUsage} detail="At the selected location" />
-                <MetricCard label="Email journeys" value={`${emailJourneyUsage}/${emailJourneyLimit ?? "--"}`} detail={emailJourneyDetail} />
-              </SimpleGrid>
-            </Stack>
-          </Card>
-          {renderServiceTrend()}
-        </SimpleGrid>
-      </Stack>
-    );
+    const ready = !dashboardBootstrapQuery.error && snapshot?.tenant.slug === selectedTenantSlug && snapshot?.location?.slug === selectedLocationSlug;
+    if (!ready) return <OperationQueryState loading={!dashboardBootstrapQuery.error} error={dashboardBootstrapQuery.error} onRetry={()=>void dashboardBootstrapQuery.refetch()} />;
+    return <div className="config-page"><div className="ops-grid-2"><OperationMetric label="Waiting tickets" value={snapshot.stats.waitingCount} detail="At the selected location" /><OperationMetric label="Tickets served today" value={ticketUsage} detail="At the selected location" /><OperationMetric label="Estimated wait" value={`${snapshot.stats.estimatedWaitMinutes} min`} detail="Current queue estimate" /><OperationMetric label="Called ticket" value={selectedCalledTicket?.ticketNumber || "—"} detail={selectedCalledTicket?.customerName || "No called ticket for the selected counter"} /></div>
+      <OperationPanel><h2 className="account-panel-title">Email journey usage</h2><OperationQueryState loading={capacityExperienceQuery.isPending} error={capacityExperienceQuery.error} onRetry={()=>void capacityExperienceQuery.refetch()} />{!capacityExperienceQuery.isPending && !capacityExperienceQuery.error ? capacityExperienceQuery.data?.enabled && emailJourneyResource ? <OperationMetric label="Email journeys" value={`${emailJourneyResource.used}/${emailJourneyResource.limit}`} detail={emailJourneyDetail} /> : <p className="ops-muted">Period usage is unavailable for this workspace.</p> : null}</OperationPanel>
+      {renderRecordedIntervals()}
+    </div>;
   }
 
   function renderSecurityPage() {
@@ -11185,7 +11047,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     }
 
     if (currentSection === "ratings") {
-      return <VendorRatingsPanel key={selectedTenantSlug} token={token!} tenantSlug={selectedTenantSlug} />;
+      return <VendorRatingsPanel key={selectedTenantSlug} token={token!} tenantSlug={selectedTenantSlug} onBusyChange={setRatingsBusy} />;
     }
 
     if (currentSection === "account") {
@@ -11196,7 +11058,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
   }
 
   const canLeaveFeature = () => {
-    if (resourceConfigurationBusy || busyAction || boardScannerBusy || boardSettingsBusy || savingNotificationSettings || requestingBrowserPermission || accountProfileBusy || passwordBusy || mfaBusy || accountPanelBusy) return false;
+    if (resourceConfigurationBusy || busyAction || boardScannerBusy || boardSettingsBusy || savingNotificationSettings || requestingBrowserPermission || accountProfileBusy || passwordBusy || mfaBusy || accountPanelBusy || ratingsBusy) return false;
     const editing = unsavedForm.current.hasEdits() || themeDialogOpen || accountPanelDraft || Boolean(replacementPassword || replacementCode || removalPassword || removalCode || removalRecoveryCode);
     if (editing && !window.confirm("You have unsaved edits. Leave this view?")) return false;
     if (currentSection === "account" && accountTab === "security") {
@@ -11304,7 +11166,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       onWorkspace={switchWorkspace} onLogout={() => { if (canLeaveFeature()) void logout(); }} search={location.search} hash={location.hash}
       context={!requiresMfaEnrollment ? <>
         <ContextPicker label="Business" data={activeTenants.map((tenant) => ({ value: tenant.slug, label: tenant.name }))}
-          value={selectedTenantSlug} disabled={Boolean(busyAction) || boardScannerBusy || boardSettingsBusy || savingNotificationSettings || requestingBrowserPermission || accountPanelBusy || accountProfileBusy || passwordBusy || mfaBusy} onChange={(value) => {
+          value={selectedTenantSlug} disabled={Boolean(busyAction) || boardScannerBusy || boardSettingsBusy || savingNotificationSettings || requestingBrowserPermission || accountPanelBusy || accountProfileBusy || passwordBusy || mfaBusy || ratingsBusy} onChange={(value) => {
             if (!value || value === selectedTenantSlug || !canLeaveFeature()) return;
             setSnapshot(null); setLocations([]); setSelectedLocationSlug(""); setSelectedCounterSlug("");
             setServices([]); setStaff([]); setServiceCounters([]); setVendorBookings([]); setClients(null); setHistory(null); setBilling(null);
@@ -11320,7 +11182,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
             navigate(workspacePath(currentSection === "account" ? "account" : nextWorkspace === "administration" ? "settings" : "queue",
               nextWorkspace, location.search, location.hash));
           }} />
-        <ContextPicker data={locationOptions} label="Location" value={selectedLocationSlug} disabled={Boolean(busyAction) || boardScannerBusy || boardSettingsBusy || savingNotificationSettings || requestingBrowserPermission || accountPanelBusy || accountProfileBusy || passwordBusy || mfaBusy}
+        <ContextPicker data={locationOptions} label="Location" value={selectedLocationSlug} disabled={Boolean(busyAction) || boardScannerBusy || boardSettingsBusy || savingNotificationSettings || requestingBrowserPermission || accountPanelBusy || accountProfileBusy || passwordBusy || mfaBusy || ratingsBusy}
           onChange={(value) => { if (value && value !== selectedLocationSlug && canLeaveFeature()) { setSnapshot(null); setServiceCounters([]); setVendorBookings([]); setBookingPagination(null); setClients(null); setHistory(null); setBookingDetailOpen(false); setBookingDetailBooking(null); setBookingDetailModalId(null); setAvailabilityBlocks([]); setAvailabilityExceptions([]); setAvailabilitySummary(null); setSelectedCounterSlug(""); setSelectedLocationSlug(value); } }} />
       </> : <Badge color="orange" variant="light">MFA setup required</Badge>}
       dialogs={<>

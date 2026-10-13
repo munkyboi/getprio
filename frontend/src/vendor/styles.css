@@ -316,3 +316,8 @@
 .vendor-workspace .account-centered { align-items: center; text-align: center; }
 .vendor-workspace .account-secret { font-family: monospace; overflow-wrap: anywhere; }
 .vendor-workspace .account-capacity-progress { width: 100%; accent-color: var(--primary); }
+
+.vendor-workspace .report-intervals { display: flex; flex-direction: column; gap: 12px; }
+.vendor-workspace .report-intervals progress { width: 100%; accent-color: var(--primary); }
+
+.vendor-workspace .rating-comment { white-space: pre-wrap; overflow-wrap: anywhere; }

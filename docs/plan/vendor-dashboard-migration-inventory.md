@@ -129,3 +129,7 @@ All three current Locations tabs and their list/card/edit flows now use scoped c
 ### VD-08 local Account migration
 
 Existing Account routes and membership gates are retained. Profile/Security/Subscription/Billing now use scoped configuration tabs and forms; shared contact, Email OTP and deletion handlers adopt vendor controls through `AccountPresentation`/`AccountFields`, retaining customer fallback. Plan selection and capacity/paid-exit dialogs retain API bodies, confirmation tokens/revisions and checkout behavior. Server billing failures are blocked read states with retry; capability-disabled capacity remains hidden. Legacy customer presentations remain intentional consumers. Phone removal is unsupported by the current API and is an explicit acceptance gap rather than a fabricated UI control.
+
+### VD-09 local Reports/Ratings migration
+
+Reports now consumes scoped snapshot metrics and capability-gated period usage with loading/error/retry/unknown states. `vendor/reportState.ts` owns the actual recorded interval transformation. Unused legacy MetricCard/stat/chart presentation retired after its consumers migrated. Ratings uses scoped vendor primitives, actor/business/page query identity and guarded exact visibility writes. Existing backend endpoints, moderation/aggregate policy and staff navigation remain unchanged.

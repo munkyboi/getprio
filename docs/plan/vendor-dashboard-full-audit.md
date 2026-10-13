@@ -130,3 +130,7 @@ Settings presentation carries G02/G05/G09 forward through the existing four tabs
 ### Account contract verification during VD-08
 
 The API owner verified that vendor phone change supports only `phone-change/start` and `phone-change/verify-email`; normalization rejects empty/null values. Profile updates are limited to name/displayName. The phone-removal audit requirement remains unsupported and requires a separately agreed backend contract; account-deletion anonymization is not a substitute. No backend contract was changed for this presentation slice. Account billing failure/pending states, accurate daily ticket labels, shared challenge busy/draft guards and explicit MFA preservation prompts are included in the local migration. Live email delivery, authenticator/device interaction, permanent deletion/logout and payment/provider acceptance remain separate evidence gates.
+
+### VD-09 recorded activity correction
+
+The legacy Reports chart derived “service time” from adjacent ticket `updatedAt` values and inserted a configured average for its final point. These are not service durations. The migration preserves supplied activity through explicitly labeled intervals between actual served-ticket update records, omits inferred points and retains zero simultaneous intervals. True service-duration/resource reports remain dependent on authoritative runtime/session contracts. Ratings retains settings permission, paid-plan eligibility, moderation and aggregate semantics; no staff Reports access was added.
