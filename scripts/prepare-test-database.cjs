@@ -10,10 +10,10 @@ const DATABASES = {
 
 async function prepareTestDatabase(variable, { connectionString = process.env[variable], clientClass = Client } = {}) {
   const database = DATABASES[variable];
-  if (!Object.hasOwn(DATABASES, variable)) throw Error('Unsupported disposable test database.');
+  if (!Object.hasOwn(DATABASES, variable)) throw new Error('Unsupported disposable test database.');
   const url = new URL(connectionString);
   if (!['localhost', '127.0.0.1'].includes(url.hostname) || url.pathname !== `/${database.name}`) {
-    throw Error(`Only a local ${database.name} database may be bootstrapped.`);
+    throw new Error(`Only a local ${database.name} database may be bootstrapped.`);
   }
   const adminUrl = new URL(url);
   adminUrl.pathname = '/postgres';

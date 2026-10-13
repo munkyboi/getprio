@@ -1,1 +1,1 @@
-require('./prepare-test-database.cjs').runPreparation('ACCOUNT_DELETION_TEST_DATABASE_URL');
+void require('./prepare-test-database.cjs').runPreparation('ACCOUNT_DELETION_TEST_DATABASE_URL');
