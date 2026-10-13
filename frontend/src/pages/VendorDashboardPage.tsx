@@ -1,3 +1,5 @@
+import { ConfigurationScope, ConfigurationInput, ConfigurationPhone, ConfigurationCheck, ConfigurationSelect, ConfigurationFile, ConfigurationSection } from "../vendor/ConfigurationUi";
+import { Tabs as ConfigTabs, TabsList as ConfigTabsList, TabsTrigger as ConfigTabsTrigger, TabsContent as ConfigTabsContent } from "../vendor/components/ui/tabs";
 import { availableRescheduleSelection, boundedPage } from "../vendor/operationsState";
 import {
   OperationScope,
@@ -55,13 +57,11 @@ import {
   Image,
   Group,
   Modal,
-  MultiSelect,
   NumberInput,
   Notification,
   Paper,
   PasswordInput,
   Portal,
-  ScrollArea,
   Select,
   SegmentedControl,
   SimpleGrid,
@@ -89,7 +89,6 @@ import {
   IconAlertTriangle,
   IconClipboardList,
   IconCheck,
-  IconCopy,
   IconDownload,
   IconExternalLink,
   IconHistory,
@@ -110,7 +109,6 @@ import {
   IconUsersGroup
 } from "@tabler/icons-react";
 import { notifications } from "@mantine/notifications";
-import { useMediaQuery } from "@mantine/hooks";
 import { getDay } from "date-fns";
 import { Link, Navigate, NavLink, useLocation, useNavigate, useParams } from "react-router-dom";
 import type {
@@ -152,7 +150,6 @@ import { BusinessCategorySelect } from "../components/BusinessCategorySelect";
 import { VendorAccountDeletionPanel } from "../components/VendorAccountDeletionPanel";
 import { EmailMfaSettingsPanel } from "../components/EmailMfaSettingsPanel";
 import { API_BASE_URL } from "../api/client";
-import PhilippineMobileInput from "../components/PhilippineMobileInput";
 
 import CampaignDescriptionEditor from "../components/CampaignDescriptionEditor";
 import RichCampaignDescription from "../components/RichCampaignDescription";
@@ -204,16 +201,6 @@ import { checkCounterSlugAvailability } from "../api/vendorDashboardOperations";
 const dashboardSections = new Set(["queue", "tenants", "services", "bookings", "staff", "clients", "history", "reports", "ratings", "settings", "account"]);
 const SERVICE_TREND_USER_LIMIT = 30;
 const timeZoneOptions = getTimeZoneOptions();
-
-function ModalHelpIcon({ label }: { label: string }) {
-  return (
-    <Tooltip label={label} withArrow multiline w={260}>
-      <ActionIcon aria-label={label} color="gray" size="sm" variant="subtle">
-        <IconInfoCircle size={14} />
-      </ActionIcon>
-    </Tooltip>
-  );
-}
 
 function QueueQrUnavailable() {
   return (
@@ -950,7 +937,6 @@ export default function VendorDashboardPage() {
   const [locationSlugMessage, setLocationSlugMessage] = useState("");
   const [locationSlugAvailable, setLocationSlugAvailable] = useState(false);
   const [checkingLocationSlug, setCheckingLocationSlug] = useState(false);
-  const isMobileHoursLayout = useMediaQuery("(max-width: 48em)");
   const [paymentQrUploadFile, setPaymentQrUploadFile] = useState<File | null>(null);
   const [serviceDialogOpen, setServiceDialogOpen] = useState(false);
   const [editingServiceSlug, setEditingServiceSlug] = useState("");
@@ -961,6 +947,8 @@ export default function VendorDashboardPage() {
   const [serviceSlugAvailable, setServiceSlugAvailable] = useState(false);
   const [checkingServiceSlug, setCheckingServiceSlug] = useState(false);
   const [locationsTab, setLocationsTab] = useState("locations");
+  const [resourceConfigurationBusy, setResourceConfigurationBusy] = useState(false);
+  const [resourceConfigurationDialogOpen, setResourceConfigurationDialogOpen] = useState(false);
   const [servicesTab, setServicesTab] = useState<"catalog" | "weekly" | "exceptions">("catalog");
   const [availabilityBlockDialogOpen, setAvailabilityBlockDialogOpen] = useState(false);
   const [editingAvailabilityBlockId, setEditingAvailabilityBlockId] = useState("");
@@ -3497,6 +3485,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
   }
 
   function openCounterDialog(counter?: ServiceCounterSummary) {
+    setError("");
     setEditingCounterSlug(counter?.slug || "");
     setEditingCounterId(counter?.id || "");
     setCounterSlugManuallyEdited(Boolean(counter?.slug));
@@ -4203,524 +4192,572 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
   function renderLocationDialog() {
     const addInterval = (weekday: number) =>
       setLocationForm((current) => {
-        const nextInterval = { weekday, opensAt: "09:00", closesAt: "17:00", isClosed: false };
+        const nextInterval = {
+          weekday,
+          opensAt: "09:00",
+          closesAt: "17:00",
+          isClosed: false,
+        };
         const lastIntervalIndex = current.hours.reduce(
-          (lastIndex, item, itemIndex) => (item.weekday === weekday ? itemIndex : lastIndex),
-          -1
+          (lastIndex, item, itemIndex) =>
+            item.weekday === weekday ? itemIndex : lastIndex,
+          -1,
         );
-        const insertAt = lastIntervalIndex >= 0 ? lastIntervalIndex + 1 : current.hours.length;
-
+        const insertAt =
+          lastIntervalIndex >= 0 ? lastIntervalIndex + 1 : current.hours.length;
         return {
           ...current,
           hours: [
             ...current.hours.slice(0, insertAt),
             nextInterval,
-            ...current.hours.slice(insertAt)
-          ]
+            ...current.hours.slice(insertAt),
+          ],
         };
       });
     const removeInterval = (weekday: number, index: number) =>
       setLocationForm((current) => {
-        const dayCount = current.hours.filter((item) => item.weekday === weekday).length;
+        const dayCount = current.hours.filter(
+          (item) => item.weekday === weekday,
+        ).length;
         return {
           ...current,
-          hours: dayCount > 1
-            ? current.hours.filter((_, itemIndex) => itemIndex !== index)
-            : current.hours.map((item, itemIndex) =>
-                itemIndex === index ? { ...item, opensAt: "", closesAt: "", isClosed: true } : item
-              )
+          hours:
+            dayCount > 1
+              ? current.hours.filter((_, itemIndex) => itemIndex !== index)
+              : current.hours.map((item, itemIndex) =>
+                  itemIndex === index
+                    ? { ...item, opensAt: "", closesAt: "", isClosed: true }
+                    : item,
+                ),
         };
       });
+    const close = () => {
+      if (canLeaveFeature()) {
+        unsavedForm.current.discardId("vendor-location-editor");
+        setLocationDialogOpen(false);
+      }
+    };
     return (
-      <Modal
-        className="vendor-location-modal"
-        centered
+      <TaskDialog
         opened={locationDialogOpen}
-        onClose={() => setLocationDialogOpen(false)}
-        size="xl"
+        onClose={close}
+        busy={Boolean(busyAction)}
+        eyebrow="LOCATION SETTINGS"
         title={
-          <Stack gap={2}>
-            <Text className="service-dialog__modal-eyebrow">{editingLocationSlug ? "EDIT" : "ADD"} LOCATION</Text>
-            <Text className="service-dialog__modal-title">
-              {editingLocationSlug ? "Edit location" : "Add location"}
-            </Text>
-            <Text c="dimmed" size="sm">
-              Configure the branch profile, payment details, and hours that appear on the public queue pages.
-            </Text>
-          </Stack>
+          editingLocationSlug
+            ? `Edit ${locationForm.name || "location"}`
+            : "Add location"
         }
-        overlayProps={{ blur: 6, backgroundOpacity: 0.35 }}
+        description="Set the branch details, payment options and operating hours customers see."
+        footer={
+          <>
+            <OperationButton
+              className="ops-redundant-dismiss"
+              variant="outline"
+              onClick={close}
+            >
+              Cancel
+            </OperationButton>
+            <OperationButton
+              type="submit"
+              form="vendor-location-editor"
+              loading={busyAction === "location"}
+              disabled={Boolean(busyAction)}
+            >
+              Save location
+            </OperationButton>
+          </>
+        }
       >
-        <Stack className="vendor-location-modal__shell" gap={0}>
-          <ScrollArea className="vendor-location-modal__main" offsetScrollbars type="auto">
-            <Stack gap="md" pb="sm">
-          <ModalSection
-            title="Location profile"
-            description="These details identify the branch and shape how customers find it on the public queue pages."
+        <ConfigurationScope
+          busy={Boolean(busyAction)}
+          onEdit={(form) => unsavedForm.current.mark(form)}
+        >
+          <form
+            id="vendor-location-editor"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void saveLocation();
+            }}
+            className="ops-stack"
           >
-            <SimpleGrid cols={{ base: 1, md: 2 }}>
-              <FileInput
-                accept="image/png,image/jpeg,image/webp"
-                clearable
-                label="Branch image"
-                placeholder={locationForm.imageUrl ? "Replace branch image" : "Upload branch image"}
-                disabled={busyAction === "location-image-upload"}
-                onChange={(file) => uploadLocationImage(file)}
-              />
-                                  <TextInput
-                label="Branch image URL"
-                value={locationForm.imageUrl || ""}
-                onChange={(event) => setLocationForm((current) => ({ ...current, imageUrl: event.target.value }))}
-              />
-              {locationForm.imageUrl ? <Image alt="" h={120} radius="md" src={locationForm.imageUrl} /> : null}
-              <TextInput
-                name="locationName"
-                label="Location name"
-                required
-                description="Shown to customers and staff as the branch display name."
-                value={locationForm.name}
-                onChange={(event) => {
-                  const nextName = event.target.value;
-                  setLocationForm((current) => ({
-                    ...current,
-                    name: nextName,
-                    slug: locationSlugManuallyEdited ? current.slug : buildLocationSlug(nextName)
-                  }));
-                }}
-              />
-              <TextInput
-                name="locationSlug"
-                label={
-                  <Group gap={6} wrap="nowrap">
-                    <Text span size="sm" fw={500}>
-                      Slug
-                    </Text>
-                    <Text aria-hidden="true" c="red" component="span" size="sm">
-                      *
-                    </Text>
-                    <ModalHelpIcon label="This becomes part of the public URL for the location. Keep it short, lowercase, and URL-safe." />
-                  </Group>
-                }
-                required
-                withAsterisk={false}
-                readOnly={Boolean(editingLocationSlug)}
-                description={
-                  editingLocationSlug
-                    ? "Slug cannot be changed after the location is created."
-                    : checkingLocationSlug
-                      ? "Checking slug availability..."
-                      : locationSlugMessage
-                }
-                error={
-                  !editingLocationSlug && !locationSlugAvailable && locationForm.slug
-                    ? locationSlugMessage || "That location slug is already taken for this vendor."
-                    : undefined
-                }
-                value={locationForm.slug}
-                onChange={(event) => {
-                  setLocationSlugManuallyEdited(true);
-                  setLocationForm((current) => ({ ...current, slug: buildLocationSlug(event.target.value) }));
-                }}
-              />
-              <TextInput
-                name="addressLine1"
-                label="Address line 1"
-                description="Street address or landmark for the branch."
-                value={locationForm.addressLine1}
-                onChange={(event) =>
-                  setLocationForm((current) => ({ ...current, addressLine1: event.target.value }))
-                }
-              />
-              <TextInput
-                name="addressLine2"
-                label="Address line 2"
-                description="Optional unit, floor, or building detail."
-                value={locationForm.addressLine2}
-                onChange={(event) =>
-                  setLocationForm((current) => ({ ...current, addressLine2: event.target.value }))
-                }
-              />
-              <TextInput
-                name="city"
-                label="City"
-                value={locationForm.city}
-                onChange={(event) =>
-                  setLocationForm((current) => ({ ...current, city: event.target.value }))
-                }
-              />
-              <TextInput
-                name="province"
-                label="Province"
-                value={locationForm.province}
-                onChange={(event) =>
-                  setLocationForm((current) => ({ ...current, province: event.target.value }))
-                }
-              />
-              <TextInput
-                name="locationContactEmail"
-                label="Contact email"
-                description="Used for location-specific inquiries and notifications."
-                value={locationForm.contactEmail}
-                onChange={(event) =>
-                  setLocationForm((current) => ({ ...current, contactEmail: event.target.value }))
-                }
-              />
-              <PhilippineMobileInput
-                name="locationContactPhone"
-                label="Contact phone"
-                description="Displayed to customers when contact details are needed."
-                value={locationForm.contactPhone}
-                onChange={(nextValue) =>
-                  setLocationForm((current) => ({ ...current, contactPhone: nextValue }))
-                }
-              />
-              <Select
-                name="timezone"
-                label="Timezone"
-                description="Used for public hours and queue timing."
-                data={timeZoneOptions}
-                allowDeselect={false}
-                searchable
-                value={locationForm.timezone}
-                onChange={(value) =>
-                  value && setLocationForm((current) => ({ ...current, timezone: value }))
-                }
-              />
-            </SimpleGrid>
-          </ModalSection>
-
-          <ModalSection
-            title="Manual payment"
-            description="Optional payment details shown when this branch accepts manual payments."
-          >
-            <SimpleGrid cols={{ base: 1, md: 2 }}>
-              <Select
-                name="paymentMethodLabel"
-                label={
-                  <Group gap={6} wrap="nowrap">
-                    <Text span size="sm" fw={500}>
-                      Payment method
-                    </Text>
-                    <ModalHelpIcon label="Choose the payment destination customers will use for this branch." />
-                  </Group>
-                }
-                data={["GCash", "Maya", "Bank Transfer"]}
-                placeholder="Choose a payment method"
-                value={locationForm.paymentMethodLabel}
-                onChange={(value) => setLocationForm((current) => ({ ...current, paymentMethodLabel: value || "" }))}
-              />
-              {locationForm.paymentMethodLabel === "Bank Transfer" ? (
-                <TextInput
-                  name="paymentBankName"
-                  label="Bank name"
-                  placeholder="e.g. BPI, BDO, UnionBank"
-                  value={locationForm.paymentBankName}
-                  onChange={(event) => setLocationForm((current) => ({ ...current, paymentBankName: event.target.value }))}
+            {error ? (
+              <OperationAlert color="red" title="Unable to save location">
+                {error}
+              </OperationAlert>
+            ) : null}
+            <ConfigurationSection
+              title="Location profile"
+              description="These details identify the branch and shape how customers find it on the public queue pages."
+            >
+              <div className="ops-grid ops-grid-2">
+                <ConfigurationFile
+                  accept="image/png,image/jpeg,image/webp"
+                  label="Branch image"
+                  placeholder={
+                    locationForm.imageUrl
+                      ? "Replace branch image"
+                      : "Upload branch image"
+                  }
+                  disabled={busyAction === "location-image-upload"}
+                  onChange={(file) => uploadLocationImage(file)}
                 />
-              ) : null}
-              <TextInput
-                name="paymentAccountDisplayName"
-                label={locationForm.paymentMethodLabel === "Bank Transfer" ? "Account owner" : "Account display name"}
-                description={locationForm.paymentMethodLabel === "Bank Transfer" ? "Name of the bank account owner." : "Business or account holder name shown beside the QR code."}
-                placeholder={locationForm.paymentMethodLabel === "Bank Transfer" ? "Account owner name" : "Business or account name"}
-                value={locationForm.paymentAccountDisplayName}
-                onChange={(event) =>
-                  setLocationForm((current) => ({ ...current, paymentAccountDisplayName: event.target.value }))
-                }
-              />
-              <TextInput
-                name="paymentAccountIdentifierDisplay"
-                label={locationForm.paymentMethodLabel === "Bank Transfer" ? "Account number" : <Group gap={6} wrap="nowrap"><Text span size="sm" fw={500}>Masked account identifier</Text><ModalHelpIcon label="Use a partially hidden account number or suffix so customers can verify they are paying the right account without exposing the full value." /></Group>}
-                placeholder={locationForm.paymentMethodLabel === "Bank Transfer" ? "Bank account number" : "0917 *** 1234 or account suffix"}
-                value={locationForm.paymentAccountIdentifierDisplay}
+                <ConfigurationInput
+                  label="Branch image URL"
+                  value={locationForm.imageUrl || ""}
+                  onChange={(event) =>
+                    setLocationForm((current) => ({
+                      ...current,
+                      imageUrl: event.target.value,
+                    }))
+                  }
+                />
+                {locationForm.imageUrl ? (
+                  <img
+                    alt=""
+                    src={locationForm.imageUrl}
+                    className="config-image"
+                  />
+                ) : null}
+                <ConfigurationInput
+                  name="locationName"
+                  label="Location name"
+                  required
+                  description="Shown to customers and staff as the branch display name."
+                  value={locationForm.name}
+                  onChange={(event) => {
+                    const nextName = event.target.value;
+                    setLocationForm((current) => ({
+                      ...current,
+                      name: nextName,
+                      slug: locationSlugManuallyEdited
+                        ? current.slug
+                        : buildLocationSlug(nextName),
+                    }));
+                  }}
+                />
+                <ConfigurationInput
+                  name="locationSlug"
+                  label="Location link name"
+                  required
+                  readOnly={Boolean(editingLocationSlug)}
+                  description={
+                    editingLocationSlug
+                      ? "This link name cannot change after the location is created."
+                      : checkingLocationSlug
+                        ? "Checking link availability…"
+                        : locationSlugMessage || "A short, lowercase name used in public location links."
+                  }
+                  error={
+                    !editingLocationSlug &&
+                    !locationSlugAvailable &&
+                    locationForm.slug
+                      ? locationSlugMessage ||
+                        "This location link name is already taken."
+                      : undefined
+                  }
+                  value={locationForm.slug}
+                  onChange={(event) => {
+                    setLocationSlugManuallyEdited(true);
+                    setLocationForm((current) => ({
+                      ...current,
+                      slug: buildLocationSlug(event.target.value),
+                    }));
+                  }}
+                />
+                <ConfigurationInput
+                  name="addressLine1"
+                  label="Address line 1"
+                  description="Street address or landmark for the branch."
+                  value={locationForm.addressLine1}
+                  onChange={(event) =>
+                    setLocationForm((current) => ({
+                      ...current,
+                      addressLine1: event.target.value,
+                    }))
+                  }
+                />
+                <ConfigurationInput
+                  name="addressLine2"
+                  label="Address line 2"
+                  description="Optional unit, floor, or building detail."
+                  value={locationForm.addressLine2}
+                  onChange={(event) =>
+                    setLocationForm((current) => ({
+                      ...current,
+                      addressLine2: event.target.value,
+                    }))
+                  }
+                />
+                <ConfigurationInput
+                  name="city"
+                  label="City"
+                  value={locationForm.city}
+                  onChange={(event) =>
+                    setLocationForm((current) => ({
+                      ...current,
+                      city: event.target.value,
+                    }))
+                  }
+                />
+                <ConfigurationInput
+                  name="province"
+                  label="Province"
+                  value={locationForm.province}
+                  onChange={(event) =>
+                    setLocationForm((current) => ({
+                      ...current,
+                      province: event.target.value,
+                    }))
+                  }
+                />
+                <ConfigurationInput
+                  name="locationContactEmail"
+                  type="email"
+                  label="Contact email"
+                  description="Used for location-specific inquiries and notifications."
+                  value={locationForm.contactEmail}
+                  onChange={(event) =>
+                    setLocationForm((current) => ({
+                      ...current,
+                      contactEmail: event.target.value,
+                    }))
+                  }
+                />
+                <ConfigurationPhone
+                  name="locationContactPhone"
+                  label="Contact phone"
+                  description="Displayed to customers when contact details are needed."
+                  value={locationForm.contactPhone}
+                  onChange={(nextValue) =>
+                    setLocationForm((current) => ({
+                      ...current,
+                      contactPhone: nextValue,
+                    }))
+                  }
+                />
+                <ConfigurationSelect
+                  name="timezone"
+                  label="Timezone"
+                  description="Used for public hours and queue timing."
+                  data={timeZoneOptions}
+                  value={locationForm.timezone}
+                  onChange={(value) =>
+                    value &&
+                    setLocationForm((current) => ({
+                      ...current,
+                      timezone: value,
+                    }))
+                  }
+                />
+              </div>
+            </ConfigurationSection>
+
+            <ConfigurationSection
+              title="Manual payment"
+              description="Optional payment details shown when this branch accepts manual payments."
+            >
+              <div className="ops-grid ops-grid-2">
+                <ConfigurationSelect
+                  name="paymentMethodLabel"
+                  label="Payment method"
+                  description="Where customers should send payment for this location."
+                  data={["GCash", "Maya", "Bank Transfer"]}
+                  placeholder="Choose a payment method"
+                  value={locationForm.paymentMethodLabel}
+                  onChange={(value) =>
+                    setLocationForm((current) => ({
+                      ...current,
+                      paymentMethodLabel: value || "",
+                    }))
+                  }
+                />
+                {locationForm.paymentMethodLabel === "Bank Transfer" ? (
+                  <ConfigurationInput
+                    name="paymentBankName"
+                    label="Bank name"
+                    placeholder="e.g. BPI, BDO, UnionBank"
+                    value={locationForm.paymentBankName}
+                    onChange={(event) =>
+                      setLocationForm((current) => ({
+                        ...current,
+                        paymentBankName: event.target.value,
+                      }))
+                    }
+                  />
+                ) : null}
+                <ConfigurationInput
+                  name="paymentAccountDisplayName"
+                  label={
+                    locationForm.paymentMethodLabel === "Bank Transfer"
+                      ? "Account owner"
+                      : "Account display name"
+                  }
+                  description={
+                    locationForm.paymentMethodLabel === "Bank Transfer"
+                      ? "Name of the bank account owner."
+                      : "Business or account holder name shown beside the QR code."
+                  }
+                  placeholder={
+                    locationForm.paymentMethodLabel === "Bank Transfer"
+                      ? "Account owner name"
+                      : "Business or account name"
+                  }
+                  value={locationForm.paymentAccountDisplayName}
+                  onChange={(event) =>
+                    setLocationForm((current) => ({
+                      ...current,
+                      paymentAccountDisplayName: event.target.value,
+                    }))
+                  }
+                />
+                <ConfigurationInput
+                  name="paymentAccountIdentifierDisplay"
+                  description={locationForm.paymentMethodLabel === "Bank Transfer" ? "The account number customers use for bank transfers." : "Use a partially hidden number or suffix so customers can verify the account without exposing the full number."}
+                  label={
+                    locationForm.paymentMethodLabel === "Bank Transfer"
+                      ? "Account number"
+                      : "Masked account identifier"
+                  }
+                  placeholder={
+                    locationForm.paymentMethodLabel === "Bank Transfer"
+                      ? "Bank account number"
+                      : "0917 *** 1234 or account suffix"
+                  }
+                  value={locationForm.paymentAccountIdentifierDisplay}
+                  onChange={(event) =>
+                    setLocationForm((current) => ({
+                      ...current,
+                      paymentAccountIdentifierDisplay: event.target.value,
+                    }))
+                  }
+                />
+                {locationForm.paymentMethodLabel === "Bank Transfer" ? (
+                  <div className="ops-stack">
+                    <div className="config-media">
+                      <IconBuildingBank size={44} />
+                    </div>
+                    <p className="ops-muted">
+                      Customers will see your bank details instead of a QR code.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="ops-stack">
+                    <ConfigurationFile
+                      accept="image/jpeg,image/png,image/webp"
+                      disabled={busyAction === "payment-qr-upload"}
+                      label="QR image"
+                      description="Upload the QR code image customers should scan."
+                      onChange={(file) => {
+                        setPaymentQrUploadFile(file);
+                        void uploadLocationPaymentQr(file);
+                      }}
+                      placeholder={
+                        locationForm.paymentQrImageUrl
+                          ? "Replace QR image"
+                          : "Upload QR image"
+                      }
+                      value={paymentQrUploadFile}
+                    />
+                    {locationForm.paymentQrImageUrl ? (
+                      <img
+                        alt="Payment QR preview"
+                        src={locationForm.paymentQrImageUrl}
+                        className="config-image"
+                      />
+                    ) : null}
+                  </div>
+                )}
+              </div>
+              <ConfigurationCheck
+                name="paymentQrActive"
+                checked={locationForm.paymentQrActive}
+                label="Enable manual payment for this location"
+                description="Only turn this on if customers should see these payment details for this branch."
                 onChange={(event) =>
                   setLocationForm((current) => ({
                     ...current,
-                    paymentAccountIdentifierDisplay: event.target.value
+                    paymentQrActive: event.currentTarget.checked,
                   }))
                 }
               />
-              {locationForm.paymentMethodLabel === "Bank Transfer" ? (
-                <Stack align="center" gap="xs" justify="center" p="sm">
-                  <ThemeIcon color="blue" radius="xl" size={84} variant="light"><IconBuildingBank size={44} /></ThemeIcon>
-                  <Text c="dimmed" size="sm" ta="center">Customers will see your bank details instead of a QR code.</Text>
-                </Stack>
-              ) : (
-                <Stack gap="xs">
-                  <FileInput
-                    accept="image/jpeg,image/png,image/webp"
-                    clearable
-                    disabled={busyAction === "payment-qr-upload"}
-                    label="QR image"
-                    leftSection={<IconQrcode size={16} />}
-                    description="Upload the QR code image customers should scan."
-                    onChange={(file) => {
-                      setPaymentQrUploadFile(file);
-                      void uploadLocationPaymentQr(file);
-                    }}
-                    placeholder={locationForm.paymentQrImageUrl ? "Replace QR image" : "Upload QR image"}
-                    value={paymentQrUploadFile}
-                  />
-                  {locationForm.paymentQrImageUrl ? <Image alt="Payment QR preview" fit="contain" h={120} radius="sm" src={locationForm.paymentQrImageUrl} w={120} /> : null}
-                </Stack>
-              )}
-            </SimpleGrid>
-            <Switch
-              name="paymentQrActive"
-              checked={locationForm.paymentQrActive}
-              label="Enable manual payment for this location"
-              description="Only turn this on if customers should see these payment details for this branch."
-              onChange={(event) =>
-                setLocationForm((current) => ({ ...current, paymentQrActive: event.currentTarget.checked }))
-              }
-            />
-          </ModalSection>
+            </ConfigurationSection>
 
-          <ModalSection
-            title="Booking arrival"
-            description="Choose how customers join the live queue for their scheduled booking."
-          >
-            <Switch
-              checked={locationForm.customerSelfCheckInEnabled}
-              label="Allow customers to mark their arrival"
-              description="Customers can tap I’ve arrived within 15 minutes of their booked start. This accepts their declaration without verifying they are on site. Staff check-in remains available. Booking tickets cannot be called before their scheduled start."
-              onChange={(event) => setLocationForm((current) => ({ ...current, customerSelfCheckInEnabled: event.currentTarget.checked }))}
-            />
-          </ModalSection>
-          <ModalSection title="Service timing" description="Record when staff actually start and finish serving a customer.">
-            <Switch
-              checked={locationForm.serviceTimingEnabled}
-              label="Track service start and completion"
-              description="Use Call next, Start service, then Complete service. This records actual service time; it does not reserve resources or change wait estimates. Turning this off keeps unfinished records available for staff to resolve."
-              onChange={(event) => setLocationForm((current) => ({ ...current, serviceTimingEnabled: event.currentTarget.checked }))}
-            />
-          </ModalSection>
-          <ModalSection
-            title="Visibility and access"
-            description="These switches control whether the branch is active and whether it is treated as the main location."
-          >
-            <Group align="flex-start" wrap="wrap">
-              <Switch
-                name="isActiveLocation"
-                checked={locationForm.isActive}
-                label="Enable location"
-                description="Inactive locations stay saved but are hidden from normal use."
+            <ConfigurationSection
+              title="Booking arrival"
+              description="Choose how customers join the live queue for their scheduled booking."
+            >
+              <ConfigurationCheck
+                checked={locationForm.customerSelfCheckInEnabled}
+                label="Allow customers to mark their arrival"
+                description="Customers can tap I’ve arrived within 15 minutes of their booked start. This accepts their declaration without verifying they are on site. Staff check-in remains available. Booking tickets cannot be called before their scheduled start."
                 onChange={(event) =>
-                  setLocationForm((current) => ({ ...current, isActive: event.currentTarget.checked }))
+                  setLocationForm((current) => ({
+                    ...current,
+                    customerSelfCheckInEnabled: event.currentTarget.checked,
+                  }))
                 }
               />
-              <Checkbox
-                name="isPrimaryLocation"
-                checked={locationForm.isPrimary}
-                label={
-                  <Group gap={6} wrap="nowrap">
-                    <Text span size="sm" fw={500}>
-                      Primary location
-                    </Text>
-                    <ModalHelpIcon label="The primary location is used as the default branch in public and dashboard flows when no specific location is selected." />
-                  </Group>
-                }
+            </ConfigurationSection>
+            <ConfigurationSection
+              title="Service timing"
+              description="Record when staff actually start and finish serving a customer."
+            >
+              <ConfigurationCheck
+                checked={locationForm.serviceTimingEnabled}
+                label="Track service start and completion"
+                description="Use Call next, Start service, then Complete service. This records actual service time; it does not reserve resources or change wait estimates. Turning this off keeps unfinished records available for staff to resolve."
                 onChange={(event) =>
-                  setLocationForm((current) => ({ ...current, isPrimary: event.target.checked }))
+                  setLocationForm((current) => ({
+                    ...current,
+                    serviceTimingEnabled: event.currentTarget.checked,
+                  }))
                 }
               />
-            </Group>
-          </ModalSection>
+            </ConfigurationSection>
+            <ConfigurationSection
+              title="Visibility and access"
+              description="These switches control whether the branch is active and whether it is treated as the main location."
+            >
+              <div className="ops-row">
+                <ConfigurationCheck
+                  name="isActiveLocation"
+                  checked={locationForm.isActive}
+                  label="Enable location"
+                  description="Inactive locations stay saved but are hidden from normal use."
+                  onChange={(event) =>
+                    setLocationForm((current) => ({
+                      ...current,
+                      isActive: event.currentTarget.checked,
+                    }))
+                  }
+                />
+                <ConfigurationCheck
+                  name="isPrimaryLocation"
+                  description="Used as the default location in public pages and your dashboard."
+                  checked={locationForm.isPrimary}
+                  label="Primary location"
+                  onChange={(event) =>
+                    setLocationForm((current) => ({
+                      ...current,
+                      isPrimary: event.target.checked,
+                    }))
+                  }
+                />
+              </div>
+            </ConfigurationSection>
 
-          <ModalSection
-            title="Operating hours"
-            description="Set the default operating hours customers should see. Add multiple intervals when a location closes and reopens on the same day."
-          >
-            {isMobileHoursLayout ? (
-              <Stack gap="sm">
-                {getOrderedLocationHours(locationForm.hours).map(({ hour, index }) => {
-                  const dayLabel = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][hour.weekday];
-
-                  return (
-                    <Card key={`${hour.weekday}-${index}`} withBorder radius="lg" p="sm">
-                      <Stack gap="sm">
-                        <Group justify="space-between" align="flex-start">
-                          <Text fw={700}>{dayLabel}</Text>
-                          <Checkbox
-                            name={`hours.${index}.isClosed`}
-                            checked={hour.isClosed}
-                            label="Closed"
-                            description="Hide opening and closing times for this day."
+            <ConfigurationSection
+              title="Operating hours"
+              description="Set the default operating hours customers should see. Add multiple intervals when a location closes and reopens on the same day."
+            >
+              <div className="ops-stack">
+                {getOrderedLocationHours(locationForm.hours).map(
+                  ({ hour, index }) => (
+                    <div
+                      className="config-hour"
+                      key={`${hour.weekday}-${index}`}
+                    >
+                      <div className="ops-row ops-between">
+                        <p className="ops-strong">
+                          {
+                            [
+                              "Sunday",
+                              "Monday",
+                              "Tuesday",
+                              "Wednesday",
+                              "Thursday",
+                              "Friday",
+                              "Saturday",
+                            ][hour.weekday]
+                          }
+                        </p>
+                        <ConfigurationCheck
+                          name={`hours.${index}.isClosed`}
+                          checked={hour.isClosed}
+                          label="Closed"
+                          onChange={(event) =>
+                            setLocationForm((current) => ({
+                              ...current,
+                              hours: current.hours.map((item, i) =>
+                                i === index
+                                  ? { ...item, isClosed: event.target.checked }
+                                  : item,
+                              ),
+                            }))
+                          }
+                        />
+                      </div>
+                      {!hour.isClosed ? (
+                        <div className="ops-grid ops-grid-2">
+                          <ConfigurationInput
+                            name={`hours.${index}.opensAt`}
+                            label="Opens"
+                            type="time"
+                            required
+                            value={hour.opensAt}
                             onChange={(event) =>
                               setLocationForm((current) => ({
                                 ...current,
-                                hours: current.hours.map((item, itemIndex) =>
-                                  itemIndex === index
-                                    ? { ...item, isClosed: event.target.checked }
-                                    : item
-                                )
+                                hours: current.hours.map((item, i) =>
+                                  i === index
+                                    ? { ...item, opensAt: event.target.value }
+                                    : item,
+                                ),
                               }))
                             }
                           />
-                        </Group>
-                        {!hour.isClosed ? (
-                          <SimpleGrid cols={2} spacing="sm">
-                            <TextInput
-                              name={`hours.${index}.opensAt`}
-                              label="Opens"
-                              type="time"
-                              value={hour.opensAt}
-                              onChange={(event) =>
-                                setLocationForm((current) => ({
-                                  ...current,
-                                  hours: current.hours.map((item, itemIndex) =>
-                                    itemIndex === index
-                                      ? { ...item, opensAt: event.target.value }
-                                      : item
-                                  )
-                                }))
-                              }
-                            />
-                            <TextInput
-                              name={`hours.${index}.closesAt`}
-                              label="Closes"
-                              type="time"
-                              value={hour.closesAt}
-                              onChange={(event) =>
-                                setLocationForm((current) => ({
-                                  ...current,
-                                  hours: current.hours.map((item, itemIndex) =>
-                                    itemIndex === index
-                                      ? { ...item, closesAt: event.target.value }
-                                      : item
-                                  )
-                                }))
-                              }
-                            />
-                          </SimpleGrid>
-                        ) : null}
-                        <Group gap="xs">
-                          <Button size="compact-sm" variant="subtle" onClick={() => addInterval(hour.weekday)}>
-                            Add interval
-                          </Button>
-                          <Button
-                            color="red"
-                            size="compact-sm"
-                            variant="subtle"
-                            onClick={() => removeInterval(hour.weekday, index)}
-                          >
-                            Remove interval
-                          </Button>
-                        </Group>
-                      </Stack>
-                    </Card>
-                  );
-                })}
-              </Stack>
-            ) : (
-              <ScrollArea offsetScrollbars type="auto">
-                <Box miw={700} pb="xs">
-                  <Table className="vendor-operating-hours-table">
-                    <Table.Thead>
-                      <Table.Tr>
-                        <Table.Th>Day</Table.Th>
-                        <Table.Th>Closed</Table.Th>
-                        <Table.Th>Opens</Table.Th>
-                        <Table.Th>Closes</Table.Th>
-                        <Table.Th>Actions</Table.Th>
-                      </Table.Tr>
-                    </Table.Thead>
-                    <Table.Tbody>
-                      {getOrderedLocationHours(locationForm.hours).map(({ hour, index, isFirstForDay, isLastForDay }) => (
-                        <Table.Tr
-                          key={`${hour.weekday}-${index}`}
-                          className={isLastForDay ? "vendor-operating-hours-table__group-end" : undefined}
+                          <ConfigurationInput
+                            name={`hours.${index}.closesAt`}
+                            label="Closes"
+                            type="time"
+                            required
+                            value={hour.closesAt}
+                            onChange={(event) =>
+                              setLocationForm((current) => ({
+                                ...current,
+                                hours: current.hours.map((item, i) =>
+                                  i === index
+                                    ? { ...item, closesAt: event.target.value }
+                                    : item,
+                                ),
+                              }))
+                            }
+                          />
+                        </div>
+                      ) : null}
+                      <div className="ops-row">
+                        <OperationButton
+                          variant="outline"
+                          onClick={() => {
+                            unsavedForm.current.mark(
+                              document.getElementById("vendor-location-editor"),
+                            );
+                            addInterval(hour.weekday);
+                          }}
                         >
-                          <Table.Td>
-                            {isFirstForDay ? ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][hour.weekday] : null}
-                          </Table.Td>
-                          <Table.Td>
-                            <Checkbox
-                              name={`hours.${index}.isClosed`}
-                              checked={hour.isClosed}
-                              onChange={(event) =>
-                                setLocationForm((current) => ({
-                                  ...current,
-                                  hours: current.hours.map((item, itemIndex) =>
-                                    itemIndex === index
-                                      ? { ...item, isClosed: event.target.checked }
-                                      : item
-                                  )
-                                }))
-                              }
-                            />
-                          </Table.Td>
-                          <Table.Td>
-                            <TextInput
-                              name={`hours.${index}.opensAt`}
-                              disabled={hour.isClosed}
-                              type="time"
-                              value={hour.opensAt}
-                              onChange={(event) =>
-                                setLocationForm((current) => ({
-                                  ...current,
-                                  hours: current.hours.map((item, itemIndex) =>
-                                    itemIndex === index
-                                      ? { ...item, opensAt: event.target.value }
-                                      : item
-                                  )
-                                }))
-                              }
-                            />
-                          </Table.Td>
-                          <Table.Td>
-                            <TextInput
-                              name={`hours.${index}.closesAt`}
-                              disabled={hour.isClosed}
-                              type="time"
-                              value={hour.closesAt}
-                              onChange={(event) =>
-                                setLocationForm((current) => ({
-                                  ...current,
-                                  hours: current.hours.map((item, itemIndex) =>
-                                    itemIndex === index
-                                      ? { ...item, closesAt: event.target.value }
-                                      : item
-                                  )
-                                }))
-                              }
-                            />
-                        </Table.Td>
-                        <Table.Td>
-                          <Group gap="xs" wrap="nowrap">
-                            <Button size="compact-sm" variant="subtle" onClick={() => addInterval(hour.weekday)}>
-                              Add
-                            </Button>
-                            <Button
-                              color="red"
-                              size="compact-sm"
-                              variant="subtle"
-                              onClick={() => removeInterval(hour.weekday, index)}
-                            >
-                              Remove
-                            </Button>
-                          </Group>
-                        </Table.Td>
-                      </Table.Tr>
-                    ))}
-                  </Table.Tbody>
-                </Table>
-              </Box>
-            </ScrollArea>
-            )}
-          </ModalSection>
-            </Stack>
-          </ScrollArea>
-          <Group justify="flex-end" className="service-dialog__footer vendor-location-modal__footer">
-            <Button variant="default" onClick={() => setLocationDialogOpen(false)}>
-              Cancel
-            </Button>
-            <Button className="neura-primary-button" disabled={busyAction === "location"} onClick={saveLocation}>
-              {busyAction === "location" ? "Saving..." : "Save location"}
-            </Button>
-          </Group>
-        </Stack>
-      </Modal>
+                          Add interval
+                        </OperationButton>
+                        <OperationButton
+                          variant="outline"
+                          onClick={() => {
+                            unsavedForm.current.mark(
+                              document.getElementById("vendor-location-editor"),
+                            );
+                            removeInterval(hour.weekday, index);
+                          }}
+                        >
+                          Remove interval
+                        </OperationButton>
+                      </div>
+                    </div>
+                  ),
+                )}
+              </div>
+            </ConfigurationSection>
+          </form>
+        </ConfigurationScope>
+      </TaskDialog>
     );
   }
 
@@ -6312,6 +6349,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
   }
 
   function openLocationDialog(locationItem?: StoreLocationWithHours) {
+    setError("");
     setPaymentQrUploadFile(null);
     if (locationItem) {
       setEditingLocationSlug(locationItem.slug);
@@ -6467,6 +6505,12 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         payload
       );
 
+      // Keep the server-created target if the separate hours write needs a retry.
+      setEditingLocationSlug(locationResponse.location.slug);
+      setEditingLocationId(locationResponse.location.id);
+      setLocationSlugManuallyEdited(true);
+      setLocationForm(current=>({...current,slug:locationResponse.location.slug}));
+
       const hoursResponse = await vendorDashboardOperations.saveLocationHours(
         token,
         selectedTenantSlug,
@@ -6483,6 +6527,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         : current);
       await queryClient.invalidateQueries({ queryKey: ["vendor-dashboard-queue-lifecycle", token, selectedTenantSlug] });
       setSelectedLocationSlug(hoursResponse.location.slug);
+      unsavedForm.current.discardId("vendor-location-editor");
       setLocationDialogOpen(false);
       setPaymentQrUploadFile(null);
       showSuccessNotification(
@@ -6496,219 +6541,376 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     }
   }
 
+  function selectConfigurationLocation(slug: string) {
+    if (slug === selectedLocationSlug || !canLeaveFeature()) return;
+    setSnapshot(null);
+    setServiceCounters([]);
+    setVendorBookings([]);
+    setBookingPagination(null);
+    setClients(null);
+    setHistory(null);
+    setBookingDetailOpen(false);
+    setBookingDetailBooking(null);
+    setBookingDetailModalId(null);
+    setSelectedCounterSlug("");
+    setSelectedLocationSlug(slug);
+  }
   function renderTenantsPage() {
+    const admin = isOwner || isAdmin;
     return (
-      <Tabs
-        className="vendor-location-settings-tabs"
-        keepMounted
-        value={locationsTab === "resources" && !(isOwner || isAdmin) ? "locations" : locationsTab}
-        onChange={(value) => setLocationsTab(value || "locations")}
+      <ConfigurationScope
+        busy={Boolean(busyAction)}
+        onEdit={(form) => unsavedForm.current.mark(form)}
       >
-        <Tabs.List aria-label="Location settings">
-          <Tabs.Tab value="locations">Locations</Tabs.Tab>
-          {isOwner || isAdmin ? <Tabs.Tab value="resources">Resources</Tabs.Tab> : null}
-          <Tabs.Tab value="counters">Counters</Tabs.Tab>
-        </Tabs.List>
-        <Tabs.Panel value="locations" pt="lg">
-          <Stack gap="md">
-        <Group justify="space-between">
-          <div>
-            <Text className="neura-label">Locations</Text>
-            <Title order={3}>Store locations</Title>
-            <Text c="dimmed" size="sm">
-              {locations.filter((item) => item.isActive).length}/{activeLocationLimit} active locations
-            </Text>
-          </div>
-          <Button className="neura-primary-button" onClick={() => openLocationDialog()}>
-            Add location
-          </Button>
-        </Group>
-        <SimpleGrid cols={{ base: 1, md: 2 }} spacing="md">
-        {locations.map((locationItem) => (
-          <Card className="neura-card" key={locationItem.id} padding="lg">
-            <Stack gap="md">
-              <Group justify="space-between">
-                <div>
-                  <Text className="neura-label">{locationItem.timezone}</Text>
-                  <Title order={3}>{locationItem.name}</Title>
-                  <Text c="dimmed">
-                    {[locationItem.addressLine1, locationItem.city, locationItem.province]
-                      .filter(Boolean)
-                      .join(", ") || `/${locationItem.slug}`}
-                  </Text>
-                </div>
-                <Group gap="xs">
-                  {locationItem.isPrimary ? <Badge>Primary</Badge> : null}
-                  <Badge color={locationItem.isActive && locationItem.openStatus.isOpen ? "teal" : "red"}>
-                    {locationItem.isActive && locationItem.openStatus.isOpen ? "Open" : "Closed"}
-                  </Badge>
-                  {locationItem.paymentQrActive ? (
-                    <Badge color="yellow" variant="light">Payment QR</Badge>
-                  ) : null}
-                </Group>
-              </Group>
-              {locationItem.paymentQrActive ? (
-                <Text size="sm" c="dimmed">
-                  {locationItem.paymentMethodLabel} · {locationItem.paymentAccountDisplayName}
-                </Text>
-              ) : null}
-              <Switch
-                checked={locationItem.isActive}
-                disabled={busyAction === `location-status:${locationItem.slug}`}
-                label={locationItem.isActive ? "Location enabled" : "Location disabled"}
-                onChange={(event) => handleToggleLocationActive(locationItem, event.currentTarget.checked)}
-              />
-              <Text size="sm" c="dimmed">
-                Today{locationItem.openStatus.today
-                  ? `, ${["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][locationItem.openStatus.today.weekday]}`
-                  : ""} · {formatStoreHourRange(locationItem.openStatus.today)}
-              </Text>
-              <TextInput
-                label="Join URL"
-                onClick={() => void copyLocationUrl("Join URL", locationItem.joinUrl)}
-                onFocus={(event) => event.currentTarget.select()}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" || event.key === " ") {
-                    event.preventDefault();
-                    void copyLocationUrl("Join URL", locationItem.joinUrl);
-                  }
-                }}
-                readOnly
-                rightSection={<IconCopy aria-hidden="true" size={16} />}
-                rightSectionPointerEvents="none"
-                styles={{ input: { cursor: "copy" } }}
-                title="Click to copy Join URL"
-                value={locationItem.joinUrl}
-              />
-              <TextInput
-                label="Mobile queue QR target"
-                onClick={() => void copyLocationUrl("QR target", locationItem.qrJoinUrl || locationItem.joinUrl)}
-                onFocus={(event) => event.currentTarget.select()}
-                readOnly
-                rightSection={<IconCopy aria-hidden="true" size={16} />}
-                rightSectionPointerEvents="none"
-                styles={{ input: { cursor: "copy" } }}
-                title="Click to copy mobile queue QR target"
-                value={locationItem.qrJoinUrl || locationItem.joinUrl}
-              />
-              <TextInput
-                label="Queue board URL"
-                onClick={() => void copyLocationUrl("Monitor URL", locationItem.monitorUrl)}
-                onFocus={(event) => event.currentTarget.select()}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" || event.key === " ") {
-                    event.preventDefault();
-                    void copyLocationUrl("Monitor URL", locationItem.monitorUrl);
-                  }
-                }}
-                readOnly
-                rightSection={<IconCopy aria-hidden="true" size={16} />}
-                rightSectionPointerEvents="none"
-                styles={{ input: { cursor: "copy" } }}
-                title="Click to copy queue board URL"
-                value={locationItem.monitorUrl}
-              />
-              <Group>
-                <Button
-                  disabled={busyAction === `location-qr:${locationItem.slug}`}
-                  onClick={() => void handleRegenerateLocationQueueQr(locationItem)}
-                  variant="light"
-                >
-                  {busyAction === `location-qr:${locationItem.slug}` ? "Regenerating..." : "Regenerate queue QR"}
-                </Button>
-                <Button variant="default" onClick={() => setSelectedLocationSlug(locationItem.slug)}>
-                  Select
-                </Button>
-                <Button variant="default" onClick={() => openLocationDialog(locationItem)}>
-                  Edit
-                </Button>
-                {effectiveEntitlements?.brandedQueuePages ? (
-                  <Button className="neura-secondary-button" onClick={() => openThemeDialog(locationItem)}>
-                    Setup Theme
-                  </Button>
-                ) : null}
-              </Group>
-            </Stack>
-          </Card>
-        ))}
-        </SimpleGrid>
-          </Stack>
-        </Tabs.Panel>
-        <Tabs.Panel value="resources" pt="lg">
-        {token && selectedTenantSlug && selectedLocationSlug && (isOwner || isAdmin) ? (
-          <VendorResourceConfiguration
-            key={`${selectedTenantSlug}:${selectedLocationSlug}`}
-            token={token} tenantSlug={selectedTenantSlug} locationSlug={selectedLocationSlug}
-            locationName={locations.find((item) => item.slug === selectedLocationSlug)?.name || selectedLocationSlug}
-          />
-        ) : null}
-        </Tabs.Panel>
-        <Tabs.Panel value="counters" pt="lg">
-        <Card className="neura-card" padding="lg">
-          <Stack gap="md">
-            <Group justify="space-between">
-              <div>
-                <Text className="neura-label">Counters</Text>
-                <Title order={3}>Service counters</Title>
-                <Text c="dimmed" size="sm">{selectedLocation?.name || "Select a location"}</Text>
-              </div>
-              <Badge variant="light">{serviceCounters.length}/{counterLimit}</Badge>
-            </Group>
-            <SimpleGrid cols={{ base: 1, md: 3 }}>
-              {serviceCounters.map((counter) => (
-                <Paper key={counter.id} p="md" withBorder>
-                  <Group justify="space-between" mb="xs">
-                    <Text fw={700}>{counter.name}</Text>
-                    <Switch
-                      checked={counter.isActive}
-                      disabled={busyAction === `counter-status:${counter.slug}`}
-                      label={counter.isActive ? "Enabled" : "Disabled"}
-                      onChange={(event) => handleToggleCounterActive(counter, event.currentTarget.checked)}
-                    />
-                  </Group>
-                  <Text c="dimmed" size="sm">
-                    {counter.assignedUserIds
-                      .map((userId) => staff.find((member) => member.id === userId)?.name)
-                      .filter(Boolean)
-                      .join(", ") || "No staff assigned"}
-                  </Text>
-                  <Group gap="xs" mt="md">
-                    <Button size="xs" variant="default" onClick={() => openCounterDialog(counter)}>
-                      Edit
-                    </Button>
-                    <Button
-                      color="red"
-                      size="xs"
-                      variant="light"
-                      onClick={() =>
-                        openConfirmAction({
-                          title: "Remove counter?",
-                          description: "This will permanently remove the counter from the location.",
-                          confirmLabel: "Remove counter",
-                          confirmColor: "red",
-                          onConfirm: async () => {
-                            await handleDeleteCounter(counter);
-                          }
-                        })
-                      }
-                    >
-                      Remove
-                    </Button>
-                  </Group>
-                </Paper>
-              ))}
-            </SimpleGrid>
-            <Button
-              className="neura-secondary-button"
-              disabled={!selectedLocation || serviceCounters.length >= counterLimit}
-              onClick={() => openCounterDialog()}
+        <ConfigTabs
+          value={
+            locationsTab === "resources" && !admin ? "locations" : locationsTab
+          }
+          onValueChange={(value) => {
+            if (!busyAction && !resourceConfigurationBusy)
+              setLocationsTab(String(value));
+          }}
+        >
+          <ConfigTabsList
+            activateOnFocus
+            aria-label="Location settings"
+            className="config-tabs-list"
+          >
+            <ConfigTabsTrigger
+              disabled={Boolean(busyAction) || resourceConfigurationBusy}
+              value="locations"
             >
-              Add counter
-            </Button>
-          </Stack>
-        </Card>
-        </Tabs.Panel>
-      </Tabs>
+              Locations
+            </ConfigTabsTrigger>
+            {admin ? (
+              <ConfigTabsTrigger
+                disabled={Boolean(busyAction) || resourceConfigurationBusy}
+                value="resources"
+              >
+                Resources
+              </ConfigTabsTrigger>
+            ) : null}
+            <ConfigTabsTrigger
+              disabled={Boolean(busyAction) || resourceConfigurationBusy}
+              value="counters"
+            >
+              Counters
+            </ConfigTabsTrigger>
+          </ConfigTabsList>
+          {error && !locationDialogOpen && !counterDialogOpen ? (
+            <OperationAlert color="red" title="Unable to complete the action">
+              {error}
+            </OperationAlert>
+          ) : null}
+          <ConfigTabsContent value="locations" keepMounted>
+            <div className="ops-stack">
+              <div className="ops-row ops-between">
+                <div>
+                  <h2 className="ops-heading">Store locations</h2>
+                  <p className="ops-muted">
+                    {locations.filter((item) => item.isActive).length} of{" "}
+                    {activeLocationLimit} active locations allowed
+                  </p>
+                </div>
+                <OperationButton
+                  disabled={
+                    !admin ||
+                    dashboardBootstrapQuery.isPending ||
+                    dashboardBootstrapQuery.isError
+                  }
+                  onClick={() => openLocationDialog()}
+                >
+                  Add location
+                </OperationButton>
+              </div>
+              {dashboardBootstrapQuery.isPending ||
+              dashboardBootstrapQuery.isError ? (
+                <OperationQueryState
+                  loading={dashboardBootstrapQuery.isPending}
+                  error={dashboardBootstrapQuery.error}
+                  onRetry={() => void retryDashboardContext()}
+                />
+              ) : (
+                <>
+                  {!locations.length ? (
+                    <OperationEmpty
+                      title="No locations yet"
+                      text="Add a location to set its hours and manage its queue."
+                    />
+                  ) : null}
+                  <div className="ops-grid ops-grid-2">
+                    {locations.map((item) => (
+                      <OperationPanel key={item.id}>
+                        <div className="ops-stack">
+                          <div className="ops-row ops-between">
+                            <div>
+                              <h3 className="ops-heading">{item.name}</h3>
+                              <p className="ops-muted">
+                                {[item.addressLine1, item.city, item.province]
+                                  .filter(Boolean)
+                                  .join(", ") || `/${item.slug}`}
+                              </p>
+                            </div>
+                            <div className="ops-row config-statuses">
+                              {item.isPrimary ? (
+                                <QueueBadge variant="secondary">
+                                  Primary
+                                </QueueBadge>
+                              ) : null}
+                              <QueueBadge
+                                variant={
+                                  item.isActive && item.openStatus.isOpen
+                                    ? "secondary"
+                                    : "outline"
+                                }
+                              >
+                                {item.isActive && item.openStatus.isOpen
+                                  ? "Open"
+                                  : "Closed"}
+                              </QueueBadge>
+                              {item.paymentQrActive ? (
+                                <QueueBadge variant="outline">
+                                  Manual payment
+                                </QueueBadge>
+                              ) : null}
+                            </div>
+                          </div>
+                          <p className="ops-muted">
+                            {item.timezone} · Today
+                            {item.openStatus.today
+                              ? `, ${["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][item.openStatus.today.weekday]}`
+                              : ""}{" "}
+                            · {formatStoreHourRange(item.openStatus.today)}
+                          </p>
+                          {item.paymentQrActive ? (
+                            <p className="ops-muted">
+                              {item.paymentMethodLabel} ·{" "}
+                              {item.paymentAccountDisplayName}
+                            </p>
+                          ) : null}
+                          <ConfigurationCheck
+                            checked={item.isActive}
+                            disabled={!admin}
+                            label={
+                              item.isActive
+                                ? "Location enabled"
+                                : "Location disabled"
+                            }
+                            onChange={(event) =>
+                              void handleToggleLocationActive(
+                                item,
+                                event.currentTarget.checked,
+                              )
+                            }
+                          />
+                          <div className="ops-stack">
+                            <QueueCopyField
+                              label="Join URL"
+                              value={item.joinUrl}
+                              onClick={() =>
+                                void copyLocationUrl("Join URL", item.joinUrl)
+                              }
+                            />
+                            <QueueCopyField
+                              label="Mobile queue QR target"
+                              value={item.qrJoinUrl || item.joinUrl}
+                              onClick={() =>
+                                void copyLocationUrl(
+                                  "QR target",
+                                  item.qrJoinUrl || item.joinUrl,
+                                )
+                              }
+                            />
+                            <QueueCopyField
+                              label="Queue board URL"
+                              value={item.monitorUrl}
+                              onClick={() =>
+                                void copyLocationUrl(
+                                  "Queue board URL",
+                                  item.monitorUrl,
+                                )
+                              }
+                            />
+                          </div>
+                          <div className="ops-row config-actions">
+                            <OperationButton
+                              variant="outline"
+                              loading={
+                                busyAction === `location-qr:${item.slug}`
+                              }
+                              onClick={() =>
+                                void handleRegenerateLocationQueueQr(item)
+                              }
+                            >
+                              Regenerate queue QR
+                            </OperationButton>
+                            <OperationButton
+                              variant="outline"
+                              disabled={item.slug === selectedLocationSlug}
+                              onClick={() =>
+                                selectConfigurationLocation(item.slug)
+                              }
+                            >
+                              {item.slug === selectedLocationSlug
+                                ? "Selected location"
+                                : "Select location"}
+                            </OperationButton>
+                            <OperationButton
+                              variant="outline"
+                              onClick={() => openLocationDialog(item)}
+                              aria-label={`Edit ${item.name} location`}
+                            >
+                              Edit location
+                            </OperationButton>
+                            {effectiveEntitlements?.brandedQueuePages ? (
+                              <OperationButton
+                                variant="outline"
+                                onClick={() => openThemeDialog(item)}
+                              >
+                                Set up theme
+                              </OperationButton>
+                            ) : null}
+                          </div>
+                        </div>
+                      </OperationPanel>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          </ConfigTabsContent>
+          <ConfigTabsContent value="resources" keepMounted>
+            {token && selectedTenantSlug && selectedLocationSlug && admin ? (
+              <VendorResourceConfiguration
+                key={`${selectedTenantSlug}:${selectedLocationSlug}`}
+                token={token}
+                tenantSlug={selectedTenantSlug}
+                locationSlug={selectedLocationSlug}
+                locationName={selectedLocation?.name || selectedLocationSlug}
+                onBusyChange={setResourceConfigurationBusy}
+                onDialogChange={setResourceConfigurationDialogOpen}
+                onDiscard={(id) => unsavedForm.current.discardId(id)}
+              />
+            ) : (
+              <OperationEmpty
+                title="Select a location"
+                text="Choose a location to configure its resource pools and service requirements."
+              />
+            )}
+          </ConfigTabsContent>
+          <ConfigTabsContent value="counters" keepMounted>
+            <div className="ops-stack">
+              <div className="ops-row ops-between">
+                <div>
+                  <h2 className="ops-heading">Service counters</h2>
+                  <p className="ops-muted">
+                    {selectedLocation?.name || "Select a location"} ·{" "}
+                    {serviceCounters.length} of {counterLimit} counters allowed
+                  </p>
+                </div>
+                <OperationButton
+                  disabled={
+                    !admin ||
+                    !selectedLocation ||
+                    countersQuery.isPending ||
+                    countersQuery.isError ||
+                    serviceCounters.length >= counterLimit
+                  }
+                  onClick={() => openCounterDialog()}
+                >
+                  Add counter
+                </OperationButton>
+              </div>
+              {!selectedLocation ? (
+                <OperationEmpty
+                  title="Select a location"
+                  text="Counters belong to a location. Select one to manage its dispatch lanes."
+                />
+              ) : countersQuery.isPending || countersQuery.isError ? (
+                <OperationQueryState
+                  loading={countersQuery.isPending}
+                  error={countersQuery.error}
+                  onRetry={() => void countersQuery.refetch()}
+                />
+              ) : (
+                <>
+                  {!serviceCounters.length ? (
+                    <OperationEmpty
+                      title="No counters yet"
+                      text="Add a counter and assign the staff who can serve its queue."
+                    />
+                  ) : null}
+                  <div className="ops-grid ops-grid-3">
+                    {serviceCounters.map((counter) => (
+                      <OperationPanel key={counter.id}>
+                        <div className="ops-stack">
+                          <div>
+                            <h3 className="ops-heading">{counter.name}</h3>
+                            <p className="ops-muted">/{counter.slug}</p>
+                          </div>
+                          <ConfigurationCheck
+                            checked={counter.isActive}
+                            label={
+                              counter.isActive
+                                ? "Counter enabled"
+                                : "Counter disabled"
+                            }
+                            disabled={!admin}
+                            onChange={(event) =>
+                              void handleToggleCounterActive(
+                                counter,
+                                event.currentTarget.checked,
+                              )
+                            }
+                          />
+                          <div>
+                            <p className="ops-strong">Assigned staff</p>
+                            <p className="ops-muted">
+                              {counter.assignedUserIds
+                                .map(
+                                  (id) =>
+                                    staff.find((member) => member.id === id)
+                                      ?.name || "Unavailable staff member",
+                                )
+                                .join(", ") || "No staff assigned"}
+                            </p>
+                          </div>
+                          <div className="ops-row config-actions">
+                            <OperationButton
+                              variant="outline"
+                              onClick={() => openCounterDialog(counter)}
+                              aria-label={`Edit ${counter.name} counter`}
+                            >
+                              Edit counter
+                            </OperationButton>
+                            <OperationButton
+                              variant="destructive"
+                              onClick={() =>
+                                openConfirmAction({
+                                  title: "Remove counter?",
+                                  description:
+                                    "This permanently removes the counter from this location. Existing called work remains recorded.",
+                                  confirmLabel: "Remove counter",
+                                  confirmColor: "red",
+                                  onConfirm: async () => {
+                                    await handleDeleteCounter(counter);
+                                  },
+                                })
+                              }
+                            >
+                              Remove counter
+                            </OperationButton>
+                          </div>
+                        </div>
+                      </OperationPanel>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          </ConfigTabsContent>
+        </ConfigTabs>
+      </ConfigurationScope>
     );
   }
 
@@ -9751,79 +9953,154 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     );
   }
 
-  function renderCounterDialog() {
+    function renderCounterDialog() {
+    const close = () => {
+      if (canLeaveFeature()) {
+        unsavedForm.current.discardId("vendor-counter-editor");
+        setCounterDialogOpen(false);
+      }
+    };
     return (
-      <Modal
-        centered
+      <TaskDialog
         opened={counterDialogOpen}
-        onClose={() => setCounterDialogOpen(false)}
+        onClose={close}
+        busy={Boolean(busyAction)}
+        eyebrow="COUNTER SETTINGS"
         title={
-          <Stack className="getprio-modal-title" gap={2}>
-            <Text className="getprio-modal-eyebrow">QUEUE OPERATIONS</Text>
-            <Text className="getprio-modal-heading">{editingCounterSlug ? "Edit counter" : "Add counter"}</Text>
-          </Stack>
+          editingCounterSlug
+            ? `Edit ${counterForm.name || "counter"}`
+            : "Add counter"
+        }
+        description={`Manage a dispatch lane and its staff at ${selectedLocation?.name || "this location"}.`}
+        footer={
+          <>
+            <OperationButton
+              className="ops-redundant-dismiss"
+              variant="outline"
+              onClick={close}
+            >
+              Cancel
+            </OperationButton>
+            <OperationButton
+              type="submit"
+              form="vendor-counter-editor"
+              loading={busyAction === "counter-save"}
+              disabled={
+                Boolean(busyAction) ||
+                checkingCounterSlug ||
+                !counterSlugAvailable
+              }
+            >
+              {editingCounterSlug ? "Save counter" : "Create counter"}
+            </OperationButton>
+          </>
         }
       >
-        <form onSubmit={handleSaveCounter}>
-          <Stack gap="md">
-            <TextInput
+        <ConfigurationScope
+          busy={Boolean(busyAction)}
+          onEdit={(form) => unsavedForm.current.mark(form)}
+        >
+          <form
+            id="vendor-counter-editor"
+            className="ops-stack"
+            onSubmit={handleSaveCounter}
+          >
+            {error ? (
+              <OperationAlert color="red" title="Unable to save counter">
+                {error}
+              </OperationAlert>
+            ) : null}
+            <ConfigurationInput
               name="counterName"
               label="Counter name"
               required
               value={counterForm.name}
               onChange={(event) => {
-                const nextName = event.target.value;
+                const name = event.currentTarget.value;
                 setCounterForm((current) => ({
                   ...current,
-                  name: nextName,
-                  slug: counterSlugManuallyEdited ? current.slug : buildCounterSlug(nextName)
+                  name,
+                  slug: counterSlugManuallyEdited
+                    ? current.slug
+                    : buildCounterSlug(name),
                 }));
               }}
             />
-            <TextInput
+            <ConfigurationInput
               name="counterSlug"
-              label="Counter slug"
+              label="Counter link name"
               required
-              description={checkingCounterSlug ? "Checking slug availability..." : counterSlugMessage}
+              description={
+                checkingCounterSlug
+                  ? "Checking link availability…"
+                  : counterSlugMessage ||
+                    "A short, unique name for this counter at the selected location."
+              }
               error={
-                !counterSlugAvailable && counterForm.slug
-                  ? counterSlugMessage || "That counter slug is already taken for this location."
+                !checkingCounterSlug &&
+                !counterSlugAvailable &&
+                counterForm.slug
+                  ? counterSlugMessage || "This link name is already taken."
                   : undefined
               }
               value={counterForm.slug}
               onChange={(event) => {
                 setCounterSlugManuallyEdited(true);
-                setCounterForm((current) => ({ ...current, slug: buildCounterSlug(event.target.value) }));
+                setCounterForm((current) => ({
+                  ...current,
+                  slug: buildCounterSlug(event.target.value),
+                }));
               }}
             />
-            <Switch
+            <ConfigurationCheck
               name="counterIsActive"
               checked={counterForm.isActive}
               label="Enable counter"
               onChange={(event) =>
-                setCounterForm((current) => ({ ...current, isActive: event.currentTarget.checked }))
+                setCounterForm((current) => ({
+                  ...current,
+                  isActive: event.currentTarget.checked,
+                }))
               }
             />
-            <MultiSelect
-              name="assignedUserIds"
-              data={staff.map((member) => ({ label: member.name, value: member.id }))}
-              label="Assigned staff"
-              value={counterForm.assignedUserIds}
-              onChange={(value) =>
-                setCounterForm((current) => ({ ...current, assignedUserIds: value }))
-              }
-            />
-            <Group justify="flex-end">
-              <Button variant="default" onClick={() => setCounterDialogOpen(false)}>
-                Cancel
-              </Button>
-              <Button className="neura-primary-button" disabled={busyAction === "counter-save"} type="submit">
-                {editingCounterSlug ? "Save counter" : "Create counter"}
-              </Button>
-            </Group>
-          </Stack>
-        </form>
-      </Modal>
+            <ConfigurationSection
+              title="Assigned staff"
+              description="Choose which staff members can operate this counter. Location and role restrictions still apply."
+            >
+              {!canAccessVendorSection("staff", effectiveEntitlements) ? <p className="ops-muted">Staff management is not available on this plan. Existing assignments are retained.</p> : staffQuery.isPending || staffQuery.isError ? (
+                <OperationQueryState
+                  loading={staffQuery.isPending}
+                  error={staffQuery.error}
+                  onRetry={() => void staffQuery.refetch()}
+                />
+              ) : staff.length ? (
+                staff.map((member) => (
+                  <ConfigurationCheck
+                    key={member.id}
+                    name="assignedUserIds"
+                    label={member.name}
+                    checked={counterForm.assignedUserIds.includes(member.id)}
+                    onChange={(event) =>
+                      setCounterForm((current) => ({
+                        ...current,
+                        assignedUserIds: event.currentTarget.checked
+                          ? [...current.assignedUserIds, member.id]
+                          : current.assignedUserIds.filter(
+                              (id) => id !== member.id,
+                            ),
+                      }))
+                    }
+                  />
+                ))
+              ) : (
+                <p className="ops-muted">
+                  No staff members are available to assign.
+                </p>
+              )}
+            </ConfigurationSection>
+          </form>
+        </ConfigurationScope>
+      </TaskDialog>
     );
   }
 
@@ -9889,7 +10166,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
   }
 
   function renderDashboardAlertOverlay() {
-    const Confirmation = (["queue", "bookings", "clients", "history"].includes(currentSection) || bookingDetailOpen || rescheduleDialogOpen) ? QueueConfirmation : ConfirmActionModal;
+    const Confirmation = (["queue", "bookings", "clients", "history", "tenants"].includes(currentSection) || bookingDetailOpen || rescheduleDialogOpen) ? QueueConfirmation : ConfirmActionModal;
     const overlayAlerts = [
       ...activeQueueAlerts.map((ticket) => ({
         actionLabel: "Open queue",
@@ -9955,7 +10232,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
 
     return (
       <Portal>
-        {overlayAlerts.length && !bookingDetailOpen && !rescheduleDialogOpen && !rescheduleBlockModalOpen && !confirmAction ? (
+        {overlayAlerts.length && !bookingDetailOpen && !rescheduleDialogOpen && !rescheduleBlockModalOpen && !locationDialogOpen && !counterDialogOpen && !resourceConfigurationDialogOpen && !confirmAction ? (
           <Box
             className="dashboard-notification-stack"
             style={{
@@ -10523,8 +10800,8 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
   }
 
   const canLeaveFeature = () => {
-    if (busyAction || boardScannerBusy || accountProfileBusy || passwordBusy || mfaBusy) return false;
-    const editing = unsavedForm.current.hasEdits() || locationDialogOpen || themeDialogOpen;
+    if (resourceConfigurationBusy || busyAction || boardScannerBusy || accountProfileBusy || passwordBusy || mfaBusy) return false;
+    const editing = unsavedForm.current.hasEdits() || themeDialogOpen;
     if (editing && !window.confirm("You have unsaved edits. Leave this view?")) return false;
     unsavedForm.current.clear();
     setLocationDialogOpen(false); setServiceDialogOpen(false); setCounterDialogOpen(false);

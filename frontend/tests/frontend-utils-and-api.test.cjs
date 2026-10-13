@@ -991,7 +991,7 @@ test("confirm action modal supports a mobile-specific class hook", () => {
 
   assert.match(confirmModalSource, /className\?: string;/);
   assert.match(confirmModalSource, /className=\{\["task-modal", "confirm-action-modal", className\]\.filter\(Boolean\)\.join\(" "\)\}/);
-  assert.match(vendorDashboardSource, /\["queue", "bookings", "clients", "history"\]\.includes\(currentSection\).*QueueConfirmation : ConfirmActionModal/);
+  assert.match(vendorDashboardSource, /\["queue", "bookings", "clients", "history", "tenants"\]\.includes\(currentSection\).*QueueConfirmation : ConfirmActionModal/);
 });
 
 test("service saves refresh location-service settings before the editor reopens", () => {
@@ -1587,8 +1587,8 @@ test("location slugs become immutable and new locations inherit the platform tim
   const sharedTypes = fs.readFileSync(path.resolve(frontendRoot, "..", "shared", "types.ts"), "utf8");
 
   assert.match(vendorDashboard, /readOnly=\{Boolean\(editingLocationSlug\)\}/);
-  assert.match(vendorDashboard, /Slug cannot be changed after the location is created\./);
-  assert.match(vendorDashboard, /<Select[\s\S]*?name="timezone"[\s\S]*?searchable/);
+  assert.match(vendorDashboard, /This link name cannot change after the location is created\./);
+  assert.match(vendorDashboard, /<ConfigurationSelect[\s\S]*?name="timezone"/);
   assert.match(vendorDashboard, /timezone: platformDefaultTimezone/);
   assert.match(vendorDashboard, /setPlatformDefaultTimezone\(locationsResponse\.defaultTimezone\)/);
   assert.match(platformDashboard, /label="Default timezone"/);
@@ -1602,9 +1602,9 @@ test("vendor location cards show only today's timezone-resolved schedule", () =>
     "utf8"
   );
 
-  assert.match(source, /Today\{locationItem\.openStatus\.today/);
-  assert.match(source, /formatStoreHourRange\(locationItem\.openStatus\.today\)/);
-  assert.match(source, /locationItem\.isActive && locationItem\.openStatus\.isOpen \? "Open" : "Closed"/);
+  assert.match(source, /Today\s*\{\s*item\.openStatus\.today/);
+  assert.match(source, /formatStoreHourRange\(item\.openStatus\.today\)/);
+  assert.match(source, /item\.isActive\s*&&\s*item\.openStatus\.isOpen\s*\?\s*['"]Open['"]\s*:\s*['"]Closed['"]/);
   assert.doesNotMatch(source, />\{locationItem\.openStatus\.summary\}<\/Text>/);
 });
 
@@ -1619,13 +1619,13 @@ test("vendor operating-hour intervals stay grouped by weekday", () => {
   assert.match(source, /a\.hour\.weekday - b\.hour\.weekday \|\| a\.index - b\.index/);
   assert.match(source, /isFirstForDay: orderedIndex === 0/);
   assert.match(source, /isLastForDay:/);
-  assert.match(source, /const insertAt = lastIntervalIndex >= 0 \? lastIntervalIndex \+ 1 : current\.hours\.length/);
-  assert.match(source, /getOrderedLocationHours\(locationForm\.hours\)\.map\(\(\{ hour, index/g);
-  assert.match(source, /vendor-operating-hours-table__group-end/);
-  assert.match(fs.readFileSync(path.join(frontendRoot, "src", "styles.css"), "utf8"), /vendor-operating-hours-table tbody tr:not/);
+  assert.match(source, /const insertAt =\s*lastIntervalIndex >= 0 \? lastIntervalIndex \+ 1 : current\.hours\.length/);
+  assert.match(source, /getOrderedLocationHours\(locationForm\.hours\)\.map\(\s*\(\{\s*hour,\s*index/g);
+  assert.match(source, /className="config-hour"/);
+  assert.match(fs.readFileSync(path.join(frontendRoot, "src", "vendor", "styles.css"), "utf8"), /\.config-hour[^}]*border-bottom/);
   assert.equal(
-    (source.match(/getOrderedLocationHours\(locationForm\.hours\)\.map\(\(\{ hour, index/g) || []).length,
-    2
+    (source.match(/getOrderedLocationHours\(locationForm\.hours\)\.map\(\s*\(\{\s*hour,\s*index/g) || []).length,
+    1
   );
 });
 
@@ -1638,10 +1638,10 @@ test("vendor location card URLs copy to the clipboard with confirmation", () => 
   assert.match(source, /navigator\.clipboard\?\.writeText/);
   assert.match(source, /await navigator\.clipboard\.writeText\(url\)/);
   assert.match(source, /`The \$\{label\.toLowerCase\(\)\} has been copied to your clipboard\.`/);
-  assert.match(source, /copyLocationUrl\("Join URL", locationItem\.joinUrl\)/);
-  assert.match(source, /copyLocationUrl\("Monitor URL", locationItem\.monitorUrl\)/);
-  assert.match(source, /title="Click to copy Join URL"/);
-  assert.match(source, /title="Click to copy queue board URL"/);
+  assert.match(source, /copyLocationUrl\(\s*['"]Join URL['"],\s*item\.joinUrl\)/);
+  assert.match(source, /copyLocationUrl\(\s*['"]Queue board URL['"],\s*item\.monitorUrl,?\s*\)/);
+  assert.match(source, /<QueueCopyField\s+label="Join URL"/);
+  assert.match(source, /<QueueCopyField\s+label="Queue board URL"/);
 });
 
 test("vendor queue public links copy to the clipboard with confirmation", () => {
