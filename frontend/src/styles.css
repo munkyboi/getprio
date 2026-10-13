@@ -7460,6 +7460,7 @@ h2 {
 @media (max-width: 1180px) {
   .neura-shell {
     grid-template-columns: 1fr;
+    grid-template-rows: auto 1fr;
   }
 
   .neura-sidebar {
