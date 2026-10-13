@@ -1074,7 +1074,10 @@ async function listVendorBookingRescheduleSlots({ tenant, bookingId, date }) {
 }
 
 async function createCustomerBooking({ user, body }) {
-  await maintenance.assertNewIntake();
+  // A stored paid booking-alert checkout may predate maintenance. A supplied
+  // ID alone grants nothing: verify its OTP binding and paid state below and
+  // re-read it under lock in the booking transaction.
+  if (!String(body.smsAlertFeePaymentId || '').trim()) await maintenance.assertNewIntake();
   const tenantSlug = String(body.tenantSlug || "").trim().toLowerCase();
   const locationSlug = String(body.locationSlug || "").trim().toLowerCase();
   const serviceSlug = vendorServiceRepository.normalizeServiceSlug(body.serviceSlug);
@@ -1181,15 +1184,17 @@ async function createCustomerBooking({ user, body }) {
   const bookingBundleItems = snapshotBookingBundleItems(composedPlan);
 
   const smsFee = await bookingSmsAlertPaymentService.getBookingSmsFeeForTenant(tenant._id);
-  let smsAlertFeePaymentId = null;
-  if (bookingSmsAlertPaymentService.shouldChargeBookingSmsFee(smsFee, { notifyBySms })) {
-    smsAlertFeePaymentId = String(body.smsAlertFeePaymentId || "").trim();
-    await bookingSmsAlertPaymentService.assertPaidBookingSmsPayment({
+  let paidAdmission = false;
+  const smsAlertFeePaymentId = String(body.smsAlertFeePaymentId || '').trim() || null;
+  if (smsAlertFeePaymentId || bookingSmsAlertPaymentService.shouldChargeBookingSmsFee(smsFee, { notifyBySms })) {
+    const payment = await bookingSmsAlertPaymentService.assertPaidBookingSmsPayment({
       tenant,
       paymentId: smsAlertFeePaymentId,
       bookingOtpId: verifiedBooking.otpId
     });
+    paidAdmission = payment?.status === 'paid';
   }
+  if (!paidAdmission) await maintenance.assertNewIntake();
 
   let lockedTenant;
   let lockedLocation;
@@ -1235,7 +1240,12 @@ async function createCustomerBooking({ user, body }) {
       error.statusCode = 409;
       throw error;
     }
-    await maintenance.assertNewIntake({ client });
+    if (paidAdmission) {
+      await bookingSmsAlertPaymentService.assertPaidBookingSmsPayment({ tenant, paymentId: smsAlertFeePaymentId,
+        bookingOtpId: verifiedBooking.otpId }, { client, forShare: true });
+    } else {
+      await maintenance.assertNewIntake({ client });
+    }
     const createdBooking = await bookingRepository.createBooking({
       tenantId: tenant._id,
       locationId: location._id,

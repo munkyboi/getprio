@@ -71,9 +71,12 @@ test('customer booking creation under real scoped PostgreSQL transaction', { ski
       CREATE TABLE ticket_service_plans(ticket_id BIGINT PRIMARY KEY,tenant_id BIGINT,location_id BIGINT,
         source TEXT,booking_id BIGINT,execution_mode TEXT,items JSONB,created_by_user_id BIGINT);
       CREATE TABLE allowances(booking_id BIGINT);
+      CREATE TABLE booking_sms_alert_payments(id BIGSERIAL PRIMARY KEY,tenant_id BIGINT,booking_otp_id BIGINT,plan_slug TEXT,provider TEXT,provider_checkout_session_id TEXT,provider_payment_id TEXT,status TEXT DEFAULT 'pending',amount_cents INTEGER,currency TEXT,payload JSONB DEFAULT '{}',metadata JSONB DEFAULT '{}',paid_at TIMESTAMPTZ,checkout_url TEXT,created_at TIMESTAMPTZ DEFAULT NOW(),updated_at TIMESTAMPTZ DEFAULT NOW(),UNIQUE(tenant_id,booking_otp_id));
       INSERT INTO users(id) VALUES(1),(2); INSERT INTO tenant_memberships(user_id,tenant_id,role,is_active) VALUES(2,1,'owner',TRUE); INSERT INTO store_locations VALUES(10,1)`);
     await pool.query(fs.readFileSync(path.resolve(__dirname, '../../database/migrations/20261007_add_resource_ledger_foundation.sql'), 'utf8'));
     await pool.query(fs.readFileSync(path.resolve(__dirname, '../../database/migrations/20261013_add_platform_maintenance.sql'), 'utf8'));
+    const paymentRepository = loadModuleWithMocks(require.resolve('../src/repositories/bookingSmsAlertPayments'), { '../config/db':{pool} });
+    const paymentService = loadModuleWithMocks(require.resolve('../src/services/bookingSmsAlertPaymentService'), { '../config/db':{pool}, '../repositories/bookingSmsAlertPayments':paymentRepository });
     const bookingService = loadService({
       '../config/db': { pool },
       '../repositories/bookings': {
@@ -112,7 +115,7 @@ test('customer booking creation under real scoped PostgreSQL transaction', { ski
         blocks: [], exceptions: options.client && lockedAvailabilityChanged ? [{ exceptionDate: scheduledStartAt.slice(0,10),isAvailable:false }] : []
       }) },
       './bookingOtpService': { getVerifiedBookingPayload: async () => ({ otpId:'1',payload:{ ...body,customerName:user.name,customerEmail:user.email,customerPhone:user.phone },contactVerificationChannel:'email',contactVerifiedAt:new Date().toISOString() }),consumeBookingVerificationToken:noop },
-      './bookingSmsAlertPaymentService': { getBookingSmsFeeForTenant:async () => ({}),shouldChargeBookingSmsFee:() => false },
+      './bookingSmsAlertPaymentService': { getBookingSmsFeeForTenant:async () => ({}),shouldChargeBookingSmsFee:() => false,assertPaidBookingSmsPayment:paymentService.assertPaidBookingSmsPayment },
       './entitlementAdmissionService': { admit:async () => ({ allowed:true }) },
       './allowanceService': { consumeAllowance:async (data,{client}) => {
         await client.query('INSERT INTO allowances VALUES($1)',[data.subjectId]);
@@ -135,6 +138,8 @@ test('customer booking creation under real scoped PostgreSQL transaction', { ski
       } });
     async function reset() {
       await pool.query('UPDATE platform_maintenance SET enabled=FALSE,force_screen=FALSE');
+      delete body.smsAlertFeePaymentId;
+      await pool.query('TRUNCATE booking_sms_alert_payments RESTART IDENTITY');
       await pool.query('TRUNCATE tickets,ticket_service_plans,bookings,booking_bundle_items,allowances,resource_ledger_scopes,resource_ledger_commands,resource_ledger_reservations,resource_allocations,service_resource_requirements,location_resource_pools RESTART IDENTITY CASCADE');
       await pool.query('UPDATE users SET deletion_requested_at=NULL; TRUNCATE tenant_membership_locations,service_counters,service_counter_assignments');
       allowanceFails = lockedCatalogChanged = lockedAvailabilityChanged = lockedTenantRevoked = lockedLocationRevoked = false;
@@ -462,6 +467,19 @@ test('customer booking creation under real scoped PostgreSQL transaction', { ski
     }
     const arriveStaff = booking => bookingService.checkInVendorBooking({tenant,location,bookingId:booking._id,user:{_id:'2'}});
     const arriveCustomer = booking => bookingService.checkInCustomerBooking({bookingId:booking._id,user});
+    await t.test('maintenance permits only a stored paid checkout bound to the verified booking OTP', async () => {
+      await reset(); await configureResources(false,1,10);
+      const payment = await paymentRepository.createPayment({tenantId:'1',bookingOtpId:'1',planSlug:'pro',provider:'paymongo',amountCents:2500,currency:'PHP',payload:body});
+      body.smsAlertFeePaymentId = payment._id;
+      await pool.query('UPDATE platform_maintenance SET enabled=TRUE');
+      await assert.rejects(bookingService.createCustomerBooking({user,body}), {statusCode:409});
+      await paymentRepository.markPaid(payment._id,{providerPaymentId:'test-paid-id',paidAt:new Date().toISOString()});
+      const booking = await bookingService.createCustomerBooking({user,body});
+      assert.equal(booking.smsAlertFeePaymentId,payment._id);
+      body.smsAlertFeePaymentId = '999';
+      await assert.rejects(bookingService.createCustomerBooking({user,body}), {statusCode:409});
+      await reset();
+    });
     await t.test('maintenance blocks new bookings but preserves existing confirmed booking check-in', async () => {
       const booking = await arrivalBooking();
       await pool.query('UPDATE platform_maintenance SET enabled=TRUE');

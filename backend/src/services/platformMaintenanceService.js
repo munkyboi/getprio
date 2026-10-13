@@ -34,6 +34,14 @@ async function publicStatus() {
   const { enabled, forceScreen, message } = await readPolicy();
   return { enabled, forceScreen, message };
 }
+async function operationStatus(user, operationKey) {
+  permissions.assertPermission(user, MANAGE);
+  if (typeof operationKey !== 'string' || operationKey.length < 8 || operationKey.length > 128) invalid('Invalid operation key.');
+  const receipt = (await db.pool.query('SELECT response FROM platform_maintenance_operations WHERE actor_user_id=$1 AND operation_key=$2', [user._id, operationKey])).rows[0];
+  // Absence is NOT proof of failure: the original request may still be waiting
+  // for admission/authority locks. Only a committed receipt resolves a save.
+  return receipt ? { state: 'committed', policy: await readPolicy() } : { state: 'unknown' };
+}
 // Called before external work and again in the durable admission transaction.
 // SHARE makes enabling maintenance wait for already-admitted writes to commit.
 async function assertNewIntake({ client } = {}) {
@@ -91,4 +99,4 @@ async function update({ user, session, draft, reason, expectedRevision, confirma
     return JSON.parse(JSON.stringify(updated));
   });
 }
-module.exports = { read, publicStatus, assertNewIntake, preview, update };
+module.exports = { read, publicStatus, operationStatus, assertNewIntake, preview, update };

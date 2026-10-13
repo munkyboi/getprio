@@ -8,6 +8,15 @@ import { activeMemberships } from '../vendor/workspace';
 import BrandMark from './BrandMark';
 
 type Status = { enabled: boolean; forceScreen: boolean; message: string };
+async function readStatus(signal: AbortSignal): Promise<Status> {
+  const value = await apiRequest<unknown>('/public/maintenance', { signal: AbortSignal.any([signal, AbortSignal.timeout(8_000)]), skipAuthRefresh: true });
+  if (!value || typeof value !== 'object' || !('enabled' in value) || typeof value.enabled !== 'boolean'
+    || !('forceScreen' in value) || typeof value.forceScreen !== 'boolean' || (value.forceScreen && !value.enabled)
+    || !('message' in value) || typeof value.message !== 'string' || !value.message.trim() || value.message.length > 500) {
+    throw new Error('The maintenance status could not be verified. Please try again.');
+  }
+  return { enabled: value.enabled, forceScreen: value.forceScreen, message: value.message };
+}
 function continuationPath(path: string) {
   return path === '/login' || path === '/oauth/callback' || path === '/payment/return'
     || path === '/account/security' || path === '/account/tickets' || path === '/account/bookings'
@@ -17,16 +26,19 @@ function continuationPath(path: string) {
 }
 
 export default function MaintenanceBoundary({ children }: { children: ReactNode }) {
-  const { user, loading } = useAuth();
-  const { pathname } = useLocation();
+  const { user } = useAuth();
+  const { pathname, search } = useLocation();
   const status = useQuery({
     queryKey: ['public-maintenance'],
-    queryFn: ({ signal }) => apiRequest<Status>('/public/maintenance', { signal, skipAuthRefresh: true }),
+    queryFn: ({ signal }) => readStatus(signal),
     staleTime: 0, refetchInterval: 15_000, refetchOnWindowFocus: true, retry: 1,
   });
   const staffPath = pathname.startsWith('/dashboard') && activeMemberships(user?.tenants || []).length > 0;
-  const exempt = continuationPath(pathname) || staffPath || user?.roles.includes('platform_admin');
-  const forced = status.data?.enabled && status.data.forceScreen && !exempt && !loading;
+  // This only keeps the return UI reachable. The backend independently verifies
+  // the stored paid payment and OTP; query parameters never authorize intake.
+  const bookingPaymentReturn = /^\/vendors\/[^/]+\/book(?:\/[^/]+)?$/.test(pathname) && /^\d+$/.test(new URLSearchParams(search).get('booking_sms_payment') || '');
+  const exempt = continuationPath(pathname) || bookingPaymentReturn || staffPath || user?.roles.includes('platform_admin');
+  const forced = status.data?.enabled && status.data.forceScreen && !exempt;
   const heading = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
     if (!forced) return;
@@ -35,7 +47,7 @@ export default function MaintenanceBoundary({ children }: { children: ReactNode 
     heading.current?.focus();
     return () => { document.title = previousTitle; };
   }, [forced]);
-  if (!exempt && (status.isPending || loading)) return <Container className="maintenance-page" size="sm"><Stack align="center"><Loader aria-label="Checking service availability" /><Text>Checking service availability…</Text></Stack></Container>;
+  if (!exempt && status.isPending) return <Container className="maintenance-page" size="sm"><Stack align="center"><Loader aria-label="Checking service availability" /><Text>Checking service availability…</Text></Stack></Container>;
   if (forced) return <Container className="maintenance-page" size="sm">
     <Paper p="xl" radius="xl" withBorder><Stack gap="lg">
       <BrandMark />

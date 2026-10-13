@@ -1,4 +1,5 @@
 const maintenance = require('./platformMaintenanceService');
+const db = require('../config/db');
 const env = require("../config/env");
 const paymentRepository = require("../repositories/bookingSmsAlertPayments");
 const bookingOtpService = require("./bookingOtpService");
@@ -109,7 +110,9 @@ async function createBookingSmsCheckout({ tenant, bookingVerificationToken }) {
     throw error;
   }
 
-  const payment = await paymentRepository.createPayment({
+  const payment = await db.withTransaction(async client => {
+    await maintenance.assertNewIntake({ client });
+    return paymentRepository.createPayment({
     tenantId: tenant._id,
     bookingOtpId: verified.otpId,
     planSlug: queueFee.planSlug,
@@ -123,6 +126,7 @@ async function createBookingSmsCheckout({ tenant, bookingVerificationToken }) {
       tenantSlug: tenant.slug,
       planSlug: queueFee.planSlug
     }
+    }, { client });
   });
 
   let providerCheckoutSessionId = null;
@@ -284,8 +288,8 @@ async function syncBookingSmsPayment({ tenant, paymentId }) {
   return { synced: true, paid: true, payment: formatPayment(paidPayment) };
 }
 
-async function assertPaidBookingSmsPayment({ tenant, paymentId, bookingOtpId }) {
-  const payment = await paymentRepository.findPaymentById(paymentId);
+async function assertPaidBookingSmsPayment({ tenant, paymentId, bookingOtpId }, options = {}) {
+  const payment = await paymentRepository.findPaymentById(paymentId, options);
   if (
     !payment ||
     payment.tenantId !== String(tenant._id) ||

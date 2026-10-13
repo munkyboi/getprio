@@ -13,8 +13,10 @@ const run = (...args) => {
   if (result.status !== 0) throw new Error(`Browser command failed: ${args[0]}`);
 };
 try {
-  run('open', 'http://127.0.0.1:5195/');
+  const adminOnly = process.argv.includes('--admin-only');
+  run('open', adminOnly ? 'http://127.0.0.1:5194/tests/maintenance-harness.html' : 'http://127.0.0.1:5195/');
   run('snapshot');
-  run('run-code', `(${verifyPublic.toString()})`);
+  if (!adminOnly) run('run-code', `(${verifyPublic.toString()})`);
   run('run-code', `(${verifyAdmin.toString()})`);
+  console.log(adminOnly ? 'Admin maintenance browser regressions passed.' : 'Public/customer and admin maintenance browser regressions passed.');
 } finally { run('close'); }

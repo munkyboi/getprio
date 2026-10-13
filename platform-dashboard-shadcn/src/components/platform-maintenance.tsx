@@ -22,6 +22,7 @@ export function PlatformMaintenance({ live, editable, api = maintenanceApi }: { 
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  const [uncertain, setUncertain] = useState(false)
   useEffect(() => {
     if (!live) return
     let disposed = false
@@ -36,20 +37,28 @@ export function PlatformMaintenance({ live, editable, api = maintenanceApi }: { 
   const refresh = () => run(async () => { const policy = await api.read(); setCurrent(policy); setDraft(policy); setPreview(null) })
   const review = () => run(async () => {
     if (!draft) return
-    setPreview(await api.preview(draft, reason.trim())); setOperationKey(crypto.randomUUID())
+    setPreview(await api.preview(draft, reason.trim())); setOperationKey(crypto.randomUUID()); setUncertain(false)
   })
   const save = () => run(async () => {
     if (!preview) return
     try {
       const policy = await api.save(preview, reason.trim(), operationKey)
-      setCurrent(policy); setDraft(policy); setPreview(null); setReason('')
+      setCurrent(policy); setDraft(policy); setPreview(null); setReason(''); setUncertain(false)
       setNotice(policy.enabled ? 'Maintenance enabled. New intake is paused; existing work and staff/admin access remain available.' : 'Maintenance ended. New intake is available subject to normal queue and booking rules.')
     } catch (e) {
       // Keep the same operation key for uncertain/network retries. A confirmed
       // denial/stale preview requires a fresh review, not another confirmation.
-      if (e instanceof Error && 'status' in e && [400, 401, 403, 409].includes(Number(e.status))) setPreview(null)
+      if (!uncertain && e instanceof Error && 'status' in e && [400, 401, 403, 409].includes(Number(e.status))) { setPreview(null); setUncertain(false) }
+      else setUncertain(true)
       throw e
     }
+  })
+  const reconcile = () => run(async () => {
+    const result = await api.operationStatus(operationKey)
+    if (result.state === 'unknown') throw new Error('This save has no committed receipt yet. Keep this confirmation and retry to resolve it safely.')
+    const policy = result.policy
+    setCurrent(policy); setDraft(policy); setPreview(null); setReason(''); setUncertain(false)
+    setNotice('The saved maintenance status was refreshed. No new change was submitted.')
   })
   const changed = Boolean(draft && current && (draft.enabled !== current.enabled || draft.forceScreen !== current.forceScreen || draft.message !== current.message))
   const invalid = !draft?.message.trim() || draft.message.trim().length > 500 || reason.trim().length < 8 || reason.trim().length > 500
@@ -70,10 +79,10 @@ export function PlatformMaintenance({ live, editable, api = maintenanceApi }: { 
       </FieldGroup> : null}
     </CardContent>
     <CardFooter className="flex flex-wrap gap-2"><Button variant="outline" className="min-h-11" disabled={!live || busy || Boolean(preview) || changed} onClick={() => void refresh()}>Refresh maintenance controls</Button><Button variant="outline" className="min-h-11" disabled={!changed || frozen} onClick={() => { setDraft(current); setReason(''); setError(null) }}>Discard changes</Button><Button className="min-h-11" disabled={!editable || !changed || invalid || busy || Boolean(preview)} onClick={() => void review()}>{busy ? <LoaderCircle className="animate-spin" data-icon="inline-start" /> : <Wrench data-icon="inline-start" />}Review maintenance change</Button></CardFooter>
-    <Dialog open={Boolean(preview)} onOpenChange={open => { if (!open && !busy) setPreview(null) }}>
+    <Dialog open={Boolean(preview)} onOpenChange={open => { if (!open && !busy && !uncertain) setPreview(null) }}>
       <DialogContent><DialogHeader><DialogTitle>Confirm maintenance change</DialogTitle><DialogDescription>This changes intake across GetPrio. Existing work and staff/admin access are preserved.</DialogDescription></DialogHeader>
-        <div className="flex min-h-0 flex-col gap-3 overflow-y-auto"><p>{preview?.policy.enabled ? 'Pause new bookings and queue joins.' : 'End maintenance and restore normal intake rules.'}</p><p>{preview?.policy.forceScreen ? 'Show the full maintenance screen on public/customer pages.' : 'Keep public/customer pages available with a maintenance notice when active.'}</p><p className="break-words">{preview?.policy.message}</p><p className="text-sm text-muted-foreground">Audit reason: {reason}</p>{error ? <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert> : null}</div>
-        <DialogFooter><Button variant="outline" disabled={busy} onClick={() => setPreview(null)}>Cancel</Button><Button className="min-h-11" disabled={busy} onClick={() => void save()}>{busy ? <LoaderCircle className="animate-spin" data-icon="inline-start" /> : null}Confirm maintenance change</Button></DialogFooter>
+        <div className="flex min-h-0 flex-col gap-3 overflow-y-auto"><p>{preview?.policy.enabled ? 'Pause new bookings and queue joins.' : 'End maintenance and restore normal intake rules.'}</p><p>{preview?.policy.forceScreen ? 'Show the full maintenance screen on public/customer pages.' : 'Keep public/customer pages available with a maintenance notice when active.'}</p><p className="break-words">{preview?.policy.message}</p><p className="text-sm text-muted-foreground">Audit reason: {reason}</p>{error ? <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert> : null}{uncertain ? <p className="text-sm">The save result is unknown. Retry this confirmation with the same operation key, or check the saved status before closing.</p> : null}</div>
+        <DialogFooter><Button variant="outline" disabled={busy} onClick={() => uncertain ? void reconcile() : setPreview(null)}>{uncertain ? 'Check saved status' : 'Cancel'}</Button><Button className="min-h-11" disabled={busy} onClick={() => void save()}>{busy ? <LoaderCircle className="animate-spin" data-icon="inline-start" /> : null}Confirm maintenance change</Button></DialogFooter>
       </DialogContent>
     </Dialog>
   </Card>

@@ -987,6 +987,7 @@ export const resourceInventoryApi: ResourceInventoryApi = {
 }
 export const maintenanceApi: MaintenanceApi = {
   read: () => readPlatformControl<MaintenanceRecord>('/platform/maintenance'),
+  operationStatus: key => readPlatformControl(`/platform/maintenance/operations/${encodeURIComponent(key)}`),
   preview: (policy, reason) => writePlatform(API_BASE_URL, '/platform/maintenance/preview', { policy, reason }, crypto.randomUUID()),
   save: (preview, reason, operationKey) => writePlatform(API_BASE_URL, '/platform/maintenance/policy',
     { policy: preview.policy, reason, expectedRevision: preview.revision }, operationKey, 'POST', { 'X-Transaction-Confirmation': preview.confirmation.token }),
