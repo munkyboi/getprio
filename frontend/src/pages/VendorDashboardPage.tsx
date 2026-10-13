@@ -112,7 +112,7 @@ import {
 import { notifications } from "@mantine/notifications";
 import { useMediaQuery } from "@mantine/hooks";
 import { getDay } from "date-fns";
-import { Navigate, NavLink, useLocation, useNavigate, useParams } from "react-router-dom";
+import { Link, Navigate, NavLink, useLocation, useNavigate, useParams } from "react-router-dom";
 import type {
   BillingOverviewResponse,
   CreateWalkInTicketRequest,
@@ -10023,6 +10023,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       if (canLeaveFeature()) closeBookingDetailModal();
                     }}
                     variant="outline"
+                    className="ops-redundant-dismiss"
                   >
                     Close
                   </OperationButton>
@@ -10571,6 +10572,11 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
             <Text className="neura-label">Workspace access</Text>
             <Title order={1}>No vendor tenants found</Title>
             <Text>Your account does not currently have access to a tenant workspace.</Text>
+            <Group aria-label="Workspace access recovery">
+              <Button component={Link} to="/">Back to site</Button>
+              <Button component={Link} to="/account/dashboard" variant="outline">My account</Button>
+              <Button variant="subtle" onClick={() => void logout()}>Sign out</Button>
+            </Group>
           </Stack>
           <img
             alt=""
