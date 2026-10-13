@@ -128,16 +128,24 @@ function AppShell({ children }: { children: ReactNode }) {
     </Menu>
   ) : null;
 
+  function guardShellNavigation(event: React.MouseEvent<HTMLElement>) {
+    const link = event.target instanceof Element ? event.target.closest("a[href]") : null;
+    if (!link || link.getAttribute("href") === location.pathname + location.search + location.hash || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || link.getAttribute("target") === "_blank") return;
+    if (navigationGuard.current && !navigationGuard.current()) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+  }
+
+  if (isDashboardRoute) return (
+    <VendorNavigationGuard.Provider value={navigationGuard}>
+      <div className="vendor-app-frame" onClickCapture={guardShellNavigation}>{children}</div>
+    </VendorNavigationGuard.Provider>
+  );
+
   return (
     <VendorNavigationGuard.Provider value={navigationGuard}>
-    <Box className={isDashboardRoute ? "app-shell dashboard-app-shell" : "app-shell finazze-app-shell"} onClickCapture={(event) => {
-      const link = event.target instanceof Element ? event.target.closest("a[href]") : null;
-      if (!link || link.getAttribute("href") === location.pathname + location.search + location.hash || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || link.getAttribute("target") === "_blank") return;
-      if (navigationGuard.current && !navigationGuard.current()) {
-        event.preventDefault();
-        event.stopPropagation();
-      }
-    }}>
+    <Box className={isDashboardRoute ? "app-shell dashboard-app-shell" : "app-shell finazze-app-shell"} onClickCapture={guardShellNavigation}>
       <Box className={isDashboardRoute ? "topbar dashboard-topbar" : "finazze-topbar"} component="header">
         <Container size={isDashboardRoute ? "100%" : "xl"} w="100%">
           <Group className="public-topbar-inner" justify="space-between" gap="lg">

@@ -1,5 +1,11 @@
+import { TaskDialog } from "../vendor/TaskDialog";
+import { Button as QueueButton } from "../vendor/components/ui/button";
+import { Card as QueueCard, CardHeader as QueueCardHeader, CardTitle as QueueCardTitle, CardDescription as QueueCardDescription, CardContent as QueueCardContent } from "../vendor/components/ui/card";
+import { Alert as QueueAlert, AlertDescription as QueueAlertDescription } from "../vendor/components/ui/alert";
+import { Field, FieldLabel } from "../vendor/components/ui/field";
+import { Input } from "../vendor/components/ui/input";
 import { useEffect, useRef, useState } from "react";
-import { Alert, Button, Card, Group, Modal, Stack, Switch, Text, TextInput, Title } from "@mantine/core";
+import { Alert, Button, Card, Group, Stack, Switch, Text, TextInput, Title } from "@mantine/core";
 import type { IScannerControls } from "@zxing/browser";
 import { apiRequest } from "../api/client";
 import { getErrorMessage } from "../utils/errors";
@@ -20,7 +26,7 @@ export function extractBoardPairingCode(value: string): string {
   } catch { /* Manual code is validated above. */ }
   throw new Error("Enter the pairing code or scan a GetPrio queue board access QR.");
 }
-export function QueueBoardScanner(scope: Scope) {
+export function QueueBoardScanner(scope: Scope & { onBusyChange?: (busy: boolean) => void; onDiscard?: () => void }) {
   const [input, setInput] = useState(() => new URLSearchParams(window.location.search).get("boardPairing") || "");
   const [opened, setOpened] = useState(() => Boolean(new URLSearchParams(window.location.search).get("boardPairing")));
   const [preview, setPreview] = useState<Preview | null>(null);
@@ -31,6 +37,11 @@ export function QueueBoardScanner(scope: Scope) {
   const [busy, setBusy] = useState(false);
   const [camera, setCamera] = useState(false);
   const video = useRef<HTMLVideoElement>(null);
+  const onBusyChange = scope.onBusyChange;
+  useEffect(() => {
+    onBusyChange?.(busy);
+    return () => onBusyChange?.(false);
+  }, [busy, onBusyChange]);
   useEffect(() => {
     if (!opened || !camera) return;
     let active = true;
@@ -60,63 +71,36 @@ export function QueueBoardScanner(scope: Scope) {
     setBusy(true); setError("");
     try {
       await apiRequest(`${path(scope)}/pairing/${previewCode}/approve${locationQuery(scope)}`, { method: "POST", token: scope.token, body: { displayName } });
-      setMessage("Display approved for 30 days."); setPreview(null); setInput(""); setDisplayName(""); setOpened(false); setCamera(false);
+      scope.onDiscard?.(); setMessage("Display approved for 30 days."); setPreview(null); setInput(""); setDisplayName(""); setOpened(false); setCamera(false);
       const url = new URL(window.location.href); url.searchParams.delete("boardPairing"); window.history.replaceState(null, "", url);
     } catch (cause) { setError(getErrorMessage(cause)); }
     finally { setBusy(false); }
   }
   function closeDialog() {
     if (busy) return;
-    setOpened(false); setCamera(false);
+    scope.onDiscard?.(); setOpened(false); setCamera(false);
   }
   return <>
-    <Card className="neura-card" padding="lg" mt="md">
-      <Stack gap="md">
-        <div><Text className="neura-label">Queue Board Access</Text><Title order={3}>Approve a display</Title></div>
-        <Text size="sm" c="dimmed">Select the display’s location above, then scan its QR to grant access.</Text>
-        {message ? <Text role="status">{message}</Text> : null}
-        <Button mih={44} variant="default" onClick={() => { setError(""); setMessage(""); setPreview(null); setOpened(true); setCamera(!input.trim()); }}>Scan access QR</Button>
-      </Stack>
-    </Card>
-    <Modal
-      centered
-      className="customer-modal queue-board-scanner-modal"
-      opened={opened}
-      onClose={closeDialog}
-      closeOnClickOutside={!busy}
-      closeOnEscape={!busy}
-      withCloseButton={!busy}
-      radius="xl"
-      size="md"
-      title={<div><Text className="neura-label">QUEUE BOARD ACCESS</Text><Text fw={800} size="xl">Approve a display</Text></div>}
-    >
-      <form className="queue-board-scanner-form" onSubmit={(event) => { event.preventDefault(); void (preview ? approve() : review()); }}>
-        <Text className="queue-board-scanner-intro" size="sm" c="dimmed">Scan the QR on the display computer, then compare the match code before approving.</Text>
-        <Stack className="queue-board-scanner-main" gap="md">
-          {camera ? <div className="ticket-scanner-camera">
-            <video aria-label="Queue board QR camera preview" autoPlay muted playsInline ref={video} />
-            <div className="ticket-scanner-guide" aria-hidden="true" />
-            <Text className="ticket-scanner-status" size="xs">Point the access QR inside the frame</Text>
-          </div> : null}
-          <Button mih={44} variant="default" disabled={busy} onClick={() => { setError(""); setPreview(null); setCamera(!camera); }}>{camera ? "Stop camera" : "Scan again"}</Button>
-          {error ? <Alert color="red" role="alert">{error}</Alert> : null}
-          <TextInput label="Pairing code or QR URL" value={input} disabled={busy} onChange={(event) => { setInput(event.currentTarget.value); setPreview(null); }} />
-          {preview ? <>
-            <Text fw={700} style={{ overflowWrap: "anywhere" }}>{preview.locationName} · Match code {preview.matchCode}</Text>
-            <Text size="sm">Confirm this matches the physical display. Expires at {new Date(preview.expiresAt).toLocaleTimeString()}.</Text>
-            <TextInput label="Display name" maxLength={80} value={displayName} disabled={busy} onChange={(event) => setDisplayName(event.currentTarget.value)} placeholder="For example, reception TV" />
-          </> : null}
-        </Stack>
-        <div className="queue-board-scanner-footer">
-          <Button type="submit" mih={44} loading={busy} disabled={camera || (preview ? !displayName.trim() : !input.trim())}>
-            {preview ? "Approve matching display" : "Review display request"}
-          </Button>
-        </div>
+    <QueueCard><QueueCardHeader><QueueCardDescription>Queue Board Access</QueueCardDescription><QueueCardTitle>Approve a display</QueueCardTitle></QueueCardHeader><QueueCardContent className="queue-stack">
+      <p className="queue-muted queue-small">Select the display’s location above, then scan its QR to grant access.</p>
+      {message ? <p role="status">{message}</p> : null}
+      <QueueButton variant="outline" onClick={()=>{setError("");setMessage("");setPreview(null);setOpened(true);setCamera(!input.trim());}}>Scan access QR</QueueButton>
+    </QueueCardContent></QueueCard>
+    <TaskDialog opened={opened} onClose={closeDialog} busy={busy} eyebrow="QUEUE BOARD ACCESS" title="Approve a display"
+      description="Scan the QR on the display computer, then compare the match code before approving."
+      footer={<><QueueButton variant="outline" disabled={busy} onClick={closeDialog}>Cancel</QueueButton><QueueButton type="submit" form="queue-board-pairing-form" disabled={busy || camera || (preview ? !displayName.trim() : !input.trim())} aria-busy={busy}>{busy?'Working…':preview?'Approve display':'Review display request'}</QueueButton></>}>
+      <form id="queue-board-pairing-form" className="queue-stack" onSubmit={event=>{event.preventDefault();void(preview?approve():review());}}>
+        {camera ? <div className="ticket-scanner-camera"><video aria-label="Queue board QR camera preview" autoPlay muted playsInline ref={video} /><div className="ticket-scanner-guide" aria-hidden="true" /></div> : null}
+        <QueueButton variant="outline" disabled={busy} onClick={()=>{setPreview(null);setCamera(current=>!current);}}>{camera?'Enter code manually':'Use camera'}</QueueButton>
+        <Field><FieldLabel htmlFor="queue-board-pairing">Pairing code or QR URL</FieldLabel><Input id="queue-board-pairing" value={input} disabled={busy || camera} autoComplete="off" onChange={event=>{setInput(event.currentTarget.value);setPreview(null);}} /></Field>
+        {error ? <QueueAlert variant="destructive" role="alert"><QueueAlertDescription>{error}</QueueAlertDescription></QueueAlert> : null}
+        {preview ? <><p className="queue-strong">{preview.locationName} · Match code {preview.matchCode}</p><p className="queue-muted queue-small">Confirm this matches the physical display. Expires at {new Date(preview.expiresAt).toLocaleTimeString()}.</p>
+          <Field><FieldLabel htmlFor="queue-board-display-name">Display name</FieldLabel><Input id="queue-board-display-name" maxLength={80} value={displayName} disabled={busy} onChange={event=>setDisplayName(event.currentTarget.value)} placeholder="For example, reception TV" /></Field></> : null}
       </form>
-    </Modal>
+    </TaskDialog>
   </>;
-
 }
+
 export function QueueBoardSettings({ token, tenantSlug, locationSlug, onChanged }: Scope & { onChanged?: () => void }) {
   const scope = { token, tenantSlug, locationSlug };
   const [settings, setSettings] = useState<Settings | null>(null);

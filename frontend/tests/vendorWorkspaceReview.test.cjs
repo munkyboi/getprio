@@ -89,3 +89,29 @@ test('context Retry re-establishes locations through bootstrap, alongside snapsh
   assert.equal(snapshotRefreshed, true);
   assert.equal(error, '');
 });
+
+test('explicit dialog discard clears its form before the exit animation unmounts it', () => {
+  const edits = createDirtyForms();
+  const profile = { id: 'profile', isConnected: true };
+  const scanner = { id: 'queue-board-pairing-form', isConnected: true };
+  edits.mark(profile); edits.mark(scanner);
+  edits.discardId('queue-board-pairing-form');
+  assert.equal(edits.hasEdits(), true);
+  edits.clear(profile);
+  assert.equal(edits.hasEdits(), false);
+});
+
+test('shell link guard leaves modified, new-tab and current-view clicks untouched', () => {
+  const fs = require('node:fs'); const vm = require('node:vm'); const ts = require('typescript');
+  const source = fs.readFileSync(require('node:path').join(__dirname, '../src/vendor/VendorWorkspaceShell.tsx'), 'utf8');
+  const start = source.indexOf('  function guardNavigation('), end = source.indexOf('  function navigation()', start);
+  let guards = 0, closed = 0, prevented = 0; let allow = true;
+  const script = ts.transpileModule(source.slice(start, end) + '\nguardNavigation;', {compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText;
+  const guard = vm.runInNewContext(script, {props:{onBeforeNavigate:()=>{guards++;return allow;}},setOpened:()=>closed++,window:{location:{pathname:'/dashboard/settings',search:'',hash:''}}});
+  function event(extra={},attributes={}) {return {button:0,metaKey:false,ctrlKey:false,shiftKey:false,altKey:false,defaultPrevented:false,currentTarget:{getAttribute:key=>({href:'/dashboard/account',...attributes})[key]||null},preventDefault:()=>prevented++,...extra};}
+  for(const extra of [{metaKey:true},{ctrlKey:true},{shiftKey:true},{altKey:true},{button:1},{button:2},{defaultPrevented:true}])guard(event(extra));
+  guard(event({}, {target:'_blank'}));guard(event({}, {href:'/dashboard/settings'}));
+  assert.equal(guards,0);assert.equal(closed,0);assert.equal(prevented,0);
+  allow=false;guard(event());assert.equal(guards,1);assert.equal(prevented,1);assert.equal(closed,0);
+  allow=true;guard(event());assert.equal(guards,2);assert.equal(closed,1);
+});

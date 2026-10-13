@@ -523,7 +523,7 @@ test("join queue page is a focused vendor-themed customer flow", () => {
 test("vendor queue auto-close uses the selected global tray and mobile task modal contract", () => {
   const frontendRoot = path.resolve(__dirname, "..");
   const source = fs.readFileSync(
-    path.join(frontendRoot, "src", "components", "VendorQueueLifecycleTray.tsx"),
+    path.join(frontendRoot, "src", "vendor", "QueueLifecycleTray.tsx"),
     "utf8"
   );
   const dashboard = fs.readFileSync(
@@ -533,8 +533,8 @@ test("vendor queue auto-close uses the selected global tray and mobile task moda
   const styles = fs.readFileSync(path.join(frontendRoot, "src", "styles.css"), "utf8");
 
   assert.match(dashboard, /<VendorQueueLifecycleTray/);
-  assert.match(source, /Review & extend/);
-  assert.match(source, /Cancel auto-close/);
+  assert.match(source, /Review auto-close/);
+  assert.match(source, /Extend by 30 minutes/);
   assert.match(source, /Confirm 30-minute extension/);
   assert.match(source, /Close queue and reconcile/);
   assert.match(source, /serverOffset/);
@@ -991,7 +991,7 @@ test("confirm action modal supports a mobile-specific class hook", () => {
 
   assert.match(confirmModalSource, /className\?: string;/);
   assert.match(confirmModalSource, /className=\{\["task-modal", "confirm-action-modal", className\]\.filter\(Boolean\)\.join\(" "\)\}/);
-  assert.match(vendorDashboardSource, /<ConfirmActionModal\s+className="confirm-action-modal"/);
+  assert.match(vendorDashboardSource, /\["queue", "bookings", "clients", "history", "tenants"\]\.includes\(currentSection\).*QueueConfirmation : ConfirmActionModal/);
 });
 
 test("service saves refresh location-service settings before the editor reopens", () => {
@@ -1228,8 +1228,8 @@ test("vendor booking details render standard service bundles", () => {
   assert.match(source, /const detailServiceItems = detailCampaignBundleItems\.length/);
   assert.match(source, /: detailBookingBundleItems;/);
   assert.match(source, /\{detailServiceItems\.length > 1 \? \(/);
-  assert.match(source, /\{detailCampaignBundleItems\.length \? "Campaign services" : "Bundled services"\}/);
-  assert.match(source, /\{detailCampaignBundleItems\.length \? "Campaign total" : "Bundle total"\}/);
+  assert.match(source, /\{detailCampaignBundleItems\.length\s*\? "Campaign services"\s*:\s*"Bundled services"\}/);
+  assert.match(source, /\{detailCampaignBundleItems\.length\s*\? "Campaign total"\s*:\s*"Bundle total"\}/);
 });
 
 test("vendor booking status chips preserve their complete labels", () => {
@@ -1237,10 +1237,11 @@ test("vendor booking status chips preserve their complete labels", () => {
   const source = fs.readFileSync(path.join(frontendRoot, "src", "pages", "VendorDashboardPage.tsx"), "utf8");
   const styles = fs.readFileSync(path.join(frontendRoot, "src", "styles.css"), "utf8");
 
-  assert.match(source, /className="booking-list-status-chips"/);
-  assert.match(styles, /\.booking-list-status-chips \{\s+flex-wrap: wrap;/);
-  assert.match(styles, /\.booking-list-status-chips \.mantine-Badge-root \{\s+flex: 0 0 auto;\s+max-width: none;/);
-  assert.match(styles, /\.booking-list-status-chips \.mantine-Badge-label \{\s+overflow: visible;\s+text-overflow: clip;\s+white-space: nowrap;/);
+  const operationStyles = fs.readFileSync(path.join(frontendRoot, "src", "vendor", "styles.css"), "utf8");
+  assert.match(source, /ops-row ops-status-chips/);
+  assert.match(operationStyles, /\.ops-status-chips \[data-slot=badge\] \{[^}]*white-space: normal/);
+  assert.match(styles, /\.booking-list-status-chips/); // Unmigrated compatibility styles stay scoped.
+
 });
 
 test("vendor bookings do not apply a date range until the vendor selects one", () => {
@@ -1586,8 +1587,8 @@ test("location slugs become immutable and new locations inherit the platform tim
   const sharedTypes = fs.readFileSync(path.resolve(frontendRoot, "..", "shared", "types.ts"), "utf8");
 
   assert.match(vendorDashboard, /readOnly=\{Boolean\(editingLocationSlug\)\}/);
-  assert.match(vendorDashboard, /Slug cannot be changed after the location is created\./);
-  assert.match(vendorDashboard, /<Select[\s\S]*?name="timezone"[\s\S]*?searchable/);
+  assert.match(vendorDashboard, /This link name cannot change after the location is created\./);
+  assert.match(vendorDashboard, /<ConfigurationSelect[\s\S]*?name="timezone"/);
   assert.match(vendorDashboard, /timezone: platformDefaultTimezone/);
   assert.match(vendorDashboard, /setPlatformDefaultTimezone\(locationsResponse\.defaultTimezone\)/);
   assert.match(platformDashboard, /label="Default timezone"/);
@@ -1601,9 +1602,9 @@ test("vendor location cards show only today's timezone-resolved schedule", () =>
     "utf8"
   );
 
-  assert.match(source, /Today\{locationItem\.openStatus\.today/);
-  assert.match(source, /formatStoreHourRange\(locationItem\.openStatus\.today\)/);
-  assert.match(source, /locationItem\.isActive && locationItem\.openStatus\.isOpen \? "Open" : "Closed"/);
+  assert.match(source, /Today\s*\{\s*item\.openStatus\.today/);
+  assert.match(source, /formatStoreHourRange\(item\.openStatus\.today\)/);
+  assert.match(source, /item\.isActive\s*&&\s*item\.openStatus\.isOpen\s*\?\s*['"]Open['"]\s*:\s*['"]Closed['"]/);
   assert.doesNotMatch(source, />\{locationItem\.openStatus\.summary\}<\/Text>/);
 });
 
@@ -1618,13 +1619,13 @@ test("vendor operating-hour intervals stay grouped by weekday", () => {
   assert.match(source, /a\.hour\.weekday - b\.hour\.weekday \|\| a\.index - b\.index/);
   assert.match(source, /isFirstForDay: orderedIndex === 0/);
   assert.match(source, /isLastForDay:/);
-  assert.match(source, /const insertAt = lastIntervalIndex >= 0 \? lastIntervalIndex \+ 1 : current\.hours\.length/);
-  assert.match(source, /getOrderedLocationHours\(locationForm\.hours\)\.map\(\(\{ hour, index/g);
-  assert.match(source, /vendor-operating-hours-table__group-end/);
-  assert.match(fs.readFileSync(path.join(frontendRoot, "src", "styles.css"), "utf8"), /vendor-operating-hours-table tbody tr:not/);
+  assert.match(source, /const insertAt =\s*lastIntervalIndex >= 0 \? lastIntervalIndex \+ 1 : current\.hours\.length/);
+  assert.match(source, /getOrderedLocationHours\(locationForm\.hours\)\.map\(\s*\(\{\s*hour,\s*index/g);
+  assert.match(source, /className="config-hour"/);
+  assert.match(fs.readFileSync(path.join(frontendRoot, "src", "vendor", "styles.css"), "utf8"), /\.config-hour[^}]*border-bottom/);
   assert.equal(
-    (source.match(/getOrderedLocationHours\(locationForm\.hours\)\.map\(\(\{ hour, index/g) || []).length,
-    2
+    (source.match(/getOrderedLocationHours\(locationForm\.hours\)\.map\(\s*\(\{\s*hour,\s*index/g) || []).length,
+    1
   );
 });
 
@@ -1637,10 +1638,10 @@ test("vendor location card URLs copy to the clipboard with confirmation", () => 
   assert.match(source, /navigator\.clipboard\?\.writeText/);
   assert.match(source, /await navigator\.clipboard\.writeText\(url\)/);
   assert.match(source, /`The \$\{label\.toLowerCase\(\)\} has been copied to your clipboard\.`/);
-  assert.match(source, /copyLocationUrl\("Join URL", locationItem\.joinUrl\)/);
-  assert.match(source, /copyLocationUrl\("Monitor URL", locationItem\.monitorUrl\)/);
-  assert.match(source, /title="Click to copy Join URL"/);
-  assert.match(source, /title="Click to copy queue board URL"/);
+  assert.match(source, /copyLocationUrl\(\s*['"]Join URL['"],\s*item\.joinUrl\)/);
+  assert.match(source, /copyLocationUrl\(\s*['"]Queue board URL['"],\s*item\.monitorUrl,?\s*\)/);
+  assert.match(source, /<QueueCopyField\s+label="Join URL"/);
+  assert.match(source, /<QueueCopyField\s+label="Queue board URL"/);
 });
 
 test("vendor queue public links copy to the clipboard with confirmation", () => {
@@ -1651,8 +1652,8 @@ test("vendor queue public links copy to the clipboard with confirmation", () => 
 
   assert.match(source, /copyLocationUrl\("Join URL", queueLinks\.joinUrl\)/);
   assert.match(source, /copyLocationUrl\("QR target", queueLinks\.qrUrl\)/);
-  assert.match(source, /copyLocationUrl\("Monitor URL", queueLinks\.monitorUrl\)/);
-  assert.match(source, /title="Click to copy QR target"/);
+  assert.match(source, /copyLocationUrl\(\s*"Queue board URL",\s*queueLinks\.monitorUrl,?\s*\)/);
+  assert.match(source, /<QueueCopyField\s+label="QR target"/);
   assert.match(source, /canvas\.width = 500/);
   assert.match(source, /canvas\.height = 500/);
   assert.match(source, /canvas\.toBlob\([\s\S]*?"image\/jpeg"/);
@@ -1699,7 +1700,7 @@ test("vendor dashboard provides account-level MFA enrollment with a QR code", ()
   assert.match(dashboard, /!requiresMfaEnrollment \? <Card className="neura-card vendor-security-card"/);
   assert.match(dashboard, /Scan with your authenticator app/);
   assert.match(dashboard, /<StyledQRCode[^>]+value=\{mfaEnrollmentUri\}/);
-  assert.match(dashboard, /autoFocus[\s\S]*?label="6-digit authenticator code"/);
+  assert.match(dashboard, /label="6-digit authenticator code"/);
   assert.match(dashboard, /Verify and enable/);
   assert.match(dashboard, /mfaEnabled && mfaSecret[\s\S]*?cancelMfaEnrollment/);
   assert.match(dashboard, /totpMfaEnabled && !mfaSecret && !mfaRecoveryCodes\.length/);
@@ -1757,10 +1758,10 @@ test("vendor queue confirms called tickets through a QR code scan", () => {
   const queueApi = fs.readFileSync(path.join(frontendRoot, "src", "api", "vendorDashboardQueue.ts"), "utf8");
 
   assert.match(dashboard, /<TicketScannerModal/);
-  assert.match(dashboard, />\s*Confirm ticket\s*<\/Button>/);
-  assert.match(dashboard, /activeTicket\?\.customerConfirmedAt \? \(/);
-  assert.match(dashboard, /activeTicket && \(activeTicket\.customerConfirmedAt \|\| activeTicket\.joinChannel === "vendor"\) \? \(/);
-  assert.match(dashboard, /activeTicket\.serviceStartedAt \? "Complete service" : snapshot\?\.location\?\.serviceTimingEnabled \? "Start service" : "Serve customer"/);
+  assert.match(dashboard, />\s*Confirm ticket\s*<\/QueueButton>/);
+  assert.match(dashboard, /activeTicket\?\.customerConfirmedAt/);
+  assert.match(dashboard, /activeTicket &&[\s\S]*?activeTicket\.customerConfirmedAt[\s\S]*?activeTicket\.joinChannel === "vendor"/);
+  assert.match(dashboard, /activeTicket\.serviceStartedAt\s*\?\s*"Complete service"\s*:\s*snapshot\?\.location\?\.serviceTimingEnabled\s*\?\s*"Start service"\s*:\s*"Serve customer"/);
   assert.doesNotMatch(dashboard, />\s*Serve current\s*<\/Button>/);
   assert.match(scanner, /BrowserMultiFormatReader/);
   assert.match(scanner, /decodeFromVideoDevice/);
@@ -1773,22 +1774,19 @@ test("vendor queue adds walk-in customers from the self-service card modal", () 
   const source = fs.readFileSync(path.resolve(__dirname, "../src/pages/VendorDashboardPage.tsx"), "utf8");
 
   assert.match(source, /Open board[\s\S]*?Add walk-in/);
-  assert.match(source, /className="customer-modal walk-in-modal"/);
+  const walkIn = fs.readFileSync(path.resolve(__dirname, "../src/vendor/WalkInDialog.tsx"), "utf8");
+  assert.match(source, /<WalkInDialog/);
   assert.match(source, /opened=\{walkInDialogOpen\}/);
-  assert.match(source, /<form className="task-modal-form" onSubmit=\{handleCreateWalkIn\}>/);
-  assert.match(source, /autoFocus[\s\S]*?name="walkInCustomerName"/);
+  assert.match(walkIn, /<form id="vendor-walk-in" onSubmit=\{onSubmit\}>/);
+  assert.match(walkIn, /autoFocus[\s\S]*?name="walkInCustomerName"/);
   assert.match(source, /setWalkInDialogOpen\(false\)[\s\S]*?showSuccessNotification\("Ticket issued"/);
   assert.doesNotMatch(source, /<Card className="neura-card" padding="lg">\s*<form onSubmit=\{handleCreateWalkIn\}>/);
 });
 
-test("vendor queue workspace uses a two-thirds and one-third desktop grid", () => {
-  const source = fs.readFileSync(path.resolve(__dirname, "../src/pages/VendorDashboardPage.tsx"), "utf8");
-  const queuePage = source.match(/function renderQueuePage\(\)[\s\S]*?function renderWalkInDialog/)?.[0] || "";
-
-  assert.match(queuePage, /<Grid gutter="md">/);
-  assert.match(queuePage, /<Grid\.Col span=\{\{ base: 12, lg: 8 \}\}>/);
-  assert.match(queuePage, /<Grid\.Col span=\{\{ base: 12, lg: 4 \}\}>/);
-  assert.doesNotMatch(queuePage, /<SimpleGrid cols=\{\{ base: 1, lg: 2 \}\}/);
+test("vendor queue layout retains desktop proportions and a stacked mobile default", () => {
+  const styles = fs.readFileSync(path.resolve(__dirname, "../src/vendor/styles.css"), "utf8");
+  assert.match(styles, /\.queue-page-grid \{[^}]*grid-template-columns: minmax\(0,1fr\)/);
+  assert.match(styles, /grid-template-columns: minmax\(0,2fr\) minmax\(300px,1fr\)/);
 });
 
 test("registered customers can rate a served queue visit from the ticket page", () => {

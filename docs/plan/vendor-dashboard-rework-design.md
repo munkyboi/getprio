@@ -4,7 +4,7 @@ Implementation status: see [rework progress](vendor-dashboard-rework-progress.md
 
 13 October audit supplement: the [full dashboard audit](vendor-dashboard-full-audit.md) and [preservation checklist](vendor-dashboard-rework-preservation-checklist.md) are mandatory migration inputs. They correct stale monitor/billing assumptions and enumerate current section/action/failure-state coverage. Existing product decisions remain in effect; their future runtime behavior remains separately gated.
 
-Status: planned, reconciled 5 October 2026. See the [completed interview decisions](vendor-dashboard-workflow-decisions.md). User-selected design direction and references; no application migration performed.
+Status: implementation in progress; shared shell and Live Queue merged in PRs 398/401. Carlo approved the reference-aligned shell correction locally; Bookings, Clients and History are merged in PRs 404/407; Locations, Resources and Counters are the current local-review implementation slice. Original design decisions reconciled 5 October 2026. See the [completed interview decisions](vendor-dashboard-workflow-decisions.md). User-selected design direction and references; see progress notes for migrated surfaces and remaining acceptance.
 
 Implementation must follow [Vendor UI design rules](../design/vendor-ui-rules.md), also linked from the repository's AGENTS.md.
 
@@ -86,3 +86,6 @@ Agree on the shell and workspace navigation, approve representative auth/onboard
 The [queue workflow and resource foundation specification](queue-workflow-foundation-spec.md) defines the proposed server transitions, data invariants, booking/channel compatibility and acceptance gates. The [vendor dashboard migration inventory](vendor-dashboard-migration-inventory.md) maps current routes/components to the proposed workspaces and identifies adjacent resource-configuration work for reuse. These are source-backed planning artifacts, not runtime implementation evidence.
 
 The [vendor dashboard and AI coordination record](vendor-dashboard-ai-coordination.md) refreshes implementation dependencies against main on 6 October 2026 and sets shared-file boundaries and the first shell slice.
+
+
+The current Administration review slice preserves the three Locations tabs. It migrates their presentation and task forms against existing contracts; the future Queue setup editor remains a single relocation, with workflow/station/resource capability activation separately gated. Local draft protection and configured-capacity labels must not imply operational allocations.

@@ -56,7 +56,9 @@ function optionsFrom(args) {
 
 function emptyErrors(scopeKey) {
   return { scopeKey, baseline: [], candidateWithFallback: [], candidateOnly: [], resourceWithFallback: [], resourceOnly: [],
-    candidateFallbackReasons: {}, resourceFallbackReasons: {} };
+    candidateFallbackReasons: {}, resourceFallbackReasons: {},
+    selection: { calledTickets: 0, historicalTickets: 0, overlappingTickets: 0, observedAfterHoldout: 0,
+      calledAfterHoldout: 0, scoredTickets: 0 }, issuedTickets: 0, censoredTickets: 0 };
 }
 
 function appendPrediction(scope, actual, candidate, reference, baseline) {
@@ -75,18 +77,31 @@ function appendPrediction(scope, actual, candidate, reference, baseline) {
   }
 }
 
+function support(supportedTickets, scoredTickets) {
+  return { supportedTickets, scoredTickets, supportedPercent: scoredTickets
+    ? Math.round(supportedTickets / scoredTickets * 10000) / 100 : null };
+}
+
 function describeScope(scope) {
   return { scopeKey: scope.scopeKey, baseline: metrics(scope.baseline), candidateWithFallback: metrics(scope.candidateWithFallback),
     candidateOnly: metrics(scope.candidateOnly), resourceWithFallback: metrics(scope.resourceWithFallback),
     resourceOnly: metrics(scope.resourceOnly), candidateFallbackReasons: scope.candidateFallbackReasons,
-    resourceFallbackReasons: scope.resourceFallbackReasons };
+    resourceFallbackReasons: scope.resourceFallbackReasons,
+    coverage: { issuedTickets: scope.issuedTickets, censoredTickets: scope.censoredTickets,
+      selection: scope.selection, candidate: support(scope.candidateOnly.length, scope.baseline.length),
+      resource: support(scope.resourceOnly.length, scope.baseline.length) } };
 }
 
 function evaluate(dataset, options, aggregate) {
   const model = fitWaitTimeCandidate(dataset.samples, options.cutoff, 30);
   const scopeErrors = new Map(dataset.simulation.scenarios.map(({ scopeKey }) => [scopeKey, emptyErrors(scopeKey)]));
-  for (const scopeKey of scopeErrors.keys()) {
+  for (const scenario of dataset.simulation.scenarios) {
+    const { scopeKey } = scenario;
     if (!aggregate.has(scopeKey)) aggregate.set(scopeKey, emptyErrors(scopeKey));
+    for (const errors of [scopeErrors.get(scopeKey), aggregate.get(scopeKey)]) {
+      errors.issuedTickets += scenario.issuedTickets;
+      errors.censoredTickets += scenario.censoredTickets;
+    }
   }
   const cutoff = timestamp(options.cutoff);
   const end = timestamp(options.holdoutEnd);
@@ -94,11 +109,17 @@ function evaluate(dataset, options, aggregate) {
   for (const sample of dataset.samples) {
     const observed = timestamp(sample.sampledAt);
     const called = timestamp(sample.calledAt);
-    if (observed < cutoff) {
-      if (called >= cutoff) overlappingTickets++;
-      continue;
+    const rows = [scopeErrors.get(sample.scopeKey), aggregate.get(sample.scopeKey)];
+    let category = "scoredTickets";
+    if (observed < cutoff) category = called >= cutoff ? "overlappingTickets" : "historicalTickets";
+    else if (observed >= end) category = "observedAfterHoldout";
+    else if (called >= end) category = "calledAfterHoldout";
+    for (const errors of rows) {
+      errors.selection.calledTickets++;
+      errors.selection[category]++;
     }
-    if (observed >= end || called >= end) continue;
+    if (category === "overlappingTickets") overlappingTickets++;
+    if (category !== "scoredTickets") continue;
     const input = { ...sample.features, observedAt: new Date(sample.sampledAt) };
     const baseline = predictWaitTime(input);
     const candidate = predictWaitTimeWithFallback(input, model, sample.scopeKey);
@@ -120,11 +141,12 @@ async function run() {
     const datasetSha256 = createHash("sha256").update(JSON.stringify(dataset)).digest("hex");
     runs.push({ seed, datasetSha256, from: dataset.from, to: dataset.to, ...evaluate(dataset, options, aggregate) });
   }
-  const report = { reportVersion: "wait-time-synthetic-comparison-v1", source: "synthetic", provenance: "synthetic-simulation",
+  const report = { reportVersion: "wait-time-synthetic-comparison-v2", source: "synthetic", provenance: "synthetic-simulation",
     simulatorVersion: REFERENCE_SIMULATOR_VERSION, resourcePredictorVersion: RESOURCE_REFERENCE_VERSION,
     seeds: options.seeds, ticketsPerScenario: options.tickets, start: options.start,
     trainingCutoff: options.cutoff, holdoutEnd: options.holdoutEnd, minimumTrainingTickets: 30,
     splitPolicy: "Each seed fits its own historical model; all methods score the same later called tickets. Overlapping outcomes are excluded. Not cross-seed model-transfer validation.",
+    coveragePolicy: "Selection partitions all called tickets by the fixed window. Censored totals cover the full simulation, not just the holdout. Support percentages use scored called tickets only; they are not availability for all issued tickets or production traffic.",
     referencePolicy: "Arrival-time known plans, capacity and observed progress only. No future arrivals, cancellations, actual service durations or actual finish times.",
     datasetHashEncoding: "SHA256 of UTF-8 JSON.stringify(dataset) without whitespace.", runs,
     aggregate: [...aggregate.values()].map(describeScope), customerEstimateChanged: false,

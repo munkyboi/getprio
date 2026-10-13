@@ -21,6 +21,7 @@ function createQueueLifecycleWorker(options = {}) {
   let timer = null;
   let running = false;
   let stopped = false;
+  const bookingReminders = options.bookingReminders || require("./bookingReminderService");
   const outboxDispatcher = options.outboxDispatcher || createQueueNotificationOutboxDispatcher();
   const publishLifecycleUpdate = options.publishLifecycleUpdate || createQueueLifecycleUpdatePublisher();
   const onTransition = async (scope) => {
@@ -40,8 +41,11 @@ function createQueueLifecycleWorker(options = {}) {
       const warningCount = await queueDayLifecycleService.emitDueWarnings({ onTransition });
       const reconciledCount = await queueDayLifecycleService.reconcileDueQueueDays(50, { onTransition });
       const expiredCount = await queueDayLifecycleService.expirePendingCarryOvers();
+      let bookingReminderCount = 0;
+      try { bookingReminderCount = await bookingReminders.enqueueDue(); }
+      catch (error) { console.error("Booking reminder scan failed", error.message); }
       const dispatchedCount = await outboxDispatcher.runBatch();
-      return { skipped: false, warningCount, reconciledCount, expiredCount, dispatchedCount };
+      return { skipped: false, warningCount, reconciledCount, expiredCount, dispatchedCount, bookingReminderCount };
     } finally {
       running = false;
     }

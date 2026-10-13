@@ -1,5 +1,6 @@
 import staffAccessEmailWorker from "./services/staffAccessEmailWorker";
 import accountDeletionWorker from "./services/accountDeletionWorker";
+import notificationInbox from "./services/customerNotificationInbox";
 import app from "./app";
 import { connectDb } from "./config/db";
 import env from "./config/env";
@@ -49,6 +50,10 @@ async function start(): Promise<void> {
   const server = app.listen(env.port, () => {
     console.log(`Prio server listening on port ${env.port}`);
   });
+  const inboxRetentionTimer = setInterval(() => {
+    notificationInbox.pruneExpired().catch(() => console.error("[notification-inbox] retention sweep failed"));
+  }, 60 * 60 * 1000);
+  inboxRetentionTimer.unref();
   const deletionTimer = setInterval(() => {
     accountDeletionWorker.runOnce().catch(() => console.error("[account-deletion-worker] processing failed"));
   }, 60_000);
@@ -80,6 +85,7 @@ async function start(): Promise<void> {
     workerStopPromise = (async () => {
       clearInterval(staffAccessEmailTimer);
       clearInterval(deletionTimer);
+      clearInterval(inboxRetentionTimer);
       clearInterval(allowanceWarningTimer);
       clearInterval(developerApiRetentionTimer);
       queueLifecycleWorker.stop();

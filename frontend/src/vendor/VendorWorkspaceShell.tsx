@@ -1,6 +1,7 @@
+import { VendorPortal } from "./portal";
 import { useEffect, useRef, useState, type ReactNode, type ElementType } from "react";
 import { NavLink } from "react-router-dom";
-import { IconMenu2, IconSun, IconMoon, IconLogout } from "@tabler/icons-react";
+import { IconMenu2, IconSun, IconMoon, IconLogout, IconExternalLink } from "@tabler/icons-react";
 import { Button } from "./components/ui/button";
 import { ToggleGroup, ToggleGroupItem } from "./components/ui/toggle-group";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "./components/ui/sheet";
@@ -13,6 +14,7 @@ type Item = { section: string; label: string; icon: ElementType };
 type Props = {
   workspace: Workspace; canAdmin: boolean; items: Item[]; title: string; description: string;
   name: string; role: string; plan: string; context: ReactNode; children: ReactNode; dialogs: ReactNode;
+  businessName: string; locationName: string; publicVendorUrl?: string;
   onBeforeNavigate?: () => boolean; onEdit?: (form: HTMLFormElement) => void;
   onWorkspace: (workspace: Workspace) => void; onLogout: () => void; search: string; hash: string;
 };
@@ -31,51 +33,83 @@ export function VendorWorkspaceShell(props: Props) {
     query.addEventListener("change", change);
     return () => query.removeEventListener("change", change);
   }, []);
+  const workspaceLabel = props.workspace === "operations" ? "Operations" : "Administration";
+  const initials = props.name.trim().split(/\s+/).slice(0, 2).map(part => part[0]).join("").toUpperCase();
+  function guardNavigation(event: React.MouseEvent<HTMLAnchorElement>) {
+    if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey ||
+        event.currentTarget.getAttribute("target") === "_blank" ||
+        event.currentTarget.getAttribute("href") === window.location.pathname + window.location.search + window.location.hash) return;
+    if (props.onBeforeNavigate && !props.onBeforeNavigate()) event.preventDefault();
+    else setOpened(false);
+  }
   function navigation() {
     return <div className="vendor-navigation-body">
-      {props.canAdmin ? <ToggleGroup aria-label="Vendor workspace" value={[props.workspace]} onValueChange={(values) => {
-        if (values[0]) { props.onWorkspace(values[0] as Workspace); setOpened(false); }
-      }} variant="outline">
-        <ToggleGroupItem value="operations">Operations</ToggleGroupItem>
-        <ToggleGroupItem value="administration">Administration</ToggleGroupItem>
-      </ToggleGroup> : <p className="vendor-eyebrow">Operations workspace</p>}
-      <nav aria-label={`${props.workspace === "operations" ? "Operations" : "Administration"} navigation`}>
+      <div className="vendor-business-context">
+        <p className="vendor-eyebrow">Business context</p>
+        <div className="vendor-context">{props.context}</div>
+      </div>
+      <p className="vendor-eyebrow vendor-nav-label">{workspaceLabel}</p>
+      <nav aria-label={`${workspaceLabel} navigation`}>
         {props.items.map(({ section, label, icon: Icon }) => <NavLink key={section}
-          to={workspacePath(section, props.workspace, props.search, props.hash)} onClick={(event) => { if (props.onBeforeNavigate && !props.onBeforeNavigate()) event.preventDefault(); else setOpened(false); }}>
-          <Icon aria-hidden="true" size={20} /><span>{label}</span>
+          to={workspacePath(section, props.workspace, props.search, props.hash)} onClick={guardNavigation}>
+          <Icon aria-hidden="true" size={18} /><span>{label}</span>
         </NavLink>)}
       </nav>
       <div className="vendor-navigation-account">
         <Separator />
-        <p>{props.name}<small>{props.role} · {props.plan}</small></p>
-        <Button variant="outline" onClick={props.onLogout}><IconLogout data-icon="inline-start" />Log out</Button>
+        {props.publicVendorUrl ? <NavLink className="vendor-public-link" to={props.publicVendorUrl} onClick={guardNavigation}><IconExternalLink aria-hidden="true" size={18} />View public page</NavLink> : null}
+        <NavLink className="vendor-account-link" to={workspacePath("account", props.workspace, props.search, props.hash)} onClick={guardNavigation}>
+          <span className="vendor-avatar" aria-hidden="true">{initials}</span>
+          <span><strong>{props.name}</strong><small>{props.role} · {props.plan}</small></span>
+        </NavLink>
+        <Button variant="ghost" onClick={props.onLogout}><IconLogout data-icon="inline-start" />Log out</Button>
       </div>
     </div>;
   }
-  return <div ref={root} className="vendor-workspace" data-vendor-theme={theme} onChangeCapture={(event) => {
+  return <VendorPortal.Provider value={root}><div ref={root} className="vendor-workspace" data-vendor-theme={theme} onChangeCapture={(event) => {
     const form = event.target instanceof HTMLElement ? event.target.closest("form") : null;
     if (form) props.onEdit?.(form);
   }}>
-    <aside className="vendor-sidebar"><NavLink className="vendor-brand" to="/dashboard" onClick={(event) => { if (props.onBeforeNavigate && !props.onBeforeNavigate()) event.preventDefault(); }}>GetPrio<span>Vendor workspace</span></NavLink>{navigation()}</aside>
+    <aside className="vendor-sidebar">
+      <NavLink className="vendor-brand" to="/dashboard" onClick={guardNavigation}>
+        <img src="/logo.svg" alt="" aria-hidden="true" />
+        <span><strong>GetPrio</strong><small>Vendor dashboard</small></span>
+      </NavLink>
+      {navigation()}
+    </aside>
     <div className="vendor-workspace-main">
       <header className="vendor-workspace-header">
-        <div className="vendor-title-row"><Button className="vendor-menu-trigger" variant="outline" size="icon" aria-label="Open dashboard navigation" onClick={() => setOpened(true)}><IconMenu2 /></Button>
-          <div><p className="vendor-eyebrow">{props.workspace === "operations" ? "Operations" : "Administration"}</p><h1>{props.title}</h1></div>
-          <Button variant="outline" size="icon" aria-label={`Use ${theme === "light" ? "dark" : "light"} theme`} onClick={() => {
+        <Button className="vendor-menu-trigger" variant="ghost" size="icon" aria-label="Open dashboard navigation" onClick={() => setOpened(true)}><IconMenu2 /></Button>
+        <span className="vendor-mobile-brand">GetPrio</span>
+        {props.canAdmin ? <ToggleGroup className="vendor-workspace-switch" aria-label="Vendor workspace" value={[props.workspace]} onValueChange={(values) => {
+          if (values[0] && values[0] !== props.workspace) { props.onWorkspace(values[0] as Workspace); }
+        }} variant="workspace" spacing={1}>
+          <ToggleGroupItem value="operations">Operations</ToggleGroupItem>
+          <ToggleGroupItem value="administration">Administration</ToggleGroupItem>
+        </ToggleGroup> : <span className="vendor-workspace-label">{workspaceLabel}</span>}
+        <div className="vendor-header-tools">
+          <Button variant="ghost" size="icon" aria-label={`Use ${theme === "light" ? "dark" : "light"} theme`} onClick={() => {
             const next = theme === "light" ? "dark" : "light"; savePreference("getprio.vendor.theme", next); setTheme(next);
           }}>{theme === "light" ? <IconMoon /> : <IconSun />}</Button>
+          <NavLink className="vendor-avatar vendor-header-account" aria-label={`Account for ${props.name}`} to={workspacePath("account", props.workspace, props.search, props.hash)} onClick={guardNavigation}>{initials}</NavLink>
         </div>
-        <p className="vendor-page-description">{props.description}</p>
-        <div className="vendor-context">{props.context}</div>
       </header>
-      <main className="vendor-feature-content">{props.children}</main>
+      <main className="vendor-feature-content">
+        <div className="vendor-page-heading">
+          <p className="vendor-eyebrow">{workspaceLabel}<span aria-hidden="true"> / </span>{props.locationName || props.businessName}</p>
+          <h1>{props.title}</h1>
+          <p className="vendor-page-description">{props.description}</p>
+        </div>
+        {props.children}
+        <footer className="vendor-copyright">© 2026 MNK-Labs Software Development Services</footer>
+      </main>
     </div>
     {props.dialogs}
     <Sheet open={opened} onOpenChange={setOpened}>
       <SheetContent side="left" container={root} className="vendor-navigation-sheet">
-        <SheetHeader><SheetTitle>GetPrio navigation</SheetTitle><SheetDescription>Your permitted vendor workspace</SheetDescription></SheetHeader>
+        <SheetHeader><SheetTitle>GetPrio navigation</SheetTitle><SheetDescription>{workspaceLabel} · {props.businessName}</SheetDescription></SheetHeader>
         {navigation()}
       </SheetContent>
     </Sheet>
-  </div>;
+  </div></VendorPortal.Provider>;
 }

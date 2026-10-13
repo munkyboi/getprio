@@ -35,7 +35,25 @@ BEGIN
   SELECT array_agg(required_column)
   INTO missing_columns
   FROM (
-    SELECT 'users.roles' AS required_column
+    SELECT 'bookings.reminder_schedule_revision' AS required_column
+    WHERE NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='bookings' AND column_name='reminder_schedule_revision')
+    UNION ALL
+    SELECT 'bookings.reminder_eligible_at'
+    WHERE NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='bookings' AND column_name='reminder_eligible_at')
+    UNION ALL
+    SELECT 'queue_notification_outbox.booking_id'
+    WHERE NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='queue_notification_outbox' AND column_name='booking_id')
+    UNION ALL
+    SELECT 'queue_notification_outbox.booking_schedule_revision'
+    WHERE NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='queue_notification_outbox' AND column_name='booking_schedule_revision')
+    UNION ALL
+    SELECT 'queue_notification_outbox.booking_reminder_stage'
+    WHERE NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='queue_notification_outbox' AND column_name='booking_reminder_stage')
+    UNION ALL
+    SELECT 'bookings.booking_reminder_schedule_identity'
+    WHERE NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='public.bookings'::regclass AND tgname='booking_reminder_schedule_identity' AND tgenabled IN ('O','A'))
+    UNION ALL
+    SELECT 'users.roles'
     WHERE NOT EXISTS (
       SELECT 1
       FROM information_schema.columns
@@ -431,16 +449,28 @@ BEGIN
     RAISE EXCEPTION 'Schema verification failed. Entitlement compatibility authority columns are missing.';
   END IF;
 
+  -- Published allowances are editable policy. Verify the two live representations
+  -- agree instead of requiring migration seed values after every deployment.
   IF EXISTS (
-    SELECT 1 FROM (VALUES
-      ('free','queueTickets',500),('free','queueEmailJourneys',500),('free','serviceBookings',0),
-      ('economical','queueTickets',1000),('economical','queueEmailJourneys',1000),('economical','serviceBookings',100),
-      ('pro','queueTickets',5000),('pro','queueEmailJourneys',5000),('pro','serviceBookings',1000),
-      ('enterprise','queueTickets',50000),('enterprise','queueEmailJourneys',50000),('enterprise','serviceBookings',10000)
-    ) expected(plan_slug, allowance_key, monthly_limit)
-    LEFT JOIN plan_allowances actual USING (plan_slug, allowance_key)
-    WHERE actual.monthly_limit IS DISTINCT FROM expected.monthly_limit
-  ) THEN RAISE EXCEPTION 'Schema verification failed. Plan allowance ladder drifted.'; END IF;
+    SELECT 1
+    FROM subscription_plans plan
+    CROSS JOIN (VALUES
+      ('queueTickets', 'monthlyTickets'),
+      ('queueEmailJourneys', 'monthlyQueueEmailJourneys'),
+      ('serviceBookings', 'monthlyServiceBookings')
+    ) required(allowance_key, entitlement_key)
+    LEFT JOIN plan_allowances actual
+      ON actual.plan_slug = plan.slug AND actual.allowance_key = required.allowance_key
+    CROSS JOIN LATERAL (
+      SELECT CASE WHEN required.allowance_key = 'queueEmailJourneys'
+        THEN COALESCE(NULLIF(plan.entitlements -> required.entitlement_key, 'null'::jsonb), plan.entitlements -> 'monthlyTransactionalEmails')
+        ELSE plan.entitlements -> required.entitlement_key END AS value
+    ) published
+    WHERE plan.slug IN ('free', 'economical', 'pro', 'enterprise')
+      AND (actual.monthly_limit IS NULL OR actual.monthly_limit < 0
+        OR jsonb_typeof(published.value) IS DISTINCT FROM 'number'
+        OR to_jsonb(actual.monthly_limit) IS DISTINCT FROM published.value)
+  ) THEN RAISE EXCEPTION 'Schema verification failed. Published plan allowances are missing or inconsistent.'; END IF;
 
   IF EXISTS (
     SELECT 1 FROM (VALUES ('P100',100,100,9900),('P500',500,500,39900),('P1000',1000,1000,69900)) expected(code,tickets,journeys,price)
@@ -451,6 +481,14 @@ BEGIN
 
   IF EXISTS (SELECT 1 FROM usage_credit_lots WHERE revoked_units + frozen_units > granted_units) THEN
     RAISE EXCEPTION 'Schema verification failed. Usage Credit lot has a negative available invariant.';
+  END IF;
+END $$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public'
+    AND table_name='customer_notification_inbox' AND column_name='kind' AND is_nullable='NO') THEN
+    RAISE EXCEPTION 'Schema verification failed. Notification inbox kind is missing.';
   END IF;
 END $$;
 SQL

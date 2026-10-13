@@ -32,7 +32,7 @@ async function upsert(data, options = {}) {
       WHERE token = $1
         AND NOT (user_id = $2 AND installation_id = $3)
     `,
-    [data.token, Number(data.userId), data.installationId]
+    [data.token, String(data.userId), data.installationId]
   );
   const result = await client.query(
     `
@@ -52,7 +52,7 @@ async function upsert(data, options = {}) {
       RETURNING *
     `,
     [
-      Number(data.userId),
+      String(data.userId),
       data.installationId,
       data.token,
       data.platform,
@@ -71,7 +71,7 @@ async function deactivateForUser(userId, installationId, options = {}) {
       WHERE user_id = $1 AND installation_id = $2
       RETURNING *
     `,
-    [Number(userId), installationId]
+    [String(userId), installationId]
   );
   return mapRegistration(result.rows[0]);
 }
@@ -109,7 +109,7 @@ async function listActiveByUserId(userId, options = {}) {
         )
       ORDER BY registration.updated_at DESC
     `,
-    [Number(userId)]
+    [String(userId)]
   );
   return result.rows.map((row) => mapRegistration(row, { includeToken: true }));
 }
@@ -121,7 +121,7 @@ async function recordSuccess(id, options = {}) {
       SET last_success_at = NOW(), failure_count = 0, updated_at = NOW()
       WHERE id = $1
     `,
-    [Number(id)]
+    [String(id)]
   );
 }
 
@@ -132,7 +132,7 @@ async function recordFailure(id, options = {}) {
       SET last_failure_at = NOW(), failure_count = failure_count + 1, updated_at = NOW()
       WHERE id = $1
     `,
-    [Number(id)]
+    [String(id)]
   );
 }
 

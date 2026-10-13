@@ -105,3 +105,12 @@ Authenticated runtime checks, a real camera/display pairing, direct mobile min/m
 - Eight selected backend suites: **13 passed, 0 failed, 3 skipped**. Skips: PostgreSQL counter authorization/resource-lock execution, duration-unit catalog/migration persistence, and atomic staff-removal/resource revisions. No database acceptance is claimed.
 - An initial root-directory frontend invocation produced three `React is not defined` errors in JSX rendering because of test transform configuration discovery; rerunning from the frontend workspace passed all 35. No production component was changed to accommodate that invocation.
 - Local Markdown target existence and `git diff --check` checked. No app mutation, deployment, browser authentication or physical scan was performed.
+
+### Implementation follow-through: Operations lists
+
+After local shell approval, the Bookings/Clients/History slice explicitly carries forward G07/G12: payment/status/check-in/reschedule/linked-ticket guards, frozen bundle values, async detail failure/retry, loaded-list scope, retention and export permission/error states. The source audit remains historical evidence; the progress document records current local verification and remaining authenticated/deployment gates. Resource pools, workflows and AI readiness are unaffected by this UI migration.
+
+
+### Administration configuration presentation checkpoint (13 October 2026)
+
+The authorized local-review slice covers Locations/Resources/Counters and their editors, preserving current tabs and source contracts. Audited behavior retained: timezone-resolved today/grouped intervals, immutable links, profile/manual payment/QR media, arrival and timing opt-outs, counter assignments/limits/scoped 409 handling/reset, and resource server versions/draft-only capacity/service demand. Added explicit custom-select dirty registration, resource busy propagation, restricted-plan staff-query explanation and safe retry against an already-created location after hours failure. No operational allocation snapshot, workflow station conversion, new resource runtime field, or AI readiness claim. 188 frontend tests and synthetic responsive/mutation fixtures establish local source/UI behavior only; authenticated/device/provider and deployment checks remain outstanding. Shared theme settings are preserved for their later slice.
