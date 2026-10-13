@@ -1,4 +1,4 @@
-import { dateRangeWithStart } from "./operationsState";
+import { orderedDateRange, boundedPage } from "./operationsState";
 import {
   createContext,
   useContext,
@@ -186,7 +186,7 @@ export function OperationDateRange({
         label="From date"
         value={format(value[0])}
         onChange={(event) =>
-          onChange(dateRangeWithStart(
+          onChange(orderedDateRange(
             event.target.value
               ? new Date(`${event.target.value}T00:00:00`)
               : null,
@@ -200,12 +200,12 @@ export function OperationDateRange({
         min={format(value[0]) || undefined}
         value={format(value[1])}
         onChange={(event) =>
-          onChange([
+          onChange(orderedDateRange(
             value[0],
             event.target.value
               ? new Date(`${event.target.value}T00:00:00`)
               : null,
-          ])
+          ))
         }
       />
     </div>
@@ -318,15 +318,16 @@ export function OperationPagination({
   disabled?: boolean;
 }) {
   const last = Math.max(1, total);
-  const pages = [...new Set([1, value - 1, value, value + 1, last])]
+  const current = boundedPage(value, last);
+  const pages = [...new Set([1, current - 1, current, current + 1, last])]
     .filter((page) => page >= 1 && page <= last)
     .sort((a, b) => a - b);
   return (
     <nav aria-label={label} className="ops-pagination">
       <Button
         variant="outline"
-        disabled={disabled || value <= 1}
-        onClick={() => onChange(value - 1)}
+        disabled={disabled || current <= 1}
+        onClick={() => onChange(boundedPage(current - 1, last))}
       >
         Previous
       </Button>
@@ -337,8 +338,8 @@ export function OperationPagination({
           ) : null}
           <Button
             aria-label={`Page ${page}`}
-            aria-current={page === value ? "page" : undefined}
-            variant={page === value ? "default" : "outline"}
+            aria-current={page === current ? "page" : undefined}
+            variant={page === current ? "default" : "outline"}
             disabled={disabled}
             onClick={() => onChange(page)}
           >
@@ -348,8 +349,8 @@ export function OperationPagination({
       ))}
       <Button
         variant="outline"
-        disabled={disabled || value >= last}
-        onClick={() => onChange(value + 1)}
+        disabled={disabled || current >= last}
+        onClick={() => onChange(boundedPage(current + 1, last))}
       >
         Next
       </Button>

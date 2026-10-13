@@ -91,3 +91,9 @@ Sonar's PR-specific report identified 106 duplicated new lines (8.4%) in repeate
 Fresh Codex review also identified redundant mobile booking-detail dismissal, no-tenant recovery navigation, and dark-theme headings on remaining legacy screens. Booking-detail footer Close now uses the same mobile-only dismissal rule; the no-workspace view offers site, account and sign-out recovery; page headings inherit the workspace foreground token in both themes. These are scoped shell/task corrections, not migration of the remaining Administration screens.
 
 Follow-up verification: 182 frontend tests, TypeScript, affected-file ESLint and production build pass. Browser fixtures verified detail dismissal at 375/768/1180px, a Services heading using the dark foreground value, and site/account/sign-out recovery for an account with no active vendor memberships. Authenticated/live and direct-device acceptance remain separate.
+
+### PR #404 remaining review corrections (2026-10-13)
+
+Both native date controls now apply the shared ordering rule, including a typed To value before From; inverted ends are cleared before query state updates, while equal/later and open bounds remain valid. Clients and History search reset pagination to page 1. Their visible pages, record slices, ranges and pager use a shared bounded page so refreshed/shrinking results cannot produce a false empty page. Previous/Next also use bounded destinations. No-tenant recovery actions have a minimum 44px height.
+
+Verification: 183 frontend tests, TypeScript, affected-file ESLint and production build pass. At 375px, isolated browser fixtures verified typed invalid end rejection, equal/later ends, Clients and History search from later pages immediately displaying matches, and all three recovery targets measuring at least 44px high. Fresh hosted CI/Sonar and Codex review must be checked on the fixing commit; no merge/deployment is implied.

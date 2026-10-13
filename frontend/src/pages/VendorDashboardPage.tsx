@@ -1,4 +1,4 @@
-import { availableRescheduleSelection } from "../vendor/operationsState";
+import { availableRescheduleSelection, boundedPage } from "../vendor/operationsState";
 import {
   OperationScope,
   OperationPanel,
@@ -2559,11 +2559,12 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
 
     return items;
   }, [clients, clientsSearch, clientsSort]);
-  const paginatedClients = useMemo(() => {
-    const start = (clientsPage - 1) * CLIENTS_PAGE_SIZE;
-    return filteredClients.slice(start, start + CLIENTS_PAGE_SIZE);
-  }, [clientsPage, filteredClients]);
   const clientsTotalPages = Math.max(1, Math.ceil(filteredClients.length / CLIENTS_PAGE_SIZE));
+  const clientsVisiblePage = boundedPage(clientsPage, clientsTotalPages);
+  const paginatedClients = useMemo(() => {
+    const start = (clientsVisiblePage - 1) * CLIENTS_PAGE_SIZE;
+    return filteredClients.slice(start, start + CLIENTS_PAGE_SIZE);
+  }, [clientsVisiblePage, filteredClients]);
 
   const filteredHistoryTickets = useMemo(() => {
     const query = historySearch.trim().toLowerCase();
@@ -2597,11 +2598,12 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
 
     return items;
   }, [historySearch, historySort, historyTickets]);
-  const paginatedHistoryTickets = useMemo(() => {
-    const start = (historyPage - 1) * HISTORY_PAGE_SIZE;
-    return filteredHistoryTickets.slice(start, start + HISTORY_PAGE_SIZE);
-  }, [filteredHistoryTickets, historyPage]);
   const historyTotalPages = Math.max(1, Math.ceil(filteredHistoryTickets.length / HISTORY_PAGE_SIZE));
+  const historyVisiblePage = boundedPage(historyPage, historyTotalPages);
+  const paginatedHistoryTickets = useMemo(() => {
+    const start = (historyVisiblePage - 1) * HISTORY_PAGE_SIZE;
+    return filteredHistoryTickets.slice(start, start + HISTORY_PAGE_SIZE);
+  }, [filteredHistoryTickets, historyVisiblePage]);
   const filteredBookings = useMemo(() => vendorBookings, [vendorBookings]);
   const activeBookingAlerts = useMemo(
     () =>
@@ -8603,9 +8605,10 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                 label="Search loaded clients"
                 placeholder="Name, contact, ticket, status"
                 value={clientsSearch}
-                onChange={(event) =>
-                  setClientsSearch(event.currentTarget.value)
-                }
+                onChange={(event) => {
+                  setClientsSearch(event.currentTarget.value);
+                  setClientsPage(1);
+                }}
               />
               <OperationSelect
                 label="Sort by"
@@ -8680,18 +8683,18 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
               <p className="ops-muted">
                 Showing{" "}
                 {paginatedClients.length
-                  ? (clientsPage - 1) * CLIENTS_PAGE_SIZE + 1
+                  ? (clientsVisiblePage - 1) * CLIENTS_PAGE_SIZE + 1
                   : 0}
                 -
                 {Math.min(
-                  clientsPage * CLIENTS_PAGE_SIZE,
+                  clientsVisiblePage * CLIENTS_PAGE_SIZE,
                   filteredClients.length,
                 )}{" "}
                 of {filteredClients.length}
               </p>
               <OperationPagination
                 total={clientsTotalPages}
-                value={clientsPage}
+                value={clientsVisiblePage}
                 onChange={setClientsPage}
               />
             </div>
@@ -8784,9 +8787,10 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                 label="Search loaded history"
                 placeholder="Ticket, customer, status, lookup code"
                 value={historySearch}
-                onChange={(event) =>
-                  setHistorySearch(event.currentTarget.value)
-                }
+                onChange={(event) => {
+                  setHistorySearch(event.currentTarget.value);
+                  setHistoryPage(1);
+                }}
               />
               <OperationSelect
                 label="Sort by"
@@ -8857,18 +8861,18 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
               <p className="ops-muted">
                 Showing{" "}
                 {paginatedHistoryTickets.length
-                  ? (historyPage - 1) * HISTORY_PAGE_SIZE + 1
+                  ? (historyVisiblePage - 1) * HISTORY_PAGE_SIZE + 1
                   : 0}
                 -
                 {Math.min(
-                  historyPage * HISTORY_PAGE_SIZE,
+                  historyVisiblePage * HISTORY_PAGE_SIZE,
                   filteredHistoryTickets.length,
                 )}{" "}
                 of {filteredHistoryTickets.length}
               </p>
               <OperationPagination
                 total={historyTotalPages}
-                value={historyPage}
+                value={historyVisiblePage}
                 onChange={setHistoryPage}
               />
             </div>
@@ -10573,9 +10577,9 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
             <Title order={1}>No vendor tenants found</Title>
             <Text>Your account does not currently have access to a tenant workspace.</Text>
             <Group aria-label="Workspace access recovery">
-              <Button component={Link} to="/">Back to site</Button>
-              <Button component={Link} to="/account/dashboard" variant="outline">My account</Button>
-              <Button variant="subtle" onClick={() => void logout()}>Sign out</Button>
+              <Button mih={44} component={Link} to="/">Back to site</Button>
+              <Button mih={44} component={Link} to="/account/dashboard" variant="outline">My account</Button>
+              <Button mih={44} variant="subtle" onClick={() => void logout()}>Sign out</Button>
             </Group>
           </Stack>
           <img

@@ -29,11 +29,21 @@ test('reschedule selection expires when the server removes or fills its slot',()
 });
 
 test('advancing the start date clears an earlier end but preserves equal, later and open bounds',()=>{
- const {dateRangeWithStart}=require('../src/vendor/operationsState.ts');
+ const {orderedDateRange}=require('../src/vendor/operationsState.ts');
  const earlier=new Date(2026,9,13),later=new Date(2026,9,14);
- assert.deepEqual(dateRangeWithStart(later,earlier),[later,null]);
- assert.deepEqual(dateRangeWithStart(earlier,later),[earlier,later]);
- assert.deepEqual(dateRangeWithStart(earlier,earlier),[earlier,earlier]);
- assert.deepEqual(dateRangeWithStart(null,earlier),[null,earlier]);
- assert.deepEqual(dateRangeWithStart(later,null),[later,null]);
+ assert.deepEqual(orderedDateRange(later,earlier),[later,null]);
+ assert.deepEqual(orderedDateRange(earlier,later),[earlier,later]);
+ assert.deepEqual(orderedDateRange(earlier,earlier),[earlier,earlier]);
+ assert.deepEqual(orderedDateRange(null,earlier),[null,earlier]);
+ assert.deepEqual(orderedDateRange(later,null),[later,null]);
+});
+
+
+test('out-of-range pagination identifies a valid current page after results shrink',()=>{
+ const {boundedPage}=require('../src/vendor/operationsState.ts');
+ assert.equal(boundedPage(5,1),1);assert.equal(boundedPage(5,3),3);
+ assert.equal(boundedPage(0,3),1);assert.equal(boundedPage(2,3),2);
+ const html=render(OperationPagination,{total:1,value:5,onChange(){}});
+ assert.match(html,/aria-label="Page 1" aria-current="page"/);
+ assert.equal((html.match(/ disabled=""/g)||[]).length,2);
 });

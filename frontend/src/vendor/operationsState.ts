@@ -8,10 +8,15 @@ export function availableRescheduleSelection(
   return slots.some(slot => slot.isAvailable && String(slot.startAt) === selected) ? selected : "";
 }
 
-/** Changing the lower bound must not leave a previously selected end before it. */
-export function dateRangeWithStart(
+/** Never retain an end date before the start, regardless of which bound changed. */
+export function orderedDateRange(
   start: Date | null,
   end: Date | null,
 ): [Date | null, Date | null] {
   return [start, start && end && end < start ? null : end];
+}
+
+/** Keep controlled pagination valid when filters or refreshed data reduce the page count. */
+export function boundedPage(value: number, total: number): number {
+  return Math.min(Math.max(1, value), Math.max(1, total));
 }
