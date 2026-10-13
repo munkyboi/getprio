@@ -9,7 +9,7 @@ Updated 13 October 2026. This is the current work-item ledger for this chat's re
 | VD-03 Bookings, Clients and History | Merged #404/#407 | Preserve payment/check-in/frozen booking and reschedule guards. |
 | VD-04 Locations, Resources and Counters | Merged #409 (`9fd91e56`) | Local design approved; post-merge review corrections are merged in PR #414 (`c3baacbf`). Runtime resource activation remains separate. |
 | VD-05 Services and Availability | Implemented locally; review available | 194 frontend tests/typecheck/lint/build and synthetic browser checks pass. Address feedback; continuation to other screens is authorized. PR publication remains separate. |
-| VD-06 Staff management | Authorized; pending implementation | Preserve seats, memberships, assignment and removal/deactivation guards; coordinate API owner. |
+| VD-06 Staff management | Implemented locally; review available | 197 frontend tests, typecheck/lint/build pass; both themes at 375/768/1180/1440px and synthetic mutation/retry/discard checks passed. Continue Settings/Queue Board; authenticated/device acceptance remains separate. |
 | VD-07 Settings, business profile and Queue Board management | Authorized; pending implementation | Preserve public/private URL rotation, display grant renewal/revocation and permission boundaries. |
 | VD-08 Account, subscription/billing and security | Authorized; pending implementation | Preserve MFA/recovery, owner/admin distinctions, upgrades/credits/plan exit and deletion. |
 | VD-09 Reports and Ratings | Authorized; pending implementation | Preserve period/retention/exports, server metrics, moderation and paid-plan eligibility. |
@@ -22,6 +22,8 @@ Updated 13 October 2026. This is the current work-item ledger for this chat's re
 The `Continue vendor dashboard rework` heartbeat checks this chat hourly. Refresh actual issue/PR/check state and connected-chat ownership before choosing work. Continue implementation, current-slice defects/review comments, tests and documentation autonomously. Do not duplicate an active turn or another chat's owned changes. Record meaningful completion/blockers in progress and this ledger.
 
 Carlo authorized end-to-end implementation on 13 October 2026, superseding the per-screen local approval stop. Continue across all unblocked remaining slices while presenting reviewable local milestones and incorporating feedback. Maintain coordinated ownership and documented external blockers, and continue other work when one item is blocked. PR publication still follows separate authorization; merge/deployment and runtime/pilot activation require their own authorization and evidence. Keep notifications quiet when nothing actionable changed; report reviewable results, meaningful failures or decisions requiring Carlo. Historical checkpoints below retain their original authorization context.
+
+When a related PR is verified deployed at the intended revision, automatically begin the next unblocked work item after focused health/smoke checks and ownership coordination; Carlo need not say continue. Record acceptance gaps and address defects that block the next item. Deployment is a continuation trigger, not a requirement to stop other authorized implementation while a rollout is pending.
 
 ## PR triage checkpoint: 13 October 2026, 12:45 UTC
 

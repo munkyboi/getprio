@@ -991,7 +991,7 @@ test("confirm action modal supports a mobile-specific class hook", () => {
 
   assert.match(confirmModalSource, /className\?: string;/);
   assert.match(confirmModalSource, /className=\{\["task-modal", "confirm-action-modal", className\]\.filter\(Boolean\)\.join\(" "\)\}/);
-  assert.match(vendorDashboardSource, /\["queue", "bookings", "clients", "history", "tenants", "services"\]\.includes\(currentSection\).*QueueConfirmation : ConfirmActionModal/);
+  assert.match(vendorDashboardSource, /\["queue", "bookings", "clients", "history", "tenants", "services", "staff"\]\.includes\(currentSection\).*QueueConfirmation : ConfirmActionModal/);
 });
 
 test("service saves refresh location-service settings before the editor reopens", () => {

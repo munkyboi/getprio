@@ -1,3 +1,4 @@
+import { StaffManagement } from "../vendor/StaffManagement";
 import { CounterStaffAssignments } from "../vendor/CounterStaffAssignments";
 import { serviceQuantityError, dateExceptionPayload } from "../vendor/serviceConfigurationState";
 import { FieldGroup } from "../vendor/components/ui/field";
@@ -68,8 +69,6 @@ import {
   SimpleGrid,
   Slider,
   Stack,
-  Switch,
-  Table,
   Tabs,
   Text,
   TextInput,
@@ -3588,6 +3587,8 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
   async function handleAddStaff(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const submittedForm = event.currentTarget;
+    if (busyAction || staffQuery.isPending || staffQuery.isError || staff.length >= staffSeatLimit) return;
+    setError("");
     setBusyAction("staff-save");
     try {
       await vendorDashboardOperations.addStaff(token, selectedTenantSlug, staffForm);
@@ -3604,29 +3605,73 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     }
   }
 
-  async function handleUpdateStaffRole(member: VendorStaffSummary, role: "owner" | "admin" | "staff") {
-    await vendorDashboardOperations.updateStaff(token, selectedTenantSlug, member.id, { role });
-    await reloadStaff();
-    await reloadBookings();
-    showSuccessNotification("Staff updated", `${member.name}'s role was updated.`);
+  async function handleUpdateStaffRole(
+    member: VendorStaffSummary,
+    role: "owner" | "admin" | "staff",
+  ) {
+    setError("");
+    setBusyAction("staff-update");
+    try {
+      await vendorDashboardOperations.updateStaff(
+        token,
+        selectedTenantSlug,
+        member.id,
+        { role },
+      );
+      await reloadStaff();
+      await reloadBookings();
+      showSuccessNotification(
+        "Staff updated",
+        `${member.name}'s role was updated.`,
+      );
+    } finally {
+      setBusyAction("");
+    }
   }
 
-  async function handleUpdateStaffStatus(member: VendorStaffSummary, isActive: boolean) {
-    await vendorDashboardOperations.updateStaff(token, selectedTenantSlug, member.id, { isActive });
-    await reloadStaff();
-    await reloadBookings();
-    showSuccessNotification(
-      isActive ? "Staff enabled" : "Staff disabled",
-      `${member.name} was ${isActive ? "enabled" : "disabled"} for this tenant.`
-    );
+  async function handleUpdateStaffStatus(
+    member: VendorStaffSummary,
+    isActive: boolean,
+  ) {
+    setError("");
+    setBusyAction("staff-update");
+    try {
+      await vendorDashboardOperations.updateStaff(
+        token,
+        selectedTenantSlug,
+        member.id,
+        { isActive },
+      );
+      await reloadStaff();
+      await reloadBookings();
+      showSuccessNotification(
+        isActive ? "Staff enabled" : "Staff disabled",
+        `${member.name} was ${isActive ? "enabled" : "disabled"} for this tenant.`,
+      );
+    } finally {
+      setBusyAction("");
+    }
   }
 
   async function handleRemoveStaff(member: VendorStaffSummary) {
-    await vendorDashboardOperations.removeStaff(token, selectedTenantSlug, member.id);
-    await reloadStaff();
-    await reloadCounters();
-    await reloadBookings();
-    showSuccessNotification("Staff removed", `${member.name} no longer has tenant access.`);
+    setError("");
+    setBusyAction("staff-update");
+    try {
+      await vendorDashboardOperations.removeStaff(
+        token,
+        selectedTenantSlug,
+        member.id,
+      );
+      await reloadStaff();
+      await reloadCounters();
+      await reloadBookings();
+      showSuccessNotification(
+        "Staff removed",
+        `${member.name} no longer has tenant access.`,
+      );
+    } finally {
+      setBusyAction("");
+    }
   }
 
   function openConfirmAction(action: NonNullable<typeof confirmAction>) {
@@ -8867,116 +8912,113 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
   }
 
   function renderStaffPage() {
-    const assignableRoles = isOwner
-      ? [
-          { label: "Admin", value: "admin" },
-          { label: "Staff", value: "staff" }
-        ]
-      : [{ label: "Staff", value: "staff" }];
-
+    if (staffQuery.isPending || staffQuery.isError)
+      return (
+        <OperationScope>
+          <OperationQueryState
+            loading={staffQuery.isPending}
+            error={staffQuery.error}
+            onRetry={() => void staffQuery.refetch()}
+          />
+        </OperationScope>
+      );
+    const confirmStaffChange = (
+      member: VendorStaffSummary,
+      kind: "role" | "status" | "remove",
+      value?: "admin" | "staff" | boolean,
+    ) => {
+      setError("");
+      const role = value === "admin" ? "admin" : "staff";
+      const enabled = value === true;
+      openConfirmAction({
+        title:
+          kind === "role"
+            ? `Change ${member.name}'s role?`
+            : kind === "remove"
+              ? `Remove ${member.name}?`
+              : `${enabled ? "Enable" : "Disable"} ${member.name}'s access?`,
+        description:
+          kind === "role"
+            ? `Their role in this business will become ${role === "admin" ? "Admin" : "Staff"}. Their existing location and counter assignments are retained.`
+            : kind === "remove"
+              ? "This revokes their access to this business. Their GetPrio account remains available for other businesses and customer bookings."
+              : enabled
+                ? "Allow this member to access this business again, subject to their role and assignments."
+                : "This disables their access to this business. Their account and membership remain saved; you can enable access again.",
+        confirmLabel:
+          kind === "role"
+            ? "Change role"
+            : kind === "remove"
+              ? "Remove staff"
+              : enabled
+                ? "Enable access"
+                : "Disable access",
+        confirmColor:
+          kind === "remove" || (kind === "status" && !enabled) ? "red" : "blue",
+        onConfirm: async () => {
+          if (kind === "role") await handleUpdateStaffRole(member, role);
+          else if (kind === "status")
+            await handleUpdateStaffStatus(member, enabled);
+          else await handleRemoveStaff(member);
+        },
+      });
+    };
     return (
-      <Card className="neura-card" padding="lg">
-        <Stack gap="md">
-          <Group justify="space-between">
+      <ConfigurationScope busy={Boolean(busyAction)}>
+        <OperationPanel>
+          <div className="ops-list-heading ops-between">
             <div>
-              <Text className="neura-label">Staff</Text>
-              <Title order={3}>Tenant access</Title>
-              <Text c="dimmed" size="sm">{staff.length}/{staffSeatLimit} staff seats used</Text>
+              <h2>Business access</h2>
+              <p className="ops-muted">
+                {staff.length} of {staffSeatLimit} staff seats used. Saved
+                memberships, including disabled accounts, count toward this limit.
+              </p>
             </div>
             {isOwner || isAdmin ? (
-              <Button
-                className="neura-primary-button"
+              <OperationButton
                 disabled={staff.length >= staffSeatLimit}
-                onClick={() => setStaffDialogOpen(true)}
+                onClick={() => {
+                  setError("");
+                  setStaffForm({ email: "", role: "staff" });
+                  setStaffDialogOpen(true);
+                }}
               >
                 Add staff
-              </Button>
+              </OperationButton>
             ) : null}
-          </Group>
-          <Table.ScrollContainer minWidth={720}>
-            <Table verticalSpacing="sm">
-              <Table.Thead>
-                <Table.Tr>
-                  <Table.Th>ID</Table.Th>
-                  <Table.Th>Name</Table.Th>
-                  <Table.Th>Contact</Table.Th>
-                  <Table.Th>Role</Table.Th>
-                  <Table.Th>Status</Table.Th>
-                  <Table.Th>Counters</Table.Th>
-                  <Table.Th />
-                </Table.Tr>
-              </Table.Thead>
-              <Table.Tbody>
-                {staff.map((member) => {
-                  const isCurrentUser = member.id === user?.id;
-                  const roleOptions = member.role === "owner"
-                    ? [{ label: "Owner", value: "owner" }]
-                    : member.role === "admin"
-                      ? [{ label: "Admin", value: "admin" }]
-                      : [{ label: "Staff", value: "staff" }];
-
-                  return (
-                    <Table.Tr key={member.id}>
-                      <Table.Td fw={700}>{member.id}</Table.Td>
-                      <Table.Td fw={700}>{member.name}</Table.Td>
-                      <Table.Td>{member.email || member.phone || "--"}</Table.Td>
-                      <Table.Td>
-                        {member.role === "owner" || isCurrentUser || !isOwner ? (
-                          <Select data={roleOptions} disabled value={member.role} />
-                        ) : (
-                          <Select
-                            data={assignableRoles}
-                            value={member.role}
-                            onChange={(value) =>
-                              value && handleUpdateStaffRole(member, value as "owner" | "admin" | "staff")
-                            }
-                          />
-                        )}
-                      </Table.Td>
-                      <Table.Td>
-                        <Switch
-                          checked={member.isActive !== false}
-                          disabled={member.role === "owner" || isCurrentUser}
-                          label={member.isActive !== false ? "Enabled" : "Disabled"}
-                          onChange={(event) => handleUpdateStaffStatus(member, event.currentTarget.checked)}
-                        />
-                      </Table.Td>
-                      <Table.Td>
-                        {member.assignedCounterIds
-                          .map((counterId) => serviceCounters.find((counter) => counter.id === counterId)?.name)
-                          .filter(Boolean)
-                          .join(", ") || "--"}
-                      </Table.Td>
-                      <Table.Td>
-                        {isOwner && member.role !== "owner" && !isCurrentUser ? (
-                          <Button
-                            color="red"
-                            size="xs"
-                            variant="light"
-                            onClick={() =>
-                              openConfirmAction({
-                                title: "Remove staff member?",
-                                description: "This will revoke the staff member's access to this tenant.",
-                                confirmLabel: "Remove staff",
-                                confirmColor: "red",
-                                onConfirm: async () => {
-                                  await handleRemoveStaff(member);
-                                }
-                              })
-                            }
-                          >
-                            Remove
-                          </Button>
-                        ) : null}
-                      </Table.Td>
-                    </Table.Tr>
-                  );
-                })}
-              </Table.Tbody>
-            </Table>
-          </Table.ScrollContainer>
-        </Stack>
-      </Card>
+          </div>
+          {staff.length >= staffSeatLimit ? (
+            <p className="ops-muted">
+              The staff seat limit has been reached. Remove an eligible membership
+              or change your plan before adding another account.
+            </p>
+          ) : null}
+          <p className="ops-muted">
+            Owners can change other members’ roles and remove access. Owners and
+            admins can enable or disable eligible members. Counter assignments are
+            managed in Locations → Counters; names below use the selected
+            location.
+          </p>
+          {error && !staffDialogOpen && !confirmAction ? (
+            <OperationAlert color="red" title="Unable to update staff">
+              {error}
+            </OperationAlert>
+          ) : null}
+          <StaffManagement
+            members={staff}
+            actorId={user?.id || ""}
+            owner={isOwner}
+            admin={isAdmin}
+            counters={serviceCounters}
+            countersAvailable={!countersQuery.isPending && !countersQuery.isError}
+            onRole={(member, role) => confirmStaffChange(member, "role", role)}
+            onStatus={(member, active) =>
+              confirmStaffChange(member, "status", active)
+            }
+            onRemove={(member) => confirmStaffChange(member, "remove")}
+          />
+        </OperationPanel>
+      </ConfigurationScope>
     );
   }
 
@@ -10279,68 +10321,109 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
   }
 
   function renderStaffDialog() {
+    const close = () => {
+      if (canLeaveFeature()) {
+        unsavedForm.current.discardId("vendor-staff-editor");
+        setStaffForm({ email: "", role: "staff" });
+        setStaffDialogOpen(false);
+      }
+    };
     return (
-      <Modal
-        centered
+      <TaskDialog
         opened={staffDialogOpen}
-        onClose={() => setStaffDialogOpen(false)}
-        title={
-          <Stack className="getprio-modal-title" gap={2}>
-            <Text className="getprio-modal-eyebrow">ACCESS MANAGEMENT</Text>
-            <Text className="getprio-modal-heading">Add staff</Text>
-          </Stack>
+        onClose={close}
+        busy={Boolean(busyAction)}
+        eyebrow="ACCESS MANAGEMENT"
+        title="Add staff"
+        description="Give someone with an existing GetPrio account access to this business."
+        footer={
+          <>
+            <OperationButton
+              variant="outline"
+              className="ops-redundant-dismiss"
+              disabled={Boolean(busyAction)}
+              onClick={close}
+            >
+              Cancel
+            </OperationButton>
+            <OperationButton
+              type="submit"
+              form="vendor-staff-editor"
+              disabled={
+                Boolean(busyAction) ||
+                staffQuery.isPending ||
+                staffQuery.isError ||
+                staff.length >= staffSeatLimit
+              }
+              aria-busy={Boolean(busyAction)}
+            >
+              {busyAction ? "Working…" : "Add staff"}
+            </OperationButton>
+          </>
         }
       >
-        <form onSubmit={handleAddStaff}>
-          <Stack gap="md">
-            <TextInput
-              name="staffEmail"
-              label="Existing account email"
-              required
-              type="email"
-              value={staffForm.email}
-              onChange={(event) =>
-                setStaffForm((current) => ({ ...current, email: event.target.value }))
-              }
-            />
-            <Select
-              name="staffRole"
-              data={
-                isOwner
-                  ? [
-                      { label: "Staff", value: "staff" },
-                      { label: "Admin", value: "admin" }
-                    ]
-                  : [{ label: "Staff", value: "staff" }]
-              }
-              label="Role"
-              value={staffForm.role}
-              onChange={(value) =>
-                setStaffForm((current) => ({
-                  ...current,
-                  role: value === "admin" ? "admin" : "staff"
-                }))
-              }
-            />
-            <Text c="dimmed" size="sm">
-              The person must already have a GetPrio account before they can be added here.
-            </Text>
-            <Group justify="flex-end">
-              <Button variant="default" onClick={() => setStaffDialogOpen(false)}>
-                Cancel
-              </Button>
-              <Button className="neura-primary-button" disabled={busyAction === "staff-save"} type="submit">
-                Add staff
-              </Button>
-            </Group>
-          </Stack>
-        </form>
-      </Modal>
+        <ConfigurationScope
+          busy={Boolean(busyAction)}
+          onEdit={(form) => unsavedForm.current.mark(form)}
+        >
+          <form id="vendor-staff-editor" onSubmit={handleAddStaff}>
+            <FieldGroup>
+              {error ? (
+                <OperationAlert color="red" title="Unable to add staff">
+                  {error}
+                </OperationAlert>
+              ) : null}
+              <ConfigurationInput
+                name="staffEmail"
+                label="Existing account email"
+                description="The person must already have a GetPrio account. Adding access here does not create an account."
+                required
+                type="email"
+                autoComplete="off"
+                autoCapitalize="none"
+                spellCheck={false}
+                value={staffForm.email}
+                onChange={(event) =>
+                  setStaffForm((current) => ({
+                    ...current,
+                    email: event.currentTarget.value,
+                  }))
+                }
+              />
+              <ConfigurationSelect
+                name="staffRole"
+                label="Role"
+                required
+                data={
+                  isOwner
+                    ? [
+                        { label: "Staff", value: "staff" },
+                        { label: "Admin", value: "admin" },
+                      ]
+                    : [{ label: "Staff", value: "staff" }]
+                }
+                description={
+                  isOwner
+                    ? "Staff handle permitted operations. Admins can also manage business configuration and staff access."
+                    : "Admins can add Staff accounts. Only an owner can assign Admin access."
+                }
+                value={staffForm.role}
+                onChange={(value) =>
+                  setStaffForm((current) => ({
+                    ...current,
+                    role: value === "admin" ? "admin" : "staff",
+                  }))
+                }
+              />
+            </FieldGroup>
+          </form>
+        </ConfigurationScope>
+      </TaskDialog>
     );
   }
 
   function renderDashboardAlertOverlay() {
-    const Confirmation = (["queue", "bookings", "clients", "history", "tenants", "services"].includes(currentSection) || bookingDetailOpen || rescheduleDialogOpen) ? QueueConfirmation : ConfirmActionModal;
+    const Confirmation = (["queue", "bookings", "clients", "history", "tenants", "services", "staff"].includes(currentSection) || bookingDetailOpen || rescheduleDialogOpen) ? QueueConfirmation : ConfirmActionModal;
     const overlayAlerts = [
       ...activeQueueAlerts.map((ticket) => ({
         actionLabel: "Open queue",
@@ -10406,7 +10489,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
 
     return (
       <Portal>
-        {overlayAlerts.length && !bookingDetailOpen && !rescheduleDialogOpen && !rescheduleBlockModalOpen && !locationDialogOpen && !counterDialogOpen && !resourceConfigurationDialogOpen && !serviceDialogOpen && !availabilityBlockDialogOpen && !availabilityExceptionDialogOpen && !confirmAction ? (
+        {overlayAlerts.length && !bookingDetailOpen && !rescheduleDialogOpen && !rescheduleBlockModalOpen && !locationDialogOpen && !counterDialogOpen && !resourceConfigurationDialogOpen && !serviceDialogOpen && !availabilityBlockDialogOpen && !availabilityExceptionDialogOpen && !staffDialogOpen && !confirmAction ? (
           <Box
             className="dashboard-notification-stack"
             style={{
@@ -10910,14 +10993,17 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
           confirmLabel={confirmAction?.confirmLabel || "Confirm"}
           confirmColor={confirmAction?.confirmColor || "red"}
           loading={confirmBusy}
+          {...(currentSection === "staff" ? { eyebrow: "STAFF ACCESS", error } : {})}
           onClose={closeConfirmAction}
           onConfirm={async () => {
             const action = confirmAction;
             if (!action) {
               return;
             }
-            await action.onConfirm();
-            closeConfirmAction();
+            try {
+              await action.onConfirm();
+              closeConfirmAction();
+            } catch (actionError) { setError(getErrorMessage(actionError)); }
           }}
         />
 

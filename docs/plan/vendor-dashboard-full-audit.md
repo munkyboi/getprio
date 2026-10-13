@@ -118,3 +118,7 @@ The authorized local-review slice covers Locations/Resources/Counters and their 
 ## Services and Availability implementation checkpoint
 
 The authorized Services slice carries Services/Availability and G06 forward through scoped catalog summaries, native bounded editors, quantity bounds, branch pricing/capacity, weekly overnight/defaults and date exception controls. Server APIs, authorization and frozen bookings remain authoritative. Missing service metadata disables editing/toggling an existing schedule instead of silently broadening it to all services. Whole-day exceptions explicitly block all services; status requests explicitly retain quantity limits. See the progress record and [work tracker](vendor-dashboard-rework-ticket-tracker.md) for verification and review gates.
+
+## Staff implementation checkpoint
+
+Staff follow-through (13 October 2026): G08 presentation is migrated locally with preserved membership/seat/self/owner/admin and counter-assignment contracts, guarded existing-account onboarding, confirmation/retry states and responsive roster. Source regression and synthetic browser evidence are recorded in [progress](vendor-dashboard-rework-progress.md); this does not certify real access-change delivery, session revocation or device behavior. End-to-end authorization supersedes per-screen advancement stops; publishing, deployment and runtime activation retain their separate gates.

@@ -64,6 +64,8 @@ export function QueueConfirmation({
   loading = false,
   onConfirm,
   onClose,
+  eyebrow = "QUEUE ACTION",
+  error,
 }: {
   opened: boolean;
   title: string;
@@ -74,13 +76,15 @@ export function QueueConfirmation({
   loading?: boolean;
   onConfirm: () => void;
   onClose: () => void;
+  eyebrow?: string;
+  error?: string;
 }) {
   return (
     <TaskDialog
       opened={opened}
       onClose={onClose}
       busy={loading}
-      eyebrow="QUEUE ACTION"
+      eyebrow={eyebrow}
       title={title}
       footer={
         <>
@@ -99,6 +103,7 @@ export function QueueConfirmation({
       }
     >
       <p>{description}</p>
+      {error ? <p role="alert">{error}</p> : null}
     </TaskDialog>
   );
 }
