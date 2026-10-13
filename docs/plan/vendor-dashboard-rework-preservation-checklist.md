@@ -62,3 +62,7 @@ Source: `frontend/src/pages/VendorDashboardPage.tsx`, frontend/backend counter d
 ## Audit conclusion
 
 The original plan covers the overall design and architecture, but is **not sufficient by itself** as a complete current preservation contract. This supplement closes the identified planning gaps for auto-close, secure queue-board access, recent queue UX, service quantities and the Account header. Unfinished acceptance work remains explicit above; no behavior is considered accepted merely because it appears in this document.
+
+### VD-08 source preservation checkpoint
+
+Retain user-wide identity/contact changes, required MFA versus optional removal, enrollment cancellation/replacement, one-time recovery display, Email OTP prerequisites, deletion authorization/receipt/retained-record warnings/session close, owner/admin commercial access and preview-token/revision contracts. Source review found and corrected selected-method visibility, billing failure-as-empty behavior, hidden perpetual MFA draft warnings and mislabeled daily ticket statistics. Browser fixtures are synthetic and cannot certify real email delivery, physical authenticator scanning, deletion processing or payment settlement. Phone removal remains a contract gap confirmed by the API owner.

@@ -1,3 +1,5 @@
+import { AccountPresentation, discardAccountTask } from "../vendor/AccountPresentation";
+import { Card as AccountCard, Stack as AccountStack, Group as AccountGroup, SimpleGrid as AccountGrid, Text as AccountText, Title as AccountTitle, Alert as AccountAlert, Badge as AccountBadge, Button as AccountButton, TextInput as AccountInput, PasswordInput as AccountPassword } from "../vendor/AccountFields";
 import { queueSettingsPayload, tenantSettingsFromSnapshot } from "../vendor/settingsState";
 import { StaffManagement } from "../vendor/StaffManagement";
 import { CounterStaffAssignments } from "../vendor/CounterStaffAssignments";
@@ -50,7 +52,6 @@ import { VendorRatingsPanel } from "../components/VendorRatingsPanel";
 import { useContext, useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  Alert,
   Badge,
   Button,
   Card,
@@ -62,14 +63,11 @@ import {
   NumberInput,
   Notification,
   Paper,
-  PasswordInput,
   Portal,
   Select,
-  SegmentedControl,
   SimpleGrid,
   Slider,
   Stack,
-  Tabs,
   Text,
   TextInput,
   ThemeIcon,
@@ -952,6 +950,8 @@ export default function VendorDashboardPage() {
     displayName: user?.displayName || ""
   });
   const [accountProfileBusy, setAccountProfileBusy] = useState(false);
+  const [accountPanelBusy, setAccountPanelBusy] = useState(false);
+  const [accountPanelDraft, setAccountPanelDraft] = useState(false);
   const [mfaEnabled, setMfaEnabled] = useState(Boolean(user?.mfaEnabled));
   const [mfaSecret, setMfaSecret] = useState("");
   const [mfaEnrollmentUri, setMfaEnrollmentUri] = useState("");
@@ -2422,11 +2422,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       snapshot?.tenant.monitorUrl ||
       ""
   };
-  const ticketLimit =
-    activeSubscription?.entitlements.monthlyTickets ||
-    currentPlan?.entitlements.monthlyTickets ||
-    0;
-  const ticketUsage = snapshot?.stats.servedToday ?? 0;
+  const ticketUsage = !dashboardBootstrapQuery.error && snapshot?.tenant.slug === selectedTenantSlug && snapshot?.location.slug === selectedLocationSlug ? snapshot.stats.servedToday : "—";
   const configuredEmailJourneyLimit = activeSubscription?.entitlements.emailAlerts
     ? activeSubscription.entitlements.monthlyQueueEmailJourneys ??
       activeSubscription.entitlements.monthlyTransactionalEmails ??
@@ -4098,84 +4094,71 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
   }
 
   function closePlanDialog() {
+    if (busyAction) return;
     setPlanDialogOpen(false);
     setPaidPlanDialogOnly(false);
   }
 
   function renderPlanCards({ paidOnly = false } = {}) {
     if (billingOverviewQuery.isPending) {
-      return <Text c="dimmed">Plans are loading.</Text>;
+      return <AccountText c="dimmed">Plans are loading.</AccountText>;
     }
 
     if (billingOverviewQuery.error) {
       return (
-        <Stack gap="sm">
-          <Text c="red">Subscription plans could not be loaded.</Text>
-          <Button
+        <AccountStack gap="sm">
+          <AccountText c="red">Subscription plans could not be loaded.</AccountText>
+          <AccountButton
             className="neura-secondary-button"
             onClick={() => void billingOverviewQuery.refetch()}
             variant="default"
             w="fit-content"
           >
             Retry
-          </Button>
-        </Stack>
+          </AccountButton>
+        </AccountStack>
       );
     }
 
     if (!billing?.plans.length) {
-      return <Text c="dimmed">No subscription plans are available.</Text>;
+      return <AccountText c="dimmed">No subscription plans are available.</AccountText>;
     }
 
     const visiblePlans = billing.plans.filter((plan) => !paidOnly || plan.slug !== "free");
 
     return (
-      <Stack gap="md">
-        <SegmentedControl
-          data={[
-            { value: "monthly", label: "Monthly" },
-            { value: "annual", label: "Annual" }
-          ]}
-          value={billingInterval}
-          onChange={(value) => setBillingInterval(value as "monthly" | "annual")}
-        />
-        <SegmentedControl
-          data={[
-            { value: "manual", label: "Manual via QRPh" },
-            { value: "automatic", label: "Automatic recurring", disabled: true }
-          ]}
-          value={billingPaymentMode}
-          onChange={(value) => setBillingPaymentMode(value as "manual" | "automatic")}
-        />
-        <Alert color="blue" variant="light" icon={<IconInfoCircle size={18} />}>
+      <AccountStack gap="md">
+        <ConfigurationSelect label="Billing interval" data={[{value:"monthly",label:"Monthly"},{value:"annual",label:"Annual"}]} value={billingInterval} onChange={value=>{if(value) setBillingInterval(value as "monthly" | "annual");}} />
+        <ConfigurationSelect label="Payment method" description="Automatic recurring payments are not available yet." data={[{value:"manual",label:"Manual via QRPh"},{value:"automatic",label:"Automatic recurring",disabled:true}]} value={billingPaymentMode} onChange={value=>{if(value) setBillingPaymentMode(value as "manual" | "automatic");}} />
+        <AccountAlert color="blue" variant="light" icon={<IconInfoCircle size={18} />}>
           Manual QRPh payments require a new payment each month or year. Automatic recurring payments will be available after PayMongo subscription billing is enabled for this account.
-        </Alert>
-        <SimpleGrid
+        </AccountAlert>
+        <AccountGrid
           className="subscription-plan-grid"
           cols={{ base: 1, sm: Math.min(visiblePlans.length, 2), md: Math.min(visiblePlans.length, 4) }}
           spacing="md"
         >
           {visiblePlans.map((plan) => (
-            <Card className="neura-plan-card" key={plan.slug} padding="lg">
-              <Stack gap="md" h="100%">
+            <OperationPanel key={plan.slug}>
+              <AccountStack gap="md" h="100%">
                 <div>
-                  <Text className="neura-label">{plan.name}</Text>
-                  <Title order={3}>
+                  <AccountText className="neura-label">{plan.name}</AccountText>
+                  <AccountTitle order={3}>
                     {getPlanPriceDisplay(plan, billingInterval)}
-                  </Title>
-                  <Text c="dimmed" size="sm">{plan.bestFor}</Text>
+                  </AccountTitle>
+                  <AccountText c="dimmed" size="sm">{plan.bestFor}</AccountText>
                 </div>
-                <Stack gap={8} className="neura-feature-list">
+                <AccountStack gap={8} className="neura-feature-list">
                   {getPlanHighlights(plan).map((item) => (
-                    <Text key={item} size="sm">• {item}</Text>
+                    <AccountText key={item} size="sm">• {item}</AccountText>
                   ))}
-                </Stack>
+                </AccountStack>
                 {plan.slug === "free" ? (
-                  <Button disabled mt="auto" variant="default">
+                  <AccountButton disabled mt="auto" variant="default">
                     Free queue plan
-                  </Button>
+                  </AccountButton>
                 ) : plan.checkoutEnabled ? (
-                  <Button
+                  <AccountButton
                     className={plan.slug === "pro" ? "neura-primary-button" : "neura-secondary-button"}
                     disabled={busyAction === `checkout:${plan.slug}`}
                     mt="auto"
@@ -4184,40 +4167,26 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     }}
                   >
                     {busyAction === `checkout:${plan.slug}` ? "Opening..." : "Choose plan via QRPh"}
-                  </Button>
+                  </AccountButton>
                 ) : (
-                  <Button disabled mt="auto" variant="default">
+                  <AccountButton disabled mt="auto" variant="default">
                     Custom quote
-                  </Button>
+                  </AccountButton>
                 )}
-              </Stack>
-            </Card>
+              </AccountStack>
+            </OperationPanel>
           ))}
-        </SimpleGrid>
-      </Stack>
+        </AccountGrid>
+      </AccountStack>
     );
   }
 
   function renderPlanDialog() {
-    return (
-      <Modal
-        centered
-        className="subscription-plan-modal"
-        opened={planDialogOpen}
-        onClose={closePlanDialog}
-        size="90rem"
-        title={
-          <Stack className="getprio-modal-title" gap={2}>
-            <Text className="getprio-modal-eyebrow">BILLING</Text>
-            <Text className="getprio-modal-heading">
-              {paidPlanDialogOnly ? "Upgrade to a paid plan" : "Choose a subscription plan"}
-            </Text>
-          </Stack>
-        }
-      >
-        {renderPlanCards({ paidOnly: paidPlanDialogOnly })}
-      </Modal>
-    );
+    return <TaskDialog opened={planDialogOpen} onClose={closePlanDialog} busy={Boolean(busyAction)} eyebrow="BILLING" title={paidPlanDialogOnly ? "Upgrade to a paid plan" : "Choose a subscription plan"} footer={<OperationButton variant="outline" onClick={closePlanDialog} disabled={Boolean(busyAction)}>Close plans</OperationButton>}>
+      <AccountPresentation onBusyChange={setAccountPanelBusy} onDraftChange={setAccountPanelDraft}>
+        <ConfigurationScope busy={Boolean(busyAction)}>{renderPlanCards({paidOnly:paidPlanDialogOnly})}</ConfigurationScope>
+      </AccountPresentation>
+    </TaskDialog>;
   }
 
   function renderLocationDialog() {
@@ -9343,7 +9312,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                 <Title order={3}>Plan consumption</Title>
               </div>
               <SimpleGrid cols={2}>
-                <MetricCard label="Tickets" value={`${ticketUsage}/${ticketLimit || "--"}`} detail="Current period" />
+                <MetricCard label="Tickets served today" value={ticketUsage} detail="At the selected location" />
                 <MetricCard label="Email journeys" value={`${emailJourneyUsage}/${emailJourneyLimit ?? "--"}`} detail={emailJourneyDetail} />
               </SimpleGrid>
             </Stack>
@@ -9359,19 +9328,19 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     const totpMfaEnabled = Boolean(user?.totpMfaEnabled);
 
     return (
-      <Stack gap="md">
-        {!requiresMfaEnrollment ? <Card className="neura-card vendor-security-card" padding="lg">
-          <Stack gap="md">
+      <AccountStack gap="md">
+        {!requiresMfaEnrollment ? <AccountCard className="neura-card vendor-security-card" padding="lg">
+          <AccountStack gap="md">
             <div>
-              <Text className="neura-label">Account access</Text>
-              <Title order={3}>Change password</Title>
-              <Text c="dimmed" mt="xs">
+              <AccountText className="neura-label">Account access</AccountText>
+              <AccountTitle order={3}>Change password</AccountTitle>
+              <AccountText c="dimmed" mt="xs">
                 Changing your password closes this session and all other active sessions.
-              </Text>
+              </AccountText>
             </div>
             <form onSubmit={handlePasswordChange}>
-              <Stack gap="md">
-                <PasswordInput
+              <AccountStack gap="md">
+                <AccountPassword
                   autoComplete="current-password"
                   label="Current password"
                   name="currentPassword"
@@ -9379,7 +9348,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   value={passwordForm.currentPassword}
                   onChange={(event) => setPasswordForm((current) => ({ ...current, currentPassword: event.target.value }))}
                 />
-                <PasswordInput
+                <AccountPassword
                   autoComplete="new-password"
                   label="New password"
                   name="newPassword"
@@ -9387,135 +9356,135 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   value={passwordForm.newPassword}
                   onChange={(event) => setPasswordForm((current) => ({ ...current, newPassword: event.target.value }))}
                 />
-                <Button
+                <AccountButton
                   className="neura-primary-button"
                   loading={passwordBusy}
                   type="submit"
                   w={{ base: "100%", sm: "fit-content" }}
                 >
                   Change password
-                </Button>
-              </Stack>
+                </AccountButton>
+              </AccountStack>
             </form>
-          </Stack>
-        </Card> : null}
+          </AccountStack>
+        </AccountCard> : null}
 
-        <Card className="neura-card vendor-security-card" padding="lg">
-          <Stack gap="md">
+        <AccountCard className="neura-card vendor-security-card" padding="lg">
+          <AccountStack gap="md">
             <div>
-              <Text className="neura-label">2FA/MFA</Text>
-              <Title order={3}>Multi-factor authentication</Title>
-              <Text c="dimmed" mt="xs">
+              <AccountText className="neura-label">2FA/MFA</AccountText>
+              <AccountTitle order={3}>Multi-factor authentication</AccountTitle>
+              <AccountText c="dimmed" mt="xs">
                 This protection belongs to your account and applies across every vendor workspace you can access.
-              </Text>
+              </AccountText>
             </div>
-            <Group gap="sm">
-              <Badge color={mfaEnabled ? "teal" : "gray"} variant="light">
+            <AccountGroup gap="sm">
+              <AccountBadge color={mfaEnabled ? "teal" : "gray"} variant="light">
                 {mfaEnabled ? "Enabled" : "Not enabled"}
-              </Badge>
-              <Badge color={mfaRequired ? "orange" : "gray"} variant="light">
+              </AccountBadge>
+              <AccountBadge color={mfaRequired ? "orange" : "gray"} variant="light">
                 {mfaRequired ? "Required for your role" : "Optional"}
-              </Badge>
-            </Group>
+              </AccountBadge>
+            </AccountGroup>
 
             {mfaRequired && !mfaEnabled ? (
-              <Alert color="orange" title="Authenticator setup required" variant="light">
+              <AccountAlert color="orange" title="Authenticator setup required" variant="light">
                 Vendor owners and admins must enable MFA to protect privileged business actions.
-              </Alert>
+              </AccountAlert>
             ) : null}
 
             {mfaRecoveryCodes.length ? (
-              <Alert color="teal" title="Save your recovery codes" variant="light">
-                <Stack gap="sm">
-                  <Text size="sm">These recovery codes are shown only once.</Text>
-                  <SimpleGrid cols={{ base: 1, sm: 2 }} spacing={6}>
+              <AccountAlert color="teal" title="Save your recovery codes" variant="light">
+                <AccountStack gap="sm">
+                  <AccountText size="sm">These recovery codes are shown only once.</AccountText>
+                  <AccountGrid cols={{ base: 1, sm: 2 }} spacing={6}>
                     {mfaRecoveryCodes.map((code) => (
-                      <Text ff="monospace" key={code}>{code}</Text>
+                      <AccountText ff="monospace" key={code}>{code}</AccountText>
                     ))}
-                  </SimpleGrid>
-                  <Button
+                  </AccountGrid>
+                  <AccountButton
                     color="teal"
                     onClick={() => setMfaRecoveryCodes([])}
                     variant="light"
                     w="fit-content"
                   >
                     I saved these recovery codes
-                  </Button>
-                </Stack>
-              </Alert>
+                  </AccountButton>
+                </AccountStack>
+              </AccountAlert>
             ) : null}
 
             {!totpMfaEnabled && !mfaSecret && !mfaRecoveryCodes.length ? (
-              <Button
+              <AccountButton
                 className="neura-primary-button"
                 loading={mfaBusy}
                 onClick={() => void startMfaEnrollment()}
                 w={{ base: "100%", sm: "fit-content" }}
               >
                 Set up authenticator
-              </Button>
+              </AccountButton>
             ) : null}
 
             {mfaSecret ? (
-              <Stack gap="md">
-                <Stack align="center" gap="sm">
-                  <Text fw={700} ta="center">Scan with your authenticator app</Text>
-                  <Text c="dimmed" maw={460} size="sm" ta="center">
+              <AccountStack gap="md">
+                <AccountStack align="center" gap="sm">
+                  <AccountText fw={700} ta="center">Scan with your authenticator app</AccountText>
+                  <AccountText c="dimmed" maw={460} size="sm" ta="center">
                     Add an account in your authenticator app, then scan this QR code.
-                  </Text>
+                  </AccountText>
                   <div aria-label="GetPrio authenticator setup QR code" className="mfa-setup-qr" role="img">
                     <StyledQRCode aria-label="Authenticator setup QR code" size={192} value={mfaEnrollmentUri} />
                   </div>
-                </Stack>
-                <Alert color="blue" title="Cannot scan the QR code?" variant="light">
+                </AccountStack>
+                <AccountAlert color="blue" title="Cannot scan the QR code?" variant="light">
                   Enter this secret manually in your authenticator app.
-                  <Text ff="monospace" mt="xs" style={{ overflowWrap: "anywhere" }}>{mfaSecret}</Text>
-                </Alert>
+                  <AccountText ff="monospace" mt="xs" style={{ overflowWrap: "anywhere" }}>{mfaSecret}</AccountText>
+                </AccountAlert>
                 <OtpInputField label="6-digit authenticator code" value={mfaCode} onChange={setMfaCode} disabled={mfaBusy} onVerify={confirmMfaEnrollment} autoVerifyEnabled={Boolean(mfaSecret)} verificationKey={mfaSecret} autoFocus />
-                <Group justify="flex-end">
+                <AccountGroup justify="flex-end">
                   {mfaEnabled && mfaSecret ? (
-                    <Button disabled={mfaBusy} onClick={() => void cancelMfaEnrollment()} variant="default">
+                    <AccountButton disabled={mfaBusy} onClick={() => void cancelMfaEnrollment()} variant="default">
                       Cancel
-                    </Button>
+                    </AccountButton>
                   ) : null}
-                  <Button
+                  <AccountButton
                     className="neura-primary-button"
                     disabled={mfaCode.length !== 6}
                     loading={mfaBusy}
                     onClick={() => void confirmMfaEnrollment()}
                   >
                     Verify and enable
-                  </Button>
-                </Group>
-              </Stack>
+                  </AccountButton>
+                </AccountGroup>
+              </AccountStack>
             ) : null}
 
             {totpMfaEnabled && !mfaSecret && !mfaRecoveryCodes.length ? (
-              <Stack gap="md">
-                <Alert color="teal" variant="light">
+              <AccountStack gap="md">
+                <AccountAlert color="teal" variant="light">
                   Your authenticator is active. Protected sign-ins and sensitive actions can require a security code.
-                </Alert>
+                </AccountAlert>
                 {!replacingMfa && !removingMfa ? (
-                  <Group align="stretch">
-                    <Button onClick={() => setReplacingMfa(true)} variant="default">
+                  <AccountGroup align="stretch">
+                    <AccountButton onClick={() => setReplacingMfa(true)} variant="default">
                       Replace authenticator
-                    </Button>
+                    </AccountButton>
                     {!mfaRequired ? (
-                      <Button color="red" onClick={() => setRemovingMfa(true)} variant="light">Remove authenticator</Button>
+                      <AccountButton color="red" onClick={() => setRemovingMfa(true)} variant="light">Remove authenticator</AccountButton>
                     ) : null}
-                  </Group>
+                  </AccountGroup>
                 ) : null}
 
                 {replacingMfa ? (
-                  <Card className="vendor-security-action" padding="md" withBorder>
-                    <Stack gap="md">
+                  <AccountCard className="vendor-security-action" padding="md" withBorder>
+                    <AccountStack gap="md">
                       <div>
-                        <Title order={3}>Replace authenticator</Title>
-                        <Text c="dimmed" size="sm">
+                        <AccountTitle order={3}>Replace authenticator</AccountTitle>
+                        <AccountText c="dimmed" size="sm">
                           Confirm your password and current authenticator code before scanning a replacement QR code.
-                        </Text>
+                        </AccountText>
                       </div>
-                      <PasswordInput
+                      <AccountPassword
                         autoComplete="current-password"
                         label="Current password"
                         required
@@ -9523,28 +9492,28 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                         onChange={(event) => setReplacementPassword(event.target.value)}
                       />
                       <OtpInputField label="Current authenticator code" value={replacementCode} onChange={setReplacementCode} disabled={mfaBusy} onVerify={startMfaReplacement} autoVerifyEnabled={Boolean(replacementPassword)} required />
-                      <Group justify="flex-end">
-                        <Button disabled={mfaBusy} onClick={() => setReplacingMfa(false)} variant="default">Cancel</Button>
-                        <Button
+                      <AccountGroup justify="flex-end">
+                        <AccountButton disabled={mfaBusy} onClick={() => {if(discardAccountTask(true,Boolean(replacementPassword || replacementCode))){setReplacingMfa(false);setReplacementPassword("");setReplacementCode("");}}} variant="default">Cancel</AccountButton>
+                        <AccountButton
                           className="neura-primary-button"
                           disabled={!replacementPassword || replacementCode.length !== 6}
                           loading={mfaBusy}
                           onClick={() => void startMfaReplacement()}
                         >
                           Verify and replace
-                        </Button>
-                      </Group>
-                    </Stack>
-                  </Card>
+                        </AccountButton>
+                      </AccountGroup>
+                    </AccountStack>
+                  </AccountCard>
                 ) : null}
 
                 {removingMfa && !mfaRequired ? (
-                  <Card className="vendor-security-action" padding="md" withBorder>
-                    <Stack gap="md">
-                      <Alert color="red" title="Your account will be less secure" variant="light">
+                  <AccountCard className="vendor-security-action" padding="md" withBorder>
+                    <AccountStack gap="md">
+                      <AccountAlert color="red" title="Your account will be less secure" variant="light">
                         This revokes your authenticator and recovery codes. {user?.emailMfaEnabled ? "Email OTP will remain enabled." : "Your account will no longer have MFA."} Other sessions will be closed.
-                      </Alert>
-                      <PasswordInput
+                      </AccountAlert>
+                      <AccountPassword
                         autoComplete="current-password"
                         label="Current password"
                         required
@@ -9552,21 +9521,21 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                         onChange={(event) => setRemovalPassword(event.target.value)}
                       />
                       <OtpInputField label="Current authenticator code" value={removalCode} onChange={setRemovalCode} disabled={mfaBusy} onVerify={removeMfa} autoVerifyEnabled={Boolean(removalPassword) && removalAcknowledged && !removalRecoveryCode} description="Use this or an unused recovery code below." />
-                      <TextInput
+                      <AccountInput
                         autoComplete="one-time-code"
                         description="Use this only if your authenticator is unavailable."
                         label="Recovery code"
                         value={removalRecoveryCode}
                         onChange={(event) => setRemovalRecoveryCode(event.target.value)}
                       />
-                      <Checkbox
+                      <ConfigurationCheck
                         checked={removalAcknowledged}
                         label="I understand that removing MFA reduces my account security."
-                        onChange={(event) => setRemovalAcknowledged(event.target.checked)}
+                        onChange={(event)=>setRemovalAcknowledged(event.currentTarget.checked)}
                       />
-                      <Group justify="flex-end">
-                        <Button disabled={mfaBusy} onClick={() => setRemovingMfa(false)} variant="default">Keep MFA</Button>
-                        <Button
+                      <AccountGroup justify="flex-end">
+                        <AccountButton disabled={mfaBusy} onClick={() => {if(discardAccountTask(true,Boolean(removalPassword || removalCode || removalRecoveryCode))){setRemovingMfa(false);setRemovalPassword("");setRemovalCode("");setRemovalRecoveryCode("");setRemovalAcknowledged(false);}}} variant="default">Keep MFA</AccountButton>
+                        <AccountButton
                           color="red"
                           disabled={
                             !removalAcknowledged ||
@@ -9577,21 +9546,21 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                           onClick={() => void removeMfa()}
                         >
                           Remove authenticator
-                        </Button>
-                      </Group>
-                    </Stack>
-                  </Card>
+                        </AccountButton>
+                      </AccountGroup>
+                    </AccountStack>
+                  </AccountCard>
                 ) : null}
-              </Stack>
+              </AccountStack>
             ) : null}
-          </Stack>
-        </Card>
+          </AccountStack>
+        </AccountCard>
         <EmailMfaSettingsPanel
           variant="vendor"
           onUpdated={(updatedUser) => setMfaEnabled(Boolean(updatedUser?.mfaEnabled))}
         />
         <VendorAccountDeletionPanel />
-      </Stack>
+      </AccountStack>
     );
   }
 
@@ -9603,14 +9572,17 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       ? billing?.plans.find((item) => item.slug === subscription.planSlug) || null
       : null;
 
+    const billingUnavailable = billingOverviewQuery.isPending || Boolean(billingOverviewQuery.error);
+    const billingReadState = <OperationQueryState loading={billingOverviewQuery.isPending} error={billingOverviewQuery.error} onRetry={()=>void billingOverviewQuery.refetch()} />;
     return (
-      <Stack gap="md">
-        <Card className="neura-card" padding="lg">
-          <Tabs
+      <AccountPresentation onBusyChange={setAccountPanelBusy} onDraftChange={setAccountPanelDraft}>
+      <ConfigurationScope busy={Boolean(accountProfileBusy || passwordBusy || mfaBusy || accountPanelBusy || busyAction)}>
+      <div className="config-page account-page">
+          <ConfigTabs
             className="vendor-account-tabs"
-            keepMounted={false}
             value={accountTab}
-            onChange={(value) => {
+            onValueChange={(value) => {
+              if (!value || value === accountTab || !canLeaveFeature()) return;
               const nextTab = (value || "profile") as AccountTab;
               if (!canAccessBillingTabs && (nextTab === "subscription" || nextTab === "billing")) {
                 setAccountTab("profile");
@@ -9619,138 +9591,138 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
               setAccountTab(nextTab);
             }}
           >
-            <Tabs.List>
+            <ConfigTabsList variant="line" className="config-tabs-list">
               {canAccessBillingTabs && !requiresMfaEnrollment ? (
                 <>
-                  <Tabs.Tab value="subscription">Subscription</Tabs.Tab>
-                  <Tabs.Tab value="billing">Billing</Tabs.Tab>
+                  <ConfigTabsTrigger value="subscription">Subscription</ConfigTabsTrigger>
+                  <ConfigTabsTrigger value="billing">Billing</ConfigTabsTrigger>
                 </>
               ) : null}
-              {!requiresMfaEnrollment ? <Tabs.Tab value="profile">Profile</Tabs.Tab> : null}
-              <Tabs.Tab value="security">Security</Tabs.Tab>
-            </Tabs.List>
+              {!requiresMfaEnrollment ? <ConfigTabsTrigger value="profile">Profile</ConfigTabsTrigger> : null}
+              <ConfigTabsTrigger value="security">Security</ConfigTabsTrigger>
+            </ConfigTabsList>
 
             {canAccessBillingTabs ? (
-              <Tabs.Panel pt="lg" value="subscription">
-                <Stack gap="md">
-                  <Group justify="space-between" align="flex-start">
+              <ConfigTabsContent className="queue-stack" value="subscription">
+                {billingUnavailable ? billingReadState : <AccountStack gap="md">
+                  <AccountGroup justify="space-between" align="flex-start">
                     <div>
-                      <Text className="neura-label">Subscription</Text>
-                      <Title order={3}>{renderActivePlanName()}</Title>
-                      <Text c="dimmed" size="sm">
+                      <AccountText className="neura-label">Subscription</AccountText>
+                      <AccountTitle order={3}>{renderActivePlanName()}</AccountTitle>
+                      <AccountText c="dimmed" size="sm">
                         {subscription
                           ? `${subscription.status} plan access for ${snapshot?.tenant.name || selectedTenantSlug}.`
                           : "Choose a plan to unlock tenant entitlements."}
-                      </Text>
+                      </AccountText>
                     </div>
                     {isFreeSubscription ? (
-                      <Button
+                      <AccountButton
                         className="neura-primary-button"
                         onClick={() => openPlanDialog(true)}
                         w={{ base: "100%", sm: "fit-content" }}
                       >
                         Upgrade to paid plan
-                      </Button>
+                      </AccountButton>
                     ) : subscription?.currentPeriodEnd ? (
-                      <Badge variant="light">Renews {formatDate(subscription.currentPeriodEnd)}</Badge>
+                      <AccountBadge variant="light">Renews {formatDate(subscription.currentPeriodEnd)}</AccountBadge>
                     ) : null}
-                  </Group>
-                  <SimpleGrid cols={{ base: 1, sm: 2 }}>
-                    <MetricCard label="Tickets" value={`${ticketUsage}/${ticketLimit || "--"}`} detail="Current period" />
-                    <MetricCard label="Email journeys" value={`${emailJourneyUsage}/${emailJourneyLimit ?? "--"}`} detail={emailJourneyDetail} />
-                  </SimpleGrid>
+                  </AccountGroup>
+                  <AccountGrid cols={{ base: 1, sm: 2 }}>
+                    <OperationMetric label="Tickets served today" value={ticketUsage} detail="At the selected location" />
+                    <OperationMetric label="Email journeys" value={`${emailJourneyUsage}/${emailJourneyLimit ?? "--"}`} detail={emailJourneyDetail} />
+                  </AccountGrid>
                   {!activeSubscription ? <div>{renderPlanCards()}</div> : !isFreeSubscription ? (
-                    <Button onClick={() => openPlanDialog()} variant="light" w={{ base: "100%", sm: "fit-content" }}>
+                    <AccountButton onClick={() => openPlanDialog()} variant="light" w={{ base: "100%", sm: "fit-content" }}>
                       Review available plans
-                    </Button>
+                    </AccountButton>
                   ) : null}
-                </Stack>
-              </Tabs.Panel>
+                </AccountStack>}
+              </ConfigTabsContent>
             ) : null}
 
             {canAccessBillingTabs ? (
-              <Tabs.Panel pt="lg" value="billing">
-                <Stack gap="md">
+              <ConfigTabsContent className="queue-stack" value="billing">
+                {billingUnavailable ? billingReadState : <AccountStack gap="md">
                   <div>
-                    <Text className="neura-label">Billing</Text>
-                    <Title order={3}>Billing details</Title>
-                    <Text c="dimmed" size="sm">
+                    <AccountText className="neura-label">Billing</AccountText>
+                    <AccountTitle order={3}>Billing details</AccountTitle>
+                    <AccountText c="dimmed" size="sm">
                       Review the server-owned billing record and operational capacity for this workspace.
-                    </Text>
+                    </AccountText>
                   </div>
                   {isFreeSubscription ? (
-                    <SimpleGrid cols={{ base: 1, sm: 2, lg: 4 }}>
-                      <MetricCard
+                    <AccountGrid cols={{ base: 1, sm: 2, lg: 4 }}>
+                      <OperationMetric
                         label="Current plan"
                         value={subscription.planName}
                         detail={plan ? getPlanPriceDisplay(plan) : "No recurring charge"}
                       />
-                    </SimpleGrid>
+                    </AccountGrid>
                   ) : subscription ? (
                     <>
-                      <SimpleGrid cols={{ base: 1, sm: 2, lg: 4 }}>
-                        <MetricCard
+                      <AccountGrid cols={{ base: 1, sm: 2, lg: 4 }}>
+                        <OperationMetric
                           label="Current plan"
                           value={subscription.planName}
                           detail={plan ? getPlanPriceDisplay(plan) : "Plan pricing"}
                         />
-                        <MetricCard label="Billing interval" value={subscription.billingInterval} detail="Subscription cadence" />
-                        <MetricCard label="Provider" value={subscription.provider} detail="Payment processor" />
-                        <MetricCard
+                        <OperationMetric label="Billing interval" value={subscription.billingInterval} detail="Subscription cadence" />
+                        <OperationMetric label="Provider" value={subscription.provider} detail="Payment processor" />
+                        <OperationMetric
                           label="Current period"
                           value={subscription.currentPeriodEnd ? formatDate(subscription.currentPeriodEnd) : "Open-ended"}
                           detail={subscription.currentPeriodEnd ? "Period end" : "No scheduled renewal"}
                         />
-                      </SimpleGrid>
-                      <VendorCapacityPanel tenantSlug={selectedTenantSlug} token={token || ""} />
+                      </AccountGrid>
+                      <VendorCapacityPanel key={selectedTenantSlug} tenantSlug={selectedTenantSlug} token={token || ""} />
                     </>
                   ) : (
-                    <Alert color="blue" variant="light">
+                    <AccountAlert color="blue" variant="light">
                       This workspace has no billing record yet. Choose a plan from the Subscription tab to begin.
-                    </Alert>
+                    </AccountAlert>
                   )}
-                </Stack>
-              </Tabs.Panel>
+                </AccountStack>}
+              </ConfigTabsContent>
             ) : null}
 
-            <Tabs.Panel pt="lg" value="profile">
-              <form onSubmit={handleAccountProfileSave}>
-                <Stack gap="md">
+            <ConfigTabsContent className="queue-stack" value="profile">
+              <OperationPanel><form onSubmit={handleAccountProfileSave}>
+                <AccountStack gap="md">
                   <div>
-                    <Text className="neura-label">Vendor account</Text>
-                    <Title order={3}>Account details</Title>
-                    <Text c="dimmed" size="sm">
+                    <AccountText className="neura-label">Vendor account</AccountText>
+                    <AccountTitle order={3}>Account details</AccountTitle>
+                    <AccountText c="dimmed" size="sm">
                       These details belong to your user account and follow you across vendor workspaces.
-                    </Text>
+                    </AccountText>
                   </div>
-                  <SimpleGrid cols={{ base: 1, md: 2 }}>
-                    <TextInput
+                  <AccountGrid cols={{ base: 1, md: 2 }}>
+                    <AccountInput
                       label="Full name"
                       required
                       value={accountProfileForm.name}
                       onChange={(event) => setAccountProfileForm((current) => ({ ...current, name: event.target.value }))}
                     />
-                    <TextInput
+                    <AccountInput
                       label="Display name"
                       description="Shown to teammates and customers where your account is identified."
                       value={accountProfileForm.displayName}
                       onChange={(event) => setAccountProfileForm((current) => ({ ...current, displayName: event.target.value }))}
                     />
-                    <TextInput disabled label="Username" value={user?.username || "Not set"} />
-                    <TextInput disabled label="Email" value={user?.email || "Not set"} />
-                    <TextInput disabled label="Phone" value={user?.phone || "Not set"} />
-                    <TextInput disabled label="Workspace role" value={selectedTenantRole || "No active role"} />
-                  </SimpleGrid>
-                  <Button
+                    <AccountInput disabled label="Username" value={user?.username || "Not set"} />
+                    <AccountInput disabled label="Email" value={user?.email || "Not set"} />
+                    <AccountInput disabled label="Phone" value={user?.phone || "Not set"} />
+                    <AccountInput disabled label="Workspace role" value={selectedTenantRole || "No active role"} />
+                  </AccountGrid>
+                  <AccountButton
                     className="neura-primary-button"
                     loading={accountProfileBusy}
                     type="submit"
                     w={{ base: "100%", sm: "fit-content" }}
                   >
                     Save account details
-                  </Button>
-                </Stack>
-              </form>
+                  </AccountButton>
+                </AccountStack>
+              </form></OperationPanel>
               <EmailChangePanel
                 currentEmail={user?.email || ""}
                 onCompleted={async () => { await refreshUser(); }}
@@ -9761,14 +9733,15 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                 onCompleted={async () => { await refreshUser(); }}
                 token={token || ""}
               />
-            </Tabs.Panel>
+            </ConfigTabsContent>
 
-            <Tabs.Panel pt="lg" value="security">
+            <ConfigTabsContent className="queue-stack" value="security">
               {renderSecurityPage()}
-            </Tabs.Panel>
-          </Tabs>
-        </Card>
-      </Stack>
+            </ConfigTabsContent>
+          </ConfigTabs>
+      </div>
+      </ConfigurationScope>
+      </AccountPresentation>
     );
   }
 
@@ -11223,10 +11196,18 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
   }
 
   const canLeaveFeature = () => {
-    if (resourceConfigurationBusy || busyAction || boardScannerBusy || boardSettingsBusy || savingNotificationSettings || requestingBrowserPermission || accountProfileBusy || passwordBusy || mfaBusy) return false;
-    const editing = unsavedForm.current.hasEdits() || themeDialogOpen;
+    if (resourceConfigurationBusy || busyAction || boardScannerBusy || boardSettingsBusy || savingNotificationSettings || requestingBrowserPermission || accountProfileBusy || passwordBusy || mfaBusy || accountPanelBusy) return false;
+    const editing = unsavedForm.current.hasEdits() || themeDialogOpen || accountPanelDraft || Boolean(replacementPassword || replacementCode || removalPassword || removalCode || removalRecoveryCode);
     if (editing && !window.confirm("You have unsaved edits. Leave this view?")) return false;
+    if (currentSection === "account" && accountTab === "security") {
+      if (mfaRecoveryCodes.length && !window.confirm("Save your recovery codes before leaving Security. They remain visible only in this dashboard session. Leave Security?")) return false;
+      if (mfaSecret && !window.confirm("Your authenticator setup will stay pending. Return to Security to finish or cancel it. Leave Security?")) return false;
+    }
     unsavedForm.current.clear();
+    setAccountProfileForm({name:user?.name || "",displayName:user?.displayName || ""});
+    setPasswordForm({currentPassword:"",newPassword:""});
+    setReplacingMfa(false); setReplacementPassword(""); setReplacementCode("");
+    setRemovingMfa(false); setRemovalPassword(""); setRemovalCode(""); setRemovalRecoveryCode(""); setRemovalAcknowledged(false);
     setLocationDialogOpen(false); setServiceDialogOpen(false); setCounterDialogOpen(false);
     setAvailabilityBlockDialogOpen(false); setAvailabilityExceptionDialogOpen(false);
     setStaffDialogOpen(false); setRescheduleDialogOpen(false); setWalkInDialogOpen(false); setThemeDialogOpen(false);
@@ -11323,7 +11304,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       onWorkspace={switchWorkspace} onLogout={() => { if (canLeaveFeature()) void logout(); }} search={location.search} hash={location.hash}
       context={!requiresMfaEnrollment ? <>
         <ContextPicker label="Business" data={activeTenants.map((tenant) => ({ value: tenant.slug, label: tenant.name }))}
-          value={selectedTenantSlug} disabled={Boolean(busyAction) || boardScannerBusy || boardSettingsBusy || savingNotificationSettings || requestingBrowserPermission} onChange={(value) => {
+          value={selectedTenantSlug} disabled={Boolean(busyAction) || boardScannerBusy || boardSettingsBusy || savingNotificationSettings || requestingBrowserPermission || accountPanelBusy || accountProfileBusy || passwordBusy || mfaBusy} onChange={(value) => {
             if (!value || value === selectedTenantSlug || !canLeaveFeature()) return;
             setSnapshot(null); setLocations([]); setSelectedLocationSlug(""); setSelectedCounterSlug("");
             setServices([]); setStaff([]); setServiceCounters([]); setVendorBookings([]); setClients(null); setHistory(null); setBilling(null);
@@ -11339,7 +11320,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
             navigate(workspacePath(currentSection === "account" ? "account" : nextWorkspace === "administration" ? "settings" : "queue",
               nextWorkspace, location.search, location.hash));
           }} />
-        <ContextPicker data={locationOptions} label="Location" value={selectedLocationSlug} disabled={Boolean(busyAction) || boardScannerBusy || boardSettingsBusy || savingNotificationSettings || requestingBrowserPermission}
+        <ContextPicker data={locationOptions} label="Location" value={selectedLocationSlug} disabled={Boolean(busyAction) || boardScannerBusy || boardSettingsBusy || savingNotificationSettings || requestingBrowserPermission || accountPanelBusy || accountProfileBusy || passwordBusy || mfaBusy}
           onChange={(value) => { if (value && value !== selectedLocationSlug && canLeaveFeature()) { setSnapshot(null); setServiceCounters([]); setVendorBookings([]); setBookingPagination(null); setClients(null); setHistory(null); setBookingDetailOpen(false); setBookingDetailBooking(null); setBookingDetailModalId(null); setAvailabilityBlocks([]); setAvailabilityExceptions([]); setAvailabilitySummary(null); setSelectedCounterSlug(""); setSelectedLocationSlug(value); } }} />
       </> : <Badge color="orange" variant="light">MFA setup required</Badge>}
       dialogs={<>

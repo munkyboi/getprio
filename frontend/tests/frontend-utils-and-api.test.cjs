@@ -938,9 +938,9 @@ test("subscription plans load independently when dashboard bootstrap fails", asy
   assert.match(dashboardSource, /className="subscription-plan-grid"/);
   assert.match(dashboardSource, /const visiblePlans = billing\.plans\.filter\(\(plan\) => !paidOnly \|\| plan\.slug !== "free"\)/);
   assert.match(dashboardSource, /md: Math\.min\(visiblePlans\.length, 4\)/);
-  assert.match(dashboardSource, /className="subscription-plan-modal"[\s\S]*?size="90rem"/);
+  assert.match(dashboardSource, /<TaskDialog opened=\{planDialogOpen\}[\s\S]*?eyebrow="BILLING"/);
   assert.match(dashboardSource, /Manual via QRPh/);
-  assert.match(dashboardSource, /Automatic recurring[\s\S]*disabled: true/);
+  assert.match(dashboardSource, /Automatic recurring[\s\S]*disabled:\s*true/);
   assert.match(dashboardSource, /billingMode: billingPaymentMode/);
 });
 
@@ -1691,13 +1691,13 @@ test("vendor dashboard provides account-level MFA enrollment with a QR code", ()
   const operations = fs.readFileSync(path.join(frontendRoot, "src", "api", "vendorDashboardOperations.ts"), "utf8");
 
   assert.doesNotMatch(dashboard, /section: "security", label: "Security"/);
-  assert.match(dashboard, /<Tabs\.Tab value="security">Security<\/Tabs\.Tab>/);
-  assert.match(dashboard, /<Tabs\.Panel pt="lg" value="security">[\s\S]*?\{renderSecurityPage\(\)\}/);
+  assert.match(dashboard, /<ConfigTabsTrigger value="security">Security<\/ConfigTabsTrigger>/);
+  assert.match(dashboard, /<ConfigTabsContent[^>]*value="security">[\s\S]*?\{renderSecurityPage\(\)\}/);
   assert.match(dashboard, /setAccountTab\("security"\)/);
   assert.match(dashboard, /navigate\(boardApprovalReturn \? `\/dashboard\/account\?next=\$\{encodeURIComponent\(boardApprovalReturn\)\}` : "\/dashboard\/account", \{ replace: true \}\)/);
   assert.match(dashboard, /Your sign-in session remains active during setup\./);
   assert.match(dashboard, /navItems\.filter\(\(item\) => item\.section === "account"\)/);
-  assert.match(dashboard, /!requiresMfaEnrollment \? <Card className="neura-card vendor-security-card"/);
+  assert.match(dashboard, /!requiresMfaEnrollment \? <AccountCard className="neura-card vendor-security-card"/);
   assert.match(dashboard, /Scan with your authenticator app/);
   assert.match(dashboard, /<StyledQRCode[^>]+value=\{mfaEnrollmentUri\}/);
   assert.match(dashboard, /label="6-digit authenticator code"/);
@@ -1723,17 +1723,17 @@ test("vendor account menu separates user security from role-restricted billing",
   assert.match(dashboard, /if \(!hasActiveSubscription && currentSection !== "settings" && currentSection !== "account"\)/);
   assert.doesNotMatch(dashboard, /if \(!activeSubscription && currentSection !== "settings" && currentSection !== "account"\)/);
   assert.match(dashboard, /canAccessBillingTabs && !requiresMfaEnrollment/);
-  assert.match(dashboard, /<Tabs\.Tab value="subscription">Subscription<\/Tabs\.Tab>/);
-  assert.match(dashboard, /<Tabs\.Tab value="billing">Billing<\/Tabs\.Tab>/);
-  assert.match(dashboard, /<Tabs\.Tab value="profile">Profile<\/Tabs\.Tab>/);
-  assert.match(dashboard, /<Tabs\.Tab value="security">Security<\/Tabs\.Tab>/);
+  assert.match(dashboard, /<ConfigTabsTrigger value="subscription">Subscription<\/ConfigTabsTrigger>/);
+  assert.match(dashboard, /<ConfigTabsTrigger value="billing">Billing<\/ConfigTabsTrigger>/);
+  assert.match(dashboard, /<ConfigTabsTrigger value="profile">Profile<\/ConfigTabsTrigger>/);
+  assert.match(dashboard, /<ConfigTabsTrigger value="security">Security<\/ConfigTabsTrigger>/);
   assert.match(dashboard, /selectedTenantRole === "staff" && \(accountTab === "subscription" \|\| accountTab === "billing"\)/);
   assert.match(dashboard, /\(isOwner \|\| isAdmin\)/);
   assert.match(dashboard, /const isFreeSubscription = subscription\?\.planSlug === "free"/);
   assert.match(dashboard, /isFreeSubscription \? \([\s\S]*?Upgrade to paid plan[\s\S]*?\) : subscription\?\.currentPeriodEnd/);
   assert.match(dashboard, /billing\.plans\.filter\(\(plan\) => !paidOnly \|\| plan\.slug !== "free"\)/);
-  assert.match(dashboard, /renderPlanCards\(\{ paidOnly: paidPlanDialogOnly \}\)/);
-  assert.match(dashboard, /isFreeSubscription \? \([\s\S]*?<MetricCard[\s\S]*?label="Current plan"/);
+  assert.match(dashboard, /renderPlanCards\(\{\s*paidOnly:\s*paidPlanDialogOnly\s*\}\)/);
+  assert.match(dashboard, /isFreeSubscription \? \([\s\S]*?<OperationMetric[\s\S]*?label="Current plan"/);
   assert.match(operations, /"\/account\/profile"/);
   assert.match(bootstrap, /\/vendor\/tenant\/\$\{tenantSlug\}\/entitlements/);
 });
@@ -1811,13 +1811,13 @@ test("vendor security supports password changes and role-aware MFA management", 
   const dashboard = fs.readFileSync(path.join(frontendRoot, "src", "pages", "VendorDashboardPage.tsx"), "utf8");
   const operations = fs.readFileSync(path.join(frontendRoot, "src", "api", "vendorDashboardOperations.ts"), "utf8");
 
-  assert.match(dashboard, /<Title order=\{3\}>Change password<\/Title>/);
-  assert.match(dashboard, /<Title order=\{3\}>Multi-factor authentication<\/Title>/);
+  assert.match(dashboard, /<AccountTitle order=\{3\}>Change password<\/AccountTitle>/);
+  assert.match(dashboard, /<AccountTitle order=\{3\}>Multi-factor authentication<\/AccountTitle>/);
   assert.match(dashboard, /name="currentPassword"/);
   assert.match(dashboard, /name="newPassword"/);
   assert.match(dashboard, /await changePassword\(passwordForm\)/);
   assert.match(dashboard, /Replace authenticator/);
-  assert.match(dashboard, /!mfaRequired[\s\S]*?>Remove authenticator<\/Button>/);
+  assert.match(dashboard, /!mfaRequired[\s\S]*?>Remove authenticator<\/AccountButton>/);
   assert.match(operations, /\/auth\/mfa\/step-up/);
   assert.match(operations, /\/auth\/mfa\/disable/);
 });

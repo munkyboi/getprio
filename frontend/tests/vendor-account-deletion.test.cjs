@@ -11,7 +11,7 @@ test("vendor account deletion request is available from Account security", () =>
   const securityPage = page.match(/function renderSecurityPage\(\) \{([\s\S]*?)\n  function renderAccountPage\(\)/)?.[1];
   assert.ok(securityPage, "expected Account security renderer");
   assert.match(securityPage, /<VendorAccountDeletionPanel\s*\/>/);
-  assert.match(page, /<Tabs\.Panel pt="lg" value="security">\s*\{renderSecurityPage\(\)\}/);
+  assert.match(page, /<ConfigTabsContent[^>]*value="security">\s*\{renderSecurityPage\(\)\}/);
 });
 
 test("vendor deletion request explains account-wide impact and uses guarded self-service endpoints", () => {

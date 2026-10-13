@@ -125,3 +125,7 @@ All three current Locations tabs and their list/card/edit flows now use scoped c
 ### Services and Availability implementation
 
 `/dashboard/services` retains its catalog/weekly/date-exception tabs. Its list and task editors reuse ConfigurationUi, FieldGroup/FieldSet, TaskDialog and scoped tabs; existing catalog client/handlers remain canonical. `serviceConfigurationState.ts` checks editable quantity feasibility and builds the explicit whole-day exception payload. No booking allocation, workflow, station or API/schema activation is introduced. Follow the [work tracker](vendor-dashboard-rework-ticket-tracker.md); Carlo's local approval gates the next screens.
+
+### VD-08 local Account migration
+
+Existing Account routes and membership gates are retained. Profile/Security/Subscription/Billing now use scoped configuration tabs and forms; shared contact, Email OTP and deletion handlers adopt vendor controls through `AccountPresentation`/`AccountFields`, retaining customer fallback. Plan selection and capacity/paid-exit dialogs retain API bodies, confirmation tokens/revisions and checkout behavior. Server billing failures are blocked read states with retry; capability-disabled capacity remains hidden. Legacy customer presentations remain intentional consumers. Phone removal is unsupported by the current API and is an explicit acceptance gap rather than a fabricated UI control.

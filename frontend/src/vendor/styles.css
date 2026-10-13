@@ -310,3 +310,9 @@
 .vendor-operations .vendor-profile-settings-preview { padding: 16px; }
 @media (max-width: 48em) { .config-tabs-list:has([data-slot=tabs-trigger]:nth-child(4)) { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); height: auto; } }
 .vendor-operations .config-actions > a { min-height: 44px; white-space: normal; text-align: center; }
+
+/* Vendor Account keeps shared verification handlers in the scoped presentation. */
+.vendor-workspace .account-panel-title { font-size: 1.125rem; font-weight: 600; margin: 0; }
+.vendor-workspace .account-centered { align-items: center; text-align: center; }
+.vendor-workspace .account-secret { font-family: monospace; overflow-wrap: anywhere; }
+.vendor-workspace .account-capacity-progress { width: 100%; accent-color: var(--primary); }
