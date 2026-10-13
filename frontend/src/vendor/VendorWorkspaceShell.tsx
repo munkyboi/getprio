@@ -67,8 +67,9 @@ export function VendorWorkspaceShell(props: Props) {
     </div>;
   }
   return <VendorPortal.Provider value={root}><div ref={root} className="vendor-workspace" data-vendor-theme={theme} onChangeCapture={(event) => {
-    const form = event.target instanceof HTMLElement ? event.target.closest("form") : null;
-    if (form) props.onEdit?.(form);
+    const target = event.target instanceof HTMLElement ? event.target : null;
+    const form = target?.closest("form");
+    if (form && !target?.closest("[data-vendor-draft-ignore]")) props.onEdit?.(form);
   }}>
     <aside className="vendor-sidebar">
       <NavLink className="vendor-brand" to="/dashboard" onClick={guardNavigation}>

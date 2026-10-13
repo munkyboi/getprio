@@ -147,3 +147,7 @@ Custom select callbacks that do not bubble a native change must explicitly regis
 
 
 Locations/Resources/Counters share the approved shell and scoped configuration fields. Use the shared bounded task dialog for branch, counter, resource pool and service requirement editing; retain searchable choices, native validation, error/draft recovery and explicit custom-select draft registration. Disable workspace transitions during resource writes and clear only the saved/discarded form. Distinguish configured pool capacity from live availability and unavailable inventory from zero. Keep existing Locations tabs during this review slice; move the one resource editor only when the future Queue setup slice is authorized. Counter lanes are not resource units or future workflow stations. Restricted staff-management access must show a clear explanation and retain stored assignments instead of displaying a permanently pending disabled query. Always honor actual primitive data attributes and scope overlay portals to vendor theme tokens.
+
+### Configuration review corrections
+
+Checkbox help text must have its own ID referenced by the input's `aria-describedby`, retaining any existing external descriptions. Counter staff assignment supports name/email search and multiple selections; filtering retains selections and does not itself create unsaved business edits. Missing assigned IDs are retained until deliberately removed through supported actions. Do not change permissions, plan limits or scoped assignment writes to restore search.
