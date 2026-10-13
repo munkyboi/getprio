@@ -1,6 +1,6 @@
 # Vendor dashboard rework progress
 
-Current status: shared shell, Live Queue, and Bookings/Clients/History are merged (398/401/404/407). Locations/Resources/Counters are the current local review slice on `codex/vendor-locations-resources-counters`, based on main `e36b718e`. Deployment and authenticated/device acceptance remain separate.
+Current status: shared shell, Live Queue, and Bookings/Clients/History are merged (398/401/404/407). Carlo approved Locations/Resources/Counters locally and authorized PR publication on `codex/vendor-locations-resources-counters`, based on main `e36b718e`. Hosted review/checks, deployment and authenticated/device acceptance remain separate.
 
 13 October 2026. Historical audit source baseline `f7435a22`; implementation branch `codex/vendor-workspace-shell`.
 
@@ -115,6 +115,6 @@ Preserved resource behavior: per-location pools and one-pool service demand, imm
 
 Verification: 188 frontend tests, frontend TypeScript and affected-file ESLint pass; production build passes with the existing chunk advisory. Isolated browser fixtures cover 24 tab layouts across light/dark themes at 375/768/1180/1440px, no horizontal overflow, immutable location link names, independent editor scrolling and matching footer surface. Interaction fixtures verify UUID board clipboard target, resource conflict/continued editing, held-write navigation blocking, exact pool/service/version payloads, canceled removal, counter conflict retry and staff IDs, and guarded location Escape. These are synthetic API writes, not authenticated vendor mutation, provider upload, direct-device keyboard or live stream evidence.
 
-Local runtime recovered after an external-volume I/O interruption: reused the existing local Postgres data volume/loopback 6432, applied the already-merged notification/reminder/inbox migrations, and verified backend health 200 and Vite 5179. No hosted database writes. API/runtime owners confirmed no overlap; they retain backend revision/capability ownership. Stop this slice at Carlo's local visual review; Services/Availability and other screens are not part of this change.
+Local runtime recovered after an external-volume I/O interruption: reused the existing local Postgres data volume/loopback 6432, applied the already-merged notification/reminder/inbox migrations, and verified backend health 200 and Vite 5179. No hosted database writes. API/runtime owners confirmed no overlap; they retain backend revision/capability ownership. Carlo approved the local visual review and requested PR publication. Services/Availability and other screens remain deferred pending separate authorization.
 
 Final accessibility check: tab arrow keys activate their focused tab, combobox keyboard search/selection works, and explicit resource discard is guarded. New input-group and combobox render targets forward their refs for React 18; the scoped Input forwards its DOM ref without changing other callers. No ref or controlled-input warnings remain in the fixture. Requirements refuse a removed pool or unavailable service in the loaded metadata; the server remains authoritative for concurrent versions and authorization.
