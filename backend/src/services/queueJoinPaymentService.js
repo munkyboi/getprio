@@ -1,3 +1,4 @@
+const maintenance = require('./platformMaintenanceService');
 const db = require("../config/db");
 const env = require("../config/env");
 const billingRepository = require("../repositories/billing");
@@ -163,6 +164,7 @@ async function retrievePayMongoCheckout(providerCheckoutSessionId) {
 }
 
 async function createPayMongoCheckoutForJoin({ tenant, otpId, payload, queueFee }) {
+  await maintenance.assertNewIntake();
   if (!env.paymongoSecretKey) {
     const error = new Error("PayMongo is not configured.");
     error.statusCode = 503;
@@ -176,7 +178,9 @@ async function createPayMongoCheckoutForJoin({ tenant, otpId, payload, queueFee 
   const checkoutQueueDay = checkoutLocation?.queueLifecycleMode === "enforced"
     ? await queueDayLifecycleService.assertIntakeOpen(tenant, checkoutLocation)
     : null;
-  const payment = await paymentRepository.createPayment({
+  const payment = await db.withTransaction(async client => {
+    await maintenance.assertNewIntake({ client });
+    const admitted = await paymentRepository.createPayment({
     tenantId: tenant._id,
     otpId,
     planSlug: queueFee.planSlug,
@@ -193,6 +197,13 @@ async function createPayMongoCheckoutForJoin({ tenant, otpId, payload, queueFee 
       tenantSlug: tenant.slug,
       planSlug: queueFee.planSlug
     }
+    }, { client });
+    await allowanceService.reserveAllowance({
+      tenantId: tenant._id, resourceKey: 'queueTickets', units: 1,
+      reservationKey: `queue-payment:${admitted._id}`, subjectType: 'queue_join_payment',
+      subjectId: admitted._id, expiresAt: new Date(Date.now() + 30 * 60 * 1000)
+    }, { client });
+    return admitted;
   });
 
   let providerCheckoutSessionId = null;
@@ -200,15 +211,6 @@ async function createPayMongoCheckoutForJoin({ tenant, otpId, payload, queueFee 
   const reservationKey = `queue-payment:${payment._id}`;
 
   try {
-    await allowanceService.reserveAllowance({
-      tenantId: tenant._id,
-      resourceKey: "queueTickets",
-      units: 1,
-      reservationKey,
-      subjectType: "queue_join_payment",
-      subjectId: payment._id,
-      expiresAt: new Date(Date.now() + 30 * 60 * 1000)
-    });
     if (payment.providerCheckoutSessionId && payment.checkoutUrl) {
       return {
         payment,
@@ -361,6 +363,7 @@ async function createZeroFeeTicket({ tenant, payload, queueFee }) {
 }
 
 async function handleVerifiedJoin({ tenant, otpId, payload }) {
+  await maintenance.assertNewIntake();
   await queueFeeService.assertTenantCanAcceptCustomerJoins(tenant._id);
   const queueFee = await queueFeeService.getQueueFeeForTenant(tenant._id);
   if (!shouldChargeQueueFee(queueFee)) {
@@ -376,6 +379,7 @@ async function handleVerifiedJoin({ tenant, otpId, payload }) {
 }
 
 async function handleDirectJoin({ tenant, payload }) {
+  await maintenance.assertNewIntake();
   await queueFeeService.assertTenantCanAcceptCustomerJoins(tenant._id);
   const queueFee = await queueFeeService.getQueueFeeForTenant(tenant._id);
   if (shouldChargeQueueFee(queueFee)) {
@@ -455,7 +459,7 @@ async function issueBoundPaidTicket(payment, tenant, location, providerPaymentId
 async function persistScopedPaidTicket(payment, tenant, location, providerPaymentId, paymentAttributes, options) {
   const ticket = await createTicketForTenantInTransaction(options.client, {
     ...payment.payload, tenant, location, queueDateKey: options.queueDateKey, allowanceReservationKey: `queue-payment:${payment._id}`
-  });
+  }, { existingWork: true });
   if (payment.queueDayId && String(ticket.currentQueueDayId) !== String(payment.queueDayId)) {
     throw Object.assign(new Error("Paid ticket admission changed."), { code: "QUEUE_STATE_CHANGED", statusCode: 409 });
   }
@@ -537,7 +541,7 @@ async function issueTicketForPaidPayment(payment, providerPaymentId, paymentAttr
     location: location || undefined,
     ...payment.payload,
     allowanceReservationKey: `queue-payment:${payment._id}`
-  });
+  }, { existingWork: true });
 
   const updatedPayment = await paymentRepository.markPaidWithTicket(
     payment._id,

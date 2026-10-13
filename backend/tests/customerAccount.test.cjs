@@ -74,6 +74,7 @@ function buildFutureManilaSlot(weeksAhead = 1, weekday = 1, hour = 10, minute = 
 }
 
 function requireWithMocks(targetPath, mocks) {
+  mocks = { '../services/platformMaintenanceService': require('./helpers/maintenanceFixture.cjs').maintenance, ...mocks };
   const resolvedTarget = require.resolve(targetPath);
   const originals = new Map();
 
@@ -1145,7 +1146,7 @@ test("customer booking detail hides manual payment destination when service does
 });
 
 async function scopedBookingFixture(options, work) {
-  const client = { query: async (sql) => ({ rows: sql.includes("FROM users") ? [{ id: options.actorUserId }] : [] }) };
+  const client = { query: async (sql) => ({ rows: sql.includes('FROM platform_maintenance') ? [require('./helpers/maintenanceFixture.cjs').row] : sql.includes("FROM users") ? [{ id: options.actorUserId }] : [] }) };
   assert.equal(await options.authorize(client, options), true);
   return work(client, {});
 }

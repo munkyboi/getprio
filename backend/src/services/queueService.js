@@ -1,3 +1,4 @@
+const maintenance = require('./platformMaintenanceService');
 const counterDispatchService = require("./counterDispatchService");
 const ticketBarcodeService = require("./ticketBarcodeService");
 const ticketServicePlanService = require("./ticketServicePlanService");
@@ -346,6 +347,7 @@ async function createTicket({
   serviceId
 }) {
   let resolvedLocation = await resolveLocation(tenant, { location });
+  await maintenance.assertNewIntake();
   let operationTenant = tenant;
   let vendorDateKey;
   const persist = async (client) => {
@@ -468,7 +470,10 @@ async function createTicketForTenantInTransaction(client, {
   otpChainId,
   allowanceReservationKey,
   queueDateKey
-}) {
+}, options = {}) {
+  // Only trusted booking check-in / stored payment fulfillment callers opt in.
+  // Request payloads are deliberately separate from this options argument.
+  if (options.existingWork !== true) await maintenance.assertNewIntake({ client });
   const resolvedLocation = location || (await resolveLocation(tenant));
   let queueDay = null;
   let dateKey;

@@ -30,6 +30,8 @@ function resolveMockPath(requestPath, baseDir) {
 }
 
 function requireWithMocks(targetPath, mocks) {
+  const fixture = require('./helpers/maintenanceFixture.cjs');
+  mocks = { '../config/db': fixture.database, './platformMaintenanceService': fixture.maintenance, ...mocks };
   const resolvedTarget = require.resolve(targetPath);
   const originals = new Map();
 
@@ -502,7 +504,7 @@ test("paid ticket sends joined push once after commit, even when payment is repl
   const pushes = [];
   const payment = { _id: '1', tenantId: '2', status: 'paid', amountCents: 100, currency: 'PHP', payload: { locationSlug: 'main' } };
   const service = requireWithMocks('../src/services/queueJoinPaymentService.js', {
-    '../config/db': { withTransaction: async (fn) => { const result = await fn({}); committed = true; return result; } },
+    '../config/db': { withTransaction: async (fn) => { const result = await fn(require('./helpers/maintenanceFixture.cjs').database.pool); committed = true; return result; } },
     '../repositories/queueJoinPayments': {
       findPaymentByProviderId: async () => payment,
       findPaymentByIdForUpdate: async () => issued ? { ...payment, ticketId: '3', ticketLookupCode: 'A001' } : payment,
@@ -531,7 +533,7 @@ test(`free ticket completes after commit when joined push ${pending ? "stays pen
   const pushes = [];
   const location = { _id: '4' };
   const service = requireWithMocks('../src/services/queueService.js', {
-    '../config/db': { withTransaction: async (fn) => { const result = await fn({}); committed = true; return result; } },
+    '../config/db': { withTransaction: async (fn) => { const result = await fn(require('./helpers/maintenanceFixture.cjs').database.pool); committed = true; return result; } },
     '../repositories/queueDayClosures': { findActiveClosure: async () => null },
     '../repositories/queueDayPauses': { findActivePause: async () => null },
     '../repositories/queueEvents': { createQueueEvent: async () => {} },

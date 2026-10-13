@@ -52,6 +52,7 @@ import { PlatformAccountSettings } from "@/components/platform-account-settings"
 import { PlanMatrix } from "@/components/plan-matrix"
 import { PlatformHelpCenterManager } from "@/components/platform-help-center"
 import { PlatformSettingsEditor } from "@/components/platform-settings-editor"
+import { PlatformMaintenance } from "@/components/platform-maintenance"
 import { PlatformAiInference } from "@/components/platform-ai-inference"
 import { PlatformLogin } from "@/components/platform-login"
 import { platformAuth } from "@/lib/platform-auth"
@@ -1862,7 +1863,7 @@ function App() {
                   : error ? <Alert variant="destructive"><AlertTriangle /><AlertTitle>Platform unavailable</AlertTitle><AlertDescription>{error}</AlertDescription></Alert>
                     : overview && viewer && serviceHealth && queueOperations && tenants && releaseReadiness
                       ? activeRoute === "Overview" ? <Overview overview={overview} health={serviceHealth} viewer={viewer} />
-                        : activeRoute === "Service health" ? <ServiceHealth health={serviceHealth} />
+                        : activeRoute === "Service health" ? <div className="grid gap-5"><ServiceHealth health={serviceHealth} /><PlatformMaintenance live={usesLiveData} editable={usesLiveData && availableCapabilities.has("platform.settings.manage")} /></div>
                           : activeRoute === "Queues & recovery" ? <QueueOperations operations={queueOperations} onPreview={handleQueueRepairPreview} onExecute={handleQueueRepairExecute} />
                             : activeRoute === "Tenants" ? <Tenants tenants={tenants} canManageOverrides={availableCapabilities.has("platform.entitlement_overrides.manage")} canGrantCredits={availableCapabilities.has("platform.credit_grants.manage")} canRevokeCredits={availableCapabilities.has("platform.credit_revocations.manage")} onInspect={handleTenantInspect} onPreviewEntitlement={handleTenantEntitlementPreview} onExecuteEntitlement={handleTenantEntitlementExecute} onGrantCredits={handleTenantCreditGrant} onRevokeCredits={handleTenantCreditRevoke} />
                               : activeRoute === "Users" && users ? <PlatformUsers users={users} viewerId={viewer.user.id} canManage={availableCapabilities.has("platform.user_sessions.revoke")} canManageRoles={availableCapabilities.has("platform.user_roles.manage")} deletionRequests={accountDeletionQueue} deletionError={accountDeletionError} canManageDeletion={availableCapabilities.has("platform.account_deletion.manage")} onCompleteDeletionTask={handleAccountDeletionTaskComplete} onPreview={handleUserSessionRevokePreview} onExecute={handleUserSessionRevokeExecute} onPageChange={setUsersPage} onSearchChange={(search) => { setUsersPage(1); setUsersSearch(search) }} />

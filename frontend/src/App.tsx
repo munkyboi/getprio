@@ -33,6 +33,7 @@ import DeveloperPortalPage from "./pages/DeveloperPortalPage";
 import DeveloperReferencePage from "./pages/DeveloperReferencePage";
 import DeveloperPortalPrototype from "./pages/prototypes/DeveloperPortalPrototype";
 import SiteFooter from "./components/SiteFooter";
+import MaintenanceBoundary from "./components/MaintenanceBoundary";
 
 import {
   JOINED_QUEUE_ROUTE_PATH,
@@ -356,6 +357,7 @@ export default function App() {
   return (
     <>
       <ScrollToTop />
+      <MaintenanceBoundary>
       <Routes>
         <Route path="/queue-board/:boardId" element={<BarePage><SecureQueueBoardPage /></BarePage>} />
         <Route path={MONITOR_ROUTE_PATH} element={<LegacyMonitorRedirect />} />
@@ -394,6 +396,7 @@ export default function App() {
         <Route path="/join/:tenantSlug/:locationSlug?" element={<AppShell><JoinQueuePage /></AppShell>} />
         <Route path="*" element={<AppShell><NotFoundPage /></AppShell>} />
       </Routes>
+      </MaintenanceBoundary>
     </>
   );
 }

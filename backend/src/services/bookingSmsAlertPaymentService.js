@@ -1,3 +1,4 @@
+const maintenance = require('./platformMaintenanceService');
 const env = require("../config/env");
 const paymentRepository = require("../repositories/bookingSmsAlertPayments");
 const bookingOtpService = require("./bookingOtpService");
@@ -89,6 +90,7 @@ async function getBookingSmsFeeForTenant(tenantId) {
 }
 
 async function createBookingSmsCheckout({ tenant, bookingVerificationToken }) {
+  await maintenance.assertNewIntake();
   const verified = await bookingOtpService.getVerifiedBookingPayload({
     tenant,
     token: bookingVerificationToken

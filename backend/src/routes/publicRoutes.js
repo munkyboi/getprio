@@ -36,6 +36,10 @@ const entitlementAdmissionService = require("../services/entitlementAdmissionSer
 
 const { queueMetadata, trackingSnapshot } = require("../services/queueBoardProjection");
 const router = express.Router();
+router.get('/maintenance', asyncHandler(async (_req, res) => {
+  res.set('Cache-Control', 'no-store');
+  return res.json(await require('../services/platformMaintenanceService').publicStatus());
+}));
 router.get("/upload-policy", asyncHandler(async (_req, res) => {
   const maxImageUploadKb = await platformRepository.getImageUploadLimitKb();
   res.set("Cache-Control", "no-store").json({ maxImageUploadKb, maxImageUploadBytes: maxImageUploadKb * 1024 });

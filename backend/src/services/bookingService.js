@@ -1,3 +1,4 @@
+const maintenance = require('./platformMaintenanceService');
 const ticketServicePlanService = require("./ticketServicePlanService");
 const bookingRepository = require("../repositories/bookings");
 const db = require("../config/db");
@@ -1073,6 +1074,7 @@ async function listVendorBookingRescheduleSlots({ tenant, bookingId, date }) {
 }
 
 async function createCustomerBooking({ user, body }) {
+  await maintenance.assertNewIntake();
   const tenantSlug = String(body.tenantSlug || "").trim().toLowerCase();
   const locationSlug = String(body.locationSlug || "").trim().toLowerCase();
   const serviceSlug = vendorServiceRepository.normalizeServiceSlug(body.serviceSlug);
@@ -1233,6 +1235,7 @@ async function createCustomerBooking({ user, body }) {
       error.statusCode = 409;
       throw error;
     }
+    await maintenance.assertNewIntake({ client });
     const createdBooking = await bookingRepository.createBooking({
       tenantId: tenant._id,
       locationId: location._id,
@@ -1863,7 +1866,7 @@ async function checkInBooking({ tenant, location, bookingId, user, overrideWindo
         windowState.isLate ? `Late override: ${String(overrideReason || "vendor override").trim()}` : ""
       ].filter(Boolean).join(" "),
       servicePriorityBand: "checked_in_booking"
-    });
+    }, { existingWork: true });
 
     await ticketServicePlanService.captureBookingPlan(client, {
       tenant, location, ticket, booking, actorUserId: user?._id

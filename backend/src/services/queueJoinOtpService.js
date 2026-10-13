@@ -1,3 +1,4 @@
+const maintenance = require('./platformMaintenanceService');
 const crypto = require("crypto");
 const env = require("../config/env");
 const db = require("../config/db");
@@ -88,6 +89,7 @@ async function deliverOtp({ tenant, channel, target, code }) {
 }
 
 async function requestJoinOtp({ tenant, payload, chainId = null, parentOtpId = null, resendOrdinal = 0 }) {
+  await maintenance.assertNewIntake();
   const sanitizedPayload = sanitizeJoinPayload(payload);
   const delivery = getDeliveryTarget(sanitizedPayload);
   if (!chainId && resendOrdinal === 0) {
@@ -130,6 +132,7 @@ async function requestJoinOtp({ tenant, payload, chainId = null, parentOtpId = n
 }
 
 async function resendJoinOtp({ tenant, otpId }) {
+  await maintenance.assertNewIntake();
   const requestedOtp = await otpRepository.findOtpById(otpId);
   const previousOtp = requestedOtp?.chainId
     ? await otpRepository.findLatestForChain(requestedOtp.chainId)

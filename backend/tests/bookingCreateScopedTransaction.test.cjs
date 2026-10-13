@@ -73,6 +73,7 @@ test('customer booking creation under real scoped PostgreSQL transaction', { ski
       CREATE TABLE allowances(booking_id BIGINT);
       INSERT INTO users(id) VALUES(1),(2); INSERT INTO tenant_memberships(user_id,tenant_id,role,is_active) VALUES(2,1,'owner',TRUE); INSERT INTO store_locations VALUES(10,1)`);
     await pool.query(fs.readFileSync(path.resolve(__dirname, '../../database/migrations/20261007_add_resource_ledger_foundation.sql'), 'utf8'));
+    await pool.query(fs.readFileSync(path.resolve(__dirname, '../../database/migrations/20261013_add_platform_maintenance.sql'), 'utf8'));
     const bookingService = loadService({
       '../config/db': { pool },
       '../repositories/bookings': {
@@ -133,6 +134,7 @@ test('customer booking creation under real scoped PostgreSQL transaction', { ski
         return {_id:row.id,ticketNumber:'D001',lookupCode:'LOOKUP1',status:'waiting'};
       } });
     async function reset() {
+      await pool.query('UPDATE platform_maintenance SET enabled=FALSE,force_screen=FALSE');
       await pool.query('TRUNCATE tickets,ticket_service_plans,bookings,booking_bundle_items,allowances,resource_ledger_scopes,resource_ledger_commands,resource_ledger_reservations,resource_allocations,service_resource_requirements,location_resource_pools RESTART IDENTITY CASCADE');
       await pool.query('UPDATE users SET deletion_requested_at=NULL; TRUNCATE tenant_membership_locations,service_counters,service_counter_assignments');
       allowanceFails = lockedCatalogChanged = lockedAvailabilityChanged = lockedTenantRevoked = lockedLocationRevoked = false;
@@ -460,6 +462,15 @@ test('customer booking creation under real scoped PostgreSQL transaction', { ski
     }
     const arriveStaff = booking => bookingService.checkInVendorBooking({tenant,location,bookingId:booking._id,user:{_id:'2'}});
     const arriveCustomer = booking => bookingService.checkInCustomerBooking({bookingId:booking._id,user});
+    await t.test('maintenance blocks new bookings but preserves existing confirmed booking check-in', async () => {
+      const booking = await arrivalBooking();
+      await pool.query('UPDATE platform_maintenance SET enabled=TRUE');
+      await assert.rejects(bookingService.createCustomerBooking({user,body}), {code:'PLATFORM_MAINTENANCE',statusCode:503});
+      const result = await arriveStaff(booking);
+      assert.ok(result.booking.checkedInAt);
+      assert.equal(await count('tickets'),1);
+      await pool.query('UPDATE platform_maintenance SET enabled=FALSE');
+    });
     await t.test('check-in captures a booking service plan and retains protection without allocating', async () => {
       const booking = await arrivalBooking();
       const before = (await pool.query('SELECT * FROM resource_ledger_reservations')).rows[0];

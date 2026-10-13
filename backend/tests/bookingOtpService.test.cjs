@@ -29,6 +29,8 @@ function resolveMockPath(requestPath, baseDir) {
 }
 
 function requireWithMocks(targetPath, mocks) {
+  const fixture = require('./helpers/maintenanceFixture.cjs');
+  mocks = { '../config/db': fixture.database, './platformMaintenanceService': fixture.maintenance, ...mocks };
   const resolvedTarget = require.resolve(targetPath);
   const originals = new Map();
 

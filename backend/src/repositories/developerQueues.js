@@ -682,6 +682,7 @@ async function issueTicket(input, options = {}) {
     return db.withTransaction((client) => issueTicket(input, { ...options, client }));
   }
   const queryClient = clientFor(options);
+  if (input.environment === 'production') await require('../services/platformMaintenanceService').assertNewIntake({ client: queryClient });
   const queue = await findQueue(input.profileId, input.queueSlug, { client: queryClient, forUpdate: true });
   if (!queue || queue.id !== String(input.queueId)) return null;
   if (queue.sessionState !== "open" || !queue.intakeEnabled) {

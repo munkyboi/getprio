@@ -1,4 +1,8 @@
 function errorHandler(error, req, res, _next) {
+  if (error.code === 'PLATFORM_MAINTENANCE') {
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('Retry-After', '60');
+  }
   const statusCode = error.statusCode || 500;
   const message = error.message || "Unexpected server error.";
 
@@ -21,7 +25,7 @@ function errorHandler(error, req, res, _next) {
     }).catch((auditError) => console.error("[security-audit-write-failed]", auditError));
   }
 
-  if (statusCode >= 500) {
+  if (statusCode >= 500 && error.code !== 'PLATFORM_MAINTENANCE') {
     console.error(error);
   }
 

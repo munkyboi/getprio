@@ -1,3 +1,4 @@
+const maintenance = require('./platformMaintenanceService');
 const crypto = require("crypto");
 const env = require("../config/env");
 const db = require("../config/db");
@@ -125,6 +126,7 @@ async function deliverOtp({ tenant, channel, target, code }) {
 }
 
 async function requestBookingOtp({ tenant, payload, channel }) {
+  await maintenance.assertNewIntake();
   const sanitizedPayload = sanitizeBookingPayload(payload);
   const delivery = getDeliveryTarget(sanitizedPayload, channel);
   const code = createOtpCode();
