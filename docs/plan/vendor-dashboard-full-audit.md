@@ -105,3 +105,7 @@ Authenticated runtime checks, a real camera/display pairing, direct mobile min/m
 - Eight selected backend suites: **13 passed, 0 failed, 3 skipped**. Skips: PostgreSQL counter authorization/resource-lock execution, duration-unit catalog/migration persistence, and atomic staff-removal/resource revisions. No database acceptance is claimed.
 - An initial root-directory frontend invocation produced three `React is not defined` errors in JSX rendering because of test transform configuration discovery; rerunning from the frontend workspace passed all 35. No production component was changed to accommodate that invocation.
 - Local Markdown target existence and `git diff --check` checked. No app mutation, deployment, browser authentication or physical scan was performed.
+
+### Implementation follow-through: Operations lists
+
+After local shell approval, the Bookings/Clients/History slice explicitly carries forward G07/G12: payment/status/check-in/reschedule/linked-ticket guards, frozen bundle values, async detail failure/retry, loaded-list scope, retention and export permission/error states. The source audit remains historical evidence; the progress document records current local verification and remaining authenticated/deployment gates. Resource pools, workflows and AI readiness are unaffected by this UI migration.

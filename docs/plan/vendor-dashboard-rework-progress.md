@@ -1,6 +1,8 @@
 # Vendor dashboard rework progress
 
-13 October 2026. Source baseline `f7435a22`; implementation branch `codex/vendor-workspace-shell`.
+Current status: shell reference correction approved locally; Bookings/Clients/History implementation complete locally with PR review and authenticated acceptance remaining. Earlier shell/Live Queue slices are merged; deployment is separately unverified.
+
+13 October 2026. Historical audit source baseline `f7435a22`; implementation branch `codex/vendor-workspace-shell`.
 
 ## Slice 1: shared shell
 
@@ -63,3 +65,19 @@ The same shared context selectors now use the migrated shadcn/Base UI presentati
 Local design review is the next gate. Keep subsequent screen migration on hold until Carlo reviews this correction; technical checks do not establish visual approval. Preview: `http://localhost:5179/dashboard/queue`. The earlier interactive design prototype is available separately at `http://127.0.0.1:5188/vendor-dashboard-workflow-decisions-visual.html` while its local reference server is running.
 
 Verification for this correction: all 176 frontend tests, frontend typecheck, affected-source ESLint and production build passed. Isolated browser fixtures verified both themes at 375/768/1024/1180/1440px, no horizontal document overflow, a 77px desktop toolbar, sidebar/mobile-sheet transitions, themed context selectors, Escape/focus return, workspace switching and theme persistence. A staff fixture retained Operations/Account without an Administration switch or management links. Browser evidence uses synthetic API responses; authenticated business mutations, keyboard-open device acceptance and Carlo's visual approval remain separate. The local frontend and backend health endpoint respond successfully.
+
+## Bookings, Clients and History
+
+Carlo approved the corrected shell locally and authorized these three Operations screens on 13 October 2026. Branch `codex/vendor-operations-lists` includes the approved shell correction (`f404718c`) and this next slice. This is source/local implementation, not a deployment claim.
+
+Migrates the three lists, shared filters/fields/pagination, booking row actions, asynchronous booking details, check-in notice, reschedule/payment-block dialogs and operational confirmations to the scoped shadcn/Base UI presentation. Bookings follows the reference's metrics/filter/table hierarchy; narrow tables become labeled records while preserving semantic headers. Booking details and rescheduling use fixed-header/footer task dialogs with a scrolling body and stacked mobile actions. Staff retain operational check-in/no-show access; payment review, management and exports remain under the existing admin/entitlement checks.
+
+Preservation: frozen quantities/services/bundles/prices/schedules, exact booking/ticket targets, manual proof access and customer-visible rejection reason, payment and check-in timing gates, server-controlled late/no-show outcomes, linked-ticket protection, queue-state guidance, server pagination/search/status/date/hide-inactive booking filters, and local loaded-record search/sort/pagination for Clients/History. Retention badges retain server labels; history list still requests at most 50 records, independently from entitlement-limited export periods. Booking summary counts explicitly describe the current page. “View pending bookings” navigates to the existing filtered list; it does not open a Queue Day.
+
+Recovery improvements: failed list/detail requests expose retry instead of false empty states. Failed details do not expose mutation actions until successfully reloaded. Exports catch failures and hold the existing busy/navigation guard. Rescheduling requires an available selected slot, retains it only while the returned server slots still admit it, and no longer refetches the slot list merely because the selection changed. These are frontend state corrections; backend APIs/authorization and availability decisions are unchanged. Booking payment-reason and reschedule drafts participate in existing unsaved-form protection; successful writes/discards clear only their form. Changing location clears loaded operational records and selected booking detail before the next scoped query.
+
+Runtime and API owners confirmed no incoming booking contract changes or overlapping source work. Mobile was notified that frozen quantity/payment/linked-ticket contracts remain unchanged. API coordination separately reports main deployment remains behind the merged inbox/vendor work; source merge and live runtime acceptance remain distinct.
+
+Local verification: 181 frontend tests, frontend typecheck, affected-source ESLint and production build passed. Browser fixtures covered Bookings/Clients/History plus booking details in both themes at 375/768/1180/1440px, no horizontal overflow, column labels, frozen bundle/payment gates and fitting dialogs with matching fixed footers. Interaction fixtures exercised payment-blocked rescheduling, exact-target payment verification and reschedule, unavailable-slot rejection, scoped check-in and duplicate linked-ticket protection, server booking pagination, local client/history search/pagination, CSV download/export failure, and list/detail retry. A staff fixture checked absence of payment/management/export controls while preserving no-show and a fitting short mobile dialog. These use isolated API responses; authenticated mutations, live streams, actual download contents and direct keyboard-open/device acceptance remain unverified. No backend/shared/package/lockfile changes. The next screens remain outside this slice.
+
+Booking task dialogs temporarily hide the legacy actionable alert stack so it cannot obscure persistent footer actions; alert state is retained and the stack returns after the dialog closes. Shared notification delivery/primitive migration remains a separate slice.
