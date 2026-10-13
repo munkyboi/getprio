@@ -25,6 +25,27 @@ test('account-synchronized notification inbox on disposable PostgreSQL', { skip:
   try {
     await db.pool.query('DROP TABLE IF EXISTS customer_notification_inbox,customer_notification_inbox_policy');
     await db.pool.query(fs.readFileSync(require('node:path').resolve(__dirname,'../../database/migrations/20261013_01_add_customer_notification_inbox.sql'),'utf8'));
+    const legacyUser=await fixture();
+    await db.pool.query(`INSERT INTO customer_notification_inbox(user_id,notification_key,title,body) VALUES
+      ($1,'queue-event:123:ticket_expired','Legacy alert','Saved queue event'),
+      ($1,'booking:123:schedule:2:reminder:1h','Legacy alert','Saved booking event'),
+      ($1,'legacy-uuid-only','Booking queue words','Unknown provenance')`,[legacyUser]);
+    await db.pool.query("UPDATE customer_notification_inbox SET read_at=NOW(),created_at=NOW()-INTERVAL '1 day' WHERE user_id=$1 AND notification_key='queue-event:123:ticket_expired'",[legacyUser]);
+    const before=(await db.pool.query("SELECT created_at,read_at FROM customer_notification_inbox WHERE user_id=$1 AND notification_key='queue-event:123:ticket_expired'",[legacyUser])).rows[0];
+    await db.pool.query(fs.readFileSync(require('node:path').resolve(__dirname,'../../database/migrations/20261013_03_add_notification_inbox_kind.sql'),'utf8'));
+    await t.test('migration types retained known keys without guessing content or exposing provenance',async()=>{
+      const rows=(await inbox.list(legacyUser)).notifications;
+      assert.deepEqual(rows.map(row=>row.kind),['general','booking','queue']);
+      assert.deepEqual(rows[2].createdAt,before.created_at); assert.deepEqual(rows[2].readAt,before.read_at);
+      assert.ok(rows.every(row=>!Object.hasOwn(row,'notification_key')&&!Object.hasOwn(row,'eventType')));
+    });
+    await t.test('new UUID notifications persist trusted producer type and leave unknown types general',async()=>{
+      const user=await fixture();
+      for(const eventType of ['customer_booking_confirmed','customer_queue_called','developer_ticket_invitation','unrecognized']) {
+        await inbox.record({userId:user,notificationId:crypto.randomUUID(),title:'Booking queue words',body:'Unrelated content'},{eventType});
+      }
+      assert.deepEqual((await inbox.list(user)).notifications.map(row=>row.kind),['general','queue','queue','booking']);
+    });
     await t.test('records without device delivery, stable retry IDs, silent exclusion and no backfill', async () => {
       const user = await fixture();
       const id = await send(user,'stable-event');
@@ -34,7 +55,7 @@ test('account-synchronized notification inbox on disposable PostgreSQL', { skip:
       assert.equal(await inbox.record({userId:user,notificationId:'old-outbox',title:'Old',body:'Old',occurredAt:'2000-01-01T00:00:00Z'}),null);
       const page = await inbox.list(user);
       assert.equal(page.unreadCount,1); assert.equal(page.totalCount,1);
-      assert.deepEqual(Object.keys(page.notifications[0]),['id','title','body','createdAt','readAt']);
+      assert.deepEqual(Object.keys(page.notifications[0]),['id','title','body','createdAt','readAt','kind']);
     });
     await t.test('ownership, signed cutoffs, idempotent reads and new-arrival bulk protection', async () => {
       const user = await fixture(), other = await fixture();

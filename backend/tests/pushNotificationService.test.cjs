@@ -572,3 +572,13 @@ test("inbox commit precedes failing push delivery and persistence failure permit
   await assert.rejects(service.sendUserNotification(payload),/delivery failed/);
   assert.equal(attempts,2);assert.equal(records.length,1);assert.equal(records[0].notificationId,'event');
 });
+
+test('visible user producer forwards trusted event provenance to inbox persistence',async()=>{
+  const captured=[];
+  const service=requireWithMocks('../src/services/pushNotificationService.js',{
+    './customerNotificationInbox':{record:async(payload,options)=>captured.push({payload,options})},
+    '../config/env':{}, '../repositories/pushSubscriptions':{}, 'web-push':{}
+  });
+  await service.sendUserNotification({userId:'1',title:'Queue words',body:'Unrelated content',eventType:'customer_booking_confirmed',notificationId:'server-known-event',channels:{webPush:false,fcm:false}});
+  assert.equal(captured.length,1);assert.deepEqual(captured[0].options,{eventType:'customer_booking_confirmed'});
+});

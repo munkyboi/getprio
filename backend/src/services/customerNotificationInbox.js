@@ -1,3 +1,4 @@
+const { notificationKind } = require("./notificationKind");
 const crypto = require("node:crypto");
 const db = require("../config/db");
 const env = require("../config/env");
@@ -49,11 +50,11 @@ function createInbox({ transaction = db.withTransaction, pool = db.pool, secret 
     const run = options.client ? callback => callback(options.client) : transaction;
     return run(async client => {
       if (!await lock(client, userId)) return null;
-      const { rows } = await client.query(`INSERT INTO customer_notification_inbox(user_id,notification_key,title,body)
-        SELECT $1,$2,$3,$4 FROM customer_notification_inbox_policy
+      const { rows } = await client.query(`INSERT INTO customer_notification_inbox(user_id,notification_key,title,body,kind)
+        SELECT $1,$2,$3,$4,$6 FROM customer_notification_inbox_policy
         WHERE singleton=TRUE AND ($5::timestamptz IS NULL OR $5 >= started_at)
         ON CONFLICT(user_id,notification_key) DO NOTHING RETURNING id::text`,
-      [userId, notificationId, title, body, occurredAt || null]);
+      [userId, notificationId, title, body, occurredAt || null, notificationKind({notificationKey:notificationId,eventType:options.eventType})]);
       return rows[0]?.id || null;
     });
   }
@@ -64,14 +65,14 @@ function createInbox({ transaction = db.withTransaction, pool = db.pool, secret 
       const { rows: [boundary] } = await client.query(`SELECT COALESCE(MAX(id),0)::text AS max
         FROM customer_notification_inbox WHERE user_id=$1`, [userId]);
       const max = previous?.max || boundary.max;
-      const { rows } = await client.query(`SELECT id::text,title,body,created_at,read_at FROM customer_notification_inbox
+      const { rows } = await client.query(`SELECT id::text,title,body,created_at,read_at,kind FROM customer_notification_inbox
         WHERE user_id=$1 AND id <= $2 AND ($3::bigint IS NULL OR id < $3)
           AND cleared_at IS NULL AND created_at > clock_timestamp() - INTERVAL '90 days'
         ORDER BY customer_notification_inbox.id DESC LIMIT $4`, [userId, max, previous?.last || null, PAGE_SIZE + 1]);
       const page = rows.slice(0, PAGE_SIZE);
       return {
         notifications: page.map(row => ({ id: row.id, title: row.title, body: row.body,
-          createdAt: row.created_at, readAt: row.read_at })),
+          createdAt: row.created_at, readAt: row.read_at, kind:row.kind })),
         ...await counts(client, userId),
         nextCursor: rows.length > PAGE_SIZE ? encode(userId, max, page.at(-1).id) : null,
         snapshotCutoff: encode(userId, max)

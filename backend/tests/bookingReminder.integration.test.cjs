@@ -72,7 +72,7 @@ test('durable upcoming booking reminders on disposable PostgreSQL',{skip:!url},a
     await scenario('no-device delivery persists one inbox entry with unchanged list contract',async()=>{
       const f=await fixture();const scheduler=createBookingReminderService();await scheduler.enqueueDue();const intent=await claim();
       assert.deepEqual(await scheduler.dispatch(intent,'reminder-test'),{attempted:0,sent:0});
-      await outbox.markSent(intent.id,'reminder-test');assert.equal((await inboxRows(f.userId)).rowCount,1);
+      await outbox.markSent(intent.id,'reminder-test');assert.equal((await inboxRows(f.userId)).rowCount,1);assert.equal((await inboxRows(f.userId)).rows[0].kind,'booking');
       assert.equal(await scheduler.enqueueDue(),0);assert.equal((await outbox.claimBatch('other-worker',10)).length,0);
     });
     await scenario('reschedule A-to-B-to-A advances identity and invalidates the old claimed reminder',async()=>{

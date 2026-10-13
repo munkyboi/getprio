@@ -481,6 +481,14 @@ BEGIN
     RAISE EXCEPTION 'Schema verification failed. Usage Credit lot has a negative available invariant.';
   END IF;
 END $$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public'
+    AND table_name='customer_notification_inbox' AND column_name='kind' AND is_nullable='NO') THEN
+    RAISE EXCEPTION 'Schema verification failed. Notification inbox kind is missing.';
+  END IF;
+END $$;
 SQL
 
 echo "Schema verification passed."
