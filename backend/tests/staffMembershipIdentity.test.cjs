@@ -1,5 +1,8 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const { randomUUID } = require("node:crypto");
+const fs = require("node:fs");
+const path = require("node:path");
 const { requireWithMocks } = require("./testSupport.cjs");
 
 function fixture() {
@@ -76,4 +79,52 @@ test("membership insertion propagates database rejection without hydrating succe
   await assert.rejects(users.addTenantMembership("9007199254740993", "1", "staff", { client }),
     error => error === failure);
   assert.equal(calls, 1);
+});
+
+const databaseUrl = process.env.RESOURCE_LEDGER_TEST_DATABASE_URL;
+test("membership insertion targets distinct real PostgreSQL BIGINT accounts and vendors", { skip: !databaseUrl }, async () => {
+  const url = new URL(databaseUrl);
+  assert.equal(url.hostname, "127.0.0.1");
+  assert.ok(["/getprio_ledger_test", "/getprio_test"].includes(url.pathname));
+  const { Pool } = require("pg");
+  const schema = `membership_identity_${randomUUID().replaceAll("-", "")}`;
+  const pool = new Pool({ connectionString: databaseUrl, options: `-c search_path=${schema}` });
+  const source = fs.readFileSync(path.resolve(__dirname, "../src/repositories/users.js"), "utf8");
+  const types = { id: "BIGINT PRIMARY KEY", roles: "TEXT[]" };
+  const columns = source.match(/const USER_COLUMNS = `([\s\S]*?)`;/)[1].split(",")
+    .map(value => value.trim().replace("users.", ""))
+    .map(name => `${name} ${types[name] || "TEXT"}`);
+  const users = requireWithMocks("../src/repositories/users", { "../config/db": { pool } });
+  const ids = ["9007199254740992", "9007199254740993"];
+  try {
+    await pool.query(`CREATE SCHEMA ${schema};
+      CREATE TABLE users(${columns.join(",")});
+      CREATE TABLE tenants(id BIGINT PRIMARY KEY);
+      CREATE TABLE tenant_memberships(user_id BIGINT REFERENCES users(id), tenant_id BIGINT REFERENCES tenants(id),
+        role TEXT, is_active BOOLEAN, PRIMARY KEY(user_id,tenant_id));
+      CREATE TABLE oauth_accounts(user_id BIGINT, provider TEXT, provider_user_id TEXT, email TEXT,
+        email_verified BOOLEAN, linked_at TIMESTAMPTZ)`);
+    await pool.query("INSERT INTO users(id,name,roles) SELECT id,'Account','{}'::text[] FROM unnest($1::bigint[]) AS id", [ids]);
+    await pool.query("INSERT INTO tenants(id) SELECT id FROM unnest($1::bigint[]) AS id", [ids]);
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      for (const userId of ids) {
+        for (const tenantId of ids) {
+          const user = await users.addTenantMembership(userId, tenantId, "staff", { client });
+          assert.equal(user._id, userId);
+          assert.ok(user.tenantMemberships.some(row => row.tenantId === tenantId));
+        }
+      }
+      const rows = await client.query("SELECT user_id::text,tenant_id::text FROM tenant_memberships ORDER BY user_id,tenant_id");
+      assert.deepEqual(rows.rows, ids.flatMap(user_id => ids.map(tenant_id => ({ user_id, tenant_id }))));
+    } finally {
+      await client.query("ROLLBACK");
+      client.release();
+    }
+    assert.equal((await pool.query("SELECT 1 FROM tenant_memberships")).rowCount, 0);
+  } finally {
+    await pool.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
+    await pool.end();
+  }
 });

@@ -4,7 +4,7 @@ Stage B2 prerequisite for the remaining staff-invitation writer in [AI Wait-Time
 
 The existing SQL upsert, default staff role, active flag, optional transaction client and hydrated return value remain unchanged. Existing safe numeric callers still bind their decimal representation. A caller that already rounded an unsafe number cannot recover its original identity through this change; trusted identities must originate as exact database strings. This is not a new general input validator.
 
-Focused repository regressions verify adjacent user/tenant combinations, the maximum PostgreSQL BIGINT, same-client insert and hydration, default-pool use, safe numeric callers, default role, existing upsert/reactivation behavior and database-error propagation. The query client is mocked; these tests establish the parameter/return contract, not live authorization, PostgreSQL concurrency, complete writer coverage or a resource transaction adapter.
+Focused mocked repository regressions verify adjacent user/tenant combinations, the maximum PostgreSQL BIGINT, same-client insert and hydration, default-pool use, safe numeric callers, default role, existing upsert/reactivation behavior and database-error propagation. A disposable loopback PostgreSQL case executes the real repository insert and hydration for all four adjacent account/vendor combinations, verifies distinct rows and rolls the caller's transaction back. These tests establish the parameter/return and transaction-client contract, not live authorization, concurrent invitation policy, complete writer coverage or a resource transaction adapter.
 
 ## Remaining invitation boundaries
 
