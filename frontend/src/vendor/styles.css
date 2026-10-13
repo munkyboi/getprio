@@ -243,3 +243,7 @@
 }
 .ops-status-chips [data-slot=badge] { white-space: normal; overflow: visible; max-width: 100%; }
 .ops-table [data-slot=table-container] { overflow: visible; }
+
+@media (max-width: 48em) {
+  .queue-dialog-footer .ops-redundant-dismiss { display: none; }
+}

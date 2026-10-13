@@ -7,3 +7,11 @@ export function availableRescheduleSelection(
 ): string {
   return slots.some(slot => slot.isAvailable && String(slot.startAt) === selected) ? selected : "";
 }
+
+/** Changing the lower bound must not leave a previously selected end before it. */
+export function dateRangeWithStart(
+  start: Date | null,
+  end: Date | null,
+): [Date | null, Date | null] {
+  return [start, start && end && end < start ? null : end];
+}

@@ -1,3 +1,4 @@
+import { dateRangeWithStart } from "./operationsState";
 import {
   createContext,
   useContext,
@@ -185,12 +186,12 @@ export function OperationDateRange({
         label="From date"
         value={format(value[0])}
         onChange={(event) =>
-          onChange([
+          onChange(dateRangeWithStart(
             event.target.value
               ? new Date(`${event.target.value}T00:00:00`)
               : null,
             value[1],
-          ])
+          ))
         }
       />
       <OperationInput

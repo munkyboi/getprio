@@ -27,3 +27,13 @@ test('reschedule selection expires when the server removes or fills its slot',()
  assert.equal(availableRescheduleSelection([{startAt:second,isAvailable:true}],first),'');
  assert.equal(availableRescheduleSelection([],first),'');
 });
+
+test('advancing the start date clears an earlier end but preserves equal, later and open bounds',()=>{
+ const {dateRangeWithStart}=require('../src/vendor/operationsState.ts');
+ const earlier=new Date(2026,9,13),later=new Date(2026,9,14);
+ assert.deepEqual(dateRangeWithStart(later,earlier),[later,null]);
+ assert.deepEqual(dateRangeWithStart(earlier,later),[earlier,later]);
+ assert.deepEqual(dateRangeWithStart(earlier,earlier),[earlier,earlier]);
+ assert.deepEqual(dateRangeWithStart(null,earlier),[null,earlier]);
+ assert.deepEqual(dateRangeWithStart(later,null),[later,null]);
+});

@@ -1037,6 +1037,13 @@ export default function VendorDashboardPage() {
   const [bookingDetailBooking, setBookingDetailBooking] = useState<VendorBookingSummary | null>(null);
   const [bookingDetailError, setBookingDetailError] = useState("");
   const [paymentRejectionReason, setPaymentRejectionReason] = useState("");
+  function openBookingDetail(bookingId: string) {
+    setError("");
+    setPaymentRejectionReason("");
+    setBookingDetailModalId(bookingId);
+    setBookingDetailOpen(true);
+  }
+
 
   const [confirmAction, setConfirmAction] = useState<null | {
     title: string;
@@ -7968,13 +7975,38 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                             canAdminBookings &&
                             paymentReviewPending &&
                             Boolean(booking.paymentProof);
+                          const rescheduleAction = (disabled: boolean) => (
+                            <OperationAction
+                              label="Reschedule booking"
+                              color="orange"
+                              disabled={disabled}
+                              onClick={() => openRescheduleDialog(booking)}
+                            >
+                              <IconCalendar size={16} />
+                            </OperationAction>
+                          );
+                          const cancelAction = (
+                            <OperationAction
+                              label="Cancel booking"
+                              color="red"
+                              onClick={() =>
+                                openConfirmAction({
+                                  title: "Cancel booking?",
+                                  description: "Are you sure you want to cancel this booking?",
+                                  confirmLabel: "Cancel booking",
+                                  confirmColor: "red",
+                                  onConfirm: async () => {
+                                    await handleUpdateBookingStatus(booking, "canceled");
+                                  },
+                                })
+                              }
+                            >
+                              <IconX size={16} />
+                            </OperationAction>
+                          );
                           const actionButtons = (() => {
                             if (booking.checkedInAt || booking.linkedTicket) {
-                              return (
-                                <p className="ops-muted">
-                                  Manage from the live queue.
-                                </p>
-                              );
+                              return <p className="ops-muted">Manage from the live queue.</p>;
                             }
                             if (canReviewBookingPayment) {
                               return (
@@ -7983,51 +8015,20 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                                     label="Review payment"
                                     color="blue"
                                     onClick={() => {
-                                      setPaymentRejectionReason("");
-                                      setBookingDetailModalId(booking.id);
-                                      setBookingDetailOpen(true);
+                                      openBookingDetail(booking.id);
                                     }}
                                   >
                                     <IconClipboardList size={16} />
                                   </OperationAction>
-                                  <OperationAction
-                                    label="Reschedule booking"
-                                    color="orange"
-                                    disabled={
-                                      Boolean(busyAction) ||
+                                  {rescheduleAction(
+                                    Boolean(busyAction) ||
                                       (checkInState.isEligibleStatus &&
                                         checkInState.isLate &&
                                         manualPaymentRequired &&
                                         !paymentVerified &&
-                                        !booking.paymentVerifiedAt)
-                                    }
-                                    onClick={() =>
-                                      openRescheduleDialog(booking)
-                                    }
-                                  >
-                                    <IconCalendar size={16} />
-                                  </OperationAction>
-                                  <OperationAction
-                                    label="Cancel booking"
-                                    color="red"
-                                    onClick={() =>
-                                      openConfirmAction({
-                                        title: "Cancel booking?",
-                                        description:
-                                          "Are you sure you want to cancel this booking?",
-                                        confirmLabel: "Cancel booking",
-                                        confirmColor: "red",
-                                        onConfirm: async () => {
-                                          await handleUpdateBookingStatus(
-                                            booking,
-                                            "canceled",
-                                          );
-                                        },
-                                      })
-                                    }
-                                  >
-                                    <IconX size={16} />
-                                  </OperationAction>
+                                        !booking.paymentVerifiedAt),
+                                  )}
+                                  {cancelAction}
                                 </div>
                               );
                             }
@@ -8038,31 +8039,17 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                             ) {
                               return (
                                 <div className="ops-row">
-                                  <OperationAction
-                                    label="Reschedule booking"
-                                    color="orange"
-                                    disabled={
-                                      Boolean(busyAction) ||
+                                  {rescheduleAction(
+                                    Boolean(busyAction) ||
                                       (manualPaymentRequired &&
                                         !paymentVerified &&
-                                        !booking.paymentVerifiedAt)
-                                    }
-                                    onClick={() =>
-                                      openRescheduleDialog(booking)
-                                    }
-                                  >
-                                    <IconCalendar size={16} />
-                                  </OperationAction>
+                                        !booking.paymentVerifiedAt),
+                                  )}
                                   <OperationAction
                                     label="Mark no-show"
                                     color="red"
-                                    disabled={
-                                      busyAction ===
-                                      `booking-no-show:${booking.id}`
-                                    }
-                                    onClick={() =>
-                                      handleMarkBookingNoShow(booking)
-                                    }
+                                    disabled={busyAction === `booking-no-show:${booking.id}`}
+                                    onClick={() => handleMarkBookingNoShow(booking)}
                                   >
                                     <IconAlertTriangle size={16} />
                                   </OperationAction>
@@ -8072,151 +8059,30 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                             if (
                               canAdminBookings &&
                               booking.status === "pending" &&
-                              paymentVerified
+                              (paymentVerified || !manualPaymentRequired)
                             ) {
                               return (
                                 <div className="ops-row">
                                   <OperationAction
                                     label="Confirm booking"
                                     color="teal"
-                                    onClick={() =>
-                                      handleUpdateBookingStatus(
-                                        booking,
-                                        "confirmed",
-                                      )
-                                    }
+                                    onClick={() => handleUpdateBookingStatus(booking, "confirmed")}
                                   >
                                     <IconCheck size={16} />
                                   </OperationAction>
-                                  <OperationAction
-                                    label="Reschedule booking"
-                                    color="orange"
-                                    onClick={() =>
-                                      openRescheduleDialog(booking)
-                                    }
-                                  >
-                                    <IconCalendar size={16} />
-                                  </OperationAction>
-                                  <OperationAction
-                                    label="Cancel booking"
-                                    color="red"
-                                    onClick={() =>
-                                      openConfirmAction({
-                                        title: "Cancel booking?",
-                                        description:
-                                          "Are you sure you want to cancel this booking?",
-                                        confirmLabel: "Cancel booking",
-                                        confirmColor: "red",
-                                        onConfirm: async () => {
-                                          await handleUpdateBookingStatus(
-                                            booking,
-                                            "canceled",
-                                          );
-                                        },
-                                      })
-                                    }
-                                  >
-                                    <IconX size={16} />
-                                  </OperationAction>
+                                  {rescheduleAction(false)}
+                                  {cancelAction}
                                 </div>
                               );
                             }
-                            if (
-                              canAdminBookings &&
-                              booking.status === "pending" &&
-                              !manualPaymentRequired
-                            ) {
-                              return (
-                                <div className="ops-row">
-                                  <OperationAction
-                                    label="Confirm booking"
-                                    color="teal"
-                                    onClick={() =>
-                                      handleUpdateBookingStatus(
-                                        booking,
-                                        "confirmed",
-                                      )
-                                    }
-                                  >
-                                    <IconCheck size={16} />
-                                  </OperationAction>
-                                  <OperationAction
-                                    label="Reschedule booking"
-                                    color="orange"
-                                    onClick={() =>
-                                      openRescheduleDialog(booking)
-                                    }
-                                  >
-                                    <IconCalendar size={16} />
-                                  </OperationAction>
-                                  <OperationAction
-                                    label="Cancel booking"
-                                    color="red"
-                                    onClick={() =>
-                                      openConfirmAction({
-                                        title: "Cancel booking?",
-                                        description:
-                                          "Are you sure you want to cancel this booking?",
-                                        confirmLabel: "Cancel booking",
-                                        confirmColor: "red",
-                                        onConfirm: async () => {
-                                          await handleUpdateBookingStatus(
-                                            booking,
-                                            "canceled",
-                                          );
-                                        },
-                                      })
-                                    }
-                                  >
-                                    <IconX size={16} />
-                                  </OperationAction>
-                                </div>
-                              );
-                            }
-                            if (
-                              canAdminBookings &&
-                              paymentReviewPending &&
-                              !booking.paymentProof
-                            ) {
-                              return (
-                                <p className="ops-muted">
-                                  Waiting for customer payment proof.
-                                </p>
-                              );
+                            if (canAdminBookings && paymentReviewPending && !booking.paymentProof) {
+                              return <p className="ops-muted">Waiting for customer payment proof.</p>;
                             }
                             if (canAdminBookings && paymentVerified) {
                               return (
                                 <div className="ops-row">
-                                  <OperationAction
-                                    label="Reschedule booking"
-                                    color="orange"
-                                    onClick={() =>
-                                      openRescheduleDialog(booking)
-                                    }
-                                  >
-                                    <IconCalendar size={16} />
-                                  </OperationAction>
-                                  <OperationAction
-                                    label="Cancel booking"
-                                    color="red"
-                                    onClick={() =>
-                                      openConfirmAction({
-                                        title: "Cancel booking?",
-                                        description:
-                                          "Are you sure you want to cancel this booking?",
-                                        confirmLabel: "Cancel booking",
-                                        confirmColor: "red",
-                                        onConfirm: async () => {
-                                          await handleUpdateBookingStatus(
-                                            booking,
-                                            "canceled",
-                                          );
-                                        },
-                                      })
-                                    }
-                                  >
-                                    <IconX size={16} />
-                                  </OperationAction>
+                                  {rescheduleAction(false)}
+                                  {cancelAction}
                                 </div>
                               );
                             }
@@ -8227,36 +8093,8 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                             ) {
                               return (
                                 <div className="ops-row">
-                                  <OperationAction
-                                    label="Reschedule booking"
-                                    color="orange"
-                                    onClick={() =>
-                                      openRescheduleDialog(booking)
-                                    }
-                                  >
-                                    <IconCalendar size={16} />
-                                  </OperationAction>
-                                  <OperationAction
-                                    label="Cancel booking"
-                                    color="red"
-                                    onClick={() =>
-                                      openConfirmAction({
-                                        title: "Cancel booking?",
-                                        description:
-                                          "Are you sure you want to cancel this booking?",
-                                        confirmLabel: "Cancel booking",
-                                        confirmColor: "red",
-                                        onConfirm: async () => {
-                                          await handleUpdateBookingStatus(
-                                            booking,
-                                            "canceled",
-                                          );
-                                        },
-                                      })
-                                    }
-                                  >
-                                    <IconX size={16} />
-                                  </OperationAction>
+                                  {rescheduleAction(false)}
+                                  {cancelAction}
                                 </div>
                               );
                             }
@@ -8267,9 +8105,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                               key={booking.id}
                               reference={booking.reference}
                               onOpen={() => {
-                                setPaymentRejectionReason("");
-                                setBookingDetailModalId(booking.id);
-                                setBookingDetailOpen(true);
+                                openBookingDetail(booking.id);
                               }}
                             >
                               <QueueTableCell role="cell" data-label="ID">{booking.id}</QueueTableCell>
@@ -8277,9 +8113,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                                 <div className="ops-stack">
                                   <OperationButton
                                     onClick={() => {
-                                      setPaymentRejectionReason("");
-                                      setBookingDetailModalId(booking.id);
-                                      setBookingDetailOpen(true);
+                                      openBookingDetail(booking.id);
                                     }}
                                     variant="ghost"
                                   >
@@ -8519,6 +8353,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
               variant="outline"
               disabled={Boolean(busyAction)}
               onClick={closeRescheduleDialog}
+              className="ops-redundant-dismiss"
             >
               Cancel
             </OperationButton>
@@ -10157,8 +9992,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                           navigate("/dashboard/queue");
                           return;
                         }
-                        setBookingDetailModalId(alert.id);
-                        setBookingDetailOpen(true);
+                        openBookingDetail(alert.id);
                         clearBookingAlert(alert.id);
                       }}
                       style={{ flex: "0 0 auto" }}
@@ -10195,6 +10029,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   <div className="ops-row">
                     <OperationButton
                       onClick={() => {
+                        if (!canLeaveFeature()) return;
                         setBookingStatusFilter("pending");
                         setBookingDateRange([null, null]);
                         closeBookingDetailModal();
