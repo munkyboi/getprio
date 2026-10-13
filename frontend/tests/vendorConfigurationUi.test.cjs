@@ -38,3 +38,24 @@ test('resource requirements cannot save against unavailable service or pool meta
  assert.equal(validResourceEditor({...editor,units:3},data),false);
  assert.equal(validResourceEditor(editor),false);
 });
+
+test('checkbox guidance is announced through its own description ID and retains external guidance',()=>{
+ const {ConfigurationCheck}=require('../src/vendor/ConfigurationUi.tsx');
+ const html=render(ConfigurationCheck,{label:'Allow self check-in',description:'Customers can check in fifteen minutes before booking.',checked:true,onChange(){},'aria-describedby':'external-help'});
+ const ids=html.match(/aria-describedby="([^"]+)"/)[1].split(' ');
+ assert.equal(ids[0],'external-help');assert.equal(ids.length,2);
+ assert.ok(html.includes(`id="${ids[1]}"`));assert.match(html,/Customers can check in fifteen minutes/);
+ assert.doesNotMatch(render(ConfigurationCheck,{label:'Enable counter',checked:true,onChange(){}}),/aria-describedby=/);
+});
+
+test('counter staff search and multi-selection preserve hidden assignments',()=>{
+ const {filterCounterStaff,toggleCounterStaff}=require('../src/vendor/CounterStaffAssignments.tsx');
+ const staff=[{id:'one',name:'Sam Owner',email:'sam@example.invalid'},{id:'two',name:'Pat Staff',email:'pat@example.invalid'},{id:'three',name:'No Email',email:null}];
+ assert.deepEqual(filterCounterStaff(staff,' PAT ').map(member=>member.id),['two']);
+ assert.deepEqual(filterCounterStaff(staff,'sam@').map(member=>member.id),['one']);
+ assert.equal(filterCounterStaff(staff,'null').length,0);assert.equal(filterCounterStaff(staff,'unmatched').length,0);
+ const selected=['one','unavailable-member'];
+ assert.deepEqual(toggleCounterStaff(selected,'two',true),['one','unavailable-member','two']);
+ assert.deepEqual(toggleCounterStaff([...selected,'two'],'two',false),selected);
+ assert.deepEqual(toggleCounterStaff(selected,'one',true),selected);
+});

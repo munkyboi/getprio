@@ -1,3 +1,4 @@
+import { CounterStaffAssignments } from "../vendor/CounterStaffAssignments";
 import { ConfigurationScope, ConfigurationInput, ConfigurationPhone, ConfigurationCheck, ConfigurationSelect, ConfigurationFile, ConfigurationSection } from "../vendor/ConfigurationUi";
 import { Tabs as ConfigTabs, TabsList as ConfigTabsList, TabsTrigger as ConfigTabsTrigger, TabsContent as ConfigTabsContent } from "../vendor/components/ui/tabs";
 import { availableRescheduleSelection, boundedPage } from "../vendor/operationsState";
@@ -10073,29 +10074,8 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   error={staffQuery.error}
                   onRetry={() => void staffQuery.refetch()}
                 />
-              ) : staff.length ? (
-                staff.map((member) => (
-                  <ConfigurationCheck
-                    key={member.id}
-                    name="assignedUserIds"
-                    label={member.name}
-                    checked={counterForm.assignedUserIds.includes(member.id)}
-                    onChange={(event) =>
-                      setCounterForm((current) => ({
-                        ...current,
-                        assignedUserIds: event.currentTarget.checked
-                          ? [...current.assignedUserIds, member.id]
-                          : current.assignedUserIds.filter(
-                              (id) => id !== member.id,
-                            ),
-                      }))
-                    }
-                  />
-                ))
               ) : (
-                <p className="ops-muted">
-                  No staff members are available to assign.
-                </p>
+                <CounterStaffAssignments staff={staff} assignedUserIds={counterForm.assignedUserIds || []} onChange={(assignedUserIds) => setCounterForm((current) => ({ ...current, assignedUserIds }))} />
               )}
             </ConfigurationSection>
           </form>
