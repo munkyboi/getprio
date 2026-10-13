@@ -34,9 +34,9 @@ const booleanEntitlements = [
 
 type PendingPublish = {
   kind: "plan" | "fees"
-  preview: PlanPolicyPreview
+  preview?: PlanPolicyPreview
   reason: string
-  plan?: SubscriptionPlan
+  plans?: Array<{ plan: SubscriptionPlan; preview: PlanPolicyPreview }>
   queueFees?: Array<Pick<QueueFeeSetting, "planSlug" | "enabled" | "amountCents">>
   summary: string
 }
@@ -86,22 +86,29 @@ export function PlanMatrix() {
   const fee = queueFees.find((item) => item.planSlug === selectedSlug)
   const canPublishPlan = Boolean(matrix?.planPolicyMutations && capabilities.includes("platform.plans.manage"))
   const canPublishFees = Boolean(matrix?.planPolicyMutations && capabilities.includes("platform.queue_fees.manage"))
-  const planChanged = useMemo(() => JSON.stringify(plans) !== JSON.stringify(initialPlans), [plans, initialPlans])
+  const changedPlans = useMemo(() => plans.filter((item) => JSON.stringify(item) !== JSON.stringify(initialPlans.find((initial) => initial.slug === item.slug))), [plans, initialPlans])
+  const planChanged = changedPlans.length > 0
   const feesChanged = useMemo(() => JSON.stringify(queueFees) !== JSON.stringify(initialFees), [queueFees, initialFees])
 
   const updatePlan = (change: (current: SubscriptionPlan) => SubscriptionPlan) => {
+    if (busy || pending) return
     setPlans((current) => current.map((item) => item.slug === selectedSlug ? change(item) : item))
   }
   const updateFee = (change: (current: QueueFeeSetting) => QueueFeeSetting) => {
+    if (busy || pending) return
     setQueueFees((current) => current.map((item) => item.planSlug === selectedSlug ? change(item) : item))
   }
 
   const requestPlanPreview = async () => {
-    if (!plan || planReason.trim().length < 8) return
+    if (!changedPlans.length || planReason.trim().length < 8 || busy || pending) return
     setBusy(true); setError(null); setNotice(null)
     try {
-      const preview = await platformApi.previewPlanPolicy("plan.defaults.publish", plan.slug, { plan }, planReason.trim(), `plan-${plan.policyRevision ?? 1}`)
-      setPending({ kind: "plan", preview, reason: planReason.trim(), plan, summary: `Publish ${plan.name} as the new default policy for future admissions.` })
+      const reviewedPlans = []
+      for (const changedPlan of changedPlans) {
+        const preview = await platformApi.previewPlanPolicy("plan.defaults.publish", changedPlan.slug, { plan: changedPlan }, planReason.trim(), `plan-${changedPlan.policyRevision ?? 1}`)
+        reviewedPlans.push({ plan: changedPlan, preview })
+      }
+      setPending({ kind: "plan", reason: planReason.trim(), plans: reviewedPlans, summary: `Publish defaults for all ${reviewedPlans.length} changed plans: ${reviewedPlans.map(({ plan }) => plan.name).join(", ")}. Each plan is published separately; a failure stops the remaining changes and keeps them unsaved for review and retry.` })
     } catch (previewError) { setError(previewError instanceof Error ? previewError.message : "A secure plan preview could not be created.") }
     finally { setBusy(false) }
   }
@@ -118,21 +125,31 @@ export function PlanMatrix() {
   }
 
   const confirmPublish = async () => {
-    if (!pending) return
+    if (!pending || busy) return
     setBusy(true); setError(null)
+    const publishedNames: string[] = []
     try {
-      if (pending.kind === "plan" && pending.plan) {
-        const updated = await platformApi.publishPlan(pending.plan, pending.reason, pending.preview)
-        const next = plans.map((item) => item.slug === updated.slug ? updated : item)
-        setPlans(next); setInitialPlans(next); setPlanReason("")
-        setNotice(`${updated.name} policy published. Existing subscriptions and admitted work are unchanged.`)
-      } else if (pending.kind === "fees" && pending.queueFees) {
+      if (pending.kind === "plan" && pending.plans) {
+        for (const reviewed of pending.plans) {
+          const updated = await platformApi.publishPlan(reviewed.plan, pending.reason, reviewed.preview)
+          // Only confirmed server responses become the saved baseline. Other tabs stay dirty.
+          setPlans((current) => current.map((item) => item.slug === updated.slug ? updated : item))
+          setInitialPlans((current) => current.map((item) => item.slug === updated.slug ? updated : item))
+          publishedNames.push(updated.name)
+        }
+        setPlanReason("")
+        setNotice(`${publishedNames.length} plan policies published. Existing subscriptions and admitted work are unchanged.`)
+      } else if (pending.kind === "fees" && pending.queueFees && pending.preview) {
         const updated = await platformApi.publishQueueFees(pending.queueFees, pending.reason, pending.preview)
         setQueueFees(updated); setInitialFees(updated); setFeeReason("")
         setNotice("Queue fee policy published.")
       }
       setPending(null)
-    } catch (publishError) { setError(publishError instanceof Error ? publishError.message : "The policy was not published.") }
+    } catch (publishError) {
+      setPending(null) // Confirmations are single-use; retry must request fresh previews.
+      const message = publishError instanceof Error ? publishError.message : "The policy was not published."
+      setError(`${publishedNames.length ? `Published ${publishedNames.join(", ")}. ` : ""}${message} Remaining edits are unsaved; review and retry.`)
+    }
     finally { setBusy(false) }
   }
 
@@ -148,8 +165,9 @@ export function PlanMatrix() {
     {notice ? <Alert><Check /><AlertTitle>Policy updated</AlertTitle><AlertDescription>{notice}</AlertDescription></Alert> : null}
     {readOnlyReason ? <Alert><ShieldCheck /><AlertTitle>Read-only policy view</AlertTitle><AlertDescription>{readOnlyReason}</AlertDescription></Alert> : null}
     <Tabs value={selectedSlug} onValueChange={(value) => setSelectedSlug(value as SubscriptionPlanSlug)}>
-      <TabsList aria-label="Subscription plans">{plans.map((item) => <TabsTrigger key={item.slug} value={item.slug}>{item.name}</TabsTrigger>)}</TabsList>
+      <TabsList aria-label="Subscription plans">{plans.map((item) => <TabsTrigger key={item.slug} value={item.slug} disabled={busy || Boolean(pending)}>{item.name}</TabsTrigger>)}</TabsList>
       <TabsContent value={selectedSlug} className="mt-5 space-y-6">
+    <fieldset disabled={busy || Boolean(pending)} className="grid min-w-0 gap-6">
     <Card>
       <CardHeader><div className="flex flex-wrap items-start justify-between gap-3"><div><CardTitle>{plan.name}</CardTitle><CardDescription>{(matrix.activeSubscribersByPlan[plan.slug] ?? 0).toLocaleString()} active subscribers · policy revision {plan.policyRevision ?? 1} · published defaults apply to future admissions; tenant-specific overrides remain separate.</CardDescription></div><Badge variant={plan.checkoutEnabled ? "default" : "secondary"}>{plan.checkoutEnabled ? "Checkout enabled" : "Checkout disabled"}</Badge></div></CardHeader>
       <CardContent className="space-y-6">
@@ -167,7 +185,7 @@ export function PlanMatrix() {
           <div className="space-y-3"><h2 className="text-base font-medium">Workspace capabilities</h2><div className="grid gap-2 sm:grid-cols-2">{booleanEntitlements.map(([key, label]) => <ToggleField key={key} label={label} checked={Boolean(plan.entitlements[key])} disabled={!canPublishPlan} onChange={(checked) => updatePlan((current) => ({ ...current, entitlements: { ...current.entitlements, [key]: checked } }))} />)}</div></div>
         </div>
         <div className="space-y-3 border-t pt-5">
-          <div><h2 className="text-base font-medium">Publish plan defaults</h2><p className="text-sm text-muted-foreground">Publishing does not rewrite existing subscriptions or admitted work. Tenant overrides remain unchanged.</p></div>
+          <div><h2 className="text-base font-medium">Publish plan defaults</h2><p className="text-sm text-muted-foreground">Review and publish includes changes across all plan tabs ({changedPlans.length} changed). Publishing does not rewrite existing subscriptions or admitted work. Tenant overrides remain unchanged.</p></div>
           <div className="flex flex-col gap-3 sm:flex-row"><div className="flex-1 space-y-2"><Label htmlFor="plan-audit-reason">Audit reason</Label><Textarea id="plan-audit-reason" value={planReason} maxLength={500} disabled={!canPublishPlan || busy} onChange={(event) => setPlanReason(event.target.value)} placeholder="Explain why this plan policy is changing (8–500 characters)." /></div><div className="flex items-end"><Button disabled={!canPublishPlan || !planChanged || planReason.trim().length < 8 || busy} onClick={() => void requestPlanPreview()}>{busy ? <LoaderCircle className="animate-spin" /> : null}Review and publish</Button></div></div>
         </div>
       </CardContent>
@@ -179,6 +197,7 @@ export function PlanMatrix() {
         <div className="flex flex-col gap-3 sm:flex-row"><div className="flex-1 space-y-2"><Label htmlFor="fee-audit-reason">Audit reason</Label><Textarea id="fee-audit-reason" value={feeReason} maxLength={500} disabled={!canPublishFees || busy} onChange={(event) => setFeeReason(event.target.value)} placeholder="Explain why queue fee settings are changing (8–500 characters)." /></div><div className="flex items-end"><Button variant="outline" disabled={!canPublishFees || !feesChanged || feeReason.trim().length < 8 || busy} onClick={() => void requestFeesPreview()}>{busy ? <LoaderCircle className="animate-spin" /> : null}Review fee changes</Button></div></div>
       </CardContent>
     </Card>
+    </fieldset>
     <Dialog open={Boolean(pending)} onOpenChange={(open) => { if (!open && !busy) setPending(null) }}>
       <DialogContent>
         <DialogHeader><DialogTitle>Review policy publication</DialogTitle><DialogDescription>Confirm the server-reviewed change before it becomes the active default.</DialogDescription></DialogHeader>

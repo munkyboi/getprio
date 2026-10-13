@@ -58,3 +58,23 @@ npm run test:sidebar:browser
 The browser check covers label navigation, chevron toggling, keyboard operation,
 direct links, desktop icon-only navigation, and mobile navigation. It uses
 Playwright CLI and requires a local fixture dashboard, not a production session.
+
+## Plan Matrix save regression
+
+Publishing plan defaults reviews every changed plan tab, not just the selected
+tab. Each plan keeps its own server-issued confirmation and audited publication.
+Publication stops on failure; confirmed successes are marked saved, while the
+remaining edits stay dirty and require a fresh review. Queue fees remain a
+separate policy publication with their own permission and audit reason.
+
+Run the real editor against a local-only fake API boundary (no live policy writes):
+
+```bash
+VITE_PLATFORM_DATA_SOURCE=fixture npm run dev -- --host 127.0.0.1 --port 5193 --strictPort
+npm run test:plans:browser
+```
+
+The browser regression covers cross-tab review/save from an unchanged tab,
+per-plan confirmations, editor locking during review, and mobile partial-failure
+retry without resaving successful plans. Test harness files are not production
+build entry points and are guarded to run only on a local development server.
