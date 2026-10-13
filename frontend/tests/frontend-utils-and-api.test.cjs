@@ -991,7 +991,7 @@ test("confirm action modal supports a mobile-specific class hook", () => {
 
   assert.match(confirmModalSource, /className\?: string;/);
   assert.match(confirmModalSource, /className=\{\["task-modal", "confirm-action-modal", className\]\.filter\(Boolean\)\.join\(" "\)\}/);
-  assert.match(vendorDashboardSource, /currentSection === "queue" \? QueueConfirmation : ConfirmActionModal/);
+  assert.match(vendorDashboardSource, /\["queue", "bookings", "clients", "history"\]\.includes\(currentSection\).*QueueConfirmation : ConfirmActionModal/);
 });
 
 test("service saves refresh location-service settings before the editor reopens", () => {
@@ -1228,8 +1228,8 @@ test("vendor booking details render standard service bundles", () => {
   assert.match(source, /const detailServiceItems = detailCampaignBundleItems\.length/);
   assert.match(source, /: detailBookingBundleItems;/);
   assert.match(source, /\{detailServiceItems\.length > 1 \? \(/);
-  assert.match(source, /\{detailCampaignBundleItems\.length \? "Campaign services" : "Bundled services"\}/);
-  assert.match(source, /\{detailCampaignBundleItems\.length \? "Campaign total" : "Bundle total"\}/);
+  assert.match(source, /\{detailCampaignBundleItems\.length\s*\? "Campaign services"\s*:\s*"Bundled services"\}/);
+  assert.match(source, /\{detailCampaignBundleItems\.length\s*\? "Campaign total"\s*:\s*"Bundle total"\}/);
 });
 
 test("vendor booking status chips preserve their complete labels", () => {
@@ -1237,10 +1237,11 @@ test("vendor booking status chips preserve their complete labels", () => {
   const source = fs.readFileSync(path.join(frontendRoot, "src", "pages", "VendorDashboardPage.tsx"), "utf8");
   const styles = fs.readFileSync(path.join(frontendRoot, "src", "styles.css"), "utf8");
 
-  assert.match(source, /className="booking-list-status-chips"/);
-  assert.match(styles, /\.booking-list-status-chips \{\s+flex-wrap: wrap;/);
-  assert.match(styles, /\.booking-list-status-chips \.mantine-Badge-root \{\s+flex: 0 0 auto;\s+max-width: none;/);
-  assert.match(styles, /\.booking-list-status-chips \.mantine-Badge-label \{\s+overflow: visible;\s+text-overflow: clip;\s+white-space: nowrap;/);
+  const operationStyles = fs.readFileSync(path.join(frontendRoot, "src", "vendor", "styles.css"), "utf8");
+  assert.match(source, /ops-row ops-status-chips/);
+  assert.match(operationStyles, /\.ops-status-chips \[data-slot=badge\] \{[^}]*white-space: normal/);
+  assert.match(styles, /\.booking-list-status-chips/); // Unmigrated compatibility styles stay scoped.
+
 });
 
 test("vendor bookings do not apply a date range until the vendor selects one", () => {

@@ -1,6 +1,8 @@
 # Vendor dashboard rework progress
 
-13 October 2026. Source baseline `f7435a22`; implementation branch `codex/vendor-workspace-shell`.
+Current status: shell reference correction approved locally; Bookings/Clients/History implementation complete locally with PR review and authenticated acceptance remaining. Earlier shell/Live Queue slices are merged; deployment is separately unverified.
+
+13 October 2026. Historical audit source baseline `f7435a22`; implementation branch `codex/vendor-workspace-shell`.
 
 ## Slice 1: shared shell
 
@@ -51,3 +53,47 @@ Verification: all 175 frontend tests, frontend typecheck and affected-source lin
 Restored sticky auto-close/reconciliation status above scrolling feature content, with destructive text/border treatment and assertive announcements for final warnings and reconciliation failures. Mobile task-dialog footers now stack guidance and full-width actions vertically, including long labels and safe-area clearance. Open board uses a native styled anchor, preserving new-tab link semantics; an unavailable URL has no navigation target or keyboard tab stop.
 
 Validation: 176 frontend tests, typecheck, affected-source ESLint and production build passed. Isolated browser fixtures checked warning/error stickiness, native board links and walk-in/auto-close footer geometry in both themes at 375, 768, 1180 and 1440 pixels. These checks do not prove authenticated mutations or live reconciliation. The shared shell remains interim: its visual alignment with the agreed AdminCN references and prototype needs correction before styling is extended to more feature screens.
+
+## Shell reference correction: awaiting local design review
+
+Branch `codex/vendor-shell-reference`, based on merged PR 401 (`14c05493`). Carlo requested correction of the shell's visual mismatch and local review before migrating any further feature screens.
+
+Compared the live AdminCN Orders reference and the saved `vendor-dashboard-workflow-decisions-visual.html` prototype at desktop size. The shell now uses the prototype's full-height 236px sidebar, compact top toolbar with a segmented Operations/Administration switch, sidebar business/location context, sidebar account summary, separate content heading and neutral light/dark surfaces. Uses GetPrio branding, actual permitted navigation and existing account/public-page links. Removed the duplicate public-site toolbar and inset rounded dashboard wrapper; public/customer routes retain their existing shell. The existing navigation guard provider and capture guard remain in the dashboard frame.
+
+The same shared context selectors now use the migrated shadcn/Base UI presentation on every dashboard section. Mobile retains an accessible navigation sheet, a full-width workspace switch below the top-bar controls, and the existing role/entitlement and unsaved-edit guards. This correction does not migrate the remaining Mantine feature screens or introduce prototype-only workflow/resource operations.
+
+Local design review is the next gate. Keep subsequent screen migration on hold until Carlo reviews this correction; technical checks do not establish visual approval. Preview: `http://localhost:5179/dashboard/queue`. The earlier interactive design prototype is available separately at `http://127.0.0.1:5188/vendor-dashboard-workflow-decisions-visual.html` while its local reference server is running.
+
+Verification for this correction: all 176 frontend tests, frontend typecheck, affected-source ESLint and production build passed. Isolated browser fixtures verified both themes at 375/768/1024/1180/1440px, no horizontal document overflow, a 77px desktop toolbar, sidebar/mobile-sheet transitions, themed context selectors, Escape/focus return, workspace switching and theme persistence. A staff fixture retained Operations/Account without an Administration switch or management links. Browser evidence uses synthetic API responses; authenticated business mutations, keyboard-open device acceptance and Carlo's visual approval remain separate. The local frontend and backend health endpoint respond successfully.
+
+## Bookings, Clients and History
+
+Carlo approved the corrected shell locally and authorized these three Operations screens on 13 October 2026. Branch `codex/vendor-operations-lists` includes the approved shell correction (`f404718c`) and this next slice. This is source/local implementation, not a deployment claim.
+
+Migrates the three lists, shared filters/fields/pagination, booking row actions, asynchronous booking details, check-in notice, reschedule/payment-block dialogs and operational confirmations to the scoped shadcn/Base UI presentation. Bookings follows the reference's metrics/filter/table hierarchy; narrow tables become labeled records while preserving semantic headers. Booking details and rescheduling use fixed-header/footer task dialogs with a scrolling body and stacked mobile actions. Staff retain operational check-in/no-show access; payment review, management and exports remain under the existing admin/entitlement checks.
+
+Preservation: frozen quantities/services/bundles/prices/schedules, exact booking/ticket targets, manual proof access and customer-visible rejection reason, payment and check-in timing gates, server-controlled late/no-show outcomes, linked-ticket protection, queue-state guidance, server pagination/search/status/date/hide-inactive booking filters, and local loaded-record search/sort/pagination for Clients/History. Retention badges retain server labels; history list still requests at most 50 records, independently from entitlement-limited export periods. Booking summary counts explicitly describe the current page. “View pending bookings” navigates to the existing filtered list; it does not open a Queue Day.
+
+Recovery improvements: failed list/detail requests expose retry instead of false empty states. Failed details do not expose mutation actions until successfully reloaded. Exports catch failures and hold the existing busy/navigation guard. Rescheduling requires an available selected slot, retains it only while the returned server slots still admit it, and no longer refetches the slot list merely because the selection changed. These are frontend state corrections; backend APIs/authorization and availability decisions are unchanged. Booking payment-reason and reschedule drafts participate in existing unsaved-form protection; successful writes/discards clear only their form. Changing location clears loaded operational records and selected booking detail before the next scoped query.
+
+Runtime and API owners confirmed no incoming booking contract changes or overlapping source work. Mobile was notified that frozen quantity/payment/linked-ticket contracts remain unchanged. API coordination separately reports main deployment remains behind the merged inbox/vendor work; source merge and live runtime acceptance remain distinct.
+
+Local verification: 181 frontend tests, frontend typecheck, affected-source ESLint and production build passed. Browser fixtures covered Bookings/Clients/History plus booking details in both themes at 375/768/1180/1440px, no horizontal overflow, column labels, frozen bundle/payment gates and fitting dialogs with matching fixed footers. Interaction fixtures exercised payment-blocked rescheduling, exact-target payment verification and reschedule, unavailable-slot rejection, scoped check-in and duplicate linked-ticket protection, server booking pagination, local client/history search/pagination, CSV download/export failure, and list/detail retry. A staff fixture checked absence of payment/management/export controls while preserving no-show and a fitting short mobile dialog. These use isolated API responses; authenticated mutations, live streams, actual download contents and direct keyboard-open/device acceptance remain unverified. No backend/shared/package/lockfile changes. The next screens remain outside this slice.
+
+Booking task dialogs temporarily hide the legacy actionable alert stack so it cannot obscure persistent footer actions; alert state is retained and the stack returns after the dialog closes. Shared notification delivery/primitive migration remains a separate slice.
+
+### PR #404 review corrections (2026-10-13)
+
+Payment-detail navigation now runs the unsaved-edit guard before resetting filters, discarding the payment form or navigating. All booking-detail entry points clear the previous page's action error and payment rejection input. Advancing From beyond an existing To clears To while retaining local calendar-date semantics; equal, later and open bounds remain valid. Reschedule hides the redundant footer Cancel at widths up to 48em while preserving the guarded close control and desktop Cancel.
+
+Sonar's PR-specific report identified 106 duplicated new lines (8.4%) in repeated booking-list action branches. Reschedule and cancellation controls now have one implementation per row, and equivalent pending confirmation branches share their condition. Payment review, late no-show, linked-ticket, waiting-proof and role precedence remain unchanged. Quality-gate thresholds and exclusions remain unchanged. Local verification: 182 frontend tests, TypeScript, affected-file ESLint and production build pass; isolated browser fixtures rerun the exact booking/payment/reschedule/check-in and list/export/retry flows. Hosted latest-commit Sonar and fresh Codex review remain required before readiness.
+
+Fresh Codex review also identified redundant mobile booking-detail dismissal, no-tenant recovery navigation, and dark-theme headings on remaining legacy screens. Booking-detail footer Close now uses the same mobile-only dismissal rule; the no-workspace view offers site, account and sign-out recovery; page headings inherit the workspace foreground token in both themes. These are scoped shell/task corrections, not migration of the remaining Administration screens.
+
+Follow-up verification: 182 frontend tests, TypeScript, affected-file ESLint and production build pass. Browser fixtures verified detail dismissal at 375/768/1180px, a Services heading using the dark foreground value, and site/account/sign-out recovery for an account with no active vendor memberships. Authenticated/live and direct-device acceptance remain separate.
+
+### PR #404 remaining review corrections (2026-10-13)
+
+Both native date controls now apply the shared ordering rule, including a typed To value before From; inverted ends are cleared before query state updates, while equal/later and open bounds remain valid. Clients and History search reset pagination to page 1. Their visible pages, record slices, ranges and pager use a shared bounded page so refreshed/shrinking results cannot produce a false empty page. Previous/Next also use bounded destinations. No-tenant recovery actions have a minimum 44px height.
+
+Verification: 183 frontend tests, TypeScript, affected-file ESLint and production build pass. At 375px, isolated browser fixtures verified typed invalid end rejection, equal/later ends, Clients and History search from later pages immediately displaying matches, and all three recovery targets measuring at least 44px high. Fresh hosted CI/Sonar and Codex review must be checked on the fixing commit; no merge/deployment is implied.

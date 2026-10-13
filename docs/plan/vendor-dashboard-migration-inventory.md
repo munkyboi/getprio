@@ -6,9 +6,9 @@ Status: implementation proposal created 5 October 2026; audited against fetched 
 
 Authority: [completed decisions](vendor-dashboard-workflow-decisions.md), [design brief](vendor-dashboard-rework-design.md), [UI rules](../design/vendor-ui-rules.md), and [queue foundation specification](queue-workflow-foundation-spec.md). Product decisions in the completed record take precedence over proposed names below.
 
-## Inspection baseline
+## Historical inspection baseline
 
-Current rework checkout: `web-app/worktrees/vendor-secure-queue-board`, branch `codex/vendor-workspace-shell`. Fetched main baseline: `f7435a22`. The existing frontend remains React/Vite/Mantine and the dashboard still combines navigation, queries, forms, dialogs and operations. Unconnected shadcn/Tailwind foundation work exists in this branch; it is not a migrated shell. Extract by feature boundaries rather than copying the dashboard into two wrappers.
+Current rework checkout: `web-app/worktrees/vendor-secure-queue-board`, branch `codex/vendor-workspace-shell`. Fetched main baseline: `f7435a22`. At this inspection baseline the frontend used React/Vite/Mantine and the dashboard still combines navigation, queries, forms, dialogs and operations. At that baseline the shadcn/Tailwind foundation was unconnected. The progress record supersedes this historical implementation status. Extract by feature boundaries rather than copying the dashboard into two wrappers.
 
 Existing `platform-dashboard-shadcn/components.json` provides a local precedent: non-RSC TypeScript, CSS variables, neutral base, Lucide, and `@/components/ui` aliases. This is a precedent to evaluate, not an instruction to share the Platform Admin shell or blindly copy its primitive family. Choose the vendor primitive/configuration convention in the first shell slice and keep its generated components consistent.
 
@@ -112,3 +112,7 @@ This inventory is source inspection and planning evidence. It does not establish
 ## Live Queue implementation update (13 October 2026)
 
 The existing vendor route and API handlers remain canonical. Presentation now composes `vendor/LiveQueueWidgets.tsx`, `vendor/WalkInDialog.tsx`, `vendor/QueueLifecycleTray.tsx`, `vendor/TaskDialog.tsx` and the scoped primitives. The vendor-only ticket scanner and operational board scanner use the shared task dialog; Administration board settings retain their current implementation. Retired the unused legacy VendorQueueLifecycleTray after migrating its consumer and tests. Multi-counter presentation consumes calledTickets/counterDispatch; resource allocation and workflow journey consumers remain gated by their missing operational contracts.
+
+### Operations list implementation
+
+The Bookings/Clients/History slice reuses existing dashboard handlers and scoped Query observers while migrating their presentation through `vendor/OperationsUi.tsx`, `BookingTableRow.tsx`, `BookingCheckInNotice.tsx` and shared `TaskDialog`. `vendor/operationsState.ts` preserves a reschedule selection only when the latest server slots still admit it. Existing `/dashboard/bookings`, `/dashboard/clients` and `/dashboard/history` URLs remain canonical. No endpoint/schema/package changes are introduced. See the progress record for local evidence and remaining acceptance.
