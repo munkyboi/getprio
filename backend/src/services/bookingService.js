@@ -929,7 +929,11 @@ async function evaluateComposedBookingSlots({
   }
   return {
     slots: [...slotsByStart.values()].sort((left, right) => left.startAt.localeCompare(right.startAt)),
-    unavailableReasons: [...unavailableReasons].sort()
+    unavailableReasons: [...unavailableReasons].sort((left, right) => {
+      if (left < right) return -1;
+      if (left > right) return 1;
+      return 0;
+    })
   };
 }
 

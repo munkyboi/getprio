@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const path = require("node:path");
+const { requireWithMocks: loadWithMocks } = require("./testSupport.cjs");
 const express = require("express");
 
 function buildAsyncHandlerMock() {
@@ -41,66 +41,12 @@ function buildErrorHandlerMock() {
   };
 }
 
-function resolveMockPath(requestPath, baseDir) {
-  if (!requestPath.startsWith(".")) {
-    return require.resolve(requestPath, { paths: [baseDir] });
-  }
-
-  const absoluteBase = path.resolve(baseDir, requestPath);
-  const candidates = [
-    absoluteBase,
-    `${absoluteBase}.js`,
-    `${absoluteBase}.ts`,
-    path.join(absoluteBase, "index.js"),
-    path.join(absoluteBase, "index.ts")
-  ];
-
-  for (const candidate of candidates) {
-    try {
-      return require.resolve(candidate);
-    } catch {
-      // Try the next candidate.
-    }
-  }
-
-  throw new Error(`Unable to resolve mock path: ${requestPath}`);
-}
-
 function requireWithMocks(targetPath, mocks) {
-  const resolvedTarget = require.resolve(targetPath);
-  const originals = new Map();
   const effectiveMocks = { "../services/welcomeEmailService": { sendWelcomeEmail: async () => true }, ...mocks };
-  if (
-    targetPath.endsWith("/authRoutes.js")
-    && !effectiveMocks["../services/securityRateLimitService"]
-  ) {
+  if (targetPath.endsWith("/authRoutes.js") && !effectiveMocks["../services/securityRateLimitService"]) {
     effectiveMocks["../services/securityRateLimitService"] = { consume: async () => ({ allowed: true }) };
   }
-
-  try {
-    for (const [requestPath, mockExports] of Object.entries(effectiveMocks)) {
-      const resolvedDependency = resolveMockPath(requestPath, path.dirname(resolvedTarget));
-      originals.set(resolvedDependency, require.cache[resolvedDependency]);
-      require.cache[resolvedDependency] = {
-        id: resolvedDependency,
-        filename: resolvedDependency,
-        loaded: true,
-        exports: mockExports
-      };
-    }
-
-    delete require.cache[resolvedTarget];
-    return require(resolvedTarget);
-  } finally {
-    delete require.cache[resolvedTarget];
-    for (const [resolvedDependency, originalEntry] of originals.entries()) {
-      if (originalEntry) {
-        require.cache[resolvedDependency] = originalEntry;
-      } else {
-        delete require.cache[resolvedDependency];
-      }
-    }
-  }
+  return loadWithMocks(targetPath, effectiveMocks);
 }
 
 async function startServer(router, basePath) {

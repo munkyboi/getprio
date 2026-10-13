@@ -320,7 +320,11 @@ async function notifyJourneyLifecycle({ ticket, tenant, slot, action }) {
       tenantId: tenant._id, ticketId: ticket._id, purpose: `queue_${slot}`
     }));
   } catch (error) {
-    console.warn("[email-journey-notification-skipped]", error.message);
+    // Provider response text is retained in delivery tracking, not emitted as
+    // untrusted terminal output. Only controlled categories reach this log.
+    console.warn("[email-journey-notification-skipped]", {
+      category: error.statusCode === 403 ? "policy" : "delivery"
+    });
     return false;
   }
 }
