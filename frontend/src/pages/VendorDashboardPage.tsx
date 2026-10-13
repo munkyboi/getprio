@@ -4177,7 +4177,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     disabled={busyAction === `checkout:${plan.slug}`}
                     mt="auto"
                     onClick={() => {
-                      if (plan.slug !== "free") handleStartCheckout(plan.slug);
+                      if (plan.slug !== "free") void handleStartCheckout(plan.slug);
                     }}
                   >
                     {busyAction === `checkout:${plan.slug}` ? "Opening..." : "Choose plan via QRPh"}
