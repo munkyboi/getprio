@@ -448,7 +448,7 @@ async function updateTenantMembershipRole(userId, tenantId, role, options = {}) 
       SET role = $3
       WHERE user_id = $1 AND tenant_id = $2
     `,
-    [Number(userId), Number(tenantId), role]
+    [String(userId), String(tenantId), role]
   );
 
   return findUserById(userId, { client: queryClient });
@@ -462,7 +462,7 @@ async function updateTenantMembershipStatus(userId, tenantId, isActive, options 
       SET is_active = $3
       WHERE user_id = $1 AND tenant_id = $2
     `,
-    [Number(userId), Number(tenantId), Boolean(isActive)]
+    [String(userId), String(tenantId), Boolean(isActive)]
   );
 
   return findUserById(userId, { client: queryClient });
