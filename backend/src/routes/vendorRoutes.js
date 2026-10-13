@@ -3,6 +3,7 @@ const ticketServicePlanService = require("../services/ticketServicePlanService")
 const { projectOperationalBooking } = require("./vendorBookingReadModel");
 const permissions = require("../services/permissions");
 const staffAccessEmailService = require("../services/staffAccessEmailService");
+const staffRemovalResourceService = require("../services/staffRemovalResourceService");
 const express = require("express");
 const tenantRepository = require("../repositories/tenants");
 const storeLocationRepository = require("../repositories/storeLocations");
@@ -1539,25 +1540,7 @@ router.delete(
       error.statusCode = 400;
       throw error;
     }
-    await staffAccessEmailService.change({ tenant, userId: req.params.userId, actorId: req.user._id }, async (options) => {
-      const user = await userRepository.findUserById(req.params.userId, options);
-      const membership = user?.tenantMemberships.find(
-        (item) => String(item.tenantId) === String(tenant._id)
-      );
-      if (!membership) {
-        const error = new Error("Staff member not found.");
-        error.statusCode = 404;
-        throw error;
-      }
-      if (membership.role === "owner") {
-        const error = new Error("Tenant owners cannot be removed from staff management.");
-        error.statusCode = 400;
-        throw error;
-      }
-
-      await serviceCounterRepository.removeAssignmentsForUserAndTenant(user._id, tenant._id, options);
-      await userRepository.removeTenantMembership(user._id, tenant._id, options);
-    });
+    await staffRemovalResourceService.remove({ tenant, userId: req.params.userId, actorId: req.user._id });
     res.status(204).send();
   })
 );

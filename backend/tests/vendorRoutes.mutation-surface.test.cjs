@@ -439,3 +439,29 @@ test("review endpoints block unpaid vendors before accessing reviews", async () 
     assert.equal(reviewCalls, 3);
   } finally { await new Promise(resolve => server.close(resolve)); }
 });
+
+test("staff deletion delegates server-owned scope and preserves 204 and access errors", async () => {
+  const calls = [];
+  let role = "owner";
+  let failure = null;
+  const router = requireWithMocks("../src/routes/vendorRoutes.js", {
+    "../middleware/auth": {
+      authenticate: (req, _res, next) => { req.user = {_id:"1",tenantMemberships:[{tenantId:"7",role,isActive:true}]}; next(); },
+      maybeAuthenticate: (_req,_res,next) => next(), userHasTenantAccess: () => true,
+      assertTenantPermission: (_user,tenantId,permission) => { assert.equal(tenantId,"7"); assert.equal(permission,"tenant.staff.manage"); }
+    },
+    "../repositories/tenants": {findTenantBySlug: async () => ({_id:"7",slug:"demo"})},
+    "../services/staffRemovalResourceService": {remove: async context => {calls.push(context); if(failure) throw Object.assign(new Error("Denied after wait"),{statusCode:failure});}}
+  });
+  const {server,baseUrl} = await startServer(router);
+  try {
+    const remove = id => fetch(`${baseUrl}/tenant/demo/staff/${id}`,{method:"DELETE"});
+    assert.equal((await remove("2")).status,204);
+    assert.deepEqual(calls[0],{tenant:{_id:"7",slug:"demo"},userId:"2",actorId:"1"});
+    failure=403; assert.equal((await remove("2")).status,403);
+    failure=404; assert.equal((await remove("2")).status,404);
+    assert.equal((await remove("1")).status,400);
+    role="admin"; assert.equal((await remove("2")).status,403);
+    assert.equal(calls.length,3);
+  } finally {server.close();}
+});

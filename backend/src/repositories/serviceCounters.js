@@ -179,14 +179,16 @@ async function replaceAssignments(counterId, userIds, options = {}) {
 }
 
 async function removeAssignmentsForUserAndTenant(userId, tenantId, options = {}) {
-  await buildQueryClient(options.client).query(
+  const result = await buildQueryClient(options.client).query(
     `DELETE FROM service_counter_assignments assignments
      USING service_counters counters
      WHERE assignments.counter_id = counters.id
        AND assignments.user_id = $1
-       AND counters.tenant_id = $2`,
+       AND counters.tenant_id = $2
+     RETURNING counters.location_id::text AS location_id`,
     [String(userId), String(tenantId)]
   );
+  return [...new Set(result.rows.map(row => row.location_id))];
 }
 
 module.exports = {
