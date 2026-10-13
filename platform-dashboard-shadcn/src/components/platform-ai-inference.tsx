@@ -736,15 +736,21 @@ export function PlatformAiInference({
                               Global Off overrides this location after saving.
                             </p>
                           ) : null}
-                          <ReadinessBlockers
-                            blockers={
-                              model.pilots.find(
-                                (item) =>
-                                  item.tenantId === scope.tenantId &&
-                                  item.locationId === scope.locationId
-                              )?.blockers || []
-                            }
-                          />
+                          <section aria-label="Saved policy readiness">
+                            <p className="text-sm text-muted-foreground">
+                              Saved policy blockers — draft changes have not
+                              been applied.
+                            </p>
+                            <ReadinessBlockers
+                              blockers={
+                                model.pilots.find(
+                                  (item) =>
+                                    item.tenantId === scope.tenantId &&
+                                    item.locationId === scope.locationId
+                                )?.blockers || []
+                              }
+                            />
+                          </section>
                           <Button
                             disabled={!canManage}
                             className="min-h-11"

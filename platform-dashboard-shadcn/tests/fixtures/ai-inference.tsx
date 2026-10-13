@@ -52,6 +52,23 @@ let status: AiStatus = {
   pilots: []
 }
 let saveCalls = 0
+if (params.has("savedpilot")) {
+  const pilot = {
+    tenantId: "1",
+    locationId: "10",
+    requestedMode: "off" as const
+  }
+  status.policy.pilots = [pilot]
+  status.pilots = [
+    {
+      ...pilot,
+      tenantName: "Test vendor",
+      locationName: "Main location",
+      effectiveMode: "off",
+      blockers: ["global_disabled", "scope_disabled", "caller_not_integrated"]
+    }
+  ]
+}
 if (params.has("unknown"))
   status.readiness.blockers.push("unrecognized_future_gate")
 let staleOnce = params.has("stale")

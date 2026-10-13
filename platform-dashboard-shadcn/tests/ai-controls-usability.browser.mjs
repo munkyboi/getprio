@@ -1,4 +1,11 @@
 export default async function verify(page) {
+  await page.goto('http://127.0.0.1:5194/tests/fixtures/ai-inference.html?savedpilot')
+  await page.getByRole('group',{name:'Global requested mode'}).waitFor()
+  await page.getByRole('button',{name:'Private shadow',exact:true}).first().click()
+  await page.getByRole('button',{name:'Private shadow',exact:true}).nth(1).click()
+  const savedReadiness=page.getByRole('region',{name:'Saved policy readiness'})
+  await savedReadiness.getByText('Saved policy blockers — draft changes have not been applied.',{exact:true}).waitFor()
+  await savedReadiness.getByText('This location is excluded',{exact:true}).waitFor()
   await page.goto("http://127.0.0.1:5194/tests/fixtures/ai-inference.html")
   await page.getByRole("group", { name: "Global requested mode" }).waitFor()
   await page.getByLabel("Audit reason").fill("Preserve unsaved policy work")
