@@ -13,7 +13,7 @@ type Item = { section: string; label: string; icon: ElementType };
 type Props = {
   workspace: Workspace; canAdmin: boolean; items: Item[]; title: string; description: string;
   name: string; role: string; plan: string; context: ReactNode; children: ReactNode; dialogs: ReactNode;
-  onBeforeNavigate?: () => boolean; onEdit?: () => void;
+  onBeforeNavigate?: () => boolean; onEdit?: (form: HTMLFormElement) => void;
   onWorkspace: (workspace: Workspace) => void; onLogout: () => void; search: string; hash: string;
 };
 
@@ -53,7 +53,8 @@ export function VendorWorkspaceShell(props: Props) {
     </div>;
   }
   return <div ref={root} className="vendor-workspace" data-vendor-theme={theme} onChangeCapture={(event) => {
-    if (event.target instanceof HTMLElement && event.target.closest("form")) props.onEdit?.();
+    const form = event.target instanceof HTMLElement ? event.target.closest("form") : null;
+    if (form) props.onEdit?.(form);
   }}>
     <aside className="vendor-sidebar"><NavLink className="vendor-brand" to="/dashboard" onClick={(event) => { if (props.onBeforeNavigate && !props.onBeforeNavigate()) event.preventDefault(); }}>GetPrio<span>Vendor workspace</span></NavLink>{navigation()}</aside>
     <div className="vendor-workspace-main">

@@ -16,7 +16,7 @@ The shell is the first migration slice, **not the completed dashboard rework**. 
 - Frontend typecheck and affected-source ESLint passed; production frontend build passed with existing large-chunk advisory.
 - Synthetic browser shell fixture at 375, 768, 1180 and 1440 pixels: no horizontal document overflow. Mobile sheet opened, Escape closed it, focus returned to its invoking button, and theme survived reload. This fixture uses no vendor data or writes and is not authenticated operational acceptance.
 - React 18 compatibility: generated Base UI Button forwards its DOM ref; navigation sheet portals stay inside the scoped vendor token container. New controls use minimum 44-pixel targets.
-- Bitwarden is locked and this checkout has no restored `.env` / `.env.local`; authenticated local backend testing remains unavailable. No hosted database or email mutation was performed.
+- Local runtime restored using the preserved `dev_postgres_data` volume and ignored environment files from the previous vendor checkout. Database schema verification passed with 135 migrations and zero pending. Backend health returned 200, invalid login 401, and frontend-origin CORS 204. Email uses console output. These checks do not establish authenticated operational acceptance. No hosted database mutation was performed.
 
 ## Remaining rework
 
@@ -25,3 +25,11 @@ Migrate Operations queue/scanners/lifecycle and bookings/clients/history; Admini
 ## Coordination
 
 Queue/runtime owner confirmed no overlapping files or contract changes; preserve COUNTER_POLICY_BUSY 409, stale configuration conflicts and selected-counter reset. Its deployed writer PRs are distinct from outstanding live mutation acceptance. AI owner confirmed no shell blocker: requested policy is distinct from effective readiness and resource-start shadow targets differ from call-time baseline wait. Mobile owner confirmed public quantity fields and frozen bookings must be preserved; PR27 fresh review/device/live parity remains separately pending. Platform was notified of shell/dependency/docs ownership; no platform/backend/shared payload edits are part of this slice.
+
+## PR 398 review remediation (13 October 2026)
+
+- Share the vendor exit guard with outer AppShell links and sign-out. Track dirty forms individually, clear only the successfully submitted form, prune discarded/unmounted modal forms, and close editing dialogs on approved navigation. Failed submissions retain their edits.
+- Use active memberships consistently for business options, initial selection and role derivation. Read the target business workspace preference before navigation/persistence; staff always return to Operations.
+- Context Retry refetches bootstrap (which establishes locations/settings) and the queue snapshot. Remove duplicate direct counter/staff/service/availability effects; existing tenant/location query observers own those results and prevent obsolete requests from setting the destination screen.
+- Verification: focused tests cover form save/discard/failure, membership filtering, workspace restoration, delayed requests for all four resources, reschedule dirty-state clearing and bootstrap Retry. All 168 frontend tests passed; frontend typecheck, affected-source lint and production build passed.
+- Browser check with mocked authentication/API responses exercised the real Account form and outer header navigation: declining the unsaved-edit prompt kept the dashboard; saving the profile allowed navigation without a stale warning. The outer header is hidden in the current dashboard layout, so its link handler was invoked in the DOM. This is a navigation regression check, not live authenticated vendor acceptance.

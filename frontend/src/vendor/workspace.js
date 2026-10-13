@@ -26,6 +26,17 @@ export function preferenceKey(userId, tenantSlug) {
   return `getprio.vendor.workspace:${userId}:${tenantSlug}`;
 }
 
+/** @template {{ isActive?: boolean }} T @param {T[]} memberships @returns {T[]} */
+export function activeMemberships(memberships = []) {
+  return memberships.filter((membership) => membership.isActive !== false);
+}
+
+export function rememberedTenantWorkspace(userId, tenant, storage) {
+  if (tenant.role === "staff") return "operations";
+  return readPreference(preferenceKey(userId, tenant.slug), storage) === "administration"
+    ? "administration" : "operations";
+}
+
 export function readPreference(key, storage) {
   try { return (storage || window.localStorage).getItem(key); } catch { return null; }
 }
