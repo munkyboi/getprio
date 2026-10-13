@@ -75,7 +75,7 @@ The [full audit inventory](vendor-dashboard-full-audit.md#all-section-migration-
 
 ## Reuse from adjacent work
 
-Resource configuration previously inspected on `booking-arrival` is now present in fetched `origin/main`: `resourceConfigurationService.js`, `VendorResourceConfiguration.tsx`, extracted `VendorResourceConfigurationForms.tsx`, scoped CSS, vendor GET/PUT routes and stale-version handling. Reuse the merged slice from main; no separate cherry-pick of its old feature commits is needed. Its current UI lives in Locations → Resources. Move presentation into Queue setup → Resources in the configuration slice while preserving both location/service management requirements and `trackingAvailable: false`. This turn verified merged source, not live interactions.
+Resource configuration previously inspected on `booking-arrival` is now present in fetched `origin/main`: `resourceConfigurationService.js`, `VendorResourceConfiguration.tsx`, extracted `VendorResourceConfigurationForms.tsx`, scoped CSS, vendor GET/PUT routes and stale-version handling. Reuse the merged slice from main; no separate cherry-pick of its old feature commits is needed. Its current UI lives in Locations → Resources. Retain Locations → Resources for the authorized local review slice; move its single editor into Queue setup → Resources only in the future configuration/runtime slice while preserving both location/service management requirements and `trackingAvailable: false`. This turn verified merged source, not live interactions.
 
 The inspected foundation migration constrains `tracking_enabled = FALSE`. Changing that constraint requires the operational ledger and concurrency acceptance in the [foundation specification](queue-workflow-foundation-spec.md); a configuration screen cannot lift it by itself.
 
@@ -116,3 +116,8 @@ The existing vendor route and API handlers remain canonical. Presentation now co
 ### Operations list implementation
 
 The Bookings/Clients/History slice reuses existing dashboard handlers and scoped Query observers while migrating their presentation through `vendor/OperationsUi.tsx`, `BookingTableRow.tsx`, `BookingCheckInNotice.tsx` and shared `TaskDialog`. `vendor/operationsState.ts` preserves a reschedule selection only when the latest server slots still admit it. Existing `/dashboard/bookings`, `/dashboard/clients` and `/dashboard/history` URLs remain canonical. No endpoint/schema/package changes are introduced. See the progress record for local evidence and remaining acceptance.
+
+
+### Locations/Resources/Counters local review checkpoint (13 October 2026)
+
+All three current Locations tabs and their list/card/edit flows now use scoped configuration fields, Base UI tabs/combobox and the shared TaskDialog. Retain `/dashboard/tenants`, the existing API and role/limit rules; no workflow/station/resource activation or duplicate resource editor. Keep the shared legacy theme editor until its Settings/Board migration. Location profile/hours writes retain the first server-created target for safe hours retry. Counter/resource conflicts retain edited inputs; resource version/capacity are configuration, not runtime availability. See progress notes for 188-test and synthetic browser evidence; local visual, authenticated mutation, upload/device and deployment acceptance remain separate.

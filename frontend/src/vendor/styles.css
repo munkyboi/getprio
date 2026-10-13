@@ -247,3 +247,29 @@
 @media (max-width: 48em) {
   .queue-dialog-footer .ops-redundant-dismiss { display: none; }
 }
+/* Administration configuration keeps the same scoped tokens and task anatomy. */
+.config-tabs-list { width: 100%; min-height: 48px; display: flex; gap: 4px; }
+.config-tabs-list [data-slot=tabs-trigger] { min-height: 44px; white-space: normal; }
+[data-slot=tabs-content] { padding-top: 20px; }
+.config-section { margin: 0; padding: 16px; border: 1px solid var(--border); border-radius: 8px; min-width: 0; }
+.config-section legend { padding-inline: 6px; }
+.config-check label { display: flex; align-items: center; gap: 12px; min-height: 44px; cursor: pointer; }
+.config-check input { accent-color: var(--primary); width: 20px; height: 20px; flex-shrink: 0; }
+.config-check label span { min-width: 0; overflow-wrap: anywhere; }
+.config-image { display: block; max-width: 100%; max-height: 180px; width: auto; height: auto; object-fit: contain; border-radius: 8px; }
+.config-hour { padding-block: 16px; border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: 12px; }
+.config-summary { padding: 16px; border: 1px solid var(--border); border-radius: 8px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.config-summary > * { min-width: 0; }
+.config-statuses { gap: 6px; }
+.vendor-operations [data-slot=input-group] { min-height: 44px; width: 100%; }
+.vendor-operations input[type=file] { height: auto; padding-block: 10px; max-width: 100%; }
+[data-slot=combobox-content] [data-slot=combobox-item] { min-height: 44px; white-space: normal; overflow-wrap: anywhere; }
+[data-slot=combobox-content] [data-slot=combobox-list] { scrollbar-width: auto; }
+@media (max-width: 48em) {
+ .config-actions { flex-direction: column; align-items: stretch; }
+ .config-actions button { width: 100%; }
+}
+@media (min-width: 48.0625em) {
+ .config-tabs-list { width: fit-content; min-width: 360px; }
+ .config-summary { flex-direction: row; align-items: center; justify-content: space-between; }
+}
