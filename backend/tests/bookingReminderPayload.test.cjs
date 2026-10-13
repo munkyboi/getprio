@@ -9,3 +9,9 @@ test('booking reminder preserves exact route and shows the scheduled date in bra
   assert.match(payload.body,/Oct 14, 2026/);assert.match(payload.body,/12:30 AM/);
   assert.equal(payload.notificationId,payload.tag);
 });
+test('invalid legacy timezone falls back to an explicit UTC timestamp',()=>{
+  const payload=reminderPayload({id:'42',reference:'BKG-LEGACY',tenant_name:'Vendor',timezone:'Invalid/Legacy',scheduled_start_at:'2026-10-13T16:30:00Z'},
+    {booking_reminder_stage:'1h',idempotency_key:'booking:42:schedule:1:reminder:1h'});
+  assert.match(payload.body,/2026-10-13T16:30:00.000Z/);
+  assert.equal(payload.route,'/account/bookings/42');
+});

@@ -57,6 +57,43 @@ test('durable upcoming booking reminders on disposable PostgreSQL',{skip:!url},a
       const [first]=await outbox.claimBatch('priority-worker',1);assert.equal(first.idempotency_key,key);assert.equal(first.booking_id,null);
       await outbox.markSent(first.id,'priority-worker');
     });
+    await scenario('saturated ordinary traffic leaves reserved reminder slots and queue throughput on every run',async()=>{
+      const customers=[];for(let i=0;i<10;i++)customers.push(await fixture());
+      await createBookingReminderService().enqueueDue();
+      const prefix='fairness-'+crypto.randomUUID();
+      await db.pool.query(`INSERT INTO queue_notification_outbox(idempotency_key,tenant_id,recipient_key,channel,template_name)
+        SELECT $1||':'||n,$2,'user:'||$3,'fcm','ticket_expired' FROM generate_series(1,60) n`,[prefix,tenant.id,customers[0].userId]);
+      try {
+        const delivered=[];
+        const {createQueueNotificationOutboxDispatcher}=require('./testSupport.cjs').requireWithMocks('../src/services/queueNotificationOutboxDispatcher',{
+          '../repositories/queueNotificationOutbox':outbox,
+          '../repositories/tenants':{findTenantById:async()=>null},
+          './bookingReminderService':{dispatch:async intent=>delivered.push(String(intent.booking_id))}
+        });
+        const dispatcher=createQueueNotificationOutboxDispatcher();
+        for(let run=1;run<=2;run++){
+          assert.equal(await dispatcher.runBatch(10),10);
+          assert.equal(delivered.length,run*2);
+          const {rows:[counts]}=await db.pool.query(`SELECT COUNT(*) FILTER(WHERE booking_id IS NULL AND status='sent')::int AS queue_sent,
+            COUNT(*) FILTER(WHERE booking_id IS NOT NULL AND status='sent')::int AS reminder_sent FROM queue_notification_outbox WHERE
+            idempotency_key LIKE $1 OR booking_id=ANY($2::bigint[])`,[prefix+':%',customers.map(f=>f.bookingId)]);
+          assert.deepEqual(counts,{queue_sent:run*8,reminder_sent:run*2});
+        }
+        assert.equal(new Set(delivered).size,4);
+      } finally {await db.pool.query('DELETE FROM queue_notification_outbox WHERE idempotency_key LIKE $1',[prefix+':%']);}
+    });
+    await scenario('reserved slots pick the earliest expiry while ordinary slots keep queue priority',async()=>{
+      const first=await fixture(),urgent=await fixture();await createBookingReminderService().enqueueDue();
+      await db.pool.query("UPDATE queue_notification_outbox SET expires_at=NOW()+INTERVAL '1 minute' WHERE booking_id=$1",[urgent.bookingId]);
+      const key='expiry-priority-'+crypto.randomUUID();
+      const queueId=await outbox.enqueue({idempotencyKey:key,tenantId:tenant.id,recipientKey:'user:'+first.userId,channel:'fcm',templateName:'ticket_expired'});
+      try {
+        const [reserved]=await outbox.claimBatch('expiry-worker',1,{preferBookingReminders:true});
+        assert.equal(String(reserved.booking_id),urgent.bookingId);await outbox.markSent(reserved.id,'expiry-worker');
+        const [ordinary]=await outbox.claimBatch('expiry-worker',1);assert.equal(String(ordinary.id),queueId);
+        await outbox.markSent(ordinary.id,'expiry-worker');
+      } finally {await db.pool.query('DELETE FROM queue_notification_outbox WHERE id=$1',[queueId]);}
+    });
     await scenario('1-hour stage does not replay the missed 24-hour reminder',async()=>{
       const f=await fixture({stage:'1h'});const scheduler=createBookingReminderService();assert.equal(await scheduler.enqueueDue(),1);
       const intent=await claim();assert.equal(intent.booking_reminder_stage,'1h');assert.equal(String(intent.booking_id),f.bookingId);
@@ -117,6 +154,45 @@ test('durable upcoming booking reminders on disposable PostgreSQL',{skip:!url},a
       await scheduler.dispatch(intent,'reminder-test');await outbox.markSent(intent.id,'reminder-test');
       assert.equal((await inboxRows(f.userId)).rowCount,1);assert.equal(batches[0].length,2);assert.deepEqual(batches[1],[String(second.id)]);
       assert.ok(batches[0].includes(String(first.id)));
+    });
+    await scenario('provider-deactivated tokens become stale while active transient failures alone retry',async()=>{
+      const f=await fixture();const stale=await registrations.upsert({userId:f.userId,installationId:crypto.randomUUID(),token:'stale-provider-fixture',platform:'ios'});
+      const transient=await registrations.upsert({userId:f.userId,installationId:crypto.randomUUID(),token:'transient-provider-fixture',platform:'ios'});
+      let attempts=0;const batches=[];
+      const scheduler=createBookingReminderService({sender:{sendToRegistrations:async({registrations:pending})=>{
+        batches.push(pending.map(r=>String(r.id)));attempts++;
+        if(attempts===1)await registrations.deactivateByToken('stale-provider-fixture');
+        return {configured:true,attempted:pending.length,sent:attempts===1?0:pending.length,
+          outcomes:pending.map(r=>({registrationId:String(r.id),status:attempts===1?'failed':'accepted',error:'FCM delivery failed'}))};
+      }}});
+      await scheduler.enqueueDue();let intent=await claim();await assert.rejects(scheduler.dispatch(intent,'reminder-test'),/transient device failures/);
+      const {rows}=await db.pool.query('SELECT registration_id::text,status FROM mobile_push_outbox_deliveries WHERE outbox_id=$1 ORDER BY registration_id',[intent.id]);
+      assert.deepEqual(rows,[{registration_id:String(stale.id),status:'stale'},{registration_id:String(transient.id),status:'pending'}]);
+      await outbox.markRetry(intent.id,'reminder-test','retry');await db.pool.query('UPDATE queue_notification_outbox SET available_at=NOW() WHERE id=$1',[intent.id]);intent=await claim();
+      await scheduler.dispatch(intent,'reminder-test');await outbox.markSent(intent.id,'reminder-test');
+      assert.deepEqual(batches[1],[String(transient.id)]);
+      assert.equal((await inboxRows(f.userId)).rowCount,1);
+    });
+    await scenario('a previously pending token deactivated before retry is retired without a lease or provider call',async()=>{
+      const f=await fixture();await registrations.upsert({userId:f.userId,installationId:crypto.randomUUID(),token:'inactive-retry-fixture',platform:'ios'});
+      let calls=0;const scheduler=createBookingReminderService({sender:{sendToRegistrations:async({registrations:pending})=>{
+        calls++;return {configured:true,attempted:1,sent:0,outcomes:[{registrationId:String(pending[0].id),status:'failed',error:'transient'}]};
+      }}});
+      await scheduler.enqueueDue();let intent=await claim();await assert.rejects(scheduler.dispatch(intent,'reminder-test'),/transient device failures/);
+      await registrations.deactivateByToken('inactive-retry-fixture');await outbox.markRetry(intent.id,'reminder-test','retry');
+      await db.pool.query('UPDATE queue_notification_outbox SET available_at=NOW() WHERE id=$1',[intent.id]);intent=await claim();
+      assert.deepEqual(await scheduler.dispatch(intent,'reminder-test'),{attempted:0,sent:0});await outbox.markSent(intent.id,'reminder-test');
+      assert.equal(calls,1);
+      const {rows:[delivery]}=await db.pool.query('SELECT status,lease_owner,leased_until FROM mobile_push_outbox_deliveries WHERE outbox_id=$1',[intent.id]);
+      assert.deepEqual(delivery,{status:'stale',lease_owner:null,leased_until:null});
+    });
+    await scenario('an invalid legacy location timezone still captures the reminder',async()=>{
+      const f=await fixture();await db.pool.query("UPDATE store_locations SET timezone='Invalid/Legacy' WHERE id=$1",[location.id]);
+      try {
+        const scheduler=createBookingReminderService();await scheduler.enqueueDue();const intent=await claim();
+        assert.deepEqual(await scheduler.dispatch(intent,'reminder-test'),{attempted:0,sent:0});
+        const {rows:[row]}=await inboxRows(f.userId);assert.ok(row);assert.ok(row.body.includes(f.booking.scheduled_start_at.toISOString()));
+      } finally {await db.pool.query("UPDATE store_locations SET timezone='Asia/Manila' WHERE id=$1",[location.id]);}
     });
     await scenario('accepted reminder precedes cancellation without holding a branch lock',async()=>{
       const f=await fixture();await registrations.upsert({userId:f.userId,installationId:crypto.randomUUID(),token:'fixture-race',platform:'ios'});

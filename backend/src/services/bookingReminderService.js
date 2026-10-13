@@ -14,9 +14,15 @@ const ELIGIBLE = `b.status IN ('confirmed','rescheduled') AND b.checked_in_at IS
   AND t.is_active=TRUE AND l.is_active=TRUE`;
 
 function reminderPayload(booking, intent) {
-  const localTime = new Intl.DateTimeFormat("en-PH", {
-    timeZone: booking.timezone || "Asia/Manila", dateStyle: "medium", timeStyle: "short"
-  }).format(new Date(booking.scheduled_start_at));
+  const start = new Date(booking.scheduled_start_at);
+  let localTime;
+  try {
+    localTime = new Intl.DateTimeFormat("en-PH", {
+      timeZone: booking.timezone || "Asia/Manila", dateStyle: "medium", timeStyle: "short"
+    }).format(start);
+  } catch {
+    localTime = start.toISOString();
+  }
   const route = `/account/bookings/${booking.id}`;
   return { title: "Upcoming booking",
     body: `${booking.reference} at ${booking.tenant_name} starts in about ${intent.booking_reminder_stage === "24h" ? "24 hours" : "1 hour"} (${localTime}).`,
@@ -135,11 +141,13 @@ function createBookingReminderService({ database = db, notificationInbox = inbox
         await pushDeliveries.releasePending(String(intent.id),workerId,{client});
         return {retry:"Booking reminder FCM is not configured."};
       }
+      const activeAfter = new Set((await pushRegistrations.listActiveByUserId(userId,{client}))
+        .map(registration => String(registration.id)));
       let retry = false;
       for (const item of outcome.outcomes) {
         const options = {client,workerId};
         if (item.status === "accepted") await pushDeliveries.markSent(String(intent.id),String(item.registrationId),options);
-        else if (["stale","inactive"].includes(item.status)) await pushDeliveries.markStale(String(intent.id),String(item.registrationId),options);
+        else if (["stale","inactive"].includes(item.status) || !activeAfter.has(String(item.registrationId))) await pushDeliveries.markStale(String(intent.id),String(item.registrationId),options);
         else { await pushDeliveries.markFailure(String(intent.id),String(item.registrationId),item.error,options); retry = true; }
       }
       return {attempted:outcome.attempted,sent:outcome.sent,...(retry?{retry:"Booking reminder has transient device failures."}:{})};
