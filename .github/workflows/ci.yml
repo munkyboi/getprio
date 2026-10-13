@@ -67,7 +67,7 @@ jobs:
         run: npm run test:platform
 
       - name: Post-deploy smoke runner tests
-        run: node --test scripts/smoke-test.test.cjs
+        run: node --test scripts/smoke-test.test.cjs scripts/prepare-test-database.test.cjs
 
       - name: Frontend coverage
         run: npm run test:frontend:coverage
