@@ -17,10 +17,10 @@ async function enqueue(data, options = {}) {
      RETURNING id`,
     [
       data.idempotencyKey,
-      data.queueEventId ? Number(data.queueEventId) : null,
-      data.queueDayId ? Number(data.queueDayId) : null,
-      data.ticketId ? Number(data.ticketId) : null,
-      Number(data.tenantId),
+      data.queueEventId ? String(data.queueEventId) : null,
+      data.queueDayId ? String(data.queueDayId) : null,
+      data.ticketId ? String(data.ticketId) : null,
+      String(data.tenantId),
       data.recipientKey,
       data.channel,
       data.templateName,
@@ -47,7 +47,7 @@ async function claimBatch(workerId, limit = 50, options = {}) {
          AND available_at <= NOW()
          AND (expires_at IS NULL OR expires_at > NOW())
          AND (leased_until IS NULL OR leased_until < NOW())
-       ORDER BY available_at, id
+       ORDER BY CASE WHEN booking_id IS NULL THEN 0 ELSE 1 END, available_at, id
        LIMIT $2
        FOR UPDATE SKIP LOCKED
      )
@@ -71,7 +71,7 @@ async function markSent(id, workerId, options = {}) {
      SET status = 'sent', sent_at = NOW(), lease_owner = NULL,
          leased_until = NULL, last_error = NULL, updated_at = NOW()
      WHERE id = $1 AND status = 'processing' AND lease_owner = $2`,
-    [Number(id), workerId]
+    [String(id), workerId]
   );
 }
 
@@ -83,7 +83,7 @@ async function markRetry(id, workerId, errorMessage, options = {}) {
          lease_owner = NULL, leased_until = NULL, last_error = $3,
          updated_at = NOW()
      WHERE id = $1 AND status = 'processing' AND lease_owner = $2`,
-    [Number(id), workerId, String(errorMessage || "Delivery failed").slice(0, 500)]
+    [String(id), workerId, String(errorMessage || "Delivery failed").slice(0, 500)]
   );
 }
 
@@ -95,7 +95,7 @@ async function obsoleteStaleWarnings(queueDayId, deadlineVersion, options = {}) 
        AND template_name IN ('queue_closing_15m', 'queue_closing_5m')
        AND deadline_version < $2
        AND status IN ('pending', 'retry')`,
-    [Number(queueDayId), Number(deadlineVersion)]
+    [String(queueDayId), Number(deadlineVersion)]
   );
 }
 
@@ -106,7 +106,7 @@ async function obsoleteWarningsForClosedQueueDay(queueDayId, options = {}) {
      WHERE queue_day_id = $1
        AND template_name IN ('queue_closing_15m', 'queue_closing_5m')
        AND status IN ('pending', 'retry')`,
-    [Number(queueDayId)]
+    [String(queueDayId)]
   );
 }
 
@@ -117,7 +117,7 @@ async function requeue(id, options = {}) {
          leased_until = NULL, last_error = NULL, updated_at = NOW()
      WHERE id = $1 AND status IN ('retry', 'dead')
      RETURNING id, status`,
-    [Number(id)]
+    [String(id)]
   );
   return result.rows[0] || null;
 }

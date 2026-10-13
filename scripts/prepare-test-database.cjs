@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const DATABASES = {
+  BOOKING_REMINDER_TEST_DATABASE_URL: { name: 'getprio_reminders_test', createSql: 'CREATE DATABASE getprio_reminders_test' },
   ACCOUNT_DELETION_TEST_DATABASE_URL: { name: 'getprio_deletion_test', createSql: 'CREATE DATABASE getprio_deletion_test' },
   NOTIFICATION_INBOX_TEST_DATABASE_URL: { name: 'getprio_inbox_test', createSql: 'CREATE DATABASE getprio_inbox_test' }
 };

@@ -81,7 +81,9 @@ function createAccountDeletionService({ transaction = db.withTransaction, verify
       await cancelWaitingTickets(client, userId);
       await client.query('UPDATE bookings SET notify_by_email=FALSE,notify_by_sms=FALSE WHERE customer_user_id=$1', [userId]);
       await client.query(`UPDATE queue_notification_outbox SET status='obsolete',lease_owner=NULL,leased_until=NULL
-        WHERE ticket_id IN (SELECT id FROM tickets WHERE user_id=$1) AND status IN ('pending','retry','processing')`, [userId]);
+        WHERE (ticket_id IN (SELECT id FROM tickets WHERE user_id=$1)
+          OR booking_id IN (SELECT id FROM bookings WHERE customer_user_id=$1))
+          AND status IN ('pending','retry','processing')`, [userId]);
       await client.query('DELETE FROM vendor_reviews WHERE customer_user_id=$1', [userId]);
       return { status: request.status === 'completed' ? 'completed' : 'accepted', requestId: request.id, dueAt: request.due_at };
     });

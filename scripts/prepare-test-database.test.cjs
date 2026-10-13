@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const { prepareTestDatabase } = require('./prepare-test-database.cjs');
 
 for (const [variable, database] of [
+  ['BOOKING_REMINDER_TEST_DATABASE_URL', 'getprio_reminders_test'],
   ['ACCOUNT_DELETION_TEST_DATABASE_URL', 'getprio_deletion_test'],
   ['NOTIFICATION_INBOX_TEST_DATABASE_URL', 'getprio_inbox_test']
 ]) {
@@ -30,7 +31,7 @@ for (const [variable, database] of [
     assert.equal(clients[1].url.pathname,`/${database}`);
     assert.match(clients[1].sql[0],/Clean-slate bootstrap/);
     assert.ok(clients[1].sql.length>100);
-    assert.match(clients[1].sql.at(-1),/CREATE TABLE customer_notification_inbox/);
+    assert.ok(clients[1].sql.some(sql=>/CREATE TABLE customer_notification_inbox/.test(sql)));
     assert.ok(clients.every(client=>client.closed));
   });
 }

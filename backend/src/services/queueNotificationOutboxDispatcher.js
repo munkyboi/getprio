@@ -1,3 +1,4 @@
+const bookingReminderService = require("./bookingReminderService");
 const notificationInbox = require("./customerNotificationInbox");
 const crypto = require("crypto");
 const path = require("node:path");
@@ -60,7 +61,7 @@ function inboxNotificationId(intent) {
     : `queue-intent:${String(intent.idempotency_key || intent.id).replace(/:(web_push|fcm)$/u, "")}`;
 }
 
-async function dispatchFcmIntent(intent, tenant, ticket, workerId) {
+async function dispatchFcmIntent(intent, tenant, ticket, workerId, timeoutMs) {
   const userId = userIdFromRecipient(intent.recipient_key);
   if (!userId) {
     throw new Error("FCM outbox intent must target a user recipient.");
@@ -88,6 +89,7 @@ async function dispatchFcmIntent(intent, tenant, ticket, workerId) {
     result = await fcmRegistrationService.sendToRegistrations({
       registrations: pending,
       payload,
+      ...(timeoutMs ? {timeoutMs} : {}),
       environment: ticket.developerEnvironment === "sandbox" ? "sandbox" : "production"
     });
   } catch (error) {
@@ -128,6 +130,9 @@ async function dispatchFcmIntent(intent, tenant, ticket, workerId) {
 
 async function dispatchIntent(intent, options = {}) {
   const workerId = options.workerId || "queue-outbox-direct";
+  if (intent.booking_id) {
+    return bookingReminderService.dispatch(intent, workerId, {timeoutMs:options.timeoutMs});
+  }
   const tenant = await tenantRepository.findTenantById(intent.tenant_id);
   if (!tenant) {
     return;
@@ -216,7 +221,7 @@ async function dispatchIntent(intent, options = {}) {
     return;
   }
   if (intent.channel === "fcm") {
-    const result = await dispatchFcmIntent(intent, tenant, ticket, workerId);
+    const result = await dispatchFcmIntent(intent, tenant, ticket, workerId, options.timeoutMs);
     await notificationDeliveryRepository.recordDelivery({
       tenantId: tenant._id,
       ticketId: ticket._id,
@@ -256,11 +261,18 @@ async function dispatchIntent(intent, options = {}) {
 function createQueueNotificationOutboxDispatcher(options = {}) {
   const workerId = options.workerId || `queue-outbox-${process.pid}-${crypto.randomUUID()}`;
 
+  const nowMs = options.nowMs || Date.now;
+  const maxRuntimeMs = Math.max(1,Math.min(30_000,Number(options.maxRuntimeMs)||15_000));
   async function runBatch(limit = 50) {
-    const intents = await outboxRepository.claimBatch(workerId, limit);
-    for (const intent of intents) {
+    const startedAt = nowMs();
+    let processed = 0;
+    while (processed < Math.max(1,Math.min(200,Number(limit)||50)) && nowMs()-startedAt < maxRuntimeMs) {
+      // Never consume leases for jobs waiting behind a slow network delivery.
+      const [intent] = await outboxRepository.claimBatch(workerId, 1);
+      if (!intent) break;
+      processed += 1;
       try {
-        await dispatchIntent(intent, { workerId });
+        await dispatchIntent(intent, { workerId, timeoutMs:Math.max(1,maxRuntimeMs-(nowMs()-startedAt)) });
         await outboxRepository.markSent(intent.id, workerId);
       } catch (error) {
         if (intent.channel === "web_push" || intent.channel === "fcm") {
@@ -279,7 +291,7 @@ function createQueueNotificationOutboxDispatcher(options = {}) {
         await outboxRepository.markRetry(intent.id, workerId, error.message);
       }
     }
-    return intents.length;
+    return processed;
   }
 
   return { runBatch, workerId };
