@@ -4,7 +4,7 @@ Implementation status: see [rework progress](vendor-dashboard-rework-progress.md
 
 13 October audit supplement: the [full dashboard audit](vendor-dashboard-full-audit.md) and [preservation checklist](vendor-dashboard-rework-preservation-checklist.md) are mandatory migration inputs. They correct stale monitor/billing assumptions and enumerate current section/action/failure-state coverage. Existing product decisions remain in effect; their future runtime behavior remains separately gated.
 
-Status: planned, reconciled 5 October 2026. See the [completed interview decisions](vendor-dashboard-workflow-decisions.md). User-selected design direction and references; no application migration performed.
+Status: implementation in progress; shared shell merged in PR 398 and Live Queue is the next slice. Original design decisions reconciled 5 October 2026. See the [completed interview decisions](vendor-dashboard-workflow-decisions.md). User-selected design direction and references; see progress notes for migrated surfaces and remaining acceptance.
 
 Implementation must follow [Vendor UI design rules](../design/vendor-ui-rules.md), also linked from the repository's AGENTS.md.
 

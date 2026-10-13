@@ -118,3 +118,15 @@ Slice 1 retains `/dashboard/*?workspace=operations|administration`. Shared Accou
 Business pickers and role derivation must exclude inactive memberships. Restore a destination business's own saved workspace before persisting its new route. Tenant/location reads must use scoped query observers or discard obsolete responses; clearing old arrays alone does not prevent a late response from restoring them. Context recovery must retry the bootstrap that establishes the location, as well as queue data.
 
 Unsaved-edit protection covers the outer application navigation and sign-out as well as workspace controls. Track forms independently; successful saves clear only their form, failed saves retain edits, and intentional dialog discard removes its dirty state. Approved navigation closes task dialogs. Do not treat a previously saved or closed form as unsaved.
+
+## 12. Live Queue migration conventions
+
+Present all authorized server-provided counter tickets; selected-counter actions must retain exact ticket/counter IDs. Keep called tickets, started timing records, historical unfinished timing debt and live resource allocations distinct. Resource configuration or timing counts cannot stand in for available units or an authoritative active allocation snapshot. A free counter's eligibility comes from its server lane; another counter's ticket must not impose a global single-ticket lock.
+
+Migrate narrow tables to labeled rows within container queries while preserving table/header semantics. Keep individual cancellation and service confirmations. QR copying uses explicit labeled buttons and downloading keeps the existing branded QR renderer/target. Ticket and board scanners stay distinct, with manual fallback, explicit review/confirmation, and camera cleanup on close/context change.
+
+Declare CSS layer order before prefixed imports. Scope native control inheritance/transparent button defaults to the vendor base layer because global preflight is intentionally omitted; semantic utility variants must take precedence. Vendor Select/Dialog portals use the workspace's DOM ref so themes inherit without relying on a stale ref.current value. Mobile dialogs reset both transform and translate, use matching paper/footer tokens, and keep primary actions reachable with body-only scrolling.
+
+Auto-close extension copy says Extend by 30 minutes. Preserve server-time offset, warning/final phases, all current-day called outcomes, reconciliation locks/retry, actual extension semantics and the ability to resolve historical service timing after closure.
+
+PR 401 preservation details: auto-close and reconciliation warnings remain sticky within the feature content, with clearly distinct final/error severity in both themes. At widths up to 48em, task-dialog footer guidance and actions stack vertically and buttons span the available width. Navigation to external board URLs uses native anchors with shared visual variants, preserving link semantics.

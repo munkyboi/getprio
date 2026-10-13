@@ -121,13 +121,13 @@ test("queue deadline synchronization distinguishes the acting session from anoth
 
 test("vendor queue lifecycle UI exposes warning, extension, and close controls", () => {
   const dashboard = readSource("src/pages/VendorDashboardPage.tsx");
-  const tray = readSource("src/components/VendorQueueLifecycleTray.tsx");
+  const tray = readSource("src/vendor/QueueLifecycleTray.tsx");
   const styles = readSource("src/styles.css");
 
   assert.match(dashboard, /<VendorQueueLifecycleTray/);
   assert.match(dashboard, /Close queue and reconcile/);
   assert.match(dashboard, /refetchInterval:\s*30_000/);
-  assert.match(tray, /Review & extend/);
+  assert.match(tray, /Review auto-close/);
   assert.match(tray, /Extend \$\{locationName\} by 30 minutes/);
   assert.match(tray, /Close queue now/);
   assert.match(styles, /\.queue-lifecycle-tray/);
@@ -146,10 +146,10 @@ test("vendor queue UI blocks calling next while a current ticket is unresolved",
 test("vendor overflow identifies tickets saved for carry-over", () => {
   const dashboard = readSource("src/pages/VendorDashboardPage.tsx");
 
-  assert.match(dashboard, /<Title order=\{3\}>Carry-over tickets<\/Title>/);
-  assert.match(dashboard, /<Table\.Th>Status<\/Table\.Th>/);
-  assert.match(dashboard, /<Table\.Th>Activated at<\/Table\.Th>/);
-  assert.match(dashboard, /getTicketStateSummary\(ticket\.status\)\.label/);
+  assert.match(dashboard, /<h3 className="queue-heading">\s*Carry-over tickets\s*<\/h3>/);
+  assert.match(dashboard, /<QueueTableHead scope="col">Status<\/QueueTableHead>/);
+  assert.match(dashboard, /<QueueTableHead scope="col">\s*Activated at\s*<\/QueueTableHead>/);
+  assert.match(dashboard, /getTicketStateSummary\(ticket\.status\)\s*\.label/);
   assert.match(dashboard, /:\s*"Carried over"/);
 });
 

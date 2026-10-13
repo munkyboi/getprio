@@ -1,0 +1,286 @@
+{
+  "tenant": {
+    "id": "tenant-qa",
+    "name": "Fixture vendor",
+    "businessName": "Fixture vendor",
+    "publicProfileDescription": "",
+    "slug": "queue-review",
+    "publicProfileCategory": "Sports and Recreation",
+    "businessCategoryId": "1",
+    "queuePrefix": "P",
+    "averageServiceMinutes": 60,
+    "notificationThreshold": 2,
+    "autoPauseEnabled": true,
+    "autoPauseThreshold": 10,
+    "autoResumeEnabled": true,
+    "autoResumeVacancyPercent": 20,
+    "joinUrl": "http://localhost:5179/join/queue-review/main",
+    "monitorUrl": "http://localhost:5179/queue-board/00000000-0000-4000-8000-000000000001",
+    "isActive": true,
+    "queueFee": {
+      "enabled": true,
+      "amountCents": 2500,
+      "currency": "PHP",
+      "displayAmount": "PHP 25.00",
+      "planSlug": "pro"
+    },
+    "publicProfileDisplayName": "Fixture vendor",
+    "contactEmail": "",
+    "contactPhone": ""
+  },
+  "location": {
+    "id": "location-qa",
+    "tenantId": "tenant-qa",
+    "name": "Main location",
+    "slug": "main",
+    "addressLine1": "",
+    "addressLine2": "",
+    "city": "",
+    "province": "",
+    "postalCode": "",
+    "country": "PH",
+    "timezone": "Asia/Manila",
+    "serviceTimingEnabled": true,
+    "isPrimary": true,
+    "isActive": true,
+    "joinUrl": "http://localhost:5179/join/queue-review/main",
+    "monitorUrl": "http://localhost:5179/queue-board/00000000-0000-4000-8000-000000000001",
+    "openStatus": {
+      "isOpen": true,
+      "timezone": "Asia/Manila",
+      "summary": "Sun 07:00-00:00, Mon 07:00-00:00, Tue 07:00-00:00, Wed 07:00-00:00, Thu 07:00-00:00, Fri 07:00-00:00, Sat 07:00-00:00",
+      "today": {
+        "weekday": 2,
+        "opensAt": "07:00",
+        "closesAt": "00:00",
+        "isClosed": false
+      },
+      "todayHours": [
+        {
+          "weekday": 2,
+          "opensAt": "07:00",
+          "closesAt": "00:00",
+          "isClosed": false
+        }
+      ],
+      "nextOpenAt": null
+    },
+    "hours": [
+      {
+        "weekday": 0,
+        "opensAt": "07:00",
+        "closesAt": "00:00",
+        "isClosed": false
+      },
+      {
+        "weekday": 1,
+        "opensAt": "07:00",
+        "closesAt": "00:00",
+        "isClosed": false
+      },
+      {
+        "weekday": 2,
+        "opensAt": "07:00",
+        "closesAt": "00:00",
+        "isClosed": false
+      },
+      {
+        "weekday": 3,
+        "opensAt": "07:00",
+        "closesAt": "00:00",
+        "isClosed": false
+      },
+      {
+        "weekday": 4,
+        "opensAt": "07:00",
+        "closesAt": "00:00",
+        "isClosed": false
+      },
+      {
+        "weekday": 5,
+        "opensAt": "07:00",
+        "closesAt": "00:00",
+        "isClosed": false
+      },
+      {
+        "weekday": 6,
+        "opensAt": "07:00",
+        "closesAt": "00:00",
+        "isClosed": false
+      }
+    ],
+    "contactEmail": "",
+    "contactPhone": "",
+    "qrJoinUrl": "http://localhost:5179/join/queue-review/main"
+  },
+  "publicBoardTheme": {},
+  "businessProfileTheme": {},
+  "queueDay": {
+    "id": "day-qa",
+    "businessDate": "2026-10-13",
+    "state": "open",
+    "availabilityReason": "accepting",
+    "intakeMode": "accepting",
+    "autoClosePhase": "normal",
+    "timezone": "Asia/Manila",
+    "effectiveOpensAt": null,
+    "effectiveClosesAt": null,
+    "currentClosesAt": "2026-10-13T08:00:00.000Z",
+    "warningStartsAt": null,
+    "finalWarningStartsAt": null,
+    "serverNow": "2026-10-13T04:00:00.000Z",
+    "version": null,
+    "deadlineVersion": null,
+    "closeReason": null,
+    "reconciliationError": null,
+    "reconciliationAttemptCount": 0,
+    "lastReconciledAt": null,
+    "isClosed": false,
+    "isPaused": false,
+    "queueDateKey": "20261013",
+    "closedAt": null,
+    "reopenedAt": null,
+    "closureReason": null,
+    "pausedAt": null,
+    "resumedAt": null,
+    "pauseReason": null,
+    "pauseMode": null
+  },
+  "queueIntake": {
+    "autoPauseEnabled": true,
+    "autoPauseThreshold": 10,
+    "autoResumeEnabled": true,
+    "autoResumeVacancyPercent": 20,
+    "currentWaitingCount": 1,
+    "fillRatio": 0.1,
+    "thresholdRemaining": 9,
+    "resumeWaitingCount": 8,
+    "state": "open",
+    "stateLabel": "Open"
+  },
+  "stats": {
+    "waitingCount": 1,
+    "servedToday": 2,
+    "currentTicketNumber": "QA001",
+    "estimatedWaitMinutes": 5
+  },
+  "current": {
+    "id": "ticket-a",
+    "ticketNumber": "QA001",
+    "customerName": "Alex Fixture",
+    "currentQueueDayId": "day-qa",
+    "serviceCounterId": "counter-a",
+    "calledAt": "2026-10-13T04:00:00.000Z",
+    "serviceStartedAt": "2026-10-13T04:00:00.000Z",
+    "customerConfirmedAt": "2026-10-13T04:00:00.000Z",
+    "joinChannel": "vendor"
+  },
+  "calledTickets": [
+    {
+      "id": "ticket-a",
+      "ticketNumber": "QA001",
+      "customerName": "Alex Fixture",
+      "currentQueueDayId": "day-qa",
+      "serviceCounterId": "counter-a",
+      "calledAt": "2026-10-13T04:00:00.000Z",
+      "serviceStartedAt": "2026-10-13T04:00:00.000Z",
+      "customerConfirmedAt": "2026-10-13T04:00:00.000Z",
+      "joinChannel": "vendor"
+    },
+    {
+      "id": "ticket-b",
+      "ticketNumber": "QA002",
+      "customerName": "Bea Fixture",
+      "currentQueueDayId": "day-qa",
+      "serviceCounterId": "counter-b",
+      "calledAt": "2026-10-13T04:00:00.000Z",
+      "serviceStartedAt": null,
+      "customerConfirmedAt": null,
+      "joinChannel": "public_web"
+    }
+  ],
+  "readyWaitingCount": 1,
+  "counterDispatch": [
+    {
+      "serviceCounterId": "counter-a",
+      "counterSlug": "desk-a",
+      "counterName": "Desk A",
+      "currentTicketId": "ticket-a",
+      "canCallNext": false,
+      "blockReason": "COUNTER_OCCUPIED"
+    },
+    {
+      "serviceCounterId": "counter-b",
+      "counterSlug": "desk-b",
+      "counterName": "Desk B",
+      "currentTicketId": "ticket-b",
+      "canCallNext": false,
+      "blockReason": "COUNTER_OCCUPIED"
+    },
+    {
+      "serviceCounterId": "counter-c",
+      "counterSlug": "desk-c",
+      "counterName": "Desk C",
+      "currentTicketId": null,
+      "canCallNext": true,
+      "blockReason": null
+    }
+  ],
+  "nextUp": [
+    {
+      "id": "ticket-c",
+      "ticketNumber": "QA003",
+      "customerName": "Casey Fixture",
+      "status": "waiting",
+      "position": 1,
+      "joinChannel": "public_web",
+      "createdAt": "2026-10-13T04:00:00.000Z",
+      "isCarriedOver": false
+    }
+  ],
+  "overflow": [
+    {
+      "id": "ticket-d",
+      "ticketNumber": "QA004",
+      "customerName": "Devon Fixture",
+      "status": "pending_carry_over",
+      "position": 0,
+      "joinChannel": "public_web",
+      "createdAt": "2026-10-13T04:00:00.000Z",
+      "isCarriedOver": true,
+      "carriedOverAt": null
+    }
+  ],
+  "recovery": [
+    {
+      "id": "ticket-e",
+      "ticketNumber": "QA005",
+      "customerName": "Eli Fixture",
+      "status": "skipped",
+      "joinChannel": "public_web",
+      "createdAt": "2026-10-13T04:00:00.000Z",
+      "rejoinDeadlineAt": "2026-10-13T04:00:00.000Z"
+    }
+  ],
+  "history": [],
+  "unfinishedServiceTiming": [
+    {
+      "id": "ticket-a",
+      "ticketNumber": "QA001",
+      "status": "called",
+      "serviceStartedAt": "2026-10-13T04:00:00.000Z"
+    },
+    {
+      "id": "ticket-old",
+      "ticketNumber": "OLD001",
+      "status": "unserved",
+      "serviceStartedAt": "2026-10-13T04:00:00.000Z"
+    }
+  ],
+  "usage": {
+    "periodStart": "2026-10-13T04:00:00.000Z",
+    "periodEnd": null,
+    "emailsSentThisPeriod": 0
+  },
+  "focusTicket": null
+}
