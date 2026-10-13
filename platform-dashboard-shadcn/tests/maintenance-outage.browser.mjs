@@ -32,6 +32,14 @@ export default async function verify(page) {
   const pause = page.getByRole('checkbox',{name:'Pause new bookings and queue joins'})
   const observations = page.getByRole('tab',{name:'Observations',exact:true})
   const maintenance = page.getByRole('tab',{name:'Maintenance',exact:true})
+  const checkResponsivePanel = async (surface, tab) => {
+    for (const width of [375,768,1280]) {
+      await page.setViewportSize({width,height:900})
+      if (await page.locator('body').evaluate(el => el.scrollWidth > window.innerWidth)) throw new Error(`${surface} overflows at ${width}px`)
+      if ((await tab.boundingBox()).height < 44) throw new Error('Tabs must keep touch-friendly targets')
+      await page.screenshot({path:`service-health-${surface}-${width}.png`,fullPage:true})
+    }
+  }
   await observations.waitFor()
   await page.getByText('Service health data unavailable',{exact:true}).waitFor()
   if (await observations.getAttribute('aria-selected') !== 'true' || await pause.isVisible()) throw new Error('Observations must be the default, with maintenance controls hidden')
@@ -49,12 +57,7 @@ export default async function verify(page) {
   await pause.waitFor()
   if (!await pause.isChecked() || await page.getByLabel('Audit reason').inputValue() !== 'Pause intake during a partial read model outage' || await page.getByLabel('Public maintenance message').inputValue() !== 'Scheduled maintenance; existing work can finish.') throw new Error('Switching tabs must preserve the maintenance draft')
   if (maintenanceReads !== readsBeforeSwitch || writes !== 0) throw new Error('Switching tabs must not reload or save maintenance settings')
-  for (const width of [375,768,1280]) {
-    await page.setViewportSize({width,height:900})
-    if (await page.locator('body').evaluate(el => el.scrollWidth > window.innerWidth)) throw new Error(`Service health tabs overflow at ${width}px`)
-    if ((await maintenance.boundingBox()).height < 44) throw new Error('Tabs must keep touch-friendly targets')
-    await page.screenshot({path:`service-health-maintenance-${width}.png`,fullPage:true})
-  }
+  await checkResponsivePanel('maintenance', maintenance)
   await page.getByRole('button',{name:'Review maintenance change'}).click()
   await page.getByRole('button',{name:'Confirm maintenance change'}).click()
   await page.getByText('Maintenance settings saved',{exact:true}).waitFor()
@@ -68,11 +71,7 @@ export default async function verify(page) {
   await observations.click(); await search.waitFor()
   if (await search.inputValue() !== 'Platform API') throw new Error('Observation filters must survive tab switches')
   await search.fill('')
-  for (const width of [375,768,1280]) {
-    await page.setViewportSize({width,height:900})
-    if (await page.locator('body').evaluate(el => el.scrollWidth > window.innerWidth)) throw new Error(`Observations overflow at ${width}px`)
-    await page.screenshot({path:`service-health-observations-${width}.png`,fullPage:true})
-  }
+  await checkResponsivePanel('observations', observations)
   editable=false
   await page.reload(); await maintenance.click(); await pause.waitFor()
   if (!await pause.isDisabled() || !await page.getByRole('button',{name:'Review maintenance change'}).isDisabled()) throw new Error('Read-only viewers must remain unable to change maintenance')
