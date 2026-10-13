@@ -11,7 +11,7 @@ async function ensurePending(outboxId, registrations, options = {}) {
       `INSERT INTO mobile_push_outbox_deliveries (outbox_id, registration_id)
        VALUES ($1, $2)
        ON CONFLICT (outbox_id, registration_id) DO NOTHING`,
-      [Number(outboxId), Number(registration.id)]
+      [String(outboxId), String(registration.id)]
     );
   }
 }
@@ -42,7 +42,7 @@ async function claimPending(outboxId, workerId, options = {}) {
          OR account_user.sandbox_test_account_expires_at <= NOW()
          OR test_project.status IS DISTINCT FROM 'active'
        )`,
-    [Number(outboxId)]
+    [String(outboxId)]
   );
   const result = await client.query(
     `WITH candidates AS (
@@ -62,7 +62,7 @@ async function claimPending(outboxId, workerId, options = {}) {
      WHERE delivery.outbox_id = $1
        AND delivery.registration_id = candidates.registration_id
      RETURNING delivery.registration_id`,
-    [Number(outboxId), String(workerId)]
+    [String(outboxId), String(workerId)]
   );
 
   if (!result.rows.length) return [];
@@ -94,7 +94,7 @@ async function claimPending(outboxId, workerId, options = {}) {
          )
        )
      ORDER BY delivery.registration_id`,
-    [Number(outboxId), String(workerId)]
+    [String(outboxId), String(workerId)]
   );
   return registrations.rows;
 }
@@ -104,7 +104,7 @@ async function releasePending(outboxId, workerId, options = {}) {
     `UPDATE mobile_push_outbox_deliveries
      SET lease_owner = NULL, leased_until = NULL, updated_at = NOW()
      WHERE outbox_id = $1 AND lease_owner = $2 AND status = 'pending'`,
-    [Number(outboxId), String(workerId)]
+    [String(outboxId), String(workerId)]
   );
 }
 
@@ -137,7 +137,7 @@ async function listPending(outboxId, options = {}) {
          )
        )
      ORDER BY delivery.registration_id`,
-    [Number(outboxId)]
+    [String(outboxId)]
   );
   return result.rows;
 }
@@ -149,7 +149,7 @@ async function markSent(outboxId, registrationId, options = {}) {
          last_error = NULL, lease_owner = NULL, leased_until = NULL, updated_at = NOW()
      WHERE outbox_id = $1 AND registration_id = $2 AND status = 'pending'
        AND lease_owner = $3`,
-    [Number(outboxId), Number(registrationId), String(options.workerId)]
+    [String(outboxId), String(registrationId), String(options.workerId)]
   );
 }
 
@@ -160,7 +160,7 @@ async function markStale(outboxId, registrationId, options = {}) {
          last_error = NULL, lease_owner = NULL, leased_until = NULL, updated_at = NOW()
      WHERE outbox_id = $1 AND registration_id = $2 AND status = 'pending'
        AND lease_owner = $3`,
-    [Number(outboxId), Number(registrationId), String(options.workerId)]
+    [String(outboxId), String(registrationId), String(options.workerId)]
   );
 }
 
@@ -171,7 +171,7 @@ async function markFailure(outboxId, registrationId, errorMessage, options = {})
          last_error = $3, lease_owner = NULL, leased_until = NULL, updated_at = NOW()
      WHERE outbox_id = $1 AND registration_id = $2 AND status = 'pending'
        AND lease_owner = $4`,
-    [Number(outboxId), Number(registrationId), String(errorMessage || "Delivery failed").slice(0, 500), String(options.workerId)]
+    [String(outboxId), String(registrationId), String(errorMessage || "Delivery failed").slice(0, 500), String(options.workerId)]
   );
 }
 

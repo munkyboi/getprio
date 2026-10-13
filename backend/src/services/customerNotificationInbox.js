@@ -33,7 +33,7 @@ function createInbox({ transaction = db.withTransaction, pool = db.pool, secret 
   // Serialize per account with deletion and other inbox writes. IDs allocated only
   // after this lock cannot enter an earlier snapshot, even across concurrent requests.
   async function lock(client, userId) {
-    const { rows } = await client.query("SELECT id,deletion_requested_at FROM users WHERE id=$1 FOR UPDATE", [userId]);
+    const { rows } = await client.query("SELECT id,deletion_requested_at FROM users WHERE id=$1 FOR NO KEY UPDATE", [userId]);
     return rows[0] && !rows[0].deletion_requested_at;
   }
   async function counts(client, userId) {
@@ -42,11 +42,12 @@ function createInbox({ transaction = db.withTransaction, pool = db.pool, secret 
         AND created_at > clock_timestamp() - INTERVAL '90 days'`, [userId]);
     return {unreadCount:rows[0].unread_count,totalCount:rows[0].total_count};
   }
-  async function record({ userId, notificationId, title, body, silent = false, occurredAt }) {
+  async function record({ userId, notificationId, title, body, silent = false, occurredAt }, options = {}) {
     if (silent || !userId) return null;
     if (typeof notificationId !== "string" || !notificationId.length || notificationId.length > 512
       || typeof title !== "string" || typeof body !== "string") throw invalid("Invalid notification content.");
-    return transaction(async client => {
+    const run = options.client ? callback => callback(options.client) : transaction;
+    return run(async client => {
       if (!await lock(client, userId)) return null;
       const { rows } = await client.query(`INSERT INTO customer_notification_inbox(user_id,notification_key,title,body)
         SELECT $1,$2,$3,$4 FROM customer_notification_inbox_policy

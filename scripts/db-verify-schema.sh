@@ -35,7 +35,25 @@ BEGIN
   SELECT array_agg(required_column)
   INTO missing_columns
   FROM (
-    SELECT 'users.roles' AS required_column
+    SELECT 'bookings.reminder_schedule_revision' AS required_column
+    WHERE NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='bookings' AND column_name='reminder_schedule_revision')
+    UNION ALL
+    SELECT 'bookings.reminder_eligible_at'
+    WHERE NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='bookings' AND column_name='reminder_eligible_at')
+    UNION ALL
+    SELECT 'queue_notification_outbox.booking_id'
+    WHERE NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='queue_notification_outbox' AND column_name='booking_id')
+    UNION ALL
+    SELECT 'queue_notification_outbox.booking_schedule_revision'
+    WHERE NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='queue_notification_outbox' AND column_name='booking_schedule_revision')
+    UNION ALL
+    SELECT 'queue_notification_outbox.booking_reminder_stage'
+    WHERE NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='queue_notification_outbox' AND column_name='booking_reminder_stage')
+    UNION ALL
+    SELECT 'bookings.booking_reminder_schedule_identity'
+    WHERE NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='public.bookings'::regclass AND tgname='booking_reminder_schedule_identity' AND tgenabled IN ('O','A'))
+    UNION ALL
+    SELECT 'users.roles'
     WHERE NOT EXISTS (
       SELECT 1
       FROM information_schema.columns

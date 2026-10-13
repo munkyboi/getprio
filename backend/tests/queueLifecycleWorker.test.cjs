@@ -31,6 +31,7 @@ test("worker runs warnings, reconciliation, and expiry in recovery order", async
     expirePendingCarryOvers: async () => { calls.push("expiry"); return 3; }
   });
   const worker = createQueueLifecycleWorker({
+    bookingReminders: { enqueueDue: async () => 0 },
     outboxDispatcher: {
       runBatch: async () => { calls.push("outbox"); return 4; }
     }
@@ -43,7 +44,8 @@ test("worker runs warnings, reconciliation, and expiry in recovery order", async
     warningCount: 2,
     reconciledCount: 1,
     expiredCount: 3,
-    dispatchedCount: 4
+    dispatchedCount: 4,
+    bookingReminderCount: 0
   });
 });
 
@@ -56,6 +58,7 @@ test("worker skips overlapping runs so multiple intervals cannot duplicate work 
     expirePendingCarryOvers: async () => 0
   });
   const worker = createQueueLifecycleWorker({
+    bookingReminders: { enqueueDue: async () => 0 },
     outboxDispatcher: { runBatch: async () => 0 }
   });
   const first = worker.runOnce();
@@ -80,6 +83,7 @@ test("worker releases its local lease after a failed scan so the next run can re
     expirePendingCarryOvers: async () => 0
   });
   const worker = createQueueLifecycleWorker({
+    bookingReminders: { enqueueDue: async () => 0 },
     outboxDispatcher: { runBatch: async () => 0 }
   });
   await assert.rejects(worker.runOnce(), /synthetic database outage/);
@@ -105,6 +109,7 @@ test("worker broadcasts warning and close transitions after they commit", async 
     expirePendingCarryOvers: async () => 0
   });
   const worker = createQueueLifecycleWorker({
+    bookingReminders: { enqueueDue: async () => 0 },
     publishLifecycleUpdate: async (scope) => published.push(scope),
     outboxDispatcher: { runBatch: async () => 0 }
   });
@@ -134,4 +139,11 @@ test("lifecycle update publisher invalidates the tenant queue stream", async () 
     payload: null,
     options: { locationId: "21" }
   }]);
+});
+
+test('a booking reminder scan failure does not stop queue notification dispatch',async()=>{
+  let dispatched=false;
+  const {createQueueLifecycleWorker}=loadWorker({emitDueWarnings:async()=>0,reconcileDueQueueDays:async()=>0,expirePendingCarryOvers:async()=>0});
+  const worker=createQueueLifecycleWorker({bookingReminders:{enqueueDue:async()=>{throw new Error('reminder scan unavailable');}},outboxDispatcher:{runBatch:async()=>{dispatched=true;return 1;}}});
+  const result=await worker.runOnce();worker.stop();assert.equal(dispatched,true);assert.equal(result.dispatchedCount,1);
 });

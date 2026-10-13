@@ -49,8 +49,8 @@ async function recordDelivery(data, options = {}) {
       RETURNING *
     `,
     [
-      data.tenantId ? Number(data.tenantId) : null,
-      data.ticketId ? Number(data.ticketId) : null,
+      data.tenantId ? String(data.tenantId) : null,
+      data.ticketId ? String(data.ticketId) : null,
       data.channel,
       data.purpose || "general",
       data.recipient,
@@ -59,7 +59,7 @@ async function recordDelivery(data, options = {}) {
       data.status,
       data.errorMessage || null,
       JSON.stringify(data.metadata || {}),
-      data.outboxId ? Number(data.outboxId) : null
+      data.outboxId ? String(data.outboxId) : null
     ]
   );
 
@@ -68,7 +68,7 @@ async function recordDelivery(data, options = {}) {
 
 async function countSentEmails(tenantId, options = {}) {
   const queryClient = buildQueryClient(options.client);
-  const values = [Number(tenantId)];
+  const values = [String(tenantId)];
   const filters = ["tenant_id = $1", "channel = 'email'", "status = 'sent'"];
 
   if (options.from) {

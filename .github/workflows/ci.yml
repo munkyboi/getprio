@@ -28,6 +28,7 @@ jobs:
           --health-retries 5
 
     env:
+      BOOKING_REMINDER_TEST_DATABASE_URL: postgresql://getprio_test:getprio_test@127.0.0.1:5432/getprio_reminders_test
       NOTIFICATION_INBOX_TEST_DATABASE_URL: postgresql://getprio_test:getprio_test@127.0.0.1:5432/getprio_inbox_test
       ACCOUNT_DELETION_TEST_DATABASE_URL: postgresql://getprio_test:getprio_test@127.0.0.1:5432/getprio_deletion_test
       ALLOWANCE_TEST_DATABASE_URL: postgresql://getprio_test:getprio_test@127.0.0.1:5432/getprio_test
@@ -77,6 +78,9 @@ jobs:
 
       - name: Prepare notification inbox integration database
         run: node scripts/prepare-notification-inbox-test.cjs
+
+      - name: Prepare booking reminder integration database
+        run: node scripts/prepare-booking-reminder-test.cjs
 
       - name: Backend coverage
         env:
