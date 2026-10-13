@@ -78,3 +78,43 @@ The next integration boundary and read-only plan inventory are documented in [Re
 - Supported tickets plus the method fallback counts equal scored tickets. Aggregate counts sum the per-run counts; percentages use pooled tickets rather than averaging seed percentages.
 
 The output version changed because the report now carries an explicit selection/coverage contract. Existing files remain untouched; use a new output filename, for example `/root/wait-time-resource-comparison-coverage.json`. No database records, model thresholds, source dataset, production hooks or rollout policy change. Automated CLI regressions verify count partitions, pooled aggregation, fixed default scores, sparse holdouts, private file permissions and exclusive output creation.
+
+## Changed-assumption sensitivity profiles
+
+The comparison CLI accepts `--scenario-profile baseline|dense-arrivals|variable-durations`. Default `baseline` preserves the original reference dataset bytes and hashes. The two opt-in profiles use `synthetic-queue-sensitivity-v1`, record the profile in dataset/report metadata, and bind scope and ticket identity to that profile so unlike experiments are not pooled as the same scope. They require explicit synthetic reader mode and are not accepted as operational datasets. The ordinary simulator CLI and its default dataset stay unchanged.
+
+| Profile | Arrival process | Actual duration distribution | Known duration used by predictors |
+| --- | --- | --- | --- |
+| baseline | Existing scenario gap | 0.6–1.4 times configured duration, rounded | Existing configured duration |
+| dense-arrivals | Scenario gap halved, rounded, minimum one minute | Baseline distribution | Existing configured duration |
+| variable-durations | Baseline arrivals | 0.25–1.75 times configured duration, rounded | Existing configured duration |
+
+Only the named assumptions change. Capacity, resource requirements, FIFO/eligibility rules, cancellations, interruptions and pause schedule retain existing semantics. The same random streams are reused for reproducible paired sensitivity comparisons; they are not independent experiments. Variable durations change simulated future outcomes, never the known plans passed to the reference predictor. Calls still coincide with actual starts in this simulator; these scores cannot validate separate real-world targets.
+
+Run each profile to a separate private output, preserving the frozen seeds/window:
+
+```sh
+node scripts/wait-time-synthetic-compare.mjs \
+  --scenario-profile dense-arrivals \
+  --output /root/wait-time-dense-arrivals.json
+node scripts/wait-time-synthetic-compare.mjs \
+  --scenario-profile variable-durations \
+  --output /root/wait-time-variable-durations.json
+```
+
+Default-window observations from seeds 42, 314, 2718, 120 tickets per scenario:
+
+| Profile/scenario | Scored called tickets | Baseline MAE | Resource with fallback MAE |
+| --- | ---: | ---: | ---: |
+| Dense arrivals / sequential | 55 | 8.53 | 8.65 |
+| Dense arrivals / parallel | 0 | unavailable | unavailable |
+| Dense arrivals / competing | 46 | 450.72 | 11.37 |
+| Dense arrivals / disrupted | 0 | unavailable | unavailable |
+| Variable durations / sequential | 165 | 10.43 | 9.70 |
+| Variable durations / parallel | 127 | 82.90 | 6.07 |
+| Variable durations / competing | 194 | 112.94 | 10.78 |
+| Variable durations / disrupted | 75 | 166.79 | 54.67 |
+
+Denser arrivals can issue all work before the frozen training cutoff. Empty holdouts are retained with null metrics/support, not repaired by moving the window. Inspect selection and training coverage before interpreting differences, and do not compare supported-only metrics as equal-population estimates. Predeclare a different experiment if a different window or ticket count is needed; do not tune it after seeing the winner. Within each profile, training remains historical and seed-local; this is neither cross-profile nor cross-seed model-transfer validation.
+
+Seven focused automated regressions cover exact baseline hashes, repeatability, changed assumptions, profile-bound provenance/scopes, rejection in operational mode, invalid profile output protection, known-plan isolation from future duration outcomes and the preceding coverage/boundary contracts. No database, live capture, confidence calibration, resource activation or customer rollout is introduced.

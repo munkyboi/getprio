@@ -3,6 +3,12 @@ import { resourceSnapshot, predictResourceReference } from "./wait-time-resource
 
 export const SIMULATOR_VERSION = "synthetic-queue-v1";
 export const REFERENCE_SIMULATOR_VERSION = "synthetic-queue-reference-v1";
+export const SENSITIVITY_SIMULATOR_VERSION = "synthetic-queue-sensitivity-v1";
+export const SCENARIO_PROFILES = Object.freeze({
+  baseline: Object.freeze({ arrivalScale: 1, durationMinimum: 0.6, durationSpread: 0.8 }),
+  "dense-arrivals": Object.freeze({ arrivalScale: 0.5, durationMinimum: 0.6, durationSpread: 0.8 }),
+  "variable-durations": Object.freeze({ arrivalScale: 1, durationMinimum: 0.25, durationSpread: 1.5 })
+});
 export const SCENARIOS = Object.freeze({
   sequential: { capacity: [1, 1], arrivalGap: 8, duration: 10 },
   parallel: { capacity: [3, 3], arrivalGap: 4, duration: 15 },
@@ -28,7 +34,7 @@ function generateTickets(settings, count, random) {
     return { id: index + 1, arrival, ready: arrival + (booking ? 20 : 0),
       cancelAt: cancellation ? arrival + 8 : Infinity,
       cancellationReason: index % 22 === 0 ? "no_show" : "cancelled",
-      duration: Math.max(1, Math.round(settings.duration * (0.6 + random() * 0.8))),
+      duration: Math.max(1, Math.round(settings.duration * ((settings.durationMinimum ?? 0.6) + random() * (settings.durationSpread ?? 0.8)))),
       interruption, booking, needs: settings.multiResource ? [index % 5 === 0 ? 2 : 1, 1] : [1, 0],
       channel: ["printed", "mobile", "vendor"][index % 3], state: "not_arrived" };
   });
@@ -97,8 +103,11 @@ function nextTime(tickets, pauses, now) {
   return future.reduce((minimum, minute) => Math.min(minimum, minute), Infinity);
 }
 
-function simulateScenario(name, count, seed, includeReference) {
-  const settings = SCENARIOS[name];
+function simulateScenario(name, count, seed, includeReference, profile) {
+  const settings = profile === "baseline" ? SCENARIOS[name] : { ...SCENARIOS[name],
+    arrivalGap: Math.max(1, Math.round(SCENARIOS[name].arrivalGap * SCENARIO_PROFILES[profile].arrivalScale)),
+    durationMinimum: SCENARIO_PROFILES[profile].durationMinimum,
+    durationSpread: SCENARIO_PROFILES[profile].durationSpread };
   const tickets = generateTickets(settings, count, randomGenerator(seed));
   const pauses = settings.disruptions ? [[60, 90], [180, 200]] : [];
   const events = [];
@@ -118,16 +127,21 @@ function simulateScenario(name, count, seed, includeReference) {
   return { tickets, events, settings, pauses };
 }
 
-export function generateSyntheticDataset({ seed, ticketsPerScenario, start, includeResourceReference = false }) {
+export function generateSyntheticDataset({ seed, ticketsPerScenario, start, includeResourceReference = false, scenarioProfile = "baseline" }) {
+  if (!Object.hasOwn(SCENARIO_PROFILES, scenarioProfile)
+      || (scenarioProfile !== "baseline" && !includeResourceReference)) {
+    throw new Error("Sensitivity profiles require a recognized profile and resource comparison mode.");
+  }
   const origin = Date.parse(start);
   const iso = (minute) => new Date(origin + minute * 60000).toISOString();
   const samples = [];
   const scenarios = [];
   let lastMinute = 0;
-  const simulatorVersion = includeResourceReference ? REFERENCE_SIMULATOR_VERSION : SIMULATOR_VERSION;
+  const simulatorVersion = scenarioProfile !== "baseline" ? SENSITIVITY_SIMULATOR_VERSION
+    : includeResourceReference ? REFERENCE_SIMULATOR_VERSION : SIMULATOR_VERSION;
   for (const [index, name] of Object.keys(SCENARIOS).entries()) {
-    const result = simulateScenario(name, ticketsPerScenario, (seed + index) >>> 0, includeResourceReference);
-    const scopeKey = `synthetic:${name}`;
+    const result = simulateScenario(name, ticketsPerScenario, (seed + index) >>> 0, includeResourceReference, scenarioProfile);
+    const scopeKey = `synthetic:${scenarioProfile === "baseline" ? "" : `${scenarioProfile}-`}${name}`;
     for (const ticket of result.tickets.filter((entry) => entry.state === "completed")) {
       samples.push({ scopeKey, ticketKey: createHash("sha256").update(`${simulatorVersion}:${seed}:${scopeKey}:${ticket.id}`).digest("hex"),
         sampledAt: iso(ticket.arrival), calledAt: iso(ticket.called), actualWaitMinutes: ticket.called - ticket.arrival,
@@ -142,6 +156,7 @@ export function generateSyntheticDataset({ seed, ticketsPerScenario, start, incl
   return { datasetVersion: "wait-time-synthetic-dataset-v1", source: "synthetic", baselineVersion: "baseline-v1",
     provenance: "synthetic-simulation", from: iso(0), to, capturedAt: to, excludedFeatureRows: 0, samples,
     simulation: { simulatorVersion, seed, ticketsPerScenario, start: iso(0), scenarios,
+      ...(scenarioProfile === "baseline" ? {} : { scenarioProfile }),
       clock: "Virtual time; capturedAt is the simulated window end, not an operational capture timestamp.",
       policy: "Atomic resource allocation; FIFO among eligible tickets. Calls coincide with service starts. Pauses block dispatch only. Interruptions retain resources.",
       productionPerformanceEstablished: false }, customerEstimateChanged: false, rolloutApproved: false };
