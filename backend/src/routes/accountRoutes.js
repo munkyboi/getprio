@@ -37,6 +37,23 @@ const avatarUploadLimiter = rateLimit({
 });
 
 router.use(authenticate);
+const notificationInbox = require("../services/customerNotificationInbox");
+router.get("/notifications", asyncHandler(async (req, res) => {
+  res.set("Cache-Control", "no-store");
+  res.json(await notificationInbox.list(req.user._id, req.query.cursor));
+}));
+router.post("/notifications/:id/read", asyncHandler(async (req, res) => {
+  res.json(await notificationInbox.markRead(req.user._id, req.params.id));
+}));
+for (const [path, method] of [["read-all", "markAllRead"], ["clear", "clear"]]) {
+  router.post(`/notifications/${path}`, asyncHandler(async (req, res) => {
+    if (!req.body || Object.keys(req.body).some(key => key !== "before")) {
+      throw Object.assign(new Error("Provide the notification snapshot cutoff."), { statusCode: 400 });
+    }
+    res.json(await notificationInbox[method](req.user._id, req.body.before));
+  }));
+}
+
 const deletionLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, limit: 5, standardHeaders: true, legacyHeaders: false,
   keyGenerator: (req) => `${req.user._id}:${ipKeyGenerator(req.ip)}`,

@@ -1,3 +1,4 @@
+const notificationInbox = require("./customerNotificationInbox");
 const crypto = require("crypto");
 const path = require("node:path");
 const outboxRepository = require("../repositories/queueNotificationOutbox");
@@ -54,6 +55,11 @@ function userIdFromRecipient(recipientKey) {
   return match ? match[1] : null;
 }
 
+function inboxNotificationId(intent) {
+  return intent.queue_event_id ? `queue-event:${intent.queue_event_id}:${intent.template_name}`
+    : `queue-intent:${String(intent.idempotency_key || intent.id).replace(/:(web_push|fcm)$/u, "")}`;
+}
+
 async function dispatchFcmIntent(intent, tenant, ticket, workerId) {
   const userId = userIdFromRecipient(intent.recipient_key);
   if (!userId) {
@@ -65,6 +71,11 @@ async function dispatchFcmIntent(intent, tenant, ticket, workerId) {
     return { attempted: 0, sent: 0, skipped: true };
   }
 
+  const payload = pushNotificationService.buildCustomerQueueNotificationPayload({
+    tenant, ticket, action: customerAction(intent.template_name), notificationId: `outbox:${intent.id}`
+  });
+  await notificationInbox.record({ userId, ...payload,
+    notificationId: inboxNotificationId(intent), occurredAt: intent.created_at });
   const registrations = await pushRegistrationRepository.listActiveByUserId(userId);
   await mobilePushOutboxDeliveryRepository.ensurePending(intent.id, registrations);
   const pending = await mobilePushOutboxDeliveryRepository.claimPending(intent.id, workerId);
@@ -72,12 +83,6 @@ async function dispatchFcmIntent(intent, tenant, ticket, workerId) {
     return { attempted: registrations.length, sent: 0, skipped: registrations.length === 0 };
   }
 
-  const payload = pushNotificationService.buildCustomerQueueNotificationPayload({
-    tenant,
-    ticket,
-    action: customerAction(intent.template_name),
-    notificationId: `outbox:${intent.id}`
-  });
   let result;
   try {
     result = await fcmRegistrationService.sendToRegistrations({
@@ -195,7 +200,8 @@ async function dispatchIntent(intent, options = {}) {
       tenant,
       ticket,
       action: customerAction(intent.template_name),
-      channels: { webPush: true, fcm: false }
+      channels: { webPush: true, fcm: false },
+      notificationId: inboxNotificationId(intent), occurredAt: intent.created_at
     });
     await notificationDeliveryRepository.recordDelivery({
       tenantId: tenant._id,

@@ -6,6 +6,7 @@ test("outbox Web Push delivery does not send a duplicate direct FCM notification
   const browserNotifications = [];
   let fcmCalls = 0;
   const service = requireWithMocks("../src/services/pushNotificationService.js", {
+    "./customerNotificationInbox": { record: async () => null },
     "../config/env": {
       vapidPublicKey: "public-key",
       vapidPrivateKey: "private-key",
