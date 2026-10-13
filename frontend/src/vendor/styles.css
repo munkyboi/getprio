@@ -273,3 +273,29 @@
  .config-tabs-list { width: fit-content; min-width: 360px; }
  .config-summary { flex-direction: row; align-items: center; justify-content: space-between; }
 }
+
+/* Services and booking availability use the shared configuration anatomy. */
+.ops-list-heading { display: flex; flex-direction: column; align-items: stretch; gap: 12px; min-width: 0; }
+.ops-list-heading h2 { margin: 0; font: inherit; font-size: 18px; font-weight: 600; }
+.config-catalog-list, .config-catalog-content { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.config-catalog-list { margin-top: 16px; }
+.config-catalog-summary { display: grid; grid-template-columns: minmax(0,1fr); gap: 16px; margin: 0; }
+.config-catalog-summary dt { font-size: 12px; color: var(--muted-foreground); }
+.config-catalog-summary dd { margin: 4px 0 0; overflow-wrap: anywhere; }
+.config-catalog-actions { display: flex; flex-direction: column; gap: 12px; }
+.config-branch-assignment { padding-block: 16px; border-block-start: 1px solid var(--border); }
+@media (min-width: 48.0625em) {
+  .ops-list-heading { flex-direction: row; align-items: center; justify-content: space-between; }
+  .config-catalog-summary { grid-template-columns: repeat(3,minmax(0,1fr)); }
+  .config-catalog-actions { flex-direction: row; align-items: center; flex-wrap: wrap; }
+  .config-related-fields { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); align-items: start; }
+  .config-quantity-fields { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); align-items: start; }
+}
+.config-page { display: flex; flex-direction: column; gap: 24px; }
+.config-page .ops-panel-content { display: flex; flex-direction: column; gap: 16px; }
+
+@media (min-width: 48.0625em) {
+  .config-catalog-actions .config-check { width: auto; }
+  .config-page .config-tabs-list { width: fit-content; }
+  .config-page .config-tabs-list [data-slot=tabs-trigger] { flex: none; white-space: nowrap; padding-inline: 16px; }
+}

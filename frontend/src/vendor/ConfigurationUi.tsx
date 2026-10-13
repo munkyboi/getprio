@@ -10,6 +10,7 @@ import {
   type ChangeEvent,
 } from "react";
 import { Input } from "./components/ui/input";
+import { Textarea } from "./components/ui/textarea";
 import {
   Field,
   FieldLabel,
@@ -90,6 +91,66 @@ export function ConfigurationInput({
     </Field>
   );
 }
+export function ConfigurationNumber({
+  value,
+  onChange,
+  step = 1,
+  ...props
+}: Omit<
+  ComponentProps<typeof ConfigurationInput>,
+  "type" | "value" | "onChange"
+> & {
+  value: number | string;
+  onChange: (value: number | "") => void;
+}) {
+  return (
+    <ConfigurationInput
+      {...props}
+      type="number"
+      step={step}
+      value={value}
+      onChange={(event) =>
+        onChange(
+          event.currentTarget.value === ""
+            ? ""
+            : Number(event.currentTarget.value),
+        )
+      }
+    />
+  );
+}
+export function ConfigurationTextarea({
+  label,
+  description,
+  error,
+  ...props
+}: ComponentProps<typeof Textarea> & Guidance) {
+  const id = useId(),
+    busy = useContext(Busy);
+  return (
+    <Field data-invalid={Boolean(error)}>
+      <FieldLabel htmlFor={id}>{label}</FieldLabel>
+      <Textarea
+        id={id}
+        rows={4}
+        {...props}
+        disabled={props.disabled || busy}
+        aria-invalid={Boolean(error)}
+        aria-describedby={description || error ? `${id}-help` : undefined}
+      />
+      {description || error ? (
+        <div id={`${id}-help`}>
+          {error ? (
+            <FieldError>{error}</FieldError>
+          ) : (
+            <FieldDescription>{description}</FieldDescription>
+          )}
+        </div>
+      ) : null}
+    </Field>
+  );
+}
+
 export function ConfigurationPhone({
   value,
   onChange,
@@ -175,7 +236,12 @@ export function ConfigurationSelect({
           name={name}
           required={required}
           disabled={disabled || busy}
-          onValueChange={(next) => {
+          onValueChange={(next, details) => {
+            if (details.reason === "escape-key") {
+              details.cancel();
+              details.allowPropagation();
+              return;
+            }
             onChange(next);
             // Custom selections do not bubble a native change: notify the workspace draft tracker.
             const form = root.current?.closest("form");

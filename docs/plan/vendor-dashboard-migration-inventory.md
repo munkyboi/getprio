@@ -121,3 +121,7 @@ The Bookings/Clients/History slice reuses existing dashboard handlers and scoped
 ### Locations/Resources/Counters local review checkpoint (13 October 2026)
 
 All three current Locations tabs and their list/card/edit flows now use scoped configuration fields, Base UI tabs/combobox and the shared TaskDialog. Retain `/dashboard/tenants`, the existing API and role/limit rules; no workflow/station/resource activation or duplicate resource editor. Keep the shared legacy theme editor until its Settings/Board migration. Location profile/hours writes retain the first server-created target for safe hours retry. Counter/resource conflicts retain edited inputs; resource version/capacity are configuration, not runtime availability. See progress notes for 188-test and synthetic browser evidence; local visual, authenticated mutation, upload/device and deployment acceptance remain separate.
+
+### Services and Availability implementation
+
+`/dashboard/services` retains its catalog/weekly/date-exception tabs. Its list and task editors reuse ConfigurationUi, FieldGroup/FieldSet, TaskDialog and scoped tabs; existing catalog client/handlers remain canonical. `serviceConfigurationState.ts` checks editable quantity feasibility and builds the explicit whole-day exception payload. No booking allocation, workflow, station or API/schema activation is introduced. Follow the [work tracker](vendor-dashboard-rework-ticket-tracker.md); Carlo's local approval gates the next screens.
