@@ -125,3 +125,69 @@ test("service status mutation retains saved unit bounds and service settings in 
     assert.equal(body[key], service[key]);
   assert.equal(body.isActive, false);
 });
+
+test("opening and saving an existing service-specific date-only block preserves its service scope", () => {
+  const fs = require("node:fs"),
+    vm = require("node:vm"),
+    ts = require("typescript");
+  const source = fs.readFileSync(
+    require("node:path").join(
+      __dirname,
+      "../src/pages/VendorDashboardPage.tsx",
+    ),
+    "utf8",
+  );
+  const start = source.indexOf("  function openAvailabilityExceptionDialog("),
+    end = source.indexOf(
+      "  async function handleSaveAvailabilityException",
+      start,
+    );
+  const context = {
+    selectedLocationSlug: "main",
+    serviceSlugById: new Map([["court-id", "court-a"]]),
+    formatDateInputValue: (value) => value,
+    setError() {},
+    setEditingAvailabilityExceptionId() {},
+    setAvailabilityExceptionDialogOpen() {},
+    setAvailabilityExceptionForm(value) {
+      context.form = value;
+    },
+    setAvailabilityExceptionBlockEntireDay(value) {
+      context.wholeDay = value;
+    },
+  };
+  const open = vm.runInNewContext(
+    ts.transpileModule(
+      source.slice(start, end) + "\nopenAvailabilityExceptionDialog;",
+      { compilerOptions: { target: ts.ScriptTarget.ES2022 } },
+    ).outputText,
+    context,
+  );
+  const exception = {
+    id: "existing",
+    serviceId: "court-id",
+    exceptionDate: "2026-10-14",
+    startsAt: null,
+    endsAt: null,
+    isAvailable: false,
+    capacity: null,
+    reason: "Court maintenance",
+  };
+  open(exception);
+  assert.equal(context.wholeDay, false);
+  const saved = dateExceptionPayload(
+    { ...context.form, reason: "Updated reason" },
+    context.wholeDay,
+    "main",
+  );
+  assert.equal(saved.serviceSlug, "court-a");
+  assert.equal(saved.isAvailable, false);
+  assert.equal(saved.startsAt, "");
+  assert.equal(saved.endsAt, "");
+  open({ ...exception, serviceId: null });
+  assert.equal(context.wholeDay, true);
+  assert.equal(
+    dateExceptionPayload(context.form, context.wholeDay, "main").serviceSlug,
+    "",
+  );
+});

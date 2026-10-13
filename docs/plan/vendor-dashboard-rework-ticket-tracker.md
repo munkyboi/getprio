@@ -8,7 +8,7 @@ Updated 13 October 2026. This is the current work-item ledger for this chat's re
 | VD-02 Live Queue and operational scanners | Merged #401 | Retain auto-close, timing and secure board approval behavior; authenticated/device acceptance is separate. |
 | VD-03 Bookings, Clients and History | Merged #404/#407 | Preserve payment/check-in/frozen booking and reschedule guards. |
 | VD-04 Locations, Resources and Counters | Merged #409 (`9fd91e56`) | Local design approved; runtime resource activation remains separate. |
-| VD-05 Services and Availability | Implemented locally; awaiting review | 191 frontend tests/typecheck/lint/build and synthetic browser checks pass. Present locally; complete code review and address defects within this slice. Next screen and PR publication await Carlo. |
+| VD-05 Services and Availability | Implemented locally; awaiting review | 192 frontend tests/typecheck/lint/build and synthetic browser checks pass. Present locally; complete code review and address defects within this slice. Next screen and PR publication await Carlo. |
 | VD-06 Staff management | Pending local approval gate | Preserve seats, memberships, assignment and removal/deactivation guards; coordinate API owner. |
 | VD-07 Settings, business profile and Queue Board management | Pending local approval gate | Preserve public/private URL rotation, display grant renewal/revocation and permission boundaries. |
 | VD-08 Account, subscription/billing and security | Pending local approval gate | Preserve MFA/recovery, owner/admin distinctions, upgrades/credits/plan exit and deletion. |

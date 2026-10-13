@@ -3398,6 +3398,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     setEditingAvailabilityExceptionId(exception?.id || "");
     const blockEntireDay = Boolean(
       exception &&
+        !exception.serviceId &&
         !exception.isAvailable &&
         !exception.startsAt &&
         !exception.endsAt
