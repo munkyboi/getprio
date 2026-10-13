@@ -319,7 +319,7 @@ async function createUser(data, options = {}) {
 
 async function updateUser(userId, changes, options = {}) {
   const queryClient = buildQueryClient(options.client);
-  const values = [Number(userId)];
+  const values = [String(userId)];
   const updates = [];
 
   const setters = {

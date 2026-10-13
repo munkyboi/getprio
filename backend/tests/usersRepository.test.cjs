@@ -242,7 +242,7 @@ test("users repository hydrates relationships, creates linked records, and norma
     notificationSettings: { sms: true }
   }, { client });
   assert.equal(updated.username, "alice");
-  const updateUserCall = calls.find((call) => call.query.includes("UPDATE users SET") && call.params?.[0] === 7);
+  const updateUserCall = calls.find((call) => call.query.includes("UPDATE users SET") && call.params?.[0] === "7");
   assert.match(updateUserCall.query, /display_name = \$2/);
   assert.equal(updateUserCall.params[1], "Al");
 

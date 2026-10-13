@@ -41,13 +41,14 @@ function normalizeRequestText(value, fallback = "") {
   return fallback;
 }
 
-async function getLocationForTenant(tenant, locationSlug) {
+async function getLocationForTenant(tenant, locationSlug, options = {}) {
   const normalizedLocationSlug = normalizeRequestText(locationSlug);
 
   if (normalizedLocationSlug) {
     const location = await storeLocationRepository.findLocationByTenantAndSlug(
       tenant._id,
-      normalizedLocationSlug
+      normalizedLocationSlug,
+      options
     );
     if (!location) {
       const error = new Error("Location not found.");
@@ -57,7 +58,7 @@ async function getLocationForTenant(tenant, locationSlug) {
     return location;
   }
 
-  return storeLocationRepository.findPrimaryLocationByTenantId(tenant._id);
+  return storeLocationRepository.findPrimaryLocationByTenantId(tenant._id, options);
 }
 
 function normalizeTenantNotificationSettings(settings = {}) {

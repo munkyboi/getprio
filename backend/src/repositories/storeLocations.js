@@ -206,7 +206,7 @@ async function findPrimaryLocationByTenantId(tenantId, options = {}) {
       ORDER BY is_primary DESC, created_at ASC
       LIMIT 1
     `,
-    [Number(tenantId)]
+    [String(tenantId)]
   );
 
   return mapLocation(result.rows[0]);
