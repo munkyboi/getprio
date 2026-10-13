@@ -1106,6 +1106,7 @@ export default function VendorDashboardPage() {
   const [rescheduleDialogOpen, setRescheduleDialogOpen] = useState(false);
   const [reschedulingBooking, setReschedulingBooking] = useState<VendorBookingSummary | null>(null);
   const [rescheduleStartAt, setRescheduleStartAt] = useState("");
+  const rescheduleFormRef = useRef<HTMLFormElement>(null);
   const [rescheduleDate, setRescheduleDate] = useState("");
   const [rescheduleSlots, setRescheduleSlots] = useState<BookingSlotSummary[]>([]);
   const [rescheduleSlotsLoading, setRescheduleSlotsLoading] = useState(false);
@@ -8378,6 +8379,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         <OperationScope busy={Boolean(busyAction)}>
           <form
             id="vendor-booking-reschedule"
+            ref={rescheduleFormRef}
             onSubmit={handleRescheduleBooking}
             className="ops-stack"
           >
@@ -8422,7 +8424,12 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                 rescheduleSlotsLoading ? "Loading slots…" : "Select a time"
               }
               value={rescheduleStartAt}
-              onChange={(value) => setRescheduleStartAt(value || "")}
+              onChange={(value) => {
+                if ((value || "") !== rescheduleStartAt && rescheduleFormRef.current) {
+                  unsavedForm.current.mark(rescheduleFormRef.current);
+                }
+                setRescheduleStartAt(value || "");
+              }}
             />
             {rescheduleSlotsError ? (
               <OperationAlert color="red">
