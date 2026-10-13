@@ -44,3 +44,13 @@ test('public links use accessible copy controls and disable copying absent URLs'
   const html=render(QueueCopyField,{label:'Queue board URL',value:'',onClick(){}});
   assert.match(html,/aria-label="Copy Queue board URL"/);assert.match(html,/readonly=""/);assert.match(html,/disabled=""/);
 });
+
+const QueueLifecycleTray = require('../src/vendor/QueueLifecycleTray.tsx').default;
+const trayProps = {snapshot:fixture,locationName:'Main',canOperate:true,busyAction:'',async onRefresh(){},async onExtend(){return true},async onCloseNow(){return true}};
+test('auto-close distinguishes ordinary, final and reconciliation-error warnings',()=>{
+  const warning=(minutes,error=null)=>render(QueueLifecycleTray,{...trayProps,snapshot:{...fixture,queueDay:{...fixture.queueDay,state:'open',autoClosePhase:'warning',currentClosesAt:new Date(Date.now()+minutes*60000).toISOString(),reconciliationError:error}}});
+  const ordinary=warning(10), final=warning(2), failed=warning(10,'Reconciliation failed');
+  assert.match(ordinary,/data-severity="warning"/);assert.match(ordinary,/aria-live="polite"/);
+  for(const html of [final,failed]){assert.match(html,/data-severity="urgent"/);assert.match(html,/v:text-destructive/);assert.match(html,/aria-live="assertive"/);}
+  assert.match(failed,/Queue status needs attention/);assert.match(failed,/Retry status/);
+});

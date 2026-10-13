@@ -132,12 +132,14 @@ export default function QueueLifecycleTray({
     <>
       <Alert
         className="queue-lifecycle-banner"
+        variant={isFinalWarning || reconciliationError ? "destructive" : "default"}
+        data-severity={isFinalWarning || reconciliationError ? "urgent" : "warning"}
         role="region"
         aria-label="Queue auto-close status"
       >
         <AlertTitle
           role="status"
-          aria-live={isFinalWarning ? "assertive" : "polite"}
+          aria-live={isFinalWarning || reconciliationError ? "assertive" : "polite"}
         >
           {trayTitle}
         </AlertTitle>

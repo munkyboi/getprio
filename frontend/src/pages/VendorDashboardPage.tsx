@@ -1,7 +1,7 @@
 import { WalkInDialog } from "../vendor/WalkInDialog";
 import { QueueConfirmation } from "../vendor/TaskDialog";
 import { QueueCounterPicker, QueueViewPicker, QueueCopyField, QueueEmptyState, LiveQueueIntake, LiveQueueSummary, CounterTickets } from "../vendor/LiveQueueWidgets";
-import { Button as QueueButton } from "../vendor/components/ui/button";
+import { Button as QueueButton, buttonVariants as queueButtonVariants } from "../vendor/components/ui/button";
 import { Badge as QueueBadge } from "../vendor/components/ui/badge";
 import { Card as QueueCard, CardHeader as QueueCardHeader, CardTitle as QueueCardTitle, CardContent as QueueCardContent } from "../vendor/components/ui/card";
 import { Alert as QueueAlert, AlertTitle as QueueAlertTitle, AlertDescription as QueueAlertDescription } from "../vendor/components/ui/alert";
@@ -5697,20 +5697,16 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       <p className="vendor-eyebrow">QR and public links</p>
                     </div>
                     <div className="queue-row">
-                      <QueueButton
-                        variant="outline"
-                        disabled={!queueLinks.monitorUrl}
-                        nativeButton={false}
-                        render={
-                          <a
-                            href={queueLinks.monitorUrl || undefined}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                          />
-                        }
+                      <a
+                        className={queueButtonVariants({ variant: "outline" })}
+                        href={queueLinks.monitorUrl || undefined}
+                        aria-disabled={!queueLinks.monitorUrl || undefined}
+                        tabIndex={queueLinks.monitorUrl ? undefined : -1}
+                        target="_blank"
+                        rel="noopener noreferrer"
                       >
                         Open board
-                      </QueueButton>
+                      </a>
                       <QueueButton
                         variant="default"
                         disabled={Boolean(queueDayClosed || queueDayPaused || busyAction) || boardScannerBusy}
