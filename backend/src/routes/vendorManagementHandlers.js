@@ -224,6 +224,11 @@ async function handleListStaff({ req, res, getAuthorizedTenant, assertTenantPerm
   res.json({ staffSeatLimit: entitlements.staffSeats || 0, staff: staff.map((user) => { const membership = user.tenantMemberships.find((item) => String(item.tenantId) === String(tenant._id)); return { id: user._id, name: user.name, email: user.email, phone: user.phone, role: membership?.role || "staff", isActive: membership?.isActive !== false, assignedCounterIds: assignedCountersByUserId.get(String(user._id)) || [], assignedLocationIds: assignedLocationsByUserId.get(String(user._id)) || [] }; }) });
 }
 
+function assertNewStaffMembership(staff, userId) {
+  if (!staff.some(member => String(member._id) === String(userId))) return;
+  throw Object.assign(new Error("This account is already a member of this vendor. Manage their access from the staff list."), { statusCode: 409 });
+}
+
 async function handleInviteStaff({ req, res, getAuthorizedTenant, assertTenantPermission, billingService, userRepository, staffAccessEmailService }) {
   const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
   assertTenantPermission(req.user, tenant._id, "tenant.staff.invite");
@@ -234,6 +239,7 @@ async function handleInviteStaff({ req, res, getAuthorizedTenant, assertTenantPe
   await staffAccessEmailService.change({ tenant, userId: user._id, actorId: req.user._id }, async (options) => {
     const entitlements = await billingService.getTenantEntitlements(tenant._id);
     const staff = await userRepository.listUsersByTenantId(tenant._id, options);
+    assertNewStaffMembership(staff, user._id);
     if (staff.length >= Number(entitlements.staffSeats || 0)) { const error = new Error("Staff seat limit exceeded for this subscription plan."); error.statusCode = 403; throw error; }
     const nextRole = ["owner", "admin", "staff"].includes(req.body.role) ? req.body.role : "staff";
     const requesterMembership = req.user.tenantMemberships?.find((item) => String(item.tenantId) === String(tenant._id) && item.isActive !== false);
