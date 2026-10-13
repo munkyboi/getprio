@@ -5,7 +5,7 @@ import { writeFile } from "node:fs/promises";
 import { Buffer } from "node:buffer";
 import process from "node:process";
 import console from "node:console";
-import { generateSyntheticDataset, REFERENCE_SIMULATOR_VERSION } from "./wait-time-simulator.mjs";
+import { generateSyntheticDataset, REFERENCE_SIMULATOR_VERSION, SENSITIVITY_SIMULATOR_VERSION, SCENARIO_PROFILES } from "./wait-time-simulator.mjs";
 import { RESOURCE_REFERENCE_VERSION } from "./wait-time-resource-reference.mjs";
 import { timestamp, validateDataset } from "./wait-time-dataset-contract.mjs";
 import { metrics } from "./wait-time-metrics.mjs";
@@ -32,9 +32,9 @@ function seedsFrom(value) {
 }
 
 function optionsFrom(args) {
-  const options = { seeds: "42,314,2718", tickets: "120", start: "2026-01-01T00:00:00Z", training: "360", end: "960" };
+  const options = { seeds: "42,314,2718", tickets: "120", start: "2026-01-01T00:00:00Z", training: "360", end: "960", profile: "baseline" };
   const keys = new Map([["--seeds", "seeds"], ["--tickets-per-scenario", "tickets"], ["--start", "start"],
-    ["--training-minutes", "training"], ["--holdout-end-minutes", "end"], ["--output", "output"]]);
+    ["--scenario-profile", "profile"], ["--training-minutes", "training"], ["--holdout-end-minutes", "end"], ["--output", "output"]]);
   const seen = new Set();
   for (let index = 0; index < args.length; index += 2) {
     const key = keys.get(args[index]);
@@ -43,6 +43,9 @@ function optionsFrom(args) {
     options[key] = args[index + 1];
   }
   if (!options.output) throw new Error("Use --output <new-private-file>.");
+  if (!Object.hasOwn(SCENARIO_PROFILES, options.profile)) {
+    throw new Error("Use --scenario-profile baseline, dense-arrivals, or variable-durations.");
+  }
   options.seeds = seedsFrom(options.seeds);
   options.tickets = positiveInteger(options.tickets, 200, "tickets per scenario (maximum 200)");
   options.training = positiveInteger(options.training, 100000, "training minutes");
@@ -136,13 +139,14 @@ async function run() {
   const aggregate = new Map();
   const runs = [];
   for (const seed of options.seeds) {
-    const dataset = generateSyntheticDataset({ seed, ticketsPerScenario: options.tickets, start: options.start, includeResourceReference: true });
+    const dataset = generateSyntheticDataset({ seed, ticketsPerScenario: options.tickets, start: options.start, includeResourceReference: true, scenarioProfile: options.profile });
     validateDataset(dataset, { cutoff: options.cutoff, end: options.holdoutEnd }, "synthetic");
     const datasetSha256 = createHash("sha256").update(JSON.stringify(dataset)).digest("hex");
     runs.push({ seed, datasetSha256, from: dataset.from, to: dataset.to, ...evaluate(dataset, options, aggregate) });
   }
   const report = { reportVersion: "wait-time-synthetic-comparison-v2", source: "synthetic", provenance: "synthetic-simulation",
-    simulatorVersion: REFERENCE_SIMULATOR_VERSION, resourcePredictorVersion: RESOURCE_REFERENCE_VERSION,
+    simulatorVersion: options.profile === "baseline" ? REFERENCE_SIMULATOR_VERSION : SENSITIVITY_SIMULATOR_VERSION,
+    scenarioProfile: options.profile, resourcePredictorVersion: RESOURCE_REFERENCE_VERSION,
     seeds: options.seeds, ticketsPerScenario: options.tickets, start: options.start,
     trainingCutoff: options.cutoff, holdoutEnd: options.holdoutEnd, minimumTrainingTickets: 30,
     splitPolicy: "Each seed fits its own historical model; all methods score the same later called tickets. Overlapping outcomes are excluded. Not cross-seed model-transfer validation.",
@@ -155,7 +159,7 @@ async function run() {
   const output = JSON.stringify(report, null, 2);
   if (Buffer.byteLength(output) > 8 * 1024 * 1024) throw new Error("Comparison report exceeds 8 MiB.");
   await writeFile(options.output, output, { flag: "wx", mode: 0o600 });
-  console.log(JSON.stringify({ output: options.output, seeds: options.seeds, trainingCutoff: options.cutoff,
+  console.log(JSON.stringify({ output: options.output, scenarioProfile: options.profile, seeds: options.seeds, trainingCutoff: options.cutoff,
     holdoutEnd: options.holdoutEnd, aggregate: report.aggregate, customerEstimateChanged: false,
     rolloutApproved: false, productionPerformanceEstablished: false }, null, 2));
 }

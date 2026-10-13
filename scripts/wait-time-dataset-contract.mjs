@@ -42,8 +42,15 @@ function validateDatasetKind(dataset, kind) {
   if (kind === "synthetic") {
     if (dataset.datasetVersion !== "wait-time-synthetic-dataset-v1" || dataset.source !== "synthetic" ||
         dataset.provenance !== "synthetic-simulation" ||
-        !["synthetic-queue-v1", "synthetic-queue-reference-v1"].includes(dataset.simulation?.simulatorVersion)) {
+        !["synthetic-queue-v1", "synthetic-queue-reference-v1", "synthetic-queue-sensitivity-v1"].includes(dataset.simulation?.simulatorVersion)) {
       throw new Error("Explicit synthetic mode requires a labeled simulator dataset.");
+    }
+    if (dataset.simulation.simulatorVersion === "synthetic-queue-sensitivity-v1") {
+      const profile = dataset.simulation.scenarioProfile;
+      if (!["dense-arrivals", "variable-durations"].includes(profile)
+          || dataset.samples.some((sample) => !sample.scopeKey?.startsWith(`synthetic:${profile}-`))) {
+        throw new Error("Sensitivity datasets require a recognized profile and profile-bound scopes.");
+      }
     }
     return;
   }
