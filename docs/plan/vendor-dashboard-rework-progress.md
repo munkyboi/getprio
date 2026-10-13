@@ -142,3 +142,7 @@ Both independent review axes identified the same existing-record edge case: a se
 Integrated the frontend corrections from follow-up PR #414 (`4079c55c`) into this unpublished branch: associated checkbox guidance, searchable counter staff assignment with retained IDs, and search-only draft exclusion. An import overlap was resolved by retaining both the Services helpers and the staff-assignment component. The integrated branch passes 194 frontend tests, typecheck and affected lint. #414 remains independently review/check gated; this local integration does not publish Services/Availability or authorize the next screens.
 
 The PR #414 Enter-key correction (`6d7d3348`) is also integrated locally. Search does not implicitly submit the counter editor; IME composition remains untouched. The integrated preview again passes all 194 frontend tests and typecheck. Hosted latest-head CI/CodeQL, Sonar and fresh Codex review on #414 remain separate; a required approving review is still needed before merge readiness.
+
+### PR #414 merge inventory update
+
+Live GitHub verification confirms #414 merged at `c3baacbf`, final head `6d7d3348`, with CI/CodeQL/Sonar passed and review threads resolved. This supersedes the pending-check checkpoint above. The deployment workflow for descendant `1697ba5b` is in progress; deployment/live acceptance is not confirmed. Services/Availability and its PR publication still await Carlo's local review. Vendor code ownership remains in this chat; central PR coordination is collecting merge/check/deployment status.
