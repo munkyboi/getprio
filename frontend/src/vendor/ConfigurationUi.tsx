@@ -182,10 +182,10 @@ export function ConfigurationCheck({
   return (
     <Field className="config-check">
       <label htmlFor={id}>
-        <input id={id} type="checkbox" {...props} disabled={disabled || busy} />
+        <input id={id} type="checkbox" {...props} disabled={disabled || busy} aria-describedby={[props["aria-describedby"], description ? `${id}-help` : undefined].filter(Boolean).join(" ") || undefined} />
         <span>{label}</span>
       </label>
-      {description ? <FieldDescription>{description}</FieldDescription> : null}
+      {description ? <FieldDescription id={`${id}-help`}>{description}</FieldDescription> : null}
     </Field>
   );
 }
