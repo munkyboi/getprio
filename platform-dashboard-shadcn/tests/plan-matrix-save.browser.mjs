@@ -4,6 +4,8 @@ export default async function verifyPlanMatrixSave(page) {
   for (const fail of [false, true]) {
     await page.setViewportSize(fail ? { width: 390, height: 844 } : { width: 1280, height: 900 });
     await page.goto(`${origin}/tests/plan-matrix-harness.html${fail ? "?fail=1" : ""}`);
+    expect(await page.title() === "Plan Matrix save regression", "Test page must have a descriptive title");
+    expect(await page.locator("html").getAttribute("lang") === "en", "Test page must declare its language");
     await page.getByLabel("Plan name", { exact: true }).fill("Free revised");
     await page.getByRole("tab", { name: "Pro", exact: true }).click();
     await page.getByLabel("Plan name", { exact: true }).fill("Pro revised");
