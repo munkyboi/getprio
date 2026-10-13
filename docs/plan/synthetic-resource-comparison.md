@@ -118,3 +118,24 @@ Default-window observations from seeds 42, 314, 2718, 120 tickets per scenario:
 Denser arrivals can issue all work before the frozen training cutoff. Empty holdouts are retained with null metrics/support, not repaired by moving the window. Inspect selection and training coverage before interpreting differences, and do not compare supported-only metrics as equal-population estimates. Predeclare a different experiment if a different window or ticket count is needed; do not tune it after seeing the winner. Within each profile, training remains historical and seed-local; this is neither cross-profile nor cross-seed model-transfer validation.
 
 Seven focused automated regressions cover exact baseline hashes, repeatability, changed assumptions, profile-bound provenance/scopes, rejection in operational mode, invalid profile output protection, known-plan isolation from future duration outcomes and the preceding coverage/boundary contracts. No database, live capture, confidence calibration, resource activation or customer rollout is introduced.
+
+## Cross-seed model-transfer evaluation
+
+An opt-in `--training-seed` selects `wait-time-synthetic-transfer-v1`. The command generates one declared training dataset, fits its historical outcomes strictly before the fixed cutoff once, and reuses that model for all evaluation seeds. Evaluation-seed history and outcomes never enter fitting. The original command without this option keeps within-seed fitting, v2 reporting and existing scores.
+
+```sh
+node scripts/wait-time-synthetic-compare.mjs \
+  --training-seed 9001 \
+  --seeds 42,314,2718 \
+  --output /root/wait-time-cross-seed-9001.json
+```
+
+Declare the training seed, evaluation seeds, profile, ticket count and windows before inspecting scores. The training seed is not an evaluation seed. Its closed simulation window must cover the training cutoff, but does not need to extend through the evaluation holdout end; each evaluation dataset must cover the full scoring window. At most four evaluation seeds plus one training seed are allowed; every four-scenario seed block must be disjoint modulo 2^32, including wraparound. Equal or partially overlapping blocks fail before output creation. The same scenario profile is used for training and evaluation. This is transfer to different random streams under shared assumptions, not changed-profile transfer, independent vendor validation or production accuracy.
+
+The report records `trainingMode`, separate `transferTraining` evidence (seed, full dataset hash/window, fitted model hash, trained scope count and training coverage), and each run's actual `trainingSeed` and `modelSha256`. All hashes use compact UTF-8 JSON without whitespace. Dataset hashes include the full simulation; model hashes describe only the fitted result, not a deployable artifact or rollout authorization. Every evaluation run in transfer mode uses the same model hash and the same training coverage. Per-run `excludedOverlappingTickets` and selection counts still describe evaluation tickets excluded by the temporal window, while training coverage separately describes the training seed's exclusions.
+
+A model with insufficient historical coverage retains the existing candidate fallback. Baseline and resource-reference predictions, scored ticket populations, exclusive/private output, selection diagnostics and no-rollout flags are unchanged. Sparse or empty evaluation holdouts remain visible; no window is moved to improve results.
+
+For the declared baseline-profile training seed 9001, evaluation seeds 42/314/2718 and original default window, candidate-with-fallback MAE is 7.68 minutes (sequential), 6.00 (parallel), 19.52 (competing) and 161.99 (disrupted). Disrupted coverage remains fallback-only. The unchanged baseline MAEs are 6.40, 78.55, 107.73 and 161.99 respectively. These observations are one reproducible experiment, not grounds to select the training seed after seeing results or claim deployment performance.
+
+Automated regressions compare CLI predictions with a model fitted exclusively from the declared training seed, verify shared model/coverage lineage, unchanged baseline/resource populations, invalid and modulo-wrap seed rejection, and sensitivity-profile sparse-history fallback. Resource authority, privacy/capture approvals, service-start evidence and live rollout remain separate gates.
