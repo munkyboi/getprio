@@ -36,6 +36,9 @@ export function VendorWorkspaceShell(props: Props) {
   const workspaceLabel = props.workspace === "operations" ? "Operations" : "Administration";
   const initials = props.name.trim().split(/\s+/).slice(0, 2).map(part => part[0]).join("").toUpperCase();
   function guardNavigation(event: React.MouseEvent<HTMLAnchorElement>) {
+    if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey ||
+        event.currentTarget.getAttribute("target") === "_blank" ||
+        event.currentTarget.getAttribute("href") === window.location.pathname + window.location.search + window.location.hash) return;
     if (props.onBeforeNavigate && !props.onBeforeNavigate()) event.preventDefault();
     else setOpened(false);
   }
