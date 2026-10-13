@@ -164,6 +164,34 @@ test('durable upcoming booking reminders on disposable PostgreSQL',{skip:!url},a
       assert.deepEqual(await scheduler.dispatch({...reclaimed,expires_at:new Date(Date.now()-60000)},'recovery-worker'),{skipped:true});
       assert.equal((await inboxRows(f.userId)).rowCount,0);
     });
+    await scenario('committed history survives a crash after provider acceptance even when the intent later becomes obsolete',async()=>{
+      const f=await fixture();await registrations.upsert({userId:f.userId,installationId:crypto.randomUUID(),token:'crash-fixture',platform:'ios'});
+      let transaction=0,accepted=0,visibleAtProvider=0;
+      const scheduler=createBookingReminderService({database:{...db,withTransaction:callback=>{
+        transaction++;const current=transaction;
+        return db.withTransaction(async client=>{const result=await callback(client);if(current===3)throw new Error('crash after provider acceptance');return result;});
+      }},sender:{sendToRegistrations:async({registrations:pending})=>{
+        visibleAtProvider=(await inboxRows(f.userId)).rowCount;accepted++;
+        return {configured:true,attempted:pending.length,sent:pending.length,outcomes:pending.map(r=>({registrationId:r.id,status:'accepted'}))};
+      }}});
+      // Transaction 1 enqueues; transaction 2 captures; transaction 3 delivers.
+      await scheduler.enqueueDue();const intent=await claim();
+      await assert.rejects(scheduler.dispatch(intent,'reminder-test'),/crash after provider acceptance/);
+      assert.equal(accepted,1);assert.equal(visibleAtProvider,1);assert.equal((await inboxRows(f.userId)).rowCount,1);
+      await db.pool.query("UPDATE bookings SET status='canceled' WHERE id=$1",[f.bookingId]);
+      assert.deepEqual(await createBookingReminderService().dispatch(intent,'reminder-test'),{skipped:true});
+      assert.equal((await inboxRows(f.userId)).rowCount,1);
+    });
+    await scenario('rescheduling between capture and delivery suppresses the push',async()=>{
+      const f=await fixture();let transaction=0,sent=false;
+      const scheduler=createBookingReminderService({database:{...db,withTransaction:async callback=>{
+        transaction++;const current=transaction;const result=await db.withTransaction(callback);
+        if(current===2)await db.pool.query("UPDATE bookings SET scheduled_start_at=scheduled_start_at+INTERVAL '1 day',scheduled_end_at=scheduled_end_at+INTERVAL '1 day' WHERE id=$1",[f.bookingId]);
+        return result;
+      }},sender:{sendToRegistrations:async()=>{sent=true;throw new Error('Must not send');}}});
+      await scheduler.enqueueDue();const intent=await claim();assert.deepEqual(await scheduler.dispatch(intent,'reminder-test'),{skipped:true});
+      assert.equal(sent,false);assert.equal((await inboxRows(f.userId)).rowCount,1,'history was captured before rescheduling');
+    });
     await scenario('disabled scheduler neither enqueues nor emits pending reminders',async()=>{
       const f=await fixture();await createBookingReminderService().enqueueDue();const intent=await claim();
       const disabled=createBookingReminderService({enabled:()=>false});assert.equal(await disabled.enqueueDue(),0);assert.deepEqual(await disabled.dispatch(intent,'reminder-test'),{skipped:true});assert.equal((await inboxRows(f.userId)).rowCount,0);

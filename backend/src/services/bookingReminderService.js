@@ -62,36 +62,55 @@ function createBookingReminderService({ database = db, notificationInbox = inbox
     });
   }
 
+  async function readEligible(client, intent, workerId) {
+    // User-before-booking agrees with account deletion. We never request branch
+    // or resource locks after booking; operational writers retain branch-first order.
+    await client.query("SET LOCAL lock_timeout='1s'");
+    const userId = /^user:([1-9]\d*)$/u.exec(intent.recipient_key)?.[1];
+    if (!userId) throw new Error("Booking reminder must target an account.");
+    await client.query("SELECT id FROM users WHERE id=$1 FOR NO KEY UPDATE", [userId]);
+    await client.query("SELECT id FROM bookings WHERE id=$1 FOR SHARE", [String(intent.booking_id)]);
+    const { rows: [owned] } = await client.query(`SELECT id,expires_at FROM queue_notification_outbox
+      WHERE id=$1 AND status='processing' AND lease_owner=$2 AND leased_until > clock_timestamp()
+      FOR UPDATE`, [String(intent.id), workerId]);
+    if (!owned) return null;
+    intent = {...intent,expires_at:owned.expires_at};
+    const { rows: [booking] } = await client.query(`SELECT b.id::text,b.reference,b.scheduled_start_at,
+      t.name AS tenant_name,l.timezone,
+      LEAST($4::timestamptz,b.scheduled_start_at-CASE WHEN $5='24h' THEN INTERVAL '24 hours' ELSE INTERVAL '1 hour' END+INTERVAL '10 minutes') AS window_end
+      FROM bookings b JOIN users u ON u.id=b.customer_user_id
+        JOIN tenants t ON t.id=b.tenant_id JOIN store_locations l ON l.id=b.location_id AND l.tenant_id=b.tenant_id
+      WHERE b.id=$1 AND b.reminder_schedule_revision=$2 AND b.customer_user_id=$3
+        AND ${ELIGIBLE} AND b.reminder_eligible_at <= b.scheduled_start_at-
+        CASE WHEN $5='24h' THEN INTERVAL '24 hours' ELSE INTERVAL '1 hour' END
+        AND b.scheduled_start_at-CASE WHEN $5='24h' THEN INTERVAL '24 hours' ELSE INTERVAL '1 hour' END <= clock_timestamp()
+        AND b.scheduled_start_at-CASE WHEN $5='24h' THEN INTERVAL '24 hours' ELSE INTERVAL '1 hour' END+INTERVAL '10 minutes' > clock_timestamp()
+      AND $4::timestamptz > clock_timestamp()`,
+    [String(intent.booking_id),String(intent.booking_schedule_revision),userId,intent.expires_at,intent.booking_reminder_stage]);
+    if (!enabled() || !booking) {
+      await client.query("UPDATE queue_notification_outbox SET status='obsolete',lease_owner=NULL,leased_until=NULL WHERE id=$1", [String(intent.id)]);
+      return null;
+    }
+    return {userId,booking,intent:{...intent,expires_at:booking.window_end}};
+  }
+
   async function dispatch(intent, workerId, {timeoutMs = 10_000} = {}) {
+    const captured = await database.withTransaction(async client => {
+      const current = await readEligible(client,intent,workerId);
+      if (!current) return null;
+      const payload = reminderPayload(current.booking,current.intent);
+      await notificationInbox.record({userId:current.userId,...payload}, {client});
+      return {payload};
+    });
+    if (!captured) return {skipped:true};
+    // History is committed before any external side effect. Revalidate all state
+    // in a separate delivery transaction; capture never grants future eligibility.
     const result = await database.withTransaction(async client => {
-      // User-before-booking agrees with account deletion. We never request branch
-      // or resource locks after booking; operational writers retain branch-first order.
-      await client.query("SET LOCAL lock_timeout='1s'");
-      const userId = /^user:([1-9]\d*)$/u.exec(intent.recipient_key)?.[1];
-      if (!userId) throw new Error("Booking reminder must target an account.");
-      await client.query("SELECT id FROM users WHERE id=$1 FOR NO KEY UPDATE", [userId]);
-      await client.query("SELECT id FROM bookings WHERE id=$1 FOR SHARE", [String(intent.booking_id)]);
-      const { rows: [owned] } = await client.query(`SELECT id,expires_at FROM queue_notification_outbox
-        WHERE id=$1 AND status='processing' AND lease_owner=$2 AND leased_until > clock_timestamp()
-        FOR UPDATE`, [String(intent.id), workerId]);
-      if (!owned) return { skipped: true };
-      intent = {...intent,expires_at:owned.expires_at};
-      const { rows: [booking] } = await client.query(`SELECT b.id::text,b.reference,b.scheduled_start_at,
-        t.name AS tenant_name,l.timezone
-        FROM bookings b JOIN users u ON u.id=b.customer_user_id
-          JOIN tenants t ON t.id=b.tenant_id JOIN store_locations l ON l.id=b.location_id AND l.tenant_id=b.tenant_id
-        WHERE b.id=$1 AND b.reminder_schedule_revision=$2 AND b.customer_user_id=$3
-          AND ${ELIGIBLE} AND b.reminder_eligible_at <= b.scheduled_start_at-
-            CASE WHEN $5='24h' THEN INTERVAL '24 hours' ELSE INTERVAL '1 hour' END
-          AND b.scheduled_start_at-CASE WHEN $5='24h' THEN INTERVAL '24 hours' ELSE INTERVAL '1 hour' END <= clock_timestamp()
-          AND $4::timestamptz > clock_timestamp()`,
-      [String(intent.booking_id),String(intent.booking_schedule_revision),userId,intent.expires_at,intent.booking_reminder_stage]);
-      if (!enabled() || !booking) {
-        await client.query("UPDATE queue_notification_outbox SET status='obsolete',lease_owner=NULL,leased_until=NULL WHERE id=$1", [String(intent.id)]);
-        return { skipped: true };
-      }
-      const payload = reminderPayload(booking,intent);
-      await notificationInbox.record({userId,...payload}, {client});
+      const current = await readEligible(client,intent,workerId);
+      if (!current) return {skipped:true};
+      const {userId} = current;
+      intent = current.intent;
+      const payload = captured.payload;
       const active = await pushRegistrations.listActiveByUserId(userId,{client});
       await pushDeliveries.ensurePending(String(intent.id),active,{client});
       const pending = await pushDeliveries.claimPending(String(intent.id),workerId,{client});
@@ -125,7 +144,7 @@ function createBookingReminderService({ database = db, notificationInbox = inbox
       }
       return {attempted:outcome.attempted,sent:outcome.sent,...(retry?{retry:"Booking reminder has transient device failures."}:{})};
     });
-    // Commit accepted-device progress and the inbox before asking the outbox to
+    // Commit accepted-device progress before asking the outbox to
     // retry. A crash after provider acceptance is still an at-least-once boundary.
     if (result.retry) throw new Error(result.retry);
     return result;
