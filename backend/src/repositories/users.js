@@ -407,7 +407,7 @@ async function addTenantMembership(userId, tenantId, role = "staff", options = {
         role = EXCLUDED.role,
         is_active = EXCLUDED.is_active
     `,
-    [Number(userId), Number(tenantId), role, true]
+    [String(userId), String(tenantId), role, true]
   );
 
   return findUserById(userId, { client: queryClient });
