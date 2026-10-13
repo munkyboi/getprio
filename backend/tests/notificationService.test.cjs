@@ -2,6 +2,30 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const path = require("node:path");
 
+test("journey failures cannot inject provider text into terminal logs", async () => {
+  const warnings = [], deliveries = [];
+  const originalFetch = global.fetch, originalWarn = console.warn;
+  const forged = "upstream failure\r\nINFO forged entry\u001b[31m";
+  const service = requireWithMocks("../src/services/notificationService.js", {
+    "../config/env": { resendApiKey: "fixture", resendFromEmail: "sender@example.test", resendApiUrl: "https://example.test/emails" },
+    "../repositories/billing": { getActiveSubscriptionByTenantId: async () => null },
+    "../repositories/notificationDeliveries": { recordDelivery: async data => deliveries.push(data) },
+    "./queueEmailJourneyService": { withLifecycleSlot: async (_ticket, _slot, _key, deliver) => deliver() }
+  });
+  global.fetch = async () => ({ ok: false, status: 502, text: async () => forged });
+  console.warn = (...args) => warnings.push(args);
+  try {
+    assert.equal(await service.notifyJourneyLifecycle({ ticket: { _id: "42", ticketNumber: "Q42", notifyByEmail: true, customerEmail: "customer@example.test" },
+      tenant: { _id: "1", name: "Vendor", slug: "vendor" }, slot: "joined", action: "joined" }), false);
+    assert.deepEqual(warnings, [["[email-journey-notification-skipped]", { category: "delivery" }]]);
+    assert.equal(deliveries[0].status, "failed");
+    assert.ok(deliveries[0].errorMessage.includes(forged), "existing private delivery tracking keeps diagnostic detail");
+  } finally {
+    global.fetch = originalFetch;
+    console.warn = originalWarn;
+  }
+});
+
 function requireWithMocks(targetPath, mocks) {
   const resolvedTarget = require.resolve(targetPath);
   const originals = new Map();
