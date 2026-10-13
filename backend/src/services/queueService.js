@@ -345,12 +345,14 @@ async function createTicket({
   developerWebhook,
   developerMobileLink,
   serviceId
-}) {
+}, admission = {}) {
   let resolvedLocation = await resolveLocation(tenant, { location });
   await maintenance.assertNewIntake();
   let operationTenant = tenant;
   let vendorDateKey;
   const persist = async (client) => {
+    await maintenance.assertNewIntake({ client });
+    if (admission.admitOtp) await admission.admitOtp(client);
     const createdTicket = await createTicketForTenantInTransaction(client, {
       tenant: operationTenant,
       location: resolvedLocation,

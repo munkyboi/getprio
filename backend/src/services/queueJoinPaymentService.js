@@ -163,7 +163,7 @@ async function retrievePayMongoCheckout(providerCheckoutSessionId) {
   return data?.data || null;
 }
 
-async function createPayMongoCheckoutForJoin({ tenant, otpId, payload, queueFee }) {
+async function createPayMongoCheckoutForJoin({ tenant, otpId, payload, queueFee }, admission = {}) {
   await maintenance.assertNewIntake();
   if (!env.paymongoSecretKey) {
     const error = new Error("PayMongo is not configured.");
@@ -180,6 +180,7 @@ async function createPayMongoCheckoutForJoin({ tenant, otpId, payload, queueFee 
     : null;
   const payment = await db.withTransaction(async client => {
     await maintenance.assertNewIntake({ client });
+    if (admission.admitOtp) await admission.admitOtp(client);
     const admitted = await paymentRepository.createPayment({
     tenantId: tenant._id,
     otpId,
@@ -317,13 +318,13 @@ async function createPayMongoCheckoutForJoin({ tenant, otpId, payload, queueFee 
   }
 }
 
-async function createQueueJoinCheckout({ tenant, otpId, payload, queueFee }) {
+async function createQueueJoinCheckout({ tenant, otpId, payload, queueFee }, admission = {}) {
   const checkout = await createPayMongoCheckoutForJoin({
     tenant,
     otpId,
     payload,
     queueFee
-  });
+  }, admission);
 
   return {
     requiresPayment: true,
@@ -341,7 +342,7 @@ async function createQueueJoinCheckout({ tenant, otpId, payload, queueFee }) {
   };
 }
 
-async function createZeroFeeTicket({ tenant, payload, queueFee }) {
+async function createZeroFeeTicket({ tenant, payload, queueFee }, admission = {}) {
   const location = payload.locationSlug
     ? await storeLocationRepository.findLocationByTenantAndSlug(tenant._id, payload.locationSlug)
     : null;
@@ -352,7 +353,7 @@ async function createZeroFeeTicket({ tenant, payload, queueFee }) {
     tenant,
     location: location || undefined,
     ...payload
-  });
+  }, admission);
 
   return {
     requiresPayment: false,
@@ -362,12 +363,12 @@ async function createZeroFeeTicket({ tenant, payload, queueFee }) {
   };
 }
 
-async function handleVerifiedJoin({ tenant, otpId, payload }) {
+async function handleVerifiedJoin({ tenant, otpId, payload }, admission = {}) {
   await maintenance.assertNewIntake();
   await queueFeeService.assertTenantCanAcceptCustomerJoins(tenant._id);
   const queueFee = await queueFeeService.getQueueFeeForTenant(tenant._id);
   if (!shouldChargeQueueFee(queueFee)) {
-    return createZeroFeeTicket({ tenant, payload, queueFee });
+    return createZeroFeeTicket({ tenant, payload, queueFee }, admission);
   }
 
   return createQueueJoinCheckout({
@@ -375,7 +376,7 @@ async function handleVerifiedJoin({ tenant, otpId, payload }) {
     otpId,
     payload,
     queueFee
-  });
+  }, admission);
 }
 
 async function handleDirectJoin({ tenant, payload }) {

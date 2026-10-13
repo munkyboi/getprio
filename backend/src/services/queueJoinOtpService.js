@@ -99,7 +99,9 @@ async function requestJoinOtp({ tenant, payload, chainId = null, parentOtpId = n
   const code = createOtpCode();
   const expiresAt = new Date(Date.now() + OTP_TTL_MINUTES * 60 * 1000);
 
-  const otp = await otpRepository.createOtp({
+  const otp = await db.withTransaction(async client => {
+    await maintenance.assertNewIntake({ client });
+    return otpRepository.createOtp({
     tenantId: tenant._id,
     codeHash: hashOtpCode(code),
     deliveryChannel: delivery.channel,
@@ -109,6 +111,7 @@ async function requestJoinOtp({ tenant, payload, chainId = null, parentOtpId = n
     chainId,
     parentOtpId,
     resendOrdinal
+    }, { client });
   });
 
   await deliverOtp({
@@ -184,7 +187,8 @@ async function resendJoinOtp({ tenant, otpId }) {
   });
 }
 
-async function verifyJoinOtp({ tenant, otpId, code }) {
+async function verifyJoinOtp({ tenant, otpId, code }, options = {}) {
+  if (!options.client) await maintenance.assertNewIntake();
   const normalizedCode = normalizeOtpCode(code);
   if (normalizedCode.length !== 6) {
     const error = new Error("Enter the 6-digit verification code.");
@@ -195,7 +199,8 @@ async function verifyJoinOtp({ tenant, otpId, code }) {
   let payload;
   let verificationFailure = null;
 
-  await db.withTransaction(async (client) => {
+  const verify = async (client) => {
+    await maintenance.assertNewIntake({ client });
     const otp = await otpRepository.findOtpByIdForUpdate(otpId, { client });
 
     if (!otp || otp.tenantId !== String(tenant._id)) {
@@ -235,8 +240,10 @@ async function verifyJoinOtp({ tenant, otpId, code }) {
     }
 
     payload = { ...sanitizeJoinPayload(otp.payload), otpChainId: otp.chainId };
-    await otpRepository.markOtpUsed(otp._id, { client });
-  });
+    if (options.consume !== false) await otpRepository.markOtpUsed(otp._id, { client });
+  };
+  if (options.client) await verify(options.client);
+  else await db.withTransaction(verify);
 
   if (verificationFailure) throw verificationFailure;
 
@@ -244,11 +251,12 @@ async function verifyJoinOtp({ tenant, otpId, code }) {
 }
 
 async function verifyJoinOtpAndCreateTicket({ tenant, otpId, code }) {
-  const payload = await verifyJoinOtp({ tenant, otpId, code });
+  const input = { tenant, otpId, code };
+  const payload = await verifyJoinOtp(input, { consume: false });
   return createTicket({
     tenant,
     ...payload
-  });
+  }, { admitOtp: client => verifyJoinOtp(input, { client }) });
 }
 
 module.exports = {

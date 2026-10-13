@@ -718,12 +718,12 @@ router.post(
       tenant,
       otpId: req.body.otpId,
       code: req.body.code
-    });
+    }, { consume: false });
     const result = await queueJoinPaymentService.handleVerifiedJoin({
       tenant,
       otpId: req.body.otpId,
       payload
-    });
+    }, { admitOtp: client => queueJoinOtpService.verifyJoinOtp({ tenant, otpId: req.body.otpId, code: req.body.code }, { client }) });
 
     if (result.requiresPayment) {
       res.status(201).json(projectPublicResult(result));

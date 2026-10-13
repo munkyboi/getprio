@@ -60,6 +60,11 @@ export function PlatformMaintenance({ live, editable, api = maintenanceApi }: { 
     setCurrent(policy); setDraft(policy); setPreview(null); setReason(''); setUncertain(false)
     setNotice('The saved maintenance status was refreshed. No new change was submitted.')
   })
+  const abandon = () => run(async () => {
+    const result = await api.abandon(operationKey)
+    setCurrent(result.policy); setDraft(result.policy); setPreview(null); setReason(''); setUncertain(false)
+    setNotice(result.state === 'abandoned' ? 'Confirmation safely discarded. A delayed save cannot apply it.' : 'The original save already committed. Current maintenance settings were refreshed.')
+  })
   const changed = Boolean(draft && current && (draft.enabled !== current.enabled || draft.forceScreen !== current.forceScreen || draft.message !== current.message))
   const invalid = !draft?.message.trim() || draft.message.trim().length > 500 || reason.trim().length < 8 || reason.trim().length > 500
   const frozen = busy || Boolean(preview) || !editable
@@ -82,7 +87,7 @@ export function PlatformMaintenance({ live, editable, api = maintenanceApi }: { 
     <Dialog open={Boolean(preview)} onOpenChange={open => { if (!open && !busy && !uncertain) setPreview(null) }}>
       <DialogContent><DialogHeader><DialogTitle>Confirm maintenance change</DialogTitle><DialogDescription>This changes intake across GetPrio. Existing work and staff/admin access are preserved.</DialogDescription></DialogHeader>
         <div className="flex min-h-0 flex-col gap-3 overflow-y-auto"><p>{preview?.policy.enabled ? 'Pause new bookings and queue joins.' : 'End maintenance and restore normal intake rules.'}</p><p>{preview?.policy.forceScreen ? 'Show the full maintenance screen on public/customer pages.' : 'Keep public/customer pages available with a maintenance notice when active.'}</p><p className="break-words">{preview?.policy.message}</p><p className="text-sm text-muted-foreground">Audit reason: {reason}</p>{error ? <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert> : null}{uncertain ? <p className="text-sm">The save result is unknown. Retry this confirmation with the same operation key, or check the saved status before closing.</p> : null}</div>
-        <DialogFooter><Button variant="outline" disabled={busy} onClick={() => uncertain ? void reconcile() : setPreview(null)}>{uncertain ? 'Check saved status' : 'Cancel'}</Button><Button className="min-h-11" disabled={busy} onClick={() => void save()}>{busy ? <LoaderCircle className="animate-spin" data-icon="inline-start" /> : null}Confirm maintenance change</Button></DialogFooter>
+        <DialogFooter>{uncertain ? <Button variant="outline" className="min-h-11" disabled={busy} onClick={() => void abandon()}>Safely discard confirmation</Button> : null}<Button variant="outline" className="min-h-11" disabled={busy} onClick={() => uncertain ? void reconcile() : setPreview(null)}>{uncertain ? 'Check saved status' : 'Cancel'}</Button><Button className="min-h-11" disabled={busy} onClick={() => void save()}>{busy ? <LoaderCircle className="animate-spin" data-icon="inline-start" /> : null}Confirm maintenance change</Button></DialogFooter>
       </DialogContent>
     </Dialog>
   </Card>

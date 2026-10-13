@@ -10,6 +10,7 @@ const receipts = new Map<string, MaintenanceRecord>()
 const api: MaintenanceApi = {
   read: async () => structuredClone(policy),
   operationStatus: async key => receipts.has(key) ? {state:'committed',policy:structuredClone(policy)} : {state:'unknown'},
+  abandon: async key => ({ state: receipts.has(key) ? 'committed' : 'abandoned', policy: structuredClone(policy) }),
   preview: async (draft) => ({ policy: structuredClone(draft), revision: policy.revision, confirmation: { token: 'bound-test-token', expiresAt: new Date(Date.now() + 300_000).toISOString() } }),
   save: async (preview, reason, key) => {
     if (receipts.has(key)) return structuredClone(receipts.get(key)!)

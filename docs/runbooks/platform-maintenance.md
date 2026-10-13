@@ -8,7 +8,7 @@ Platform Admin → Service health → Safe maintenance mode. Settings-management
 4. Review the server-issued preview, then confirm. The saved status is authoritative; a failed save is not proof maintenance is active.
 5. When ready, clear the pause, review and confirm again. This also clears the forced screen.
 
-Default is disabled. Policy, single-use confirmation, revision, idempotent receipt and security audit are saved transactionally. A second admin's update invalidates an old preview. A network retry keeps its operation key; an explicit authorization/revision error requires a fresh review. An uncertain save cannot be dismissed into another review: retry it or use **Check saved status** to reconcile the current saved policy before closing. Discard changes before refreshing an edited form.
+Default is disabled. Policy, single-use confirmation, revision, idempotent receipt and security audit are saved transactionally. A second admin's update invalidates an old preview. A network retry keeps its operation key and returns the current policy, even if another admin changed it after the original commit. An uncertain save cannot be dismissed into another review: retry it, use **Check saved status**, or **Safely discard confirmation**. Safe discard serializes with pending saves and records a durable cancellation receipt so a delayed request cannot subsequently apply; if the original already committed, it returns the current policy instead. Discard does not require recent MFA assurance because it cannot change policy, but still requires active authorized account/session access. Discard changes before refreshing an edited form.
 
 ## What pauses
 
@@ -19,6 +19,10 @@ Default is disabled. Policy, single-use confirmation, revision, idempotent recei
 The backend enforces the pause independently of the UI. Booking/ticket insertion, queue-fee checkout admission and booking-SMS checkout admission recheck the policy under a shared row lock in their transaction. Enabling maintenance waits for admitted writes to finish. No per-process policy cache or client-provided bypass is used. New intake returns HTTP 503 with `PLATFORM_MAINTENANCE`, the public message, `Retry-After: 60` and `Cache-Control: no-store`.
 
 ## What continues
+
+OTP starts/resends hold the maintenance shared lock through insertion. Queue verification first validates without consuming the code, then revalidates and consumes it inside the actual ticket/payment admission transaction. An activation or failed durable admission leaves the code reusable until its normal expiry. Previously admitted OTP deliveries can finish; no provider network calls run under the policy lock.
+
+Service health mounts these controls as soon as viewer authorization is known, independently of unrelated read-model availability. The control never falls back to fixture authority in live mode.
 
 Existing tickets can be called, confirmed, started, served, cancelled and tracked. Confirmed/rescheduled existing bookings can check in, be managed and finish under their normal authorization, payment, capacity and local queue rules. Provider callbacks, existing queue-fee payment fulfillment, notifications, scheduled reconciliation and audit processing are not shut down. A previously admitted paid booking-SMS checkout may finish its booking only after server validation of the stored payment's paid state and tenant/verified-OTP binding, rechecked under lock; a query parameter or arbitrary payment ID never grants this exemption. Maintenance does not change queue-day intake settings, booking statuses, reservations or resource allocations.
 

@@ -66,7 +66,7 @@ test("booking OTP request and verify returns a server-side booking verification 
   const bookingOtpService = requireWithMocks("../src/services/bookingOtpService.js", {
     "../config/env": { jwtSecret: "test-secret" },
     "../config/db": {
-      withTransaction: async (callback) => callback({})
+      withTransaction: async (callback) => callback({ query: async () => ({ rows: [require('./helpers/maintenanceFixture.cjs').row] }) })
     },
     "../repositories/bookingOtps": {
       createOtp: async (data) => {
@@ -158,7 +158,7 @@ test("booking OTP service rejects invalid payloads, resend cooldowns, and verifi
   const bookingOtpService = requireWithMocks("../src/services/bookingOtpService.js", {
     "../config/env": { jwtSecret: "test-secret" },
     "../config/db": {
-      withTransaction: async (callback) => callback({})
+      withTransaction: async (callback) => callback({ query: async () => ({ rows: [require('./helpers/maintenanceFixture.cjs').row] }) })
     },
     "../repositories/bookingOtps": {
       createOtp: async (data) => {

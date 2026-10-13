@@ -28,7 +28,8 @@ test('maintenance controls preserve operations and serialize new intake', { skip
     const service = require('../src/services/platformMaintenanceService');
     await pool.query(`CREATE SCHEMA ${schema};
       CREATE TABLE tenants(id BIGINT PRIMARY KEY);
-      CREATE TABLE booking_otps(id BIGINT PRIMARY KEY,tenant_id BIGINT,code_hash TEXT,delivery_channel TEXT,delivery_target TEXT,payload JSONB,expires_at TIMESTAMPTZ,verified_at TIMESTAMPTZ,verification_token_hash TEXT,consumed_at TIMESTAMPTZ,created_at TIMESTAMPTZ DEFAULT NOW(),updated_at TIMESTAMPTZ DEFAULT NOW());
+      CREATE TABLE booking_otps(id BIGSERIAL PRIMARY KEY,tenant_id BIGINT,code_hash TEXT,delivery_channel TEXT,delivery_target TEXT,payload JSONB,expires_at TIMESTAMPTZ,verified_at TIMESTAMPTZ,verification_token_hash TEXT,consumed_at TIMESTAMPTZ,created_at TIMESTAMPTZ DEFAULT NOW(),updated_at TIMESTAMPTZ DEFAULT NOW());
+      CREATE TABLE queue_join_otps(id BIGSERIAL PRIMARY KEY,tenant_id BIGINT,code_hash TEXT,delivery_channel TEXT,delivery_target TEXT,payload JSONB,expires_at TIMESTAMPTZ,used_at TIMESTAMPTZ,created_at TIMESTAMPTZ DEFAULT NOW(),updated_at TIMESTAMPTZ DEFAULT NOW(),chain_id UUID DEFAULT gen_random_uuid(),parent_otp_id BIGINT,resend_ordinal INTEGER DEFAULT 0,incorrect_attempt_count INTEGER DEFAULT 0,locked_until TIMESTAMPTZ);
       CREATE TABLE booking_sms_alert_payments(id BIGSERIAL PRIMARY KEY,tenant_id BIGINT,booking_otp_id BIGINT,plan_slug TEXT,provider TEXT,provider_checkout_session_id TEXT,provider_payment_id TEXT,status TEXT DEFAULT 'pending',amount_cents INTEGER,currency TEXT,payload JSONB DEFAULT '{}',metadata JSONB DEFAULT '{}',paid_at TIMESTAMPTZ,checkout_url TEXT,created_at TIMESTAMPTZ DEFAULT NOW(),updated_at TIMESTAMPTZ DEFAULT NOW(),UNIQUE(tenant_id,booking_otp_id));
       CREATE TABLE tenant_subscriptions(id BIGINT PRIMARY KEY,tenant_id BIGINT,plan_slug TEXT,status TEXT,updated_at TIMESTAMPTZ DEFAULT NOW());
       CREATE TABLE queue_fee_settings(plan_slug TEXT PRIMARY KEY,enabled BOOLEAN,amount_cents INTEGER,currency TEXT,updated_by_user_id BIGINT,created_at TIMESTAMPTZ DEFAULT NOW(),updated_at TIMESTAMPTZ DEFAULT NOW());
@@ -163,6 +164,89 @@ test('maintenance controls preserve operations and serialize new intake', { skip
         if (creating) await creating.catch(() => {});
         global.fetch=originalFetch;
       }
+    });
+    await t.test('idempotent retry returns current policy after another administrator changes it', async () => {
+      const p = await service.preview({user,session,draft,reason});
+      const first = {...input,draft:p.policy,expectedRevision:p.revision,confirmationToken:p.confirmation.token,operationKey:randomUUID()};
+      await service.update(first);
+      const off = await service.preview({user,session,draft:{...draft,enabled:false,forceScreen:false},reason});
+      const current = await service.update({...input,draft:off.policy,expectedRevision:off.revision,confirmationToken:off.confirmation.token,operationKey:randomUUID()});
+      assert.deepEqual(await service.update(first),current);
+    });
+    await t.test('abandonment fences delayed saves even after recent assurance expires', async () => {
+      const p = await service.preview({user,session,draft,reason});
+      const pending = {...input,draft:p.policy,expectedRevision:p.revision,confirmationToken:p.confirmation.token,operationKey:randomUUID()};
+      await pool.query("UPDATE auth_sessions SET mfa_verified_at=clock_timestamp()-interval '11 minutes' WHERE id=1");
+      assert.equal((await service.abandon({user,session,operationKey:pending.operationKey})).state,'abandoned');
+      await pool.query("UPDATE auth_sessions SET mfa_verified_at=clock_timestamp() WHERE id=1");
+      await assert.rejects(service.update(pending),{code:'MAINTENANCE_KEY_CONFLICT'});
+      assert.equal((await service.operationStatus(user,pending.operationKey)).state,'abandoned');
+      const committed = {...pending,operationKey:randomUUID()};
+      await service.update(committed);
+      assert.equal((await service.abandon({user,session,operationKey:committed.operationKey})).state,'committed');
+      const off = await service.preview({user,session,draft:{...draft,enabled:false,forceScreen:false},reason});
+      await service.update({...input,draft:off.policy,expectedRevision:off.revision,confirmationToken:off.confirmation.token,operationKey:randomUUID()});
+    });
+    await t.test('OTP starts and resends recheck the policy under the insertion transaction', async () => {
+      const {loadModuleWithMocks} = require('./helpers/loadModuleWithMocks.cjs');
+      const delivery = {sendEmail:async () => {},sendSms:async () => {}};
+      const booking = loadModuleWithMocks(require.resolve('../src/services/bookingOtpService'),{'./notificationService':delivery});
+      const queue = loadModuleWithMocks(require.resolve('../src/services/queueJoinOtpService'),{'./notificationService':delivery,'./securityRateLimitService':{consume:async () => {}}});
+      const tenant = {_id:'1',name:'Demo'};
+      const payload = {customerName:'Test',customerEmail:'test@example.test'};
+      await pool.query("SELECT setval(pg_get_serial_sequence('booking_otps','id'),100)");
+      const old = await queue.requestJoinOtp({tenant,payload});
+      await pool.query("UPDATE queue_join_otps SET created_at=clock_timestamp()-interval '10 minutes' WHERE id=$1",[old.otpId]);
+      const attempt = async action => {
+        const blocker = await pool.connect();
+        await blocker.query('BEGIN');
+        await blocker.query('SELECT id FROM platform_maintenance WHERE id=1 FOR UPDATE');
+        const pending = action(); pending.catch(() => {});
+        try {
+          let waiting = false;
+          for (let i=0;i<200;i++) {
+            waiting = (await pool.query("SELECT 1 FROM pg_stat_activity WHERE application_name=$1 AND wait_event_type='Lock' AND query LIKE '%platform_maintenance%FOR SHARE%'",[schema])).rows.length > 0;
+            if (waiting) break;
+            await new Promise(resolve => setTimeout(resolve,10));
+          }
+          assert.equal(waiting,true);
+          await blocker.query('UPDATE platform_maintenance SET enabled=true WHERE id=1');
+          await blocker.query('COMMIT');
+          await assert.rejects(pending,{code:'PLATFORM_MAINTENANCE'});
+        } finally {await blocker.query('ROLLBACK');blocker.release();await pending.catch(() => {});await pool.query('UPDATE platform_maintenance SET enabled=false WHERE id=1');}
+      };
+      const beforeBooking = (await pool.query('SELECT count(*) FROM booking_otps')).rows[0].count;
+      const beforeQueue = (await pool.query('SELECT count(*) FROM queue_join_otps')).rows[0].count;
+      await attempt(() => booking.requestBookingOtp({tenant,payload}));
+      await attempt(() => queue.requestJoinOtp({tenant,payload}));
+      await attempt(() => queue.resendJoinOtp({tenant,otpId:old.otpId}));
+      assert.equal((await pool.query('SELECT count(*) FROM booking_otps')).rows[0].count,beforeBooking);
+      assert.equal((await pool.query('SELECT count(*) FROM queue_join_otps')).rows[0].count,beforeQueue);
+    });
+    await t.test('maintenance and failed durable admission leave a valid queue OTP reusable', async () => {
+      const {loadModuleWithMocks} = require('./helpers/loadModuleWithMocks.cjs');
+      let code;
+      const otp = loadModuleWithMocks(require.resolve('../src/services/queueJoinOtpService'),{
+        './notificationService':{sendEmail:async input => {code = input.text.match(/\b\d{6}\b/)[0];}},
+        './securityRateLimitService':{consume:async () => {}}
+      });
+      const tenant = {_id:'1',name:'Demo'};
+      const created = await otp.requestJoinOtp({tenant,payload:{customerName:'Test',customerEmail:'test@example.test'}});
+      const verification = {tenant,otpId:created.otpId,code};
+      await otp.verifyJoinOtp(verification,{consume:false});
+      await pool.query('UPDATE platform_maintenance SET enabled=true WHERE id=1');
+      await assert.rejects(otp.verifyJoinOtp(verification),{code:'PLATFORM_MAINTENANCE'});
+      assert.equal((await pool.query('SELECT used_at FROM queue_join_otps WHERE id=$1',[created.otpId])).rows[0].used_at,null);
+      await pool.query('UPDATE platform_maintenance SET enabled=false WHERE id=1');
+      await assert.rejects(transaction(async client => {await otp.verifyJoinOtp(verification,{client});throw new Error('admission rolled back');}),/admission rolled back/);
+      assert.equal((await pool.query('SELECT used_at FROM queue_join_otps WHERE id=$1',[created.otpId])).rows[0].used_at,null);
+      await transaction(async client => {
+        const pooledQuery = pool.query;
+        pool.query = () => {throw new Error('Admission must not acquire another pool connection');};
+        try {await otp.verifyJoinOtp(verification,{client});}
+        finally {pool.query=pooledQuery;}
+      });
+      await assert.rejects(otp.verifyJoinOtp(verification),/already used/);
     });
     await t.test('revoked authority and expired assurance cannot change policy', async () => {
       const p = await service.preview({ user, session, draft, reason });

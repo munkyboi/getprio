@@ -6,6 +6,7 @@ const router = express.Router();
 router.use((_req, res, next) => { res.setHeader('Cache-Control', 'no-store'); next(); });
 router.get('/', requirePlatformPermission('platform.tenants.read'), asyncHandler(async (req, res) => res.json(await service.read(req.user))));
 router.get('/operations/:key', requirePlatformPermission('platform.settings.manage'), asyncHandler(async (req, res) => res.json(await service.operationStatus(req.user, req.params.key))));
+router.post('/operations/:key/abandon', requirePlatformPermission('platform.settings.manage'), asyncHandler(async (req, res) => res.json(await service.abandon({ user: req.user, session: req.auth.session, operationKey: req.params.key }))));
 router.post('/preview', requirePlatformPermission('platform.settings.manage'), asyncHandler(async (req, res) => {
   res.json(await service.preview({ user: req.user, session: req.auth.session, draft: req.body?.policy, reason: req.body?.reason }));
 }));

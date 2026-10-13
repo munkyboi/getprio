@@ -40,7 +40,27 @@ async function operationStatus(user, operationKey) {
   const receipt = (await db.pool.query('SELECT response FROM platform_maintenance_operations WHERE actor_user_id=$1 AND operation_key=$2', [user._id, operationKey])).rows[0];
   // Absence is NOT proof of failure: the original request may still be waiting
   // for admission/authority locks. Only a committed receipt resolves a save.
-  return receipt ? { state: 'committed', policy: await readPolicy() } : { state: 'unknown' };
+  return receipt ? { state: receipt.response.abandoned ? 'abandoned' : 'committed', policy: await readPolicy() } : { state: 'unknown' };
+}
+// Serialize abandonment against every save on the policy lock. A durable
+// tombstone prevents an original delayed request from committing afterwards.
+async function abandon({ user, session, operationKey }) {
+  permissions.assertPermission(user, MANAGE);
+  if (typeof operationKey !== 'string' || operationKey.length < 8 || operationKey.length > 128) invalid('Invalid operation key.');
+  return db.withTransaction(async client => {
+    const currentSession = await lockedSession(client, user, session);
+    const current = await readPolicy(client, ' FOR UPDATE');
+    if (currentSession.deadlines.some(value => new Date(value).getTime() <= Date.now())) invalid('Please sign in again.', 401, 'MAINTENANCE_SESSION_EXPIRED');
+    const receipt = (await client.query('SELECT response FROM platform_maintenance_operations WHERE actor_user_id=$1 AND operation_key=$2', [user._id, operationKey])).rows[0];
+    if (!receipt) {
+      await client.query('INSERT INTO platform_maintenance_operations(actor_user_id,operation_key,payload_digest,response) VALUES($1,$2,$3,$4::jsonb)', [user._id, operationKey, 'abandoned', JSON.stringify({ abandoned: true })]);
+      await audit.appendEvent({ actorId: user._id, actorRole: 'platform_admin', sessionId: session._id,
+        action: 'platform.maintenance.abandon', resourceType: 'platform_maintenance', resourceId: 'global',
+        reason: 'Safely abandon an unresolved maintenance confirmation', outcome: 'success',
+        metadata: { operationKey } }, { client });
+    }
+    return { state: !receipt || receipt.response.abandoned ? 'abandoned' : 'committed', policy: current };
+  });
 }
 // Called before external work and again in the durable admission transaction.
 // SHARE makes enabling maintenance wait for already-admitted writes to commit.
@@ -82,7 +102,7 @@ async function update({ user, session, draft, reason, expectedRevision, confirma
     const receipt = (await client.query('SELECT payload_digest,response FROM platform_maintenance_operations WHERE actor_user_id=$1 AND operation_key=$2', [user._id, operationKey])).rows[0];
     if (receipt) {
       if (receipt.payload_digest !== digest) invalid('This operation key was used for another change.', 409, 'MAINTENANCE_KEY_CONFLICT');
-      return receipt.response;
+      return JSON.parse(JSON.stringify(current));
     }
     if (current.revision !== expectedRevision) invalid('Maintenance settings changed. Refresh and review again.', 409, 'MAINTENANCE_STALE');
     await privileged.consumeConfirmation({ token: confirmationToken, actorId: user._id, session: currentSession,
@@ -99,4 +119,4 @@ async function update({ user, session, draft, reason, expectedRevision, confirma
     return JSON.parse(JSON.stringify(updated));
   });
 }
-module.exports = { read, publicStatus, operationStatus, assertNewIntake, preview, update };
+module.exports = { read, publicStatus, operationStatus, abandon, assertNewIntake, preview, update };

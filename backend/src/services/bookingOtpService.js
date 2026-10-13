@@ -131,13 +131,16 @@ async function requestBookingOtp({ tenant, payload, channel }) {
   const delivery = getDeliveryTarget(sanitizedPayload, channel);
   const code = createOtpCode();
   const expiresAt = new Date(Date.now() + OTP_TTL_MINUTES * 60 * 1000);
-  const otp = await bookingOtpRepository.createOtp({
+  const otp = await db.withTransaction(async client => {
+    await maintenance.assertNewIntake({ client });
+    return bookingOtpRepository.createOtp({
     tenantId: tenant._id,
     codeHash: hashSecret(code),
     deliveryChannel: delivery.channel,
     deliveryTarget: delivery.target,
     payload: sanitizedPayload,
     expiresAt
+    }, { client });
   });
 
   await deliverOtp({
