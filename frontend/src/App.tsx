@@ -1,3 +1,4 @@
+import { readPreference, preferenceKey, workspacePath } from "./vendor/workspace";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Anchor, Avatar, Box, Burger, Button, Container, Divider, Drawer, Group, Menu, Stack, Text } from "@mantine/core";
 import { Link, Navigate, NavLink, Route, Routes, useLocation, useParams } from "react-router-dom";
@@ -232,11 +233,17 @@ function LegacyMonitorRedirect() {
 
 function DashboardRedirect() {
   const location = useLocation();
+  const { user, loading } = useAuth();
+  const tenant = user?.tenants?.find((entry) => entry.isActive !== false) || user?.tenants?.[0];
+  const role = tenant?.role;
+  const saved = user?.id && tenant?.slug ? readPreference(preferenceKey(user.id, tenant.slug)) : null;
+  const workspace = (role === "owner" || role === "admin") && saved === "administration" ? "administration" : "operations";
+  if (loading) return <Text>Loading vendor workspace...</Text>;
 
   return (
     <Navigate
       replace
-      to={`/dashboard/queue${location.search}${location.hash}`}
+      to={workspacePath(workspace === "administration" ? "settings" : "queue", workspace, location.search, location.hash)}
     />
   );
 }
