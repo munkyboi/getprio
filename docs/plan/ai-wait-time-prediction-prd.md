@@ -226,6 +226,7 @@ The source baseline is an evidence checkpoint, not a claim that every path is ac
 - [Service-start evaluation](resource-shadow-evaluation.md)
 - [Snapshot consumer](resource-snapshot-consumer.md)
 - [Snapshot producer](resource-operational-snapshot-producer.md)
+- [Configuration and plan provenance contract](resource-provenance-watermarks.md) — proposed B2 specification; no runtime watermark or activation is implemented by this document.
 - [Explicit service-session writer](service-session-resource-writer.md)
 
 The cross-chat working log is maintained by the coordinated owners; its local worktree entries are progress evidence, not a replacement for committed product requirements.
