@@ -67,3 +67,14 @@ Each run trained three candidate scopes; disrupted service remained candidate-fa
 Changed scheduling assumptions, cross-seed model-transfer evaluation, richer learned features, uncertainty calibration and real vendor operations remain future work. Production resource-aware estimation separately requires complete service plans, reservations, authoritative occupancy snapshots, access controls, transactions, concurrent allocation safety and rollout controls. This offline reference does not satisfy those live dependencies.
 
 The next integration boundary and read-only plan inventory are documented in [Resource shadow integration readiness](resource-shadow-readiness.md).
+
+## Evaluation coverage report (v2)
+
+`wait-time-synthetic-comparison-v2` retains the fixed experiment, dataset hashes, predictor behavior and metrics. Each per-run and aggregate scenario now includes `coverage`:
+
+- `issuedTickets` and `censoredTickets` describe the full simulation, not the holdout. Censored tickets have no call labels and remain outside accuracy scoring.
+- `selection.calledTickets` is partitioned exactly once into `historicalTickets` (observation and call before cutoff), `overlappingTickets` (observation before cutoff, call at/after cutoff), `observedAfterHoldout` (observation at/after end), `calledAfterHoldout` (holdout observation, call at/after end), and `scoredTickets` (observation at/after cutoff and both observation/call strictly before end). Historical counts are window membership, not eligible model-training counts; consult the separate training coverage.
+- `candidate` and `resource` support contain `supportedTickets`, `scoredTickets` and `supportedPercent`. The denominator is scored called tickets only. These are not forecast availability for all issued tickets, censored work, or production traffic. A zero-ticket holdout has null support percentage and null accuracy, rather than an invented zero-percent result.
+- Supported tickets plus the method fallback counts equal scored tickets. Aggregate counts sum the per-run counts; percentages use pooled tickets rather than averaging seed percentages.
+
+The output version changed because the report now carries an explicit selection/coverage contract. Existing files remain untouched; use a new output filename, for example `/root/wait-time-resource-comparison-coverage.json`. No database records, model thresholds, source dataset, production hooks or rollout policy change. Automated CLI regressions verify count partitions, pooled aggregation, fixed default scores, sparse holdouts, private file permissions and exclusive output creation.
