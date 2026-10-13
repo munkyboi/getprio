@@ -142,3 +142,5 @@ Bookings uses server pagination/search/filtering; label summary counts as curren
 Booking task entry points must clear stale action errors from other pages. Navigation out of an edited payment task must run the workspace discard guard before changing filters or clearing the task. Paired date filters must clear an existing end date when the start advances beyond it. The reschedule task hides its redundant footer Cancel up to 48em, retaining its guarded header close control and desktop Cancel.
 
 Both date-filter change paths must enforce range ordering before storing query state; native `min` alone is insufficient for typed values. Local list searches reset pagination, and displayed slices, ranges and navigation must clamp to the available page count after result changes. No-workspace recovery controls retain the same minimum 44px touch target as the workspace.
+
+Custom select callbacks that do not bubble a native change must explicitly register task-form edits. Leave guards must only clear drafts for navigation in the current tab; modified/non-primary/new-tab/current-URL link clicks retain the current draft.
