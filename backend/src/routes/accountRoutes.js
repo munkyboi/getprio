@@ -20,6 +20,7 @@ const mfaFlowService = require("../services/mfaFlowService");
 const { userRequiresPrivilegedMfa } = require("../services/mfaService");
 const pushNotificationService = require("../services/pushNotificationService");
 const userAvatarUploadService = require("../services/userAvatarUploadService");
+const { getImageUploadPolicy } = require("../services/imageUploadPolicy");
 const customerTicketAccess = require("../services/customerTicketAccess");
 const { assertPublicTextFieldsAllowed } = require("../services/contentModeration");
 const { assertTenantPermission } = require("../middleware/auth");
@@ -37,6 +38,10 @@ const avatarUploadLimiter = rateLimit({
 });
 
 router.use(authenticate);
+router.get("/image-upload-policy", asyncHandler(async (_req, res) => {
+  res.set("Cache-Control", "no-store");
+  res.json(await getImageUploadPolicy());
+}));
 const notificationInbox = require("../services/customerNotificationInbox");
 router.get("/notifications", asyncHandler(async (req, res) => {
   res.set("Cache-Control", "no-store");
