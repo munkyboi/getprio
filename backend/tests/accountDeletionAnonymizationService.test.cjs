@@ -2,6 +2,19 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { applyBestEffortAnonymization } = require('../src/services/accountDeletionAnonymizationService');
 
+test('reordered opaque IDs are accepted but duplicates cannot replace a reviewed row', async () => {
+  const source = 'public.customer_favorites.customer_user_id';
+  const items = ['a000', '9000'].map((id, index) => ({id,rowKey:['52',String(index+1)],rowKeyColumns:['customer_user_id','tenant_id']}));
+  const inventory = {sources:[{source,recordCount:2,itemsComplete:true,items}]};
+  const client = {query:async()=>({rowCount:1})};
+  const selected = ['9000','a000'];
+  const result = await applyBestEffortAnonymization(client, inventory, 52, {[source]:selected});
+  assert.equal(result.deleted[0].count, 2);
+  assert.deepEqual(selected, ['9000','a000']);
+  assert.deepEqual(items.map(item=>item.id), ['a000','9000']);
+  await assert.rejects(() => applyBestEffortAnonymization(client, inventory, 52, {[source]:['a000','a000']}), {code:'CLEANUP_SELECTION_INVALID'});
+});
+
 test('reviewed cleanup deletes only account-owned favorites and detaches the actor from retained queue events', async () => {
   const calls = [];
   const client = { async query(sql, params) { calls.push({ sql, params }); return { rowCount: 1 }; } };

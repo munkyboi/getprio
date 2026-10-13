@@ -1,5 +1,6 @@
 const db = require("../config/db");
 const { REQUIRED_TASKS } = require("./accountDeletionService");
+const { compareReferenceIds } = require("./accountDeletionReferenceOrder");
 
 const TASK_LABELS = Object.freeze({
   application_relational_inventory: "Automated application relational inventory",
@@ -178,8 +179,8 @@ async function queueCleanup(requestId, { selection, exclusions, referenceSelecti
     for (const source of referenceSources) {
       const items = source.items || [];
       const hasRowIdentities = items.every((item) => item.rowIdentity && typeof item.rowIdentity === "object" && Object.keys(item.rowIdentity).length > 0);
-      const expectedItems = items.map((item) => item.id).sort();
-      const selectedItems = Array.isArray(referenceSelection[source.source]) ? [...referenceSelection[source.source]].sort() : [];
+      const expectedItems = items.map((item) => item.id).sort(compareReferenceIds);
+      const selectedItems = Array.isArray(referenceSelection[source.source]) ? [...referenceSelection[source.source]].sort(compareReferenceIds) : [];
       if (!source.itemsComplete || !hasRowIdentities || expectedItems.length !== source.recordCount
         || selectedItems.length !== expectedItems.length
         || selectedItems.some((itemId, index) => itemId !== expectedItems[index])) {

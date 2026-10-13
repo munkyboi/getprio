@@ -3,6 +3,7 @@ const notificationService = require('./notificationService');
 const securityAuditService = require('./securityAuditService');
 const { collectRelationalInventory, unsafeCleanupReferences } = require('./accountDeletionInventoryService');
 const { applyBestEffortAnonymization } = require('./accountDeletionAnonymizationService');
+const { compareReferenceIds } = require('./accountDeletionReferenceOrder');
 const env = require('../config/env');
 
 const isPreferenceReference = (item) => item.source === 'public.customer_favorites.customer_user_id';
@@ -120,10 +121,10 @@ async function runApprovedCleanup(client, request) {
     const storedReferenceSources = (lockedRequest.scan_report?.inventory?.sources || []).filter((item) => item.recordCount > 0 && item.source !== 'public.users.id');
     if (currentReferenceSources.length !== storedReferenceSources.length || currentReferenceSources.some((source) => {
       const stored = storedReferenceSources.find((item) => item.source === source.source);
-      const expectedIds = (stored?.items || []).map((item) => item.id).sort();
+      const expectedIds = (stored?.items || []).map((item) => item.id).sort(compareReferenceIds);
       const storedItemsIdentified = (stored?.items || []).every((item) => item.rowIdentity && typeof item.rowIdentity === 'object' && Object.keys(item.rowIdentity).length > 0);
-      const selectedIds = Array.isArray(selectedReferences[source.source]) ? [...selectedReferences[source.source]].sort() : [];
-      const currentIds = (source.items || []).map((item) => item.id).sort();
+      const selectedIds = Array.isArray(selectedReferences[source.source]) ? [...selectedReferences[source.source]].sort(compareReferenceIds) : [];
+      const currentIds = (source.items || []).map((item) => item.id).sort(compareReferenceIds);
       return !source.itemsComplete || !stored?.itemsComplete || !storedItemsIdentified || expectedIds.length !== source.recordCount
         || currentIds.length !== expectedIds.length || currentIds.some((id, index) => id !== expectedIds[index])
         || selectedIds.length !== expectedIds.length || selectedIds.some((id, index) => id !== expectedIds[index]);

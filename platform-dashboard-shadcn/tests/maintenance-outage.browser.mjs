@@ -75,6 +75,14 @@ export default async function verify(page) {
   editable=false
   await page.reload(); await maintenance.click(); await pause.waitFor()
   if (!await pause.isDisabled() || !await page.getByRole('button',{name:'Review maintenance change'}).isDisabled()) throw new Error('Read-only viewers must remain unable to change maintenance')
+  await page.getByRole('button',{name:'Search ⌘K',exact:true}).click()
+  const commandSearch = page.getByPlaceholder('Search routes, tenants, projects…')
+  await commandSearch.waitFor()
+  if (!await commandSearch.evaluate(el=>el===document.activeElement)) throw new Error('Command input must receive keyboard focus')
+  await commandSearch.fill('Service health')
+  await commandSearch.press('Enter')
+  await page.getByRole('dialog',{name:'Search Platform',exact:true}).waitFor({state:'hidden'})
+  await page.getByRole('tab',{name:'Observations',exact:true}).waitFor()
   viewerAvailable=false
   await page.reload()
   await maintenance.click()
