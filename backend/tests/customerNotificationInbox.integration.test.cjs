@@ -33,7 +33,7 @@ test('account-synchronized notification inbox on disposable PostgreSQL', { skip:
       assert.equal(await inbox.record({userId:user,notificationId:'silent',silent:true}),null);
       assert.equal(await inbox.record({userId:user,notificationId:'old-outbox',title:'Old',body:'Old',occurredAt:'2000-01-01T00:00:00Z'}),null);
       const page = await inbox.list(user);
-      assert.equal(page.unreadCount,1);
+      assert.equal(page.unreadCount,1); assert.equal(page.totalCount,1);
       assert.deepEqual(Object.keys(page.notifications[0]),['id','title','body','createdAt','readAt']);
     });
     await t.test('ownership, signed cutoffs, idempotent reads and new-arrival bulk protection', async () => {
@@ -50,7 +50,7 @@ test('account-synchronized notification inbox on disposable PostgreSQL', { skip:
       const second = await send(user);
       assert.equal((await inbox.markAllRead(user,page.snapshotCutoff)).unreadCount,1);
       await inbox.clear(user,page.snapshotCutoff);
-      assert.deepEqual((await inbox.list(user)).notifications.map(n=>n.id),[second]);
+      const remaining=await inbox.list(user); assert.deepEqual(remaining.notifications.map(n=>n.id),[second]); assert.equal(remaining.totalCount,1);
       const tombstone = (await db.pool.query('SELECT title,body,cleared_at FROM customer_notification_inbox WHERE id=$1',[first])).rows[0];
       assert.equal(tombstone.title,null); assert.equal(tombstone.body,null); assert.ok(tombstone.cleared_at);
       assert.equal((await inbox.list(other)).notifications.length,1);
@@ -63,22 +63,22 @@ test('account-synchronized notification inbox on disposable PostgreSQL', { skip:
       await db.pool.query("UPDATE customer_notification_inbox SET created_at=NOW()-INTERVAL '91 days' WHERE id=$1",[id]);
       const expired = await send(user,'expired');
       await db.pool.query("UPDATE customer_notification_inbox SET created_at=NOW()-INTERVAL '91 days' WHERE id=$1",[expired]);
-      assert.equal((await inbox.list(user)).unreadCount,0);
+      assert.equal((await inbox.list(user)).unreadCount,0); assert.equal((await inbox.list(user)).totalCount,0);
       assert.equal(await inbox.pruneExpired(),2);
       assert.equal((await db.pool.query('SELECT id FROM customer_notification_inbox WHERE user_id=$1',[user])).rowCount,0);
     });
-    await t.test('pagination freezes the original boundary and does not include later arrivals', async () => {
+    await t.test('pagination freezes the page boundary while counts include later arrivals', async () => {
       const user = await fixture();
       for(let i=0;i<55;i++) await send(user);
       const first = await inbox.list(user);
-      assert.equal(first.notifications.length,50); assert.ok(first.nextCursor);
+      assert.equal(first.notifications.length,50); assert.equal(first.totalCount,55); assert.ok(first.nextCursor);
       const newer = await send(user);
       const second = await inbox.list(user,first.nextCursor);
-      assert.equal(second.notifications.length,5); assert.equal(second.nextCursor,null);
+      assert.equal(second.notifications.length,5); assert.equal(second.totalCount,56); assert.equal(second.nextCursor,null);
       assert.equal(second.snapshotCutoff,first.snapshotCutoff);
       assert.equal(new Set([...first.notifications,...second.notifications].map(n=>n.id)).size,55);
       assert.equal([...first.notifications,...second.notifications].some(n=>n.id===newer),false);
-      assert.equal((await inbox.markAllRead(user,second.snapshotCutoff)).unreadCount,1);
+      assert.equal((await inbox.markAllRead(user,second.snapshotCutoff)).unreadCount,1); assert.equal((await inbox.list(user)).totalCount,56);
     });
     await t.test('a concurrent insert waits until the snapshot boundary is established', async () => {
       const user = await fixture(); await send(user);
@@ -102,7 +102,7 @@ test('account-synchronized notification inbox on disposable PostgreSQL', { skip:
       const sessions = require('../src/services/sessionService');
       const user = await fixture(), other = await fixture();
       const session = await sessions.createAuthSession({user:await users.findUserById(user),authMethod:'password'});
-      const app=express(); app.use(express.json()); app.use('/api/account',require('../src/routes/accountRoutes'));
+      const app=express(); app.use(express.json()); app.use('/api/account',require('../src/routes/accountRoutes')); app.use('/api/v1/account',require('../src/routes/accountRoutes'));
       app.use((error,_req,res,_next)=>res.status(error.statusCode||500).json({message:error.message}));
       const server=app.listen(0,'127.0.0.1'); await new Promise(resolve=>server.once('listening',resolve));
       const base='http://127.0.0.1:'+server.address().port+'/api/account/notifications';
@@ -111,14 +111,15 @@ test('account-synchronized notification inbox on disposable PostgreSQL', { skip:
         assert.equal((await fetch(base)).status,401);
         const id=await send(user), foreign=await send(other);
         const response=await fetch(base,{headers}); assert.equal(response.status,200); assert.equal(response.headers.get('cache-control'),'no-store');
-        const page=await response.json(); assert.equal(page.unreadCount,1);
+        const page=await response.json(); assert.equal(page.unreadCount,1); assert.equal(page.totalCount,1);
+        const alias=await fetch(base.replace('/api/account','/api/v1/account'),{headers}); assert.equal(alias.status,200); assert.equal((await alias.json()).totalCount,1);
         const mutation=await fetch(base+'/'+foreign+'/read',{headers,method:'POST'}); assert.equal((await mutation.json()).unreadCount,1);
         await fetch(base+'/'+id+'/read',{headers,method:'POST'});
         assert.equal((await (await fetch(base,{headers})).json()).notifications[0].readAt!==null,true);
         assert.equal((await fetch(base+'/read-all',{headers,method:'POST',body:'{}'})).status,400);
         assert.equal((await fetch(base+'?cursor=bad',{headers})).status,400);
         const clear=await fetch(base+'/clear',{headers,method:'POST',body:JSON.stringify({before:page.snapshotCutoff})}); assert.equal(clear.status,200);
-        assert.equal((await (await fetch(base,{headers})).json()).notifications.length,0);
+        const cleared=await (await fetch(base,{headers})).json(); assert.equal(cleared.notifications.length,0); assert.equal(cleared.totalCount,0);
       } finally {await new Promise(resolve=>server.close(resolve));}
     });
     await t.test('account deletion clears inbox and suppresses racing future notifications', async () => {

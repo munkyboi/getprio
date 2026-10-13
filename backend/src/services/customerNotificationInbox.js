@@ -36,11 +36,11 @@ function createInbox({ transaction = db.withTransaction, pool = db.pool, secret 
     const { rows } = await client.query("SELECT id,deletion_requested_at FROM users WHERE id=$1 FOR UPDATE", [userId]);
     return rows[0] && !rows[0].deletion_requested_at;
   }
-  async function unread(client, userId) {
-    const { rows } = await client.query(`SELECT COUNT(*)::int AS count FROM customer_notification_inbox
-      WHERE user_id=$1 AND cleared_at IS NULL AND read_at IS NULL
+  async function counts(client, userId) {
+    const { rows } = await client.query(`SELECT COUNT(*)::int AS total_count, COUNT(*) FILTER (WHERE read_at IS NULL)::int AS unread_count
+      FROM customer_notification_inbox WHERE user_id=$1 AND cleared_at IS NULL
         AND created_at > clock_timestamp() - INTERVAL '90 days'`, [userId]);
-    return rows[0].count;
+    return {unreadCount:rows[0].unread_count,totalCount:rows[0].total_count};
   }
   async function record({ userId, notificationId, title, body, silent = false, occurredAt }) {
     if (silent || !userId) return null;
@@ -71,7 +71,7 @@ function createInbox({ transaction = db.withTransaction, pool = db.pool, secret 
       return {
         notifications: page.map(row => ({ id: row.id, title: row.title, body: row.body,
           createdAt: row.created_at, readAt: row.read_at })),
-        unreadCount: await unread(client, userId),
+        ...await counts(client, userId),
         nextCursor: rows.length > PAGE_SIZE ? encode(userId, max, page.at(-1).id) : null,
         snapshotCutoff: encode(userId, max)
       };
@@ -87,7 +87,7 @@ function createInbox({ transaction = db.withTransaction, pool = db.pool, secret 
         WHERE user_id=$1 AND id ${action === "read" ? "=" : "<="} $2
           AND cleared_at IS NULL AND created_at > clock_timestamp() - INTERVAL '90 days'`, [userId, max]);
       // Unknown/foreign IDs remain idempotent no-ops, revealing no foreign data.
-      return { unreadCount: await unread(client, userId) };
+      return { unreadCount: (await counts(client, userId)).unreadCount };
     });
   }
   async function pruneExpired() {
