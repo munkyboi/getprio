@@ -1274,16 +1274,16 @@ test("vendor settings provide an editable business profile", () => {
     "utf8"
   );
 
-  assert.match(source, /<Tabs\.Tab value="contact">Business profile<\/Tabs\.Tab>/);
+  assert.match(source, /<ConfigTabsTrigger value="contact">\s*Business profile\s*<\/ConfigTabsTrigger>/);
   assert.match(source, /const \[settingsTab, setSettingsTab\] = useState<SettingsTab>\("contact"\)/);
-  assert.match(source, /value=\{settingsTab\}[\s\S]*?setSettingsTab\(\(value as SettingsTab \| null\) \|\| "contact"\)/);
+  assert.match(source, /value=\{settingsTab\} onValueChange=\{selectSettingsTab\}/);
   assert.doesNotMatch(source, /<Tabs defaultValue="contact"/);
   assert.match(source, /label="Business name"/);
   assert.match(source, /label="Business display name"/);
-  assert.match(source, /<Text fw=\{500\} size="sm">Business description<\/Text>/);
+  assert.match(source, /<CampaignDescriptionEditor\s+label="Business description"/);
   assert.match(source, /<CampaignDescriptionEditor[\s\S]*?maxCharacters=\{1000\}/);
   assert.match(source, /<BusinessCategorySelect[\s\S]*?value=\{settings.businessCategoryId/);
-  assert.match(source, /<Text fw=\{700\}>Default profile media<\/Text>/);
+  assert.match(source, /title="Default profile media"/);
   assert.match(source, /label="Profile background"/);
   assert.match(source, /label="Profile background fit"/);
   assert.match(source, /label="Profile background URL"/);

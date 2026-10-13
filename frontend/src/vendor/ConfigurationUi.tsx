@@ -224,7 +224,7 @@ export function ConfigurationSelect({
   );
   const items = useMemo(() => options.map((item) => item.value), [options]);
   return (
-    <div ref={root}>
+    <div ref={root} data-vendor-draft-ignore>
       <Field data-invalid={Boolean(error)}>
         <FieldLabel htmlFor={id}>{label}</FieldLabel>
         <Combobox

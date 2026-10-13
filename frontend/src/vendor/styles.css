@@ -299,3 +299,14 @@
   .config-page .config-tabs-list { width: fit-content; }
   .config-page .config-tabs-list [data-slot=tabs-trigger] { flex: none; white-space: nowrap; padding-inline: 16px; }
 }
+
+/* Settings preserve formatted public descriptions inside the scoped theme. */
+.vendor-operations .campaign-description-editor { background: var(--card); color: var(--foreground); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.vendor-operations .campaign-description-editor .mantine-RichTextEditor-toolbar { background: var(--secondary); border-color: var(--border); flex-wrap: wrap; }
+.vendor-operations .campaign-description-editor .mantine-RichTextEditor-content { background: var(--card); color: var(--foreground); }
+.vendor-operations .campaign-description-editor .mantine-RichTextEditor-control { background: var(--card); color: var(--foreground); border-color: var(--border); min-width: 44px; min-height: 44px; }
+.vendor-operations .campaign-description-editor .mantine-RichTextEditor-control[data-active] { background: var(--primary); color: var(--primary-foreground); }
+.vendor-operations .campaign-description-editor .tiptap { min-height: 120px; overflow-wrap: anywhere; }
+.vendor-operations .vendor-profile-settings-preview { padding: 16px; }
+@media (max-width: 48em) { .config-tabs-list:has([data-slot=tabs-trigger]:nth-child(4)) { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); height: auto; } }
+.vendor-operations .config-actions > a { min-height: 44px; white-space: normal; text-align: center; }

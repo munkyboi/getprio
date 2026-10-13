@@ -1,3 +1,4 @@
+import { queueSettingsPayload, tenantSettingsFromSnapshot } from "../vendor/settingsState";
 import { StaffManagement } from "../vendor/StaffManagement";
 import { CounterStaffAssignments } from "../vendor/CounterStaffAssignments";
 import { serviceQuantityError, dateExceptionPayload } from "../vendor/serviceConfigurationState";
@@ -55,7 +56,6 @@ import {
   Card,
   Checkbox,
   ColorInput,
-  Divider,
   FileInput,
   Group,
   Modal,
@@ -939,6 +939,12 @@ export default function VendorDashboardPage() {
   const [availabilityExceptionForm, setAvailabilityExceptionForm] = useState<SaveVendorAvailabilityExceptionRequest>(emptyAvailabilityExceptionForm);
   const [availabilityExceptionBlockEntireDay, setAvailabilityExceptionBlockEntireDay] = useState(false);
   const [settings, setSettings] = useState<UpdateTenantSettingsRequest>(defaultSettings);
+  const savedSettings = useRef<UpdateTenantSettingsRequest>(defaultSettings);
+  const savedProfileTheme = useRef<PublicBoardThemeSettings>(defaultPublicBoardTheme);
+  const [profileThemeLoading, setProfileThemeLoading] = useState(true);
+  const [profileThemeError, setProfileThemeError] = useState<unknown>(null);
+  const [profileThemeRetry, setProfileThemeRetry] = useState(0);
+  const [boardSettingsBusy, setBoardSettingsBusy] = useState(false);
   const [accountTab, setAccountTab] = useState<AccountTab>("subscription");
   const [settingsTab, setSettingsTab] = useState<SettingsTab>("contact");
   const [accountProfileForm, setAccountProfileForm] = useState({
@@ -1510,20 +1516,9 @@ export default function VendorDashboardPage() {
       setSelectedLocationSlug(locationsResponse.locations.find((item) => item.isPrimary)?.slug || locationsResponse.locations[0]?.slug || "");
     }
     setSnapshot((current) => selectFreshestQueueSnapshot(current, snapshotResponse));
-    setSettings({
-      name: snapshotResponse.tenant.name || "",
-      publicProfileDisplayName: snapshotResponse.tenant.publicProfileDisplayName || "",
-      publicProfileDescription: snapshotResponse.tenant.publicProfileDescription || "",
-      publicProfileCategory: snapshotResponse.tenant.publicProfileCategory || "",
-      businessCategoryId: snapshotResponse.tenant.businessCategoryId || null,
-      queuePrefix: snapshotResponse.tenant.queuePrefix,
-      averageServiceMinutes: snapshotResponse.tenant.averageServiceMinutes,
-      notificationThreshold: snapshotResponse.tenant.notificationThreshold,
-      autoPauseEnabled: snapshotResponse.tenant.autoPauseEnabled,
-      autoPauseThreshold: snapshotResponse.tenant.autoPauseThreshold ?? 20,
-      autoResumeEnabled: snapshotResponse.tenant.autoResumeEnabled,
-      autoResumeVacancyPercent: snapshotResponse.tenant.autoResumeVacancyPercent ?? 20
-    });
+    const incomingSettings = tenantSettingsFromSnapshot(snapshotResponse.tenant);
+    savedSettings.current = incomingSettings;
+    if (!unsavedForm.current.hasEdits()) setSettings(incomingSettings);
     setVendorNotificationSettings(notificationSettings);
   }, [dashboardBootstrapQuery.data, selectedLocationSlug]);
 
@@ -1533,11 +1528,13 @@ export default function VendorDashboardPage() {
     }
 
     let active = true;
+    setProfileThemeLoading(true); setProfileThemeError(null);
     vendorDashboardOperations.getTheme(token, selectedTenantSlug, "")
-      .then((data) => { if (active) setBusinessProfileTheme(mergeTheme(data.theme)); })
-      .catch((themeError) => { if (active) setError(getErrorMessage(themeError)); });
+      .then((data) => { if (active) { const theme=mergeTheme(data.theme); savedProfileTheme.current=theme; setBusinessProfileTheme(theme); } })
+      .catch((themeError) => { if (active) setProfileThemeError(themeError); })
+      .finally(()=>{if(active)setProfileThemeLoading(false);});
     return () => { active = false; };
-  }, [canManageContactSettings, selectedTenantSlug, token]);
+  }, [canManageContactSettings, selectedTenantSlug, token, profileThemeRetry]);
 
   useEffect(() => {
     if (billingOverviewQuery.data) {
@@ -1741,10 +1738,10 @@ export default function VendorDashboardPage() {
     key: keyof TenantNotificationSettings,
     checked: boolean
   ) {
-    if (!token || !selectedTenantSlug) {
+    if (!token || !selectedTenantSlug || savingNotificationSettings) {
       return;
     }
-
+    setError("");
     const nextSettings = {
       ...vendorNotificationSettings,
       [key]: checked
@@ -3775,22 +3772,26 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
   async function handleSaveSettings(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const submittedForm = event.currentTarget;
-    const success = await runAction("settings", () => vendorDashboardOperations.updateSettings(token, selectedTenantSlug, settings));
+    if (busyAction) return;
+    const success = await runAction("settings", () => vendorDashboardOperations.updateSettings(token, selectedTenantSlug, queueSettingsPayload(settings)));
 
     if (success) {
       unsavedForm.current.clear(submittedForm);
-      showSuccessNotification("Business profile saved", "Your business profile and queue settings were updated.");
+      savedSettings.current = { ...savedSettings.current, ...queueSettingsPayload(settings) };
+      showSuccessNotification("Queue settings saved", "Your queue preferences were updated.");
     }
   }
 
   async function handleSaveBusinessProfile(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const submittedForm = event.currentTarget;
+    if (!canManageContactSettings || busyAction || profileThemeLoading || profileThemeError) return;
     const success = await runAction("settings", () => vendorDashboardOperations.updateSettings(token, selectedTenantSlug, settings));
     if (!success) {
       return;
     }
 
+    savedSettings.current = { ...settings };
     const themeSaved = await handleSaveBusinessProfileTheme();
     if (themeSaved) {
       unsavedForm.current.clear(submittedForm);
@@ -3965,7 +3966,9 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         theme: businessProfileTheme,
         applyToAllLocations: false
       });
-      setBusinessProfileTheme(mergeTheme(data.theme));
+      const savedTheme = mergeTheme(data.theme);
+      savedProfileTheme.current = savedTheme;
+      setBusinessProfileTheme(savedTheme);
       return true;
     } catch (saveError) {
       setError(getErrorMessage(saveError));
@@ -4933,7 +4936,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   {queueDayUnopened && canOperateQueueDay ? (
                     <QueueButton
                       variant="default"
-                      disabled={Boolean(busyAction) || boardScannerBusy}
+                      disabled={Boolean(busyAction) || boardScannerBusy || boardSettingsBusy || savingNotificationSettings || requestingBrowserPermission}
                       aria-busy={busyAction === "queue-open"}
                       onClick={() => void handleOpenQueueDay()}
                     >
@@ -4942,7 +4945,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   ) : queueDayActuallyClosed && canReopenQueueDay ? (
                     <QueueButton
                       variant="default"
-                      disabled={Boolean(busyAction) || boardScannerBusy}
+                      disabled={Boolean(busyAction) || boardScannerBusy || boardSettingsBusy || savingNotificationSettings || requestingBrowserPermission}
                       onClick={async () => {
                         const success = await runAction("queue-reopen", () =>
                           vendorDashboardQueue.reopenQueueDay(
@@ -4967,7 +4970,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   ) : !queueDayClosed && queueDayPaused ? (
                     <QueueButton
                       variant="secondary"
-                      disabled={Boolean(busyAction) || boardScannerBusy}
+                      disabled={Boolean(busyAction) || boardScannerBusy || boardSettingsBusy || savingNotificationSettings || requestingBrowserPermission}
                       onClick={async () => {
                         const success = await runAction("queue-resume", () =>
                           vendorDashboardQueue.resumeQueueDay(
@@ -4991,7 +4994,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   ) : !queueDayClosed ? (
                     <QueueButton
                       variant="secondary"
-                      disabled={Boolean(busyAction) || boardScannerBusy}
+                      disabled={Boolean(busyAction) || boardScannerBusy || boardSettingsBusy || savingNotificationSettings || requestingBrowserPermission}
                       onClick={async () => {
                         const success = await runAction("queue-pause", () =>
                           vendorDashboardQueue.pauseQueueDay(
@@ -5016,7 +5019,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   {!queueDayClosed && canOperateQueueDay ? (
                     <QueueButton
                       variant="destructive"
-                      disabled={Boolean(busyAction) || boardScannerBusy}
+                      disabled={Boolean(busyAction) || boardScannerBusy || boardSettingsBusy || savingNotificationSettings || requestingBrowserPermission}
                       onClick={() => {
                         setConfirmAction({
                           title: `Close ${selectedLocation?.name || "this queue"} now?`,
@@ -9771,13 +9774,14 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
 
   function renderBusinessProfilePreview() {
     const selectedTenant = user?.tenants.find((tenant) => tenant.slug === selectedTenantSlug);
-    const previewName = settings.name || selectedTenant?.name || "Your business";
+    const previewName = settings.publicProfileDisplayName || settings.name || selectedTenant?.name || "Your business";
     const previewLocation = selectedLocation
       ? [selectedLocation.name, selectedLocation.city, selectedLocation.province].filter(Boolean).join(", ")
       : "Main location";
     const previewStyle = {
       "--vendor-theme-card-bg": businessProfileTheme.cardBackgroundColor,
       "--vendor-theme-logo-fit": businessProfileTheme.logoFit,
+      backgroundSize: businessProfileTheme.backgroundImageFit,
       "--vendor-theme-logo-frame-padding": businessProfileTheme.logoFit === "cover" ? "0px" : undefined,
       ...(businessProfileTheme.backgroundImageUrl
         ? {
@@ -9819,374 +9823,533 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     );
   }
 
+  function markSettingsForm() {
+    const form = document.getElementById("vendor-business-profile");
+    if (form instanceof HTMLFormElement) unsavedForm.current.mark(form);
+  }
+  function selectSettingsTab(value: string | null) {
+    if (!value || value === settingsTab || !canLeaveFeature()) return;
+    setSettings({ ...savedSettings.current });
+    setBusinessProfileTheme({ ...savedProfileTheme.current });
+    setError("");
+    setSettingsTab(value as SettingsTab);
+  }
   function renderSettingsPage() {
+    const settingsBusy =
+      Boolean(busyAction) ||
+      boardSettingsBusy ||
+      savingNotificationSettings ||
+      requestingBrowserPermission;
+    const profileDisabled =
+      !canManageContactSettings ||
+      profileThemeLoading ||
+      Boolean(profileThemeError);
     return (
-      <Stack gap="md">
-        <Card className="neura-card" padding="lg">
-          <Tabs
-            keepMounted={false}
-            value={settingsTab}
-            onChange={(value) => setSettingsTab((value as SettingsTab | null) || "contact")}
-          >
-            <Tabs.List>
-              <Tabs.Tab value="contact">Business profile</Tabs.Tab>
-              <Tabs.Tab value="queue">Queue settings</Tabs.Tab>
-              <Tabs.Tab value="notifications">Notifications</Tabs.Tab>
-              {isOwner || isAdmin ? <Tabs.Tab value="board">Queue Board</Tabs.Tab> : null}
-            </Tabs.List>
-
-            <Tabs.Panel pt="lg" value="board">
-              {token && selectedTenantSlug && selectedLocationSlug && (isOwner || isAdmin) ? <QueueBoardSettings key={`${selectedTenantSlug}:${selectedLocationSlug}`} token={token} tenantSlug={selectedTenantSlug} locationSlug={selectedLocationSlug} onChanged={() => void reloadDashboardSnapshot()} /> : <Text>Select a location to manage its queue board.</Text>}
-            </Tabs.Panel>
-
-            <Tabs.Panel pt="lg" value="contact">
-              <form onSubmit={handleSaveBusinessProfile}>
-                <Stack gap="md">
-                  <div>
-                    <Text className="neura-label">Tenant settings</Text>
-                    <Title order={3}>Business profile</Title>
-                    <Text c="dimmed" size="sm">
-                      Keep the details customers see for your business and its owner up to date.
-                    </Text>
+      <ConfigurationScope
+        busy={settingsBusy}
+        onEdit={(form) => unsavedForm.current.mark(form)}
+      >
+        <ConfigTabs value={settingsTab} onValueChange={selectSettingsTab}>
+          <ConfigTabsList className="config-tabs-list">
+            <ConfigTabsTrigger value="contact">
+              Business profile
+            </ConfigTabsTrigger>
+            <ConfigTabsTrigger value="queue">Queue settings</ConfigTabsTrigger>
+            <ConfigTabsTrigger value="notifications">
+              Notifications
+            </ConfigTabsTrigger>
+            {isOwner || isAdmin ? (
+              <ConfigTabsTrigger value="board">Queue Board</ConfigTabsTrigger>
+            ) : null}
+          </ConfigTabsList>
+          <ConfigTabsContent value="contact">
+            <OperationPanel>
+              <form
+                id="vendor-business-profile"
+                onSubmit={handleSaveBusinessProfile}
+              >
+                <FieldGroup>
+                  <div className="ops-list-heading">
+                    <h2>Business profile</h2>
+                    <p className="ops-muted">
+                      Update the details and default images customers see for your
+                      business.
+                    </p>
                   </div>
-                  <TextInput
-                    label="Business name"
-                    disabled={!canManageContactSettings}
-                    value={settings.name}
-                    onChange={(event) =>
-                      setSettings((current) => ({ ...current, name: event.target.value }))
-                    }
-                  />
-                  <BusinessCategorySelect
-                    disabled={!canManageContactSettings}
-                    value={settings.businessCategoryId || null}
-                    currentLabel={settings.publicProfileCategory}
-                    onChange={(id, name) => setSettings((current) => ({ ...current, businessCategoryId: id, publicProfileCategory: name }))}
-                  />
-                  <TextInput
-                    label="Business display name"
-                    description="Shown publicly when set; otherwise the Business name is used."
-                    disabled={!canManageContactSettings}
-                    value={settings.publicProfileDisplayName || ""}
-                    onChange={(event) =>
-                      setSettings((current) => ({ ...current, publicProfileDisplayName: event.target.value }))
-                    }
-                  />
-                  <Stack gap={4}>
-                    <Text fw={500} size="sm">Business description</Text>
-                    <Text c="dimmed" size="xs">Shown on public vendor pages and related customer screens.</Text>
-                    <CampaignDescriptionEditor
-                      disabled={!canManageContactSettings}
-                      maxCharacters={1000}
-                      onChange={(value) =>
-                        setSettings((current) => ({ ...current, publicProfileDescription: value }))
-                      }
-                      value={settings.publicProfileDescription || ""}
+                  {!canManageContactSettings ? (
+                    <OperationAlert>
+                      Only the business owner can change these details and default
+                      images.
+                    </OperationAlert>
+                  ) : null}
+                  {canManageContactSettings &&
+                  (profileThemeLoading || profileThemeError) ? (
+                    <OperationQueryState
+                      loading={profileThemeLoading}
+                      error={profileThemeError}
+                      onRetry={() => setProfileThemeRetry((count) => count + 1)}
                     />
-                  </Stack>
-                  <Divider />
-                  <div>
-                    <Text fw={700}>Default profile media</Text>
-                  <Text c="dimmed" size="sm">
-                      Set the default logo and profile background. Location theme setup can override these values.
-                    </Text>
-                  </div>
-                  <SimpleGrid cols={{ base: 1, md: 2 }} spacing="xl">
-                    <Stack gap="md">
-                      <SimpleGrid cols={1}>
-                        <FileInput
-                          name="defaultBackgroundImageFile"
+                  ) : null}
+                  {error ? (
+                    <OperationAlert color="red" title="Unable to save profile">
+                      {error}
+                    </OperationAlert>
+                  ) : null}
+                  <ConfigurationSection
+                    title="Business details"
+                    description="Public profile details apply across this business; location-specific information is managed in Locations."
+                  >
+                    <ConfigurationInput
+                      name="businessName"
+                      label="Business name"
+                      required
+                      maxLength={120}
+                      disabled={profileDisabled}
+                      value={settings.name}
+                      onChange={(event) =>
+                        setSettings((current) => ({
+                          ...current,
+                          name: event.currentTarget.value,
+                        }))
+                      }
+                    />
+                    <BusinessCategorySelect
+                      vendor
+                      disabled={profileDisabled}
+                      value={settings.businessCategoryId || null}
+                      currentLabel={settings.publicProfileCategory}
+                      onChange={(id, name) =>
+                        setSettings((current) => ({
+                          ...current,
+                          businessCategoryId: id,
+                          publicProfileCategory: name,
+                        }))
+                      }
+                    />
+                    <ConfigurationInput
+                      name="publicProfileDisplayName"
+                      label="Business display name"
+                      description="Shown publicly when set; otherwise the Business name is used."
+                      maxLength={120}
+                      disabled={profileDisabled}
+                      value={settings.publicProfileDisplayName || ""}
+                      onChange={(event) =>
+                        setSettings((current) => ({
+                          ...current,
+                          publicProfileDisplayName: event.currentTarget.value,
+                        }))
+                      }
+                    />
+                    <div className="queue-stack">
+                      <p className="ops-strong">Business description</p>
+                      <p className="ops-muted">
+                        Shown on public vendor pages and related customer screens.
+                      </p>
+                      <CampaignDescriptionEditor
+                        label="Business description"
+                        disabled={profileDisabled || settingsBusy}
+                        maxCharacters={1000}
+                        value={settings.publicProfileDescription || ""}
+                        onChange={(value) => {
+                          if (value !== (settings.publicProfileDescription || ""))
+                            markSettingsForm();
+                          setSettings((current) => ({
+                            ...current,
+                            publicProfileDescription: value,
+                          }));
+                        }}
+                      />
+                    </div>
+                  </ConfigurationSection>
+                  <ConfigurationSection
+                    title="Default profile media"
+                    description="Set the default logo and profile background. Location theme setup can override these values."
+                  >
+                    <div className="config-related-fields">
+                      <FieldGroup>
+                        <ConfigurationFile
                           accept="image/png,image/jpeg,image/webp"
-                          clearable
                           label="Profile background"
                           description="Upload a custom image for the profile visual area."
-                          disabled={!canManageContactSettings || busyAction === "business-profile-upload:background"}
-                          onChange={(file) => void uploadBusinessProfileAsset("background", file)}
+                          disabled={profileDisabled}
+                          onChange={(file) =>
+                            void uploadBusinessProfileAsset("background", file)
+                          }
                         />
-                        <Select
+                        <ConfigurationSelect
                           name="defaultBackgroundImageFit"
                           label="Profile background fit"
                           description="Cover fills the profile visual area. Contain shows the full image."
                           data={[
                             { value: "cover", label: "Cover" },
-                            { value: "contain", label: "Contain" }
+                            { value: "contain", label: "Contain" },
                           ]}
-                          disabled={!canManageContactSettings}
+                          disabled={profileDisabled}
                           value={businessProfileTheme.backgroundImageFit}
-                          onChange={(value) => setBusinessProfileThemeField("backgroundImageFit", value === "contain" ? "contain" : "cover")}
+                          onChange={(value) =>
+                            setBusinessProfileThemeField(
+                              "backgroundImageFit",
+                              value === "contain" ? "contain" : "cover",
+                            )
+                          }
                         />
-                      </SimpleGrid>
-                      <SimpleGrid cols={1}>
-                        <TextInput
+                        <ConfigurationInput
                           name="defaultBackgroundImageUrl"
                           label="Profile background URL"
                           description="Paste a hosted image URL for the profile visual area."
-                          disabled={!canManageContactSettings}
+                          disabled={profileDisabled}
                           value={businessProfileTheme.backgroundImageUrl}
-                          onChange={(event) => setBusinessProfileThemeField("backgroundImageUrl", event.target.value)}
+                          onChange={(event) =>
+                            setBusinessProfileThemeField(
+                              "backgroundImageUrl",
+                              event.currentTarget.value,
+                            )
+                          }
                         />
-                        <FileInput
-                          name="defaultLogoFile"
+                        <ConfigurationFile
                           accept="image/png,image/jpeg,image/webp"
-                          clearable
                           label="Company logo"
                           description="Displayed inside the circular logo frame."
-                          disabled={!canManageContactSettings || busyAction === "business-profile-upload:logo"}
-                          onChange={(file) => void uploadBusinessProfileAsset("logo", file)}
+                          disabled={profileDisabled}
+                          onChange={(file) =>
+                            void uploadBusinessProfileAsset("logo", file)
+                          }
                         />
-                      </SimpleGrid>
-                      <SimpleGrid cols={1}>
-                        <TextInput
+                        <ConfigurationInput
                           name="defaultLogoUrl"
                           label="Logo URL"
                           description="Paste a hosted logo URL when not uploading a file."
-                          disabled={!canManageContactSettings}
+                          disabled={profileDisabled}
                           value={businessProfileTheme.logoUrl}
-                          onChange={(event) => setBusinessProfileThemeField("logoUrl", event.target.value)}
+                          onChange={(event) =>
+                            setBusinessProfileThemeField(
+                              "logoUrl",
+                              event.currentTarget.value,
+                            )
+                          }
                         />
-                        <Select
+                        <ConfigurationSelect
                           name="defaultLogoFit"
                           label="Profile logo fit"
                           description="Contain shows the full logo. Cover fills the circular frame."
                           data={[
                             { value: "contain", label: "Contain" },
-                            { value: "cover", label: "Cover" }
+                            { value: "cover", label: "Cover" },
                           ]}
-                          disabled={!canManageContactSettings}
+                          disabled={profileDisabled}
                           value={businessProfileTheme.logoFit}
-                          onChange={(value) => setBusinessProfileThemeField("logoFit", value === "cover" ? "cover" : "contain")}
-                        />
-                      </SimpleGrid>
-                    </Stack>
-                    {renderBusinessProfilePreview()}
-                  </SimpleGrid>
-                  <Button className="neura-secondary-button" disabled={busyAction === "settings"} type="submit">
-                    {busyAction === "settings" || busyAction === "business-profile-theme-save" ? "Saving..." : "Save business profile"}
-                  </Button>
-                </Stack>
-              </form>
-            </Tabs.Panel>
-
-            <Tabs.Panel pt="lg" value="queue">
-              <form onSubmit={handleSaveSettings}>
-                <Stack gap="md">
-                  <div>
-                    <Text className="neura-label">Tenant settings</Text>
-                    <Title order={3}>Queue preferences</Title>
-                  </div>
-                  <TextInput
-                    name="queuePrefix"
-                    label="Queue prefix"
-                    maxLength={4}
-                    value={settings.queuePrefix}
-                    onChange={(event) =>
-                      setSettings((current) => ({
-                        ...current,
-                        queuePrefix: event.target.value.toUpperCase()
-                      }))
-                    }
-                  />
-                  <NumberInput
-                    name="averageServiceMinutes"
-                    label="Average service minutes"
-                    min={1}
-                    value={Number(settings.averageServiceMinutes)}
-                    onChange={(value) =>
-                      setSettings((current) => ({ ...current, averageServiceMinutes: value || 1 }))
-                    }
-                  />
-                  <NumberInput
-                    name="notificationThreshold"
-                    label="Notify when within"
-                    min={1}
-                    value={Number(settings.notificationThreshold)}
-                    onChange={(value) =>
-                      setSettings((current) => ({ ...current, notificationThreshold: value || 1 }))
-                    }
-                  />
-                  <Checkbox
-                    name="autoPauseEnabled"
-                    checked={settings.autoPauseEnabled}
-                    label="Enable auto-pause intake"
-                    onChange={(event) =>
-                      setSettings((current) => ({
-                        ...current,
-                        autoPauseEnabled: event.currentTarget.checked,
-                        autoPauseThreshold: event.currentTarget.checked
-                          ? Number(current.autoPauseThreshold) || 20
-                          : "",
-                        autoResumeEnabled: event.currentTarget.checked
-                          ? current.autoResumeEnabled
-                          : false,
-                        autoResumeVacancyPercent: event.currentTarget.checked
-                          ? Number(current.autoResumeVacancyPercent) || 20
-                          : ""
-                      }))
-                    }
-                  />
-                  <NumberInput
-                    name="autoPauseThreshold"
-                    label="Auto-pause threshold"
-                    min={1}
-                    max={500}
-                    disabled={!settings.autoPauseEnabled}
-                    description="When waiting tickets reach this number, new joins pause automatically until staff resumes intake."
-                    value={settings.autoPauseEnabled ? Number(settings.autoPauseThreshold) : undefined}
-                    onChange={(value) =>
-                      setSettings((current) => ({ ...current, autoPauseThreshold: value || 1 }))
-                    }
-                  />
-                  <Checkbox
-                    name="autoResumeEnabled"
-                    checked={settings.autoResumeEnabled}
-                    disabled={!settings.autoPauseEnabled}
-                    label="Enable auto-resume intake"
-                    onChange={(event) =>
-                      setSettings((current) => ({
-                        ...current,
-                        autoResumeEnabled: event.currentTarget.checked,
-                        autoResumeVacancyPercent: event.currentTarget.checked
-                          ? Number(current.autoResumeVacancyPercent) || 20
-                          : ""
-                      }))
-                    }
-                  />
-                  <Stack gap="sm">
-                    <Text fw={500} size="sm">Auto-resume vacancy percent</Text>
-                    {settings.autoPauseEnabled && settings.autoResumeEnabled ? (
-                      <Slider
-                        min={5}
-                        max={50}
-                        step={5}
-                        marks={[
-                          { value: 5, label: "5%" },
-                          { value: 15, label: "15%" },
-                          { value: 25, label: "25%" },
-                          { value: 35, label: "35%" },
-                          { value: 50, label: "50%" }
-                        ]}
-                        label={(value) => `${value}%`}
-                        value={Number(settings.autoResumeVacancyPercent) || 20}
-                        onChange={(value) =>
-                          setSettings((current) => ({ ...current, autoResumeVacancyPercent: value }))
-                        }
-                        styles={{
-                          markLabel: {
-                            marginTop: 10
-                          },
-                          root: {
-                            paddingBottom: 28
+                          onChange={(value) =>
+                            setBusinessProfileThemeField(
+                              "logoFit",
+                              value === "cover" ? "cover" : "contain",
+                            )
                           }
-                        }}
-                      />
-                    ) : null}
-                    <Text c="dimmed" size="sm">
-                      {settings.autoPauseEnabled && settings.autoResumeEnabled
-                        ? `With a threshold of ${Number(settings.autoPauseThreshold) || 0}, intake will reopen at ${
-                            Math.floor((Number(settings.autoPauseThreshold) || 0) * (1 - (Number(settings.autoResumeVacancyPercent) || 20) / 100))
-                          } waiting tickets or below.`
-                        : "Only applies to queues paused automatically by threshold."}
-                    </Text>
-                  </Stack>
-                  <Button className="neura-secondary-button" disabled={busyAction === "settings"} type="submit">
-                    {busyAction === "settings" ? "Saving..." : "Save queue settings"}
-                  </Button>
-                </Stack>
+                        />
+                      </FieldGroup>
+                      {renderBusinessProfilePreview()}
+                    </div>
+                  </ConfigurationSection>
+                  <OperationButton
+                    type="submit"
+                    disabled={profileDisabled}
+                    loading={settingsBusy}
+                  >
+                    Save business profile
+                  </OperationButton>
+                </FieldGroup>
               </form>
-            </Tabs.Panel>
-
-            <Tabs.Panel pt="lg" value="notifications">
-              <Stack gap="md">
-                <div>
-                  <Text className="neura-label">Tenant settings</Text>
-                  <Title order={3}>Operational alerts</Title>
-                  <Text c="dimmed" size="sm">
-                    Browser notifications are used after login for vendor operational alerts. Email remains the fallback channel.
-                  </Text>
+            </OperationPanel>
+          </ConfigTabsContent>
+          <ConfigTabsContent value="queue">
+            <OperationPanel>
+              <form id="vendor-queue-settings" onSubmit={handleSaveSettings}>
+                <FieldGroup>
+                  <div className="ops-list-heading">
+                    <h2>Queue preferences</h2>
+                    <p className="ops-muted">
+                      Manage ticket numbering, notifications and automatic intake
+                      controls. Queue Day closure remains a separate server-owned
+                      schedule.
+                    </p>
+                  </div>
+                  {error ? (
+                    <OperationAlert
+                      color="red"
+                      title="Unable to save queue settings"
+                    >
+                      {error}
+                    </OperationAlert>
+                  ) : null}
+                  <ConfigurationSection
+                    title="Ticket numbering and estimates"
+                    description="These preferences retain the current ordinary queue behavior; they do not activate resource pools or AI forecasting."
+                  >
+                    <ConfigurationInput
+                      name="queuePrefix"
+                      label="Queue prefix"
+                      description="Up to four characters shown before ticket numbers."
+                      maxLength={4}
+                      required
+                      value={settings.queuePrefix}
+                      onChange={(event) =>
+                        setSettings((current) => ({
+                          ...current,
+                          queuePrefix: event.currentTarget.value.toUpperCase(),
+                        }))
+                      }
+                    />
+                    <ConfigurationNumber
+                      name="averageServiceMinutes"
+                      label="Average service minutes"
+                      min={1}
+                      required
+                      value={settings.averageServiceMinutes}
+                      onChange={(value) =>
+                        setSettings((current) => ({
+                          ...current,
+                          averageServiceMinutes: value,
+                        }))
+                      }
+                    />
+                    <ConfigurationNumber
+                      name="notificationThreshold"
+                      label="Notify when within"
+                      description="Notify customers when their ticket is within this many places of being called."
+                      min={1}
+                      required
+                      value={settings.notificationThreshold}
+                      onChange={(value) =>
+                        setSettings((current) => ({
+                          ...current,
+                          notificationThreshold: value,
+                        }))
+                      }
+                    />
+                  </ConfigurationSection>
+                  <ConfigurationSection
+                    title="Automatic intake"
+                    description="Automatic pauses limit new joins. They do not close the Queue Day or finish active tickets."
+                  >
+                    <ConfigurationCheck
+                      name="autoPauseEnabled"
+                      label="Enable auto-pause intake"
+                      checked={settings.autoPauseEnabled}
+                      onChange={(event) =>
+                        setSettings((current) => ({
+                          ...current,
+                          autoPauseEnabled: event.currentTarget.checked,
+                          autoPauseThreshold: event.currentTarget.checked
+                            ? Number(current.autoPauseThreshold) || 20
+                            : "",
+                          autoResumeEnabled: event.currentTarget.checked
+                            ? current.autoResumeEnabled
+                            : false,
+                          autoResumeVacancyPercent: event.currentTarget.checked
+                            ? Number(current.autoResumeVacancyPercent) || 20
+                            : "",
+                        }))
+                      }
+                    />
+                    <ConfigurationNumber
+                      name="autoPauseThreshold"
+                      label="Auto-pause threshold"
+                      description="When waiting tickets reach this number, new joins pause automatically."
+                      min={1}
+                      max={500}
+                      required={settings.autoPauseEnabled}
+                      disabled={!settings.autoPauseEnabled}
+                      value={
+                        settings.autoPauseEnabled
+                          ? settings.autoPauseThreshold
+                          : ""
+                      }
+                      onChange={(value) =>
+                        setSettings((current) => ({
+                          ...current,
+                          autoPauseThreshold: value,
+                        }))
+                      }
+                    />
+                    <ConfigurationCheck
+                      name="autoResumeEnabled"
+                      label="Enable auto-resume intake"
+                      checked={settings.autoResumeEnabled}
+                      disabled={!settings.autoPauseEnabled}
+                      onChange={(event) =>
+                        setSettings((current) => ({
+                          ...current,
+                          autoResumeEnabled: event.currentTarget.checked,
+                          autoResumeVacancyPercent: event.currentTarget.checked
+                            ? Number(current.autoResumeVacancyPercent) || 20
+                            : "",
+                        }))
+                      }
+                    />
+                    <ConfigurationNumber
+                      name="autoResumeVacancyPercent"
+                      label="Auto-resume vacancy percent"
+                      min={5}
+                      max={50}
+                      step={5}
+                      required={
+                        settings.autoPauseEnabled && settings.autoResumeEnabled
+                      }
+                      disabled={
+                        !settings.autoPauseEnabled || !settings.autoResumeEnabled
+                      }
+                      value={
+                        settings.autoPauseEnabled && settings.autoResumeEnabled
+                          ? settings.autoResumeVacancyPercent
+                          : ""
+                      }
+                      onChange={(value) =>
+                        setSettings((current) => ({
+                          ...current,
+                          autoResumeVacancyPercent: value,
+                        }))
+                      }
+                    />
+                    <p className="ops-muted">
+                      {settings.autoPauseEnabled && settings.autoResumeEnabled
+                        ? `With a threshold of ${Number(settings.autoPauseThreshold) || 0}, intake will reopen at ${Math.floor((Number(settings.autoPauseThreshold) || 0) * (1 - (Number(settings.autoResumeVacancyPercent) || 20) / 100))} waiting tickets or below. This only resumes threshold-based pauses.`
+                        : "Only applies to queues paused automatically by threshold."}
+                    </p>
+                  </ConfigurationSection>
+                  <OperationButton type="submit" loading={settingsBusy}>
+                    Save queue settings
+                  </OperationButton>
+                </FieldGroup>
+              </form>
+            </OperationPanel>
+          </ConfigTabsContent>
+          <ConfigTabsContent value="notifications">
+            <OperationPanel>
+              <div className="queue-stack">
+                <div className="ops-list-heading">
+                  <h2>Operational alerts</h2>
+                  <p className="ops-muted">
+                    Browser notifications are used after login for vendor
+                    operational alerts. Email remains the fallback channel.
+                  </p>
                 </div>
-                <Alert color="blue" variant="light">
-                  Vendor staff assigned to a booking and payment reviewers receive these alerts for the tenant.
-                </Alert>
-                <Alert color={browserNotificationsSecure ? "teal" : "yellow"} variant="light">
+                {error ? (
+                  <OperationAlert color="red" title="Unable to save alerts">
+                    {error}
+                  </OperationAlert>
+                ) : null}
+                <OperationAlert>
+                  Vendor staff assigned to a booking and payment reviewers receive
+                  these alerts for the business.
+                </OperationAlert>
+                <OperationAlert>
                   {browserNotificationsSupported
                     ? browserNotificationsSecure
                       ? `Browser notifications are available in this browser. Current permission: ${browserPermission}.`
                       : "Browser notifications require a secure context such as https:// or localhost."
                     : "This browser does not support browser notifications."}
-                </Alert>
-                <Group gap="sm">
-                  <Button
-                    color="dark"
+                </OperationAlert>
+                <div className="ops-row config-actions">
+                  <OperationButton
+                    variant="outline"
                     disabled={
                       !browserNotificationsSupported ||
                       !browserNotificationsSecure ||
                       browserPushSubscribed ||
-                      requestingBrowserPermission
+                      browserPermission === "denied"
                     }
+                    loading={requestingBrowserPermission}
                     onClick={handleRequestBrowserPermission}
-                    type="button"
-                    variant="light"
                   >
                     {browserPushSubscribed
                       ? "Browser notifications synced"
-                      : requestingBrowserPermission
-                        ? "Syncing browser notifications..."
-                        : browserPermission === "granted"
-                          ? "Sync browser notifications"
-                          : "Allow browser notifications"}
-                  </Button>
-                  <Text c="dimmed" size="sm">
+                      : browserPermission === "granted"
+                        ? "Sync browser notifications"
+                        : "Allow browser notifications"}
+                  </OperationButton>
+                  <p className="ops-muted">
                     {browserNotificationsSupported
                       ? browserNotificationsSecure
                         ? browserPermission === "granted"
-                          ? "This browser can receive vendor alerts."
+                          ? browserPushSubscribed
+                            ? "This browser is subscribed to vendor alerts."
+                            : "Permission is granted; sync this browser to subscribe to vendor alerts."
                           : browserPermission === "denied"
                             ? "Permission was denied in this browser. You can change it in browser settings."
-                            : "Click the button to allow browser notifications for this tenant."
+                            : "Click the button to allow browser notifications for this business."
                         : "Open this page on https:// or localhost to request permission."
                       : "Use a browser that supports notifications."}
-                  </Text>
-                </Group>
-                <Divider label="Operational alerts" labelPosition="center" />
-                <Checkbox
-                  checked={vendorNotificationSettings.queueJoin}
-                  label="New queue joins"
-                  disabled={savingNotificationSettings}
-                  onChange={(event) =>
-                    handleVendorNotificationToggle("queueJoin", event.currentTarget.checked)
-                  }
-                />
-                <Checkbox
-                  checked={vendorNotificationSettings.bookingIntake}
-                  label="New booking intake"
-                  disabled={savingNotificationSettings}
-                  onChange={(event) =>
-                    handleVendorNotificationToggle("bookingIntake", event.currentTarget.checked)
-                  }
-                />
-                <Checkbox
-                  checked={vendorNotificationSettings.paymentProofReview}
-                  label="Payment proof review"
-                  disabled={savingNotificationSettings}
-                  onChange={(event) =>
-                    handleVendorNotificationToggle("paymentProofReview", event.currentTarget.checked)
-                  }
-                />
-                <Checkbox
-                  checked={vendorNotificationSettings.bookingStatusChanges}
-                  label="Booking status changes"
-                  disabled={savingNotificationSettings}
-                  onChange={(event) =>
-                    handleVendorNotificationToggle("bookingStatusChanges", event.currentTarget.checked)
-                  }
-                />
-              </Stack>
-            </Tabs.Panel>
-
-          </Tabs>
-        </Card>
-
-      </Stack>
+                  </p>
+                </div>
+                <ConfigurationSection
+                  title="Alert events"
+                  description="Changes save immediately. These preferences do not replace browser permission or push subscription."
+                >
+                  <ConfigurationCheck
+                    checked={vendorNotificationSettings.queueJoin}
+                    label="New queue joins"
+                    onChange={(event) =>
+                      void handleVendorNotificationToggle(
+                        "queueJoin",
+                        event.currentTarget.checked,
+                      )
+                    }
+                  />
+                  <ConfigurationCheck
+                    checked={vendorNotificationSettings.bookingIntake}
+                    label="New booking intake"
+                    onChange={(event) =>
+                      void handleVendorNotificationToggle(
+                        "bookingIntake",
+                        event.currentTarget.checked,
+                      )
+                    }
+                  />
+                  <ConfigurationCheck
+                    checked={vendorNotificationSettings.paymentProofReview}
+                    label="Payment proof review"
+                    onChange={(event) =>
+                      void handleVendorNotificationToggle(
+                        "paymentProofReview",
+                        event.currentTarget.checked,
+                      )
+                    }
+                  />
+                  <ConfigurationCheck
+                    checked={vendorNotificationSettings.bookingStatusChanges}
+                    label="Booking status changes"
+                    onChange={(event) =>
+                      void handleVendorNotificationToggle(
+                        "bookingStatusChanges",
+                        event.currentTarget.checked,
+                      )
+                    }
+                  />
+                </ConfigurationSection>
+              </div>
+            </OperationPanel>
+          </ConfigTabsContent>
+          <ConfigTabsContent value="board">
+            {token &&
+            selectedTenantSlug &&
+            selectedLocationSlug &&
+            (isOwner || isAdmin) ? (
+              <QueueBoardSettings
+                key={`${selectedTenantSlug}:${selectedLocationSlug}`}
+                token={token}
+                tenantSlug={selectedTenantSlug}
+                locationSlug={selectedLocationSlug}
+                onBusyChange={setBoardSettingsBusy}
+                onChanged={() => void reloadDashboardSnapshot()}
+              />
+            ) : (
+              <OperationEmpty
+                title="Select a location"
+                text="Choose the location whose queue board you want to manage."
+              />
+            )}
+          </ConfigTabsContent>
+        </ConfigTabs>
+      </ConfigurationScope>
     );
   }
 
@@ -11060,7 +11223,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
   }
 
   const canLeaveFeature = () => {
-    if (resourceConfigurationBusy || busyAction || boardScannerBusy || accountProfileBusy || passwordBusy || mfaBusy) return false;
+    if (resourceConfigurationBusy || busyAction || boardScannerBusy || boardSettingsBusy || savingNotificationSettings || requestingBrowserPermission || accountProfileBusy || passwordBusy || mfaBusy) return false;
     const editing = unsavedForm.current.hasEdits() || themeDialogOpen;
     if (editing && !window.confirm("You have unsaved edits. Leave this view?")) return false;
     unsavedForm.current.clear();
@@ -11160,7 +11323,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       onWorkspace={switchWorkspace} onLogout={() => { if (canLeaveFeature()) void logout(); }} search={location.search} hash={location.hash}
       context={!requiresMfaEnrollment ? <>
         <ContextPicker label="Business" data={activeTenants.map((tenant) => ({ value: tenant.slug, label: tenant.name }))}
-          value={selectedTenantSlug} disabled={Boolean(busyAction) || boardScannerBusy} onChange={(value) => {
+          value={selectedTenantSlug} disabled={Boolean(busyAction) || boardScannerBusy || boardSettingsBusy || savingNotificationSettings || requestingBrowserPermission} onChange={(value) => {
             if (!value || value === selectedTenantSlug || !canLeaveFeature()) return;
             setSnapshot(null); setLocations([]); setSelectedLocationSlug(""); setSelectedCounterSlug("");
             setServices([]); setStaff([]); setServiceCounters([]); setVendorBookings([]); setClients(null); setHistory(null); setBilling(null);
@@ -11176,7 +11339,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
             navigate(workspacePath(currentSection === "account" ? "account" : nextWorkspace === "administration" ? "settings" : "queue",
               nextWorkspace, location.search, location.hash));
           }} />
-        <ContextPicker data={locationOptions} label="Location" value={selectedLocationSlug} disabled={Boolean(busyAction) || boardScannerBusy}
+        <ContextPicker data={locationOptions} label="Location" value={selectedLocationSlug} disabled={Boolean(busyAction) || boardScannerBusy || boardSettingsBusy || savingNotificationSettings || requestingBrowserPermission}
           onChange={(value) => { if (value && value !== selectedLocationSlug && canLeaveFeature()) { setSnapshot(null); setServiceCounters([]); setVendorBookings([]); setBookingPagination(null); setClients(null); setHistory(null); setBookingDetailOpen(false); setBookingDetailBooking(null); setBookingDetailModalId(null); setAvailabilityBlocks([]); setAvailabilityExceptions([]); setAvailabilitySummary(null); setSelectedCounterSlug(""); setSelectedLocationSlug(value); } }} />
       </> : <Badge color="orange" variant="light">MFA setup required</Badge>}
       dialogs={<>

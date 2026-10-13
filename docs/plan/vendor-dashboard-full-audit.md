@@ -122,3 +122,7 @@ The authorized Services slice carries Services/Availability and G06 forward thro
 ## Staff implementation checkpoint
 
 Staff follow-through (13 October 2026): G08 presentation is migrated locally with preserved membership/seat/self/owner/admin and counter-assignment contracts, guarded existing-account onboarding, confirmation/retry states and responsive roster. Source regression and synthetic browser evidence are recorded in [progress](vendor-dashboard-rework-progress.md); this does not certify real access-change delivery, session revocation or device behavior. End-to-end authorization supersedes per-screen advancement stops; publishing, deployment and runtime activation retain their separate gates.
+
+## Settings and board implementation checkpoint
+
+Settings presentation carries G02/G05/G09 forward through the existing four tabs, owner-only profile/default media, complete queue intake settings, distinct notification permission/subscription/event states and location-scoped board access/display management. Queue-only PATCH requests now omit owner-only profile fields while retaining all intake booleans, as confirmed compatible by the #419 writer owner. Unavailable theme/board reads, native/custom draft edits, pending writes, failed notification rollback and exact-target confirmations remain explicit. Local source and synthetic browser evidence are in [progress](vendor-dashboard-rework-progress.md); no physical scan, push/email delivery, private display grant or production write acceptance is inferred.

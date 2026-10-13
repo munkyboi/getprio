@@ -83,8 +83,8 @@ export function syncCheckout(token: string, tenantSlug: string, checkoutId: stri
   });
 }
 
-export function updateSettings(token: string, tenantSlug: string, settings: UpdateTenantSettingsRequest) {
-  return apiRequest<{ message?: string; snapshot?: import("@shared").QueueSnapshot }, UpdateTenantSettingsRequest>(
+export function updateSettings(token: string, tenantSlug: string, settings: Partial<UpdateTenantSettingsRequest>) {
+  return apiRequest<{ message?: string; snapshot?: import("@shared").QueueSnapshot }, Partial<UpdateTenantSettingsRequest>>(
     `/vendor/tenant/${tenantSlug}/settings`,
     { method: "PATCH", token, body: settings }
   );
