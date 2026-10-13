@@ -130,3 +130,7 @@ Declare CSS layer order before prefixed imports. Scope native control inheritanc
 Auto-close extension copy says Extend by 30 minutes. Preserve server-time offset, warning/final phases, all current-day called outcomes, reconciliation locks/retry, actual extension semantics and the ability to resolve historical service timing after closure.
 
 PR 401 preservation details: auto-close and reconciliation warnings remain sticky within the feature content, with clearly distinct final/error severity in both themes. At widths up to 48em, task-dialog footer guidance and actions stack vertically and buttons span the available width. Navigation to external board URLs uses native anchors with shared visual variants, preserving link semantics.
+
+## Shell reference fidelity
+
+Use the agreed interactive prototype's neutral surfaces and shell hierarchy: full-height narrow sidebar, business/location context above workspace navigation, account context below it, compact top toolbar with the Operations/Administration switch and theme/account controls, and a separate content heading. Retain GetPrio branding and real supported links. Avoid reinstating the public-site toolbar above the vendor shell, oversized header forms, a tinted dashboard frame, or serif page headings. On mobile use the navigation sheet and stack the workspace switch while keeping controls reachable. The reference's simulated roles/plans, sample workflows and resource pilot actions do not authorize operational controls. Carlo's local review must precede migration of the next feature screens.

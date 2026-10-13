@@ -10307,7 +10307,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     );
   }
 
-  const ContextPicker = currentSection === "queue" ? QueueCounterPicker : Select;
+  const ContextPicker = QueueCounterPicker;
   const canSwitchWorkspace = (isOwner || isAdmin) && !requiresMfaEnrollment;
   const workspace = sectionWorkspace(currentSection, new URLSearchParams(location.search).get("workspace"), canSwitchWorkspace);
   const workspaceNavItems = workspaceItems(visibleNavItems, workspace);
@@ -10321,6 +10321,9 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
   return (
     <VendorWorkspaceShell
       workspace={workspace} canAdmin={canSwitchWorkspace} items={workspaceNavItems}
+      businessName={activeTenants.find((tenant) => tenant.slug === selectedTenantSlug)?.name || "Your business"}
+      locationName={selectedLocation?.name || ""}
+      publicVendorUrl={selectedTenantSlug ? `/vendors/${selectedTenantSlug}` : undefined}
       title={requiresMfaEnrollment ? "Secure your account" : currentSection === "queue" ? "Live queue" : navItems.find((item) => item.section === currentSection)?.label || "Account"}
       description={requiresMfaEnrollment ? "Set up an authenticator to continue to your vendor workspace. Your sign-in session remains active during setup." : dashboardSectionDescriptions[currentSection] || "Manage your vendor workspace."}
       name={user.name || "Vendor"} role={selectedTenantRole || "Vendor"} plan={activeSubscription?.planName || tenantPlan?.planName || "No active plan"}
