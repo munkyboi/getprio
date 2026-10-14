@@ -52,6 +52,9 @@ test("legacy capacity and credit writes tolerate retired email quota and unavail
   const plan = fs.readFileSync(path.resolve(__dirname, "../src/pages/PlanMatrixPage.tsx"), "utf8");
   assert.match(tenant, /capacityCount\(resource\.used, capacity\.usageAvailable !== false\)/);
   assert.match(tenant, /visibleCapacityResources\(capacity\.resources\)/);
+  assert.match(tenant, /Partial accounting/);
+  assert.match(tenant, /Quota enforcement:/);
+  assert.match(tenant, /item\.policy_key === "allowance\.queueEmailJourneys"/);
   assert.match(tenant, /journeyUnits: 0/);
   assert.doesNotMatch(tenant, /grant\.journeyUnits/);
   assert.match(plan, /journeyUnits: 0/);

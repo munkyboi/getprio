@@ -24,7 +24,8 @@ test("usage period exposes the exact server window and rejects invalid dates", (
 test("tenant and plan editors do not expose email journey grants or overrides", () => {
   const app = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8")
   const matrix = readFileSync(new URL("../src/components/plan-matrix.tsx", import.meta.url), "utf8")
-  assert.doesNotMatch(app, /Email journey credits|"allowance\.queueEmailJourneys"/)
+  assert.doesNotMatch(app, /Email journey credits|"allowance\.queueEmailJourneys",/)
+  assert.match(app, /override\.policyKey !== "allowance\.queueEmailJourneys"/)
   assert.doesNotMatch(matrix, /Email journeys \/ month/)
   assert.match(app, /lot\.resourceKey === "queueTickets"/)
 })
