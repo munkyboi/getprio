@@ -6,6 +6,9 @@ function loadWorker(lifecycleMock) {
   const workerPath = require.resolve("../src/services/queueLifecycleWorker");
   const dependencyPath = require.resolve("../src/services/queueDayLifecycleService");
   const original = require.cache[dependencyPath];
+  const emailPath = require.resolve("../src/services/queueEmailJourneyService");
+  const originalEmail = require.cache[emailPath];
+  require.cache[emailPath] = { id: emailPath, filename: emailPath, loaded: true, exports: { recoverPending: async () => 0 } };
   require.cache[dependencyPath] = {
     id: dependencyPath,
     filename: dependencyPath,
@@ -20,6 +23,8 @@ function loadWorker(lifecycleMock) {
   } else {
     delete require.cache[dependencyPath];
   }
+  if (originalEmail) require.cache[emailPath] = originalEmail;
+  else delete require.cache[emailPath];
   return loaded;
 }
 
@@ -45,7 +50,8 @@ test("worker runs warnings, reconciliation, and expiry in recovery order", async
     reconciledCount: 1,
     expiredCount: 3,
     dispatchedCount: 4,
-    bookingReminderCount: 0
+    bookingReminderCount: 0,
+    recoveredEmailCount: 0
   });
 });
 
@@ -146,4 +152,14 @@ test('a booking reminder scan failure does not stop queue notification dispatch'
   const {createQueueLifecycleWorker}=loadWorker({emitDueWarnings:async()=>0,reconcileDueQueueDays:async()=>0,expirePendingCarryOvers:async()=>0});
   const worker=createQueueLifecycleWorker({bookingReminders:{enqueueDue:async()=>{throw new Error('reminder scan unavailable');}},outboxDispatcher:{runBatch:async()=>{dispatched=true;return 1;}}});
   const result=await worker.runOnce();worker.stop();assert.equal(dispatched,true);assert.equal(result.dispatchedCount,1);
+});
+
+test("existing lifecycle worker runs bounded email claim recovery each cycle", async () => {
+  let scans = 0;
+  const { createQueueLifecycleWorker } = loadWorker({ emitDueWarnings: async () => 0, reconcileDueQueueDays: async () => 0, expirePendingCarryOvers: async () => 0 });
+  const worker = createQueueLifecycleWorker({ bookingReminders: { enqueueDue: async () => 0 }, outboxDispatcher: { runBatch: async () => 0 },
+    emailRecovery: { recoverPending: async () => { scans++; return 2; } } });
+  assert.equal((await worker.runOnce()).recoveredEmailCount, 2);
+  assert.equal(scans, 1);
+  worker.stop();
 });

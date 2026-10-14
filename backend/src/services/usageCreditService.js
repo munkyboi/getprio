@@ -1,9 +1,11 @@
+const { activeAllowances } = require("../domain/activePlanQuotas");
 const crypto = require("node:crypto");
 const db = require("../config/db");
 const env = require("../config/env");
 const releaseControls = require("../config/releaseControls");
 const repository = require("../repositories/usageCredits");
 const allowanceLedgerRepository = require("../repositories/allowanceLedger");
+const subscriptionUsage = require("../repositories/subscriptionUsage");
 const { resolveTenantPolicy } = require("./entitlementResolver");
 
 function runTransaction(options, callback) {
@@ -21,7 +23,8 @@ function formatPack(row) {
   return {
     id: String(row.id), code: row.code, name: row.name, state: row.state,
     revision: Number(row.current_revision), ticketUnits: Number(row.ticket_units),
-    journeyUnits: Number(row.journey_units), priceCents: Number(row.price_cents), currency: row.currency,
+    journeyUnits: row.state === "archived" ? Number(row.journey_units || 0) : 0,
+    priceCents: Number(row.price_cents), currency: row.currency,
     priceDisplay: `PHP ${(Number(row.price_cents) / 100).toLocaleString("en-PH")}`
   };
 }
@@ -33,16 +36,17 @@ function formatLot(row, commercial = true) {
   return commercial ? { ...base, sourceType: row.source_type, grantedUnits: Number(row.granted_units), consumedUnits: consumed, revokedUnits: Number(row.revoked_units), frozenUnits: Number(row.frozen_units), reason: row.reason, createdAt: row.created_at } : base;
 }
 
-async function listCatalog() { return (await repository.listPacks()).map(formatPack); }
+async function listCatalog() { return (await repository.listPacks()).filter(pack => pack.state === "archived" || Number(pack.ticket_units) > 0).map(formatPack); }
 
 async function publishPack(code, input, actorId, options = {}) {
   if (!releaseControls.usageCreditCatalog) throw Object.assign(new Error("Usage Credit catalog changes are temporarily unavailable."), { statusCode: 503, code: "CREDIT_CATALOG_DISABLED" });
+  if (Number(input.journeyUnits || 0) !== 0) throw Object.assign(new Error("Queue Email Journey credits are retired."), { statusCode: 400, code: "EMAIL_CREDITS_RETIRED" });
   const state = String(input.state || "enabled");
   if (!["draft", "enabled", "disabled"].includes(state)) throw Object.assign(new Error("Pack state is invalid."), { statusCode: 400 });
   const row = await runTransaction(options, (client) => repository.publishRevision(String(code).toUpperCase(), {
     name: String(input.name || code).trim(), state,
     ticketUnits: positiveInteger(input.ticketUnits, "Ticket credits"),
-    journeyUnits: positiveInteger(input.journeyUnits, "Journey credits"),
+    journeyUnits: 0,
     priceCents: positiveInteger(input.priceCents, "Price"), reason: String(input.reason || "").trim()
   }, actorId, { client }));
   if (!row) throw Object.assign(new Error("Usage Credit pack not found."), { statusCode: 404 });
@@ -52,15 +56,14 @@ async function publishPack(code, input, actorId, options = {}) {
 async function grant(input, actorId, options = {}) {
   if (!releaseControls.usageCreditGrants) throw Object.assign(new Error("Usage Credit grants are temporarily unavailable."), { statusCode: 503, code: "CREDIT_GRANTS_DISABLED" });
   const ticketUnits = Number(input.ticketUnits || 0);
-  const journeyUnits = Number(input.journeyUnits || 0);
-  if ((!ticketUnits && !journeyUnits) || ![ticketUnits, journeyUnits].every((v) => Number.isInteger(v) && v >= 0)) throw Object.assign(new Error("Grant at least one Ticket or Queue Email Journey credit."), { statusCode: 400 });
+  if (Number(input.journeyUnits || 0) !== 0) throw Object.assign(new Error("Queue Email Journey credits are retired."), { statusCode: 400, code: "EMAIL_CREDITS_RETIRED" });
+  if (!Number.isInteger(ticketUnits) || ticketUnits <= 0) throw Object.assign(new Error("Grant at least one Ticket credit."), { statusCode: 400 });
   const reason = String(input.reason || "").trim();
   if (reason.length < 4) throw Object.assign(new Error("A reason is required."), { statusCode: 400 });
   const reference = String(input.reference || crypto.randomUUID());
   return runTransaction(options, async (client) => {
     const lots = [];
     if (ticketUnits) lots.push(await repository.grantLot({ tenantId: input.tenantId, resourceKey: "queueTickets", sourceType: "promotional", sourceReference: `${reference}:tickets`, units: ticketUnits, expiresAt: input.expiresAt, actorId, reason }, { client }));
-    if (journeyUnits) lots.push(await repository.grantLot({ tenantId: input.tenantId, resourceKey: "queueEmailJourneys", sourceType: "promotional", sourceReference: `${reference}:journeys`, units: journeyUnits, expiresAt: input.expiresAt, actorId, reason }, { client }));
     return lots.map((lot) => formatLot(lot));
   });
 }
@@ -73,44 +76,79 @@ async function revoke(input, options = {}) {
 }
 
 async function getTenantCapacity(tenantId, commercial = true) {
-  const [lots, ledger, policy] = await Promise.all([
-    repository.listLots(tenantId),
-    allowanceLedgerRepository.getCapacity(tenantId),
-    resolveTenantPolicy(tenantId)
-  ]);
-  const usageByResource = Object.fromEntries(ledger.usage.map((row) => [row.resource_key, row]));
-  const warningsByResource = (ledger.warnings || []).reduce((groups, row) => {
-    (groups[row.resource_key] ||= []).push(row);
-    return groups;
-  }, {});
-  const formattedLots = lots.map((lot) => formatLot(lot, commercial));
-  const resources = Object.fromEntries(Object.entries(policy.allowances).map(([key, allowance]) => {
-    const creditRemaining = formattedLots.filter((lot, index) => {
-      const source = lots[index];
-      return lot.resourceKey === key && source.status === "active" && (!source.expires_at || new Date(source.expires_at) > new Date());
-    }).reduce((sum, lot) => sum + lot.remainingUnits, 0);
-    return [key, {
-      limit: Number(allowance.limit),
-      used: Number(usageByResource[key]?.base_used || 0),
-      creditRemaining: key === "serviceBookings" ? 0 : creditRemaining,
-      resetAt: policy.period?.end || null,
-      source: allowance.source,
-      overrideId: allowance.overrideId,
-      warningThresholds: (warningsByResource[key] || []).map((row) => ({
-        thresholdPercent: Number(row.threshold_percent),
-        claimedAt: row.claimed_at,
-        deliveredAt: row.delivered_at || null
-      }))
-    }];
-  }));
-  return {
-    planSlug: policy.lifecycle.planSlug,
-    subscriptionId: policy.lifecycle.subscriptionId,
-    lifecycleState: policy.lifecycle.state,
-    planRevision: policy.planRevision,
-    resources,
-    ...(commercial ? { features: policy.features, lots: formattedLots } : {})
-  };
+  return db.withTransaction(async client => {
+    await client.query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY");
+    const clock = await client.query("SELECT CURRENT_TIMESTAMP AS now");
+    const observedAt = clock.rows[0]?.now || new Date();
+    const policy = await resolveTenantPolicy(tenantId, {
+      client, now: observedAt, controls: { ...releaseControls, entitlementResolverShadow: false }
+    });
+    const period = policy.period;
+    const usageAvailable = Boolean(period?.start && period?.end
+      && Number.isFinite(new Date(period.start).getTime())
+      && Number.isFinite(new Date(period.end).getTime())
+      && new Date(period.start) <= new Date(observedAt)
+      && new Date(observedAt) < new Date(period.end));
+    const options = { client, subscriptionId: policy.lifecycle.subscriptionId,
+      periodStart: usageAvailable ? period.start : null, periodEnd: usageAvailable ? period.end : null };
+    const lots = await repository.listLots(tenantId, { client });
+    const ledger = await allowanceLedgerRepository.getCapacity(tenantId, options);
+    const traffic = usageAvailable
+      ? await subscriptionUsage.getCycleUsage(tenantId, period, options) : {};
+    const usageByResource = Object.fromEntries(ledger.usage.map((row) => [row.resource_key, row]));
+    const warningsByResource = (ledger.warnings || []).reduce((groups, row) => {
+      (groups[row.resource_key] ||= []).push(row);
+      return groups;
+    }, {});
+    const activeLots = lots.filter(lot => lot.resource_key !== "queueEmailJourneys");
+    const formattedLots = activeLots.map((lot) => formatLot(lot, commercial));
+    const resources = Object.fromEntries(Object.entries(activeAllowances(policy.allowances)).map(([key, allowance]) => {
+      const creditRemaining = formattedLots.filter((lot, index) => {
+        const source = activeLots[index];
+        return lot.resourceKey === key && source.status === "active" && (!source.expires_at || new Date(source.expires_at) > new Date(observedAt));
+      }).reduce((sum, lot) => sum + lot.remainingUnits, 0);
+      const baseUsed = Number(usageByResource[key]?.base_used || 0);
+      const unaccounted = Number(traffic[key]?.unaccounted || 0);
+      const unusedBase = Math.max(0, Number(allowance.limit) - baseUsed);
+      // Project available capacity without mutating historical lots or ledger.
+      const unaccountedCreditUsed = key === "queueTickets"
+        ? Math.min(creditRemaining, Math.max(0, unaccounted - unusedBase)) : 0;
+      let accountingStatus = "complete";
+      if (!usageAvailable) accountingStatus = "unavailable";
+      else if (unaccounted > 0) accountingStatus = "partial";
+      return [key, {
+        limit: Number(allowance.limit),
+        used: usageAvailable ? Math.max(0, baseUsed + unaccounted - unaccountedCreditUsed) : null,
+        observedUsed: usageAvailable ? Number(traffic[key]?.created || 0) : null,
+        baseUsed: usageAvailable ? Number(usageByResource[key]?.base_used || 0) : null,
+        creditUsed: usageAvailable ? Number(usageByResource[key]?.credit_used || 0) : null,
+        unaccountedUsed: usageAvailable ? Number(traffic[key]?.unaccounted || 0) : null,
+        unaccountedCreditUsed: usageAvailable ? unaccountedCreditUsed : null,
+        accountingStatus,
+        enforcementEnabled: policy.authority?.served === "new" && Boolean(releaseControls[key === "queueTickets" ? "allowanceQueueTickets" : "allowanceServiceBookings"]),
+        creditRemaining: key === "serviceBookings" ? 0 : creditRemaining - unaccountedCreditUsed,
+        resetAt: usageAvailable ? period.end : null,
+        source: allowance.source,
+        overrideId: allowance.overrideId,
+        warningThresholds: (warningsByResource[key] || []).map((row) => ({
+          thresholdPercent: Number(row.threshold_percent),
+          claimedAt: row.claimed_at,
+          deliveredAt: row.delivered_at || null
+        }))
+      }];
+    }));
+    return {
+      planSlug: policy.lifecycle.planSlug,
+      subscriptionId: policy.lifecycle.subscriptionId,
+      lifecycleState: policy.lifecycle.state,
+      planRevision: policy.planRevision,
+      observedAt,
+      period: usageAvailable ? period : null,
+      usageAvailable,
+      resources,
+      ...(commercial ? { features: policy.features, lots: formattedLots } : {})
+    };
+  });
 }
 
 async function createCheckout({ tenant, user, packCode, purchaseKey, requestOrigin }) {
@@ -121,16 +159,18 @@ async function createCheckout({ tenant, user, packCode, purchaseKey, requestOrig
     throw Object.assign(new Error("Usage Credits require an active subscription."), { statusCode: 409, code: "CREDIT_CHECKOUT_SUBSCRIPTION_RESTRICTED" });
   }
   const pack = await repository.findPack(packCode);
-  if (!pack || pack.state !== "enabled") throw Object.assign(new Error("This Usage Credit pack is not available."), { statusCode: 409 });
+  if (pack?.state !== "enabled" || Number(pack.ticket_units) <= 0) throw Object.assign(new Error("This Usage Credit pack is not available."), { statusCode: 409 });
+  if (Number(pack.journey_units) !== 0) throw Object.assign(new Error("Ticket credit checkout is temporarily unavailable. Please try again later."), { statusCode: 503, code: "CREDIT_CATALOG_MIGRATION_REQUIRED" });
   const purchase = await repository.createPurchase({ tenantId: tenant._id, packId: pack.id, packRevisionId: pack.revision_id, purchaseKey, ticketUnits: pack.ticket_units, journeyUnits: pack.journey_units, amountCents: pack.price_cents, currency: pack.currency, provider: "paymongo", actorId: user._id });
+  if (String(purchase.pack_id) !== String(pack.id)) throw Object.assign(new Error("This purchase key belongs to another credit pack."), { statusCode: 409, code: "CREDIT_PURCHASE_KEY_CONFLICT" });
   if (purchase.provider_checkout_id) return { purchaseId: String(purchase.id), checkoutUrl: purchase.checkout_url };
   const origin = [env.clientUrl, env.appBaseUrl].map((v) => String(v || "").replace(/\/$/, "")).includes(String(requestOrigin || "").replace(/\/$/, "")) ? String(requestOrigin).replace(/\/$/, "") : String(env.clientUrl).replace(/\/$/, "");
   const returnParams = new URLSearchParams({ credits: "success", purchase: String(purchase.id) });
   const body = { data: { attributes: {
     description: `${pack.name} for ${tenant.name}`,
-    line_items: [{ currency: pack.currency, amount: Number(pack.price_cents), name: pack.name, quantity: 1, description: `${pack.ticket_units} Queue Tickets and ${pack.journey_units} Queue Email Journeys` }],
+    line_items: [{ currency: purchase.currency, amount: Number(purchase.amount_cents), name: pack.name, quantity: 1, description: `${purchase.ticket_units} Queue Tickets` }],
     payment_method_types: env.paymongoPaymentMethodTypes,
-    metadata: { productType: "usage_credit", purchaseId: String(purchase.id), tenantId: String(tenant._id), packCode: pack.code, packRevision: String(pack.current_revision) },
+    metadata: { productType: "usage_credit", purchaseId: String(purchase.id), tenantId: String(tenant._id), packCode: pack.code, packRevisionId: String(purchase.pack_revision_id) },
     send_email_receipt: true, show_description: true, show_line_items: true,
     success_url: `${origin}/dashboard?${returnParams}`, cancel_url: `${origin}/dashboard?credits=cancelled`
   } } };

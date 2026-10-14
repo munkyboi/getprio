@@ -31,13 +31,21 @@ test('deployment verifies published allowance consistency on disposable PostgreS
     // and the disposable database's public policy rows remain untouched.
     await client.query('CREATE TEMP TABLE subscription_plans AS TABLE public.subscription_plans');
     await client.query('CREATE TEMP TABLE plan_allowances AS TABLE public.plan_allowances');
+    await client.query('CREATE TEMP TABLE usage_credit_packs AS TABLE public.usage_credit_packs');
+    await client.query('CREATE TEMP TABLE usage_credit_pack_revisions AS TABLE public.usage_credit_pack_revisions');
     await scenario('seeded published plans pass',null);
+    await scenario('archived historical default pack does not require a new quota revision', `
+      UPDATE usage_credit_packs SET state='archived' WHERE code='P100';
+      UPDATE usage_credit_pack_revisions SET journey_units=100 WHERE pack_id=(SELECT id FROM usage_credit_packs WHERE code='P100');
+    `);
+    await scenario('active default pack still requires ticket-only revision', "UPDATE usage_credit_pack_revisions SET journey_units=100 WHERE pack_id=(SELECT id FROM usage_credit_packs WHERE code='P100')", /Usage Credit catalog drifted/);
     await scenario('published economical booking limit 500 passes without resetting it',`
       UPDATE subscription_plans SET entitlements=jsonb_set(entitlements,'{monthlyServiceBookings}','500'),policy_revision=policy_revision+1 WHERE slug='economical';
       UPDATE plan_allowances SET monthly_limit=500 WHERE plan_slug='economical' AND allowance_key='serviceBookings';
     `);
-    await scenario('legacy email journey field fallback passes',"UPDATE subscription_plans SET entitlements=entitlements-'monthlyQueueEmailJourneys' WHERE slug='free'");
-    await scenario('null modern email field uses the legacy fallback',"UPDATE subscription_plans SET entitlements=jsonb_set(entitlements,'{monthlyQueueEmailJourneys}','null') WHERE slug='free'");
+    await scenario('retired journey fields may be absent without becoming required policy',"UPDATE subscription_plans SET entitlements=entitlements-'monthlyQueueEmailJourneys' WHERE slug='free'");
+    await scenario('historical null email fields do not reinstate the retired quota',"UPDATE subscription_plans SET entitlements=jsonb_set(entitlements,'{monthlyQueueEmailJourneys}','null') WHERE slug='free'");
+    await scenario('retired normalized allowance drift is ignored',"UPDATE plan_allowances SET monthly_limit=1 WHERE plan_slug='free' AND allowance_key='queueEmailJourneys'");
     await scenario('normalized allowance drift still fails',"UPDATE plan_allowances SET monthly_limit=501 WHERE plan_slug='economical' AND allowance_key='serviceBookings'",/Published plan allowances/);
     await scenario('missing required allowance fails',"DELETE FROM plan_allowances WHERE plan_slug='free' AND allowance_key='queueTickets'",/Published plan allowances/);
     await scenario('invalid entitlement type fails',`UPDATE subscription_plans SET entitlements=jsonb_set(entitlements,'{monthlyTickets}','"500"') WHERE slug='free'`,/Published plan allowances/);

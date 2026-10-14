@@ -20,3 +20,39 @@ test("legacy plan reads and writes cannot advertise or restore campaign access",
   assert.equal(row.entitlements.groupFundedCampaignAccess, false);
   assert.equal(writes.find((values) => values[1] === "campaigns")[2], false);
 });
+
+test('active plan reads and writes omit email quotas while retaining other entitlements', async () => {
+  const row = { slug: 'pro', entitlements: { monthlyTickets: 5000, monthlyServiceBookings: 1000,
+    monthlyTransactionalEmails: 5000, monthlyQueueEmailJourneys: 5000, emailAlerts: true },
+    included: ['Email alerts', '5,000 Queue Email Journeys/mo', '5,000 Queue Tickets/mo',
+      '100 transactional emails/mo', '500 transactional emails/mo', 'Monthly transactional emails',
+      'Transactional email delivery'] };
+  const allowanceWrites = [];
+  const client = { query: async (sql, values) => {
+    if (sql.includes('UPDATE subscription_plans')) row.entitlements = JSON.parse(values[6]);
+    if (sql.includes('INSERT INTO plan_allowances')) allowanceWrites.push(values[1]);
+    return { rows: [row] };
+  } };
+  const plan = await plans.findPlanBySlug('pro', { client });
+  assert.equal(Object.hasOwn(plan.entitlements, 'monthlyTransactionalEmails'), false);
+  assert.equal(Object.hasOwn(plan.allowances, 'queueEmailJourneys'), false);
+  assert.deepEqual(plan.included, ['Email alerts', '5,000 Queue Tickets/mo', 'Transactional email delivery']);
+  await plans.updatePlan({ ...plan, price: {} }, '1', { client });
+  assert.deepEqual(allowanceWrites, ['queueTickets', 'serviceBookings']);
+  assert.equal(Object.hasOwn(row.entitlements, 'monthlyQueueEmailJourneys'), false);
+  assert.equal(row.entitlements.emailAlerts, true);
+});
+
+test('retired email mutations never write a plan revision or allowance', async () => {
+  const writes = [];
+  const client = { query: async (...args) => { writes.push(args); return { rows: [] }; } };
+  for (const retired of [
+    { allowances: { queueTickets: 500, queueEmailJourneys: 0 } },
+    { entitlements: { monthlyQueueEmailJourneys: 500 } },
+    { entitlements: { monthlyTransactionalEmails: 0 } }
+  ]) {
+    await assert.rejects(plans.updatePlan({ slug: 'free', price: { monthlyAmountCents: 0, annualAmountCents: 0 }, ...retired }, '1', { client }),
+      (error) => error.statusCode === 400 && error.code === 'EMAIL_QUOTAS_RETIRED');
+  }
+  assert.equal(writes.length, 0);
+});

@@ -12,6 +12,7 @@ function queueMetadata(snapshot) {
   return { tenant, location: snapshot.location ? location : null,
     publicBoardTheme: snapshot.publicBoardTheme, businessProfileTheme: snapshot.businessProfileTheme,
     queueDay: snapshot.queueDay, queueIntake: snapshot.queueIntake,
+    emailQuotaPolicy: snapshot.emailQuotaPolicy,
     stats: { ...snapshot.stats, currentTicketNumber: null },
     usage: {}, current: null, calledTickets: [], nextUp: [], overflow: [], recovery: [], history: [], focusTicket: null };
 }

@@ -17,26 +17,28 @@ For the MVP, use PayMongo for local payment checkout and Semaphore for SMS notif
 
 | Tier | Price | Best For | Included |
 | --- | ---: | --- | --- |
-| Free | `PHP 0` | Vendors starting with queues | Queue System Access; 500 Queue Tickets and 500 Queue Email Journeys per month; no Branding, Discovery, or Booking |
-| Economical | `PHP 499/mo` | Solo vendors, small shops, small clinics | Queue, Discovery, and Booking; no public-facing Branding; 1,000 Tickets, 1,000 Journeys, and 100 Service Bookings per month |
-| Pro | `PHP 1,499/mo` | Clinics, salons, offices, busier service counters | Queue, Branding, Discovery, and Booking; 5,000 Tickets, 5,000 Journeys, and 1,000 Service Bookings per month |
-| Enterprise | `PHP 6,999/mo` | Multi-branch businesses, schools, LGUs, hospitals | Queue, Branding, Discovery, and Booking; 50,000 Tickets, 50,000 Journeys, and 10,000 Service Bookings per month |
+| Free | `PHP 0` | Vendors starting with queues | Queue System Access; 500 Queue Tickets per month; unmetered queue email delivery; no Branding, Discovery, or Booking |
+| Economical | `PHP 499/mo` | Solo vendors, small shops, small clinics | Queue, Discovery, and Booking; no public-facing Branding; 1,000 Tickets and 100 Service Bookings per month; unmetered queue email delivery |
+| Pro | `PHP 1,499/mo` | Clinics, salons, offices, busier service counters | Queue, Branding, Discovery, and Booking; 5,000 Tickets and 1,000 Service Bookings per month; unmetered queue email delivery |
+| Enterprise | `PHP 6,999/mo` | Multi-branch businesses, schools, LGUs, hospitals | Queue, Branding, Discovery, and Booking; 50,000 Tickets and 10,000 Service Bookings per month; unmetered queue email delivery |
 
-The `Included` column is both customer-facing pricing copy and the source for backend entitlement rules. Each item should map to a numeric limit, feature flag, support level, or custom-quoted Enterprise entitlement so billing, dashboard display, and future feature gating stay consistent.
+The `Included` column is both customer-facing pricing copy and the source for backend entitlement rules. Each item should map to a numeric limit, feature flag, support level, custom-quoted Enterprise entitlement, or the unconditional unmetered email policy so billing, dashboard display, and future feature gating stay consistent. Queue email delivery has no monthly quota or credit requirement on any plan; notification preferences, OTP limits, lifecycle deduplication, retry safeguards, and provider delivery outcomes still apply.
 
 Branding applies to every public-facing vendor page, not only the queue board. Campaigns are retired and cannot be enabled by any plan or tenant override. Platform Admin may independently enable or disable the customer queue fee and set its amount for each plan; this fee is not part of the vendor's allowance balance.
 
 ## Usage Credits
 
-Usage Credits let a vendor continue after its monthly Queue Ticket or Queue Email Journey allowance is used. They never enable a disabled feature and never bypass the Service Booking allowance.
+New Usage Credit packs and grants contain Queue Ticket credits only. They let a vendor continue after its monthly Queue Ticket allowance is used. They never enable a disabled feature and never bypass the Service Booking allowance. Queue email delivery does not consume credits.
 
-| Pack | Queue Tickets | Queue Email Journeys | Price |
-| --- | ---: | ---: | ---: |
-| P100 | 100 | 100 | `PHP 99` |
-| P500 | 500 | 500 | `PHP 399` |
-| P1000 | 1,000 | 1,000 | `PHP 699` |
+| Pack | Queue Tickets | Price |
+| --- | ---: | ---: |
+| P100 | 100 | `PHP 99` |
+| P500 | 500 | `PHP 399` |
+| P1000 | 1,000 | `PHP 699` |
 
-A Queue Email Journey is the ticket-producing queue flow: up to four OTP messages plus six once-only lifecycle messages. The Journey is consumed at most once when the Ticket is admitted; abandoned or failed OTP attempts do not consume a Journey. Credits are auditable resource-specific lots and are used after the base allowance, with expiring promotional credits before non-expiring promotional and purchased credits.
+A Queue Email Journey retains delivery tracking for the ticket-producing queue flow: up to four OTP messages plus six once-only lifecycle messages. Creating or sending through a Journey no longer consumes an allowance or credit. Queue Ticket credits are auditable lots and are used after the base allowance, with expiring promotional credits before non-expiring promotional and purchased credits.
+
+Historical Journey quantities, pack revisions, purchases, lots, and ledger records remain auditable and retain their original terms, including pending purchase retries and refund accounting. Archived catalog revisions report their stored quantities. Those retained Journey balances do not limit delivery or become newly saleable credits; active catalog revisions contain Ticket credits only.
 
 ## Add-Ons And Setup Fees
 

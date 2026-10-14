@@ -51,7 +51,7 @@ function requireWithMocks(targetPath, mocks) {
   }
 }
 
-test("notification service selects providers and enforces transactional email limits", async () => {
+test("notification service delivers lifecycle email despite exhausted historical email quota", async () => {
   const deliveryCalls = [];
   const service = requireWithMocks("../src/services/notificationService.js", {
     "../config/env": {
@@ -85,19 +85,11 @@ test("notification service selects providers and enforces transactional email li
   });
 
   assert.equal(await service.sendEmail({ to: "", subject: "x", text: "y" }), false);
-  await assert.rejects(
-    () =>
-      service.sendEmail({
-        to: "customer@example.com",
-        subject: "Hello",
-        text: "Body",
-        tenantId: "tenant-1",
-        purpose: "almost_there"
-      }),
-    (error) => error.statusCode === 403
-  );
+  assert.equal(await service.sendEmail({
+    to: "customer@example.com", subject: "Hello", text: "Body", tenantId: "tenant-1", purpose: "almost_there"
+  }), true);
   assert.equal(deliveryCalls.length, 1);
-  assert.equal(deliveryCalls[0].status, "failed");
+  assert.equal(deliveryCalls[0].status, "sent");
 });
 
 test("notification service falls back to console transport and sms fallback", async () => {
@@ -214,4 +206,37 @@ test("managed templates fail closed when Resend is not configured", async () => 
     "../config/env": {}, "../repositories/notificationDeliveries": { recordDelivery: async () => {} }
   });
   await assert.rejects(service.sendEmail({ to: 'member@example.test', resendTemplate: { id: 'staff' } }), /require Resend/);
+});
+
+test("lifecycle delivery forwards the slot idempotency key to Resend", async () => {
+  const requests = [];
+  const originalFetch = global.fetch;
+  const service = requireWithMocks("../src/services/notificationService.js", {
+    "../config/env": { resendApiKey: "fixture", resendFromEmail: "sender@example.test", resendApiUrl: "https://example.test/emails" },
+    "../repositories/notificationDeliveries": { recordDelivery: async () => {} },
+    "./queueEmailJourneyService": { withLifecycleSlot: async (_ticket, slot, _key, deliver) => deliver({ idempotencyKey: `stable-${slot}` }) }
+  });
+  global.fetch = async (_url, options) => { requests.push(options); return { ok: true }; };
+  const input = { ticket: { _id: "42", ticketNumber: "Q42", notifyByEmail: true, customerEmail: "customer@example.test" }, tenant: { _id: "1", name: "Vendor", slug: "vendor" } };
+  try {
+    await service.notifyAlmostThere({ ...input, position: 2 });
+    await service.notifyCalled(input);
+    await service.notifyJourneyLifecycle({ ...input, slot: "joined", action: "joined" });
+    assert.deepEqual(requests.map(request => request.headers["Idempotency-Key"]), ["stable-near_turn", "stable-called", "stable-joined"]);
+    assert.ok(requests.every(request => request.signal instanceof AbortSignal));
+  } finally { global.fetch = originalFetch; }
+});
+
+test("provider rejection classification preserves ambiguous timeout and idempotency conflicts", async () => {
+  const originalFetch = global.fetch;
+  const service = requireWithMocks("../src/services/notificationService.js", {
+    "../config/env": { resendApiKey: "fixture", resendFromEmail: "sender@example.test", resendApiUrl: "https://example.test/emails" },
+    "../repositories/notificationDeliveries": { recordDelivery: async () => {} }
+  });
+  try {
+    for (const [status, ambiguous] of [[429, false], [408, true], [409, true], [503, true]]) {
+      global.fetch = async () => ({ ok: false, status, text: async () => 'provider fixture' });
+      await assert.rejects(service.sendEmail({ to: 'customer@example.invalid', subject: 'Fixture', text: 'Fixture' }), error => error.deliveryAmbiguous === ambiguous);
+    }
+  } finally { global.fetch = originalFetch; }
 });

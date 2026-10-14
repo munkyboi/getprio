@@ -62,6 +62,7 @@ test("queue snapshot helpers resolve primary locations when none are specified",
   assert.equal(result.location.slug, "main");
   assert.equal(result.current.joinChannel, "vendor");
   assert.equal(result.current.customerConfirmedAt, null);
+  assert.equal(result.emailQuotaPolicy, "unmetered");
 });
 
 test("queue snapshot helpers prefer a ticket location when lookup code resolves", async () => {

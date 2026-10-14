@@ -184,7 +184,7 @@ try {
       await client.query(
         `INSERT INTO usage_accounts (tenant_id, resource_key)
          SELECT $1, resource_key
-         FROM unnest(ARRAY['queueTickets', 'queueEmailJourneys', 'serviceBookings']) AS resource_key`,
+         FROM unnest(ARRAY['queueTickets', 'serviceBookings']) AS resource_key`,
         [tenantId]
       );
       await client.query(

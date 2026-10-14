@@ -78,6 +78,10 @@ function createAccountDeletionService({ transaction = db.withTransaction, verify
       await client.query('DELETE FROM push_subscriptions WHERE user_id=$1', [userId]);
       await client.query('UPDATE mobile_push_registrations SET is_active=FALSE WHERE user_id=$1', [userId]);
       await client.query('UPDATE tickets SET notify_by_email=FALSE,notify_by_sms=FALSE WHERE user_id=$1', [userId]);
+      await client.query(`UPDATE queue_email_slots s SET delivery_payload=NULL,claim_token=NULL,
+        status=CASE WHEN s.status IN ('unused','failed','queued') THEN 'suppressed' ELSE s.status END
+        FROM queue_email_journeys j JOIN tickets t ON t.id=j.ticket_id
+        WHERE s.journey_id=j.id AND t.user_id=$1`, [userId]);
       await cancelWaitingTickets(client, userId);
       await client.query('UPDATE bookings SET notify_by_email=FALSE,notify_by_sms=FALSE WHERE customer_user_id=$1', [userId]);
       await client.query(`UPDATE queue_notification_outbox SET status='obsolete',lease_owner=NULL,leased_until=NULL
