@@ -27,3 +27,11 @@ A local reproduction with installed Vite 7.3.6 confirmed that in-place output pr
 `node --test scripts/static-release.test.cjs` exercises real Vite builds, late build failure, invalid or incomplete output, publication failure, symlink boundaries, and concurrent loopback HTTP readers. Readers must receive complete HTML and successful referenced assets throughout publication. CI runs this alongside existing deployment workflow and smoke contracts.
 
 After an approved merge and automatic deployment, verify the actual logged deployment SHA, API health and authenticated smoke, Platform revision marker, and repeated root/asset HTTP samples throughout the build and publication interval. Local tests establish publication behavior; they do not prove the next production rollout.
+
+## Delayed CI completion
+
+On 2026-10-14, deployment `38539353435` published `1f0f2ff9` successfully using private staging. The older #439 CI completed later and queued `38539463496`, whose actual target was `695a6640` despite workflow metadata showing the newer main revision. It checked out the older target and failed with `MODULE_NOT_FOUND` because that commit predates the publication helper. It did not publish or restart the API; independent live checks remained on `1f0f2ff9`.
+
+Automatic deployment now requires the successful CI revision to match the workflow's default-branch revision. Delayed CI for an older main commit is skipped before the production job runs. Manual dispatch retains its existing authorization path, but every target must contain the publication helper before the server checkout changes. The guard does not alter a previously failed checkout or perform a recovery deployment. A commit can still become stale after its deployment event is created; this change covers delayed CI events and missing helper compatibility, not a general monotonic deployment guarantee.
+
+GitHub documents the default-branch revision used for [workflow_run events](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#workflow_run). The tests evaluate the actual workflow expression with current, stale, missing, fork, PR, and manual event metadata, and execute the actual helper guard against disposable Git history to prove that an unsupported target cannot change the checkout.

@@ -22,6 +22,7 @@ jobs:
         && github.event.workflow_run.conclusion == 'success'
         && github.event.workflow_run.event == 'push'
         && github.event.workflow_run.head_branch == 'main'
+        && github.event.workflow_run.head_sha == github.sha
         && github.event.workflow_run.head_repository.full_name == github.repository
         && github.event.workflow_run.head_repository.fork == false
       ) }}
@@ -276,6 +277,12 @@ jobs:
 
           if ! git merge-base --is-ancestor "${DEPLOY_SHA}" origin/main; then
             echo "Deployment commit ${DEPLOY_SHA} is not an ancestor of origin/main."
+            exit 1
+          fi
+
+          # Require the publication helper before changing the server checkout.
+          if ! git cat-file -e "${DEPLOY_SHA}:scripts/static-release.mjs" 2>/dev/null; then
+            echo "Deployment target lacks the required static publication helper. Refusing to change the server checkout."
             exit 1
           fi
 
