@@ -1,3 +1,4 @@
+import { getBookingEmailStatus, needsEmailDeliveryFallback } from "../utils/ticketEmailStatus";
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import {
   Alert,
@@ -194,7 +195,7 @@ export default function JoinedQueuePage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { token, user } = useAuth();
-  const [snapshot, setSnapshot] = useState<QueueSnapshot | null>(null);
+  const [snapshot, setSnapshot] = useState<(QueueSnapshot & { emailQuotaPolicy?: "unmetered" }) | null>(null);
   const [bookingAvailable, setBookingAvailable] = useState(false);
   const [error, setError] = useState("");
   const [responseStatus, setResponseStatus] = useState<number | null>(null);
@@ -300,11 +301,8 @@ export default function JoinedQueuePage() {
   const locationDetailLabel = [snapshot?.location?.city, snapshot?.location?.province].filter(Boolean).join(", ") || snapshot?.location?.country || "Philippines";
   const linkedBookingReference = snapshot?.focusTicket?.linkedBookingReference;
   const isBookingTicket = Boolean(linkedBookingReference) || snapshot?.focusTicket?.servicePriorityBand === "checked_in_booking";
-  const bookingEmailStatus = snapshot?.focusTicket?.notifyByEmail === true
-      ? "Enabled — carried over from your booking."
-      : snapshot?.focusTicket?.notifyByEmail === false
-        ? "Not enabled for this ticket."
-        : "Email alert status is unavailable. Follow updates on this page.";
+  const emailDeliveryFallback = needsEmailDeliveryFallback(snapshot?.focusTicket, snapshot?.emailQuotaPolicy);
+  const bookingEmailStatus = getBookingEmailStatus(snapshot?.focusTicket, snapshot?.emailQuotaPolicy);
   const ticketIsConfirmed = Boolean(
     snapshot?.focusTicket?.status === "called" && snapshot.focusTicket.customerConfirmedAt
   );
@@ -886,8 +884,9 @@ export default function JoinedQueuePage() {
             </Group>
           </div>
         </Modal>
-        {(shouldAwaitPaymentSync || paymentSyncing || (snapshot && queueState.label !== "Open")) ? (
+        {(shouldAwaitPaymentSync || paymentSyncing || emailDeliveryFallback || (snapshot && queueState.label !== "Open")) ? (
           <Stack className="ticket-page-notifications" gap="sm">
+            {emailDeliveryFallback ? <Alert className="ticket-page-status-alert" color="blue" title="Follow updates here">Email updates are not confirmed for this ticket. Keep this page open or use browser notifications to follow your turn.</Alert> : null}
             {shouldAwaitPaymentSync || paymentSyncing ? (
               <Alert className="ticket-page-status-alert" color="blue" title="Confirming payment">
                 We are confirming your queue fee payment and loading your ticket.
