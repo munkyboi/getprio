@@ -1,3 +1,4 @@
+import type { TenantPeriodUsageResponse } from "@shared/tenantPeriodUsage";
 import type { BillingOverviewResponse, QueueSnapshot, StoreLocationsResponse, TenantNotificationSettings } from "@shared";
 import { apiRequest } from "./client";
 
@@ -73,4 +74,12 @@ export async function getCapacityExperience(
     { token }
   );
   return { enabled: true, capacity: response.capacity };
+}
+
+export async function getPeriodUsage(token: string, tenantSlug: string) {
+  const response = await apiRequest<TenantPeriodUsageResponse>(
+    `/billing/tenant/${tenantSlug}/usage`, { token }
+  );
+  if (response.tenant?.slug !== tenantSlug) throw new Error("Usage response does not match the selected business.");
+  return response;
 }

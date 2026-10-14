@@ -101,6 +101,19 @@ async function consumeCommercialConfirmation(req,tenant,action,payload){
 }
 
 router.get(
+  "/tenant/:tenantSlug/usage",
+  authenticate,
+  authorizeTenant("tenant.billing.read"),
+  asyncHandler(async (req, res) => {
+    const tenant = req.authorizedTenant;
+    res.json({
+      tenant: { id: String(tenant._id), slug: tenant.slug },
+      usage: await usageCreditService.getTenantUsage(tenant._id)
+    });
+  })
+);
+
+router.get(
   "/tenant/:tenantSlug/capacity",
   authenticate,
   requireReleaseControl("vendorCapacityExperience"),

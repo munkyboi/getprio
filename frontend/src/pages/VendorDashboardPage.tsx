@@ -166,6 +166,8 @@ import EmailChangePanel from "../components/EmailChangePanel";
 import PhoneChangePanel from "../components/PhoneChangePanel";
 import {
   getAllowedHistoryExportRanges,
+  getPeriodTicketMetric,
+  shouldLoadPeriodUsage,
   shouldEnableVendorDashboardBootstrap
 } from "../lib/vendorDashboardBootstrap";
 import { canAccessVendorSection } from "../lib/vendorDashboardNavigation";
@@ -1141,6 +1143,15 @@ function VendorDashboardContent() {
       shouldEnableVendorDashboardBootstrap(token, selectedTenantSlug, requiresMfaEnrollment) &&
       (isOwner || isAdmin)
     )
+  });
+  const periodUsageQuery = useQuery({
+    queryKey: ["vendor-period-usage", user?.id, token, selectedTenantSlug, selectedTenantRole],
+    queryFn: () => vendorDashboardBootstrap.getPeriodUsage(token!, selectedTenantSlug),
+    enabled: Boolean(
+      shouldEnableVendorDashboardBootstrap(token, selectedTenantSlug, requiresMfaEnrollment) &&
+      shouldLoadPeriodUsage({ isOwner, isAdmin, section: currentSection, accountTab })
+    ),
+    refetchInterval: 30_000
   });
   const effectiveEntitlementsQuery = useQuery({
     queryKey: ["vendor-dashboard-effective-entitlements", token, selectedTenantSlug],
@@ -2358,6 +2369,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       snapshot?.tenant.monitorUrl ||
       ""
   };
+  const periodTicketMetric = getPeriodTicketMetric(periodUsageQuery.data?.usage, periodUsageQuery.isError);
   const ticketUsage = !dashboardBootstrapQuery.error && snapshot?.tenant.slug === selectedTenantSlug && snapshot?.location?.slug === selectedLocationSlug ? snapshot.stats.servedToday : "—";
   const historyTickets = useMemo(() => history?.tickets || snapshot?.history || [], [history, snapshot]);
   const recordedIntervals = useMemo(() => servedTicketIntervals(snapshot?.history || [], RECORDED_INTERVAL_TICKET_LIMIT), [snapshot?.history]);
@@ -9115,11 +9127,19 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     );
   }
 
+  function renderPeriodTicketUsage() {
+    return <div className="queue-stack">
+      <OperationMetric label="Tickets" value={periodUsageQuery.isPending ? "Loading usage…" : periodTicketMetric.value} detail={periodTicketMetric.detail} />
+      {periodUsageQuery.isError ? <OperationButton variant="outline" className="v:min-h-11 v:w-full v:sm:w-fit" onClick={() => void periodUsageQuery.refetch()} loading={periodUsageQuery.isFetching}>Retry usage</OperationButton> : null}
+    </div>;
+  }
+
   function renderReportsPage() {
     const ready = !dashboardBootstrapQuery.error && snapshot?.tenant.slug === selectedTenantSlug && snapshot?.location?.slug === selectedLocationSlug;
-    if (!ready) return <OperationQueryState loading={!dashboardBootstrapQuery.error} error={dashboardBootstrapQuery.error} onRetry={()=>void dashboardBootstrapQuery.refetch()} />;
-    return <div className="config-page"><div className="ops-grid-2"><OperationMetric label="Waiting tickets" value={snapshot.stats.waitingCount} detail="At the selected location" /><OperationMetric label="Tickets served today" value={ticketUsage} detail="At the selected location" /><OperationMetric label="Estimated wait" value={`${snapshot.stats.estimatedWaitMinutes} min`} detail="Current queue estimate" /><OperationMetric label="Called ticket" value={selectedCalledTicket?.ticketNumber || "—"} detail={selectedCalledTicket?.customerName || "No called ticket for the selected counter"} /></div>
-      {renderRecordedIntervals()}
+    return <div className="config-page">
+      {!ready || !snapshot ? <OperationQueryState loading={!dashboardBootstrapQuery.error} error={dashboardBootstrapQuery.error} onRetry={()=>void dashboardBootstrapQuery.refetch()} /> : <div className="ops-grid-2"><OperationMetric label="Waiting tickets" value={snapshot.stats.waitingCount} detail="At the selected location" /><OperationMetric label="Tickets served today" value={ticketUsage} detail="At the selected location" /><OperationMetric label="Estimated wait" value={`${snapshot.stats.estimatedWaitMinutes} min`} detail="Current queue estimate" /><OperationMetric label="Called ticket" value={selectedCalledTicket?.ticketNumber || "—"} detail={selectedCalledTicket?.customerName || "No called ticket for the selected counter"} /></div>}
+      <OperationPanel><h2 className="account-panel-title">Plan consumption</h2>{renderPeriodTicketUsage()}</OperationPanel>
+      {ready ? renderRecordedIntervals() : null}
     </div>;
   }
 
@@ -9428,7 +9448,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     ) : null}
                   </AccountGroup>
                   <AccountGrid cols={1}>
-                    <OperationMetric label="Tickets served today" value={ticketUsage} detail="At the selected location" />
+                    {renderPeriodTicketUsage()}
                   </AccountGrid>
                   {!activeSubscription ? <div>{renderPlanCards()}</div> : !isFreeSubscription ? (
                     <AccountButton onClick={() => openPlanDialog()} variant="light" w={{ base: "100%", sm: "fit-content" }}>
