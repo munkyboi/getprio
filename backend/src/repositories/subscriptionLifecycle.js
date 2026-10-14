@@ -112,34 +112,56 @@ async function executeTransition(transitionId, options = {}) {
   return completed.rows[0];
 }
 
-async function renewFreeSubscriptions(options = {}) {
-  const result = await client(options).query(
-    `WITH RECURSIVE periods AS (
-       SELECT id, current_period_end AS period_start,
-              current_period_end + INTERVAL '1 month' AS period_end
-       FROM tenant_subscriptions
-       WHERE plan_slug = 'free' AND status = 'active' AND current_period_end <= NOW()
+async function renewFreeSubscription(subscription, queryClient) {
+  const tenantId = String(subscription.tenant_id);
+  if (!(await queryClient.query("SELECT id FROM tenants WHERE id = $1 FOR UPDATE", [tenantId])).rows.length) return null;
+  const current = (await scheduledLock(queryClient, "SELECT * FROM tenant_subscriptions WHERE id = $1 FOR UPDATE NOWAIT", [String(subscription.id)], "SUBSCRIPTION_BUSY")).rows[0];
+  if (!current) return null;
+  if (String(current.tenant_id) !== tenantId) throw Object.assign(new Error("Subscription moved while renewal was being prepared."), { statusCode: 409, code: "SUBSCRIPTION_RENEWAL_SCOPE_CHANGED" });
+  if (current.plan_slug !== "free" || current.status !== "active" || current.current_period_end == null) return null;
+  if (!Number.isFinite(new Date(current.current_period_end).getTime())) throw Object.assign(new Error("Free subscription period requires reconciliation."), { statusCode: 409, code: "FREE_SUBSCRIPTION_PERIOD_INVALID" });
+  const result = await queryClient.query(
+    `WITH RECURSIVE observed AS MATERIALIZED (SELECT clock_timestamp() AS at), periods AS (
+       SELECT subscription.id, subscription.current_period_end AS period_start,
+              subscription.current_period_end + INTERVAL '1 month' AS period_end
+       FROM tenant_subscriptions subscription, observed
+       WHERE subscription.id = $1 AND subscription.plan_slug = 'free'
+         AND subscription.status = 'active' AND subscription.current_period_end <= observed.at
        UNION ALL
-       SELECT periods.id, periods.period_end,
-              periods.period_end + INTERVAL '1 month'
-       FROM periods
-       WHERE periods.period_end <= NOW()
+       SELECT periods.id, periods.period_end, periods.period_end + INTERVAL '1 month'
+       FROM periods, observed WHERE periods.period_end <= observed.at
      ), current_periods AS (
-       SELECT DISTINCT ON (id) id, period_start, period_end
-       FROM periods
-       WHERE period_end > NOW()
-       ORDER BY id, period_end
+       SELECT DISTINCT ON (periods.id) periods.id, periods.period_start, periods.period_end
+       FROM periods, observed WHERE periods.period_end > observed.at
+       ORDER BY periods.id, periods.period_end
      )
      UPDATE tenant_subscriptions subscription
      SET current_period_start = current_periods.period_start,
          current_period_end = current_periods.period_end,
-         updated_at = NOW()
-     FROM current_periods
+         updated_at = observed.at
+     FROM current_periods, observed
      WHERE subscription.id = current_periods.id
      RETURNING subscription.id, subscription.tenant_id,
-               subscription.current_period_start, subscription.current_period_end`
+               subscription.current_period_start, subscription.current_period_end`,
+    [String(current.id)]
   );
-  return result.rows;
+  return result.rows[0] || null;
+}
+
+async function renewFreeSubscriptions(options = {}) {
+  const candidates = await client(options).query(
+    `SELECT id, tenant_id FROM tenant_subscriptions
+     WHERE plan_slug = 'free' AND status = 'active' AND current_period_end <= clock_timestamp()
+     ORDER BY tenant_id, id`
+  );
+  const results = [];
+  for (const subscription of candidates.rows) {
+    const renewed = options.client
+      ? await renewFreeSubscription(subscription, options.client)
+      : await db.withTransaction(queryClient => renewFreeSubscription(subscription, queryClient));
+    if (renewed) results.push(renewed);
+  }
+  return results;
 }
 
 module.exports = { prepareScheduledTransition, createTransition, executeTransition, listTransitions, lockCurrent, renewFreeSubscriptions };
