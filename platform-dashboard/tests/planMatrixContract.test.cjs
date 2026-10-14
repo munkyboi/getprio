@@ -56,7 +56,8 @@ test("legacy capacity and credit writes tolerate retired email quota and unavail
   assert.match(tenant, /item\.policy_key === "allowance\.queueEmailJourneys"/);
   assert.match(tenant, /journeyUnits: 0/);
   assert.doesNotMatch(tenant, /grant\.journeyUnits/);
-  assert.match(plan, /journeyUnits: 0/);
+  assert.match(plan, /creditPackRevisionPayload\(editingPack\)/);
+  assert.match(plan, /creditPackContents\(pack\)/);
   assert.match(plan, /body: \{ \.\.\.payload, reason/);
 });
 

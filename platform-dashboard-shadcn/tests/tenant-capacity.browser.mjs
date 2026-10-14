@@ -3,11 +3,14 @@ export default async function verifyTenantCapacity(page) {
   if (!["localhost", "127.0.0.1"].includes(new URL(origin).hostname)) throw new Error("Local test URL required");
   for (const width of [390, 768, 1280]) {
     await page.setViewportSize({ width, height: 844 });
-    for (const unavailable of [false, true]) {
-      await page.goto(`${origin}/tests/tenant-capacity-harness.html${unavailable ? "?unavailable=1" : ""}`);
+    for (const scenario of ["", "?unavailable=1", "?legacy=1"]) {
+      const unavailable = scenario.includes("unavailable=1");
+      const legacy = scenario.includes("legacy=1");
+      await page.goto(`${origin}/tests/tenant-capacity-harness.html${scenario}`);
       await page.getByRole("heading", { name: "Allowance posture" }).waitFor();
       const text = await page.locator("main").innerText();
-      if (text.includes("queue Email Journeys")) throw new Error("Retired email capacity exposed");
+      if (legacy !== text.includes("Legacy server email quota")) throw new Error("Server-returned legacy quota visibility is incorrect");
+      if (legacy && !text.includes("Quota enforcement: enabled")) throw new Error("Legacy enforcement is not visible");
       if (unavailable) {
         if (!text.includes("Unavailable used") || text.includes("0 used") || !text.includes("Usage period unavailable")) throw new Error("Missing period must not fabricate zero usage");
       } else if (!text.includes("7 used") || !text.includes("10 created") || !text.includes("3 base · 3 credit · 4 unaccounted") || !text.includes("Partial accounting") || !text.includes("end exclusive")) throw new Error("Reconciled/observed/ledger distinction missing");

@@ -4,7 +4,8 @@ export function capacityCount(value: number | null | undefined, available = true
 }
 
 export function visibleCapacityResources<T>(resources: Record<string, T>): Array<[string, T]> {
-  return Object.entries(resources).filter(([key]) => key !== "queueEmailJourneys")
+  // The server omits retired resources. Older servers must remain diagnosable.
+  return Object.entries(resources)
 }
 
 export function capacityPeriod(period: { start: string; end: string } | null | undefined): string {
