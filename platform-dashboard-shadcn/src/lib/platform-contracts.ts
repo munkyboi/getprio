@@ -121,7 +121,10 @@ export interface PlatformTenantInspection {
     planSlug: string | null
     subscriptionId: string | null
     lifecycleState: string | null
-    resources: Record<string, { limit: number; used: number; creditRemaining: number; resetAt: string | null; source?: string; overrideId?: string | null }>
+    period?: { start: string; end: string } | null
+    observedAt?: string | null
+    usageAvailable?: boolean
+    resources: Record<string, { limit: number; used: number | null; observedUsed?: number | null; baseUsed?: number | null; creditUsed?: number | null; unaccountedUsed?: number | null; accountingStatus?: "complete" | "partial" | "unavailable"; enforcementEnabled?: boolean; creditRemaining: number; resetAt: string | null; source?: string; overrideId?: string | null }>
     lots: PlatformTenantCreditLot[]
   }
   overrides: Array<{ id: string; policyKey: string; value: unknown; expiresAt: string | null; revokedAt: string | null; reason: string | null }>

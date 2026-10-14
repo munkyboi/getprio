@@ -19,7 +19,7 @@ const features = [
   ["booking", "Service bookings"],
 ] as const
 const allowances = [
-  ["queueTickets", "Queue tickets / month"], ["queueEmailJourneys", "Email journeys / month"], ["serviceBookings", "Service bookings / month"],
+  ["queueTickets", "Queue tickets / month"], ["serviceBookings", "Service bookings / month"],
 ] as const
 const numericEntitlements = [
   ["locations", "Active locations"], ["counters", "Service counters"], ["staffSeats", "Vendor seats"],

@@ -31,5 +31,5 @@ test("tenant details sheet presents actual subscription identity and plan state"
   assert.match(tenantsSource, /inspection\.capacity\.subscriptionId \|\| "No subscription linked"/)
   assert.match(tenantsSource, /inspection\.capacity\.planSlug \|\| "No plan signal"/)
   assert.match(tenantsSource, /inspection\.capacity\.lifecycleState \|\| "Unknown"/)
-  assert.match(tenantsSource, /Allowance posture/)
+  assert.match(tenantsSource, /<TenantAllowancePosture capacity=\{inspection\.capacity\}/)
 })
