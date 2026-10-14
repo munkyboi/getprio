@@ -2,10 +2,16 @@ const db = require("../config/db");
 const EMAIL_QUOTA_POLICY = "unmetered";
 
 async function withLifecycleSlot(ticketId, slotKey, logicalMessageKey, deliver) {
-  const journey = await db.pool.query("SELECT id FROM queue_email_journeys WHERE ticket_id=$1", [ticketId]);
-  // Tickets created before journey tracking remain deliverable; old exhausted
-  // journeys now use the same retry/dedup slots without a quota admission check.
-  if (!journey.rows[0]) return deliver();
+  let journey = await db.pool.query("SELECT id FROM queue_email_journeys WHERE ticket_id=$1", [ticketId]);
+  // Legacy tickets acquire durable delivery state before any provider call.
+  // A concurrent creator wins the unique ticket key without rewriting history.
+  if (!journey.rows[0]) {
+    await db.pool.query(`INSERT INTO queue_email_journeys (tenant_id, ticket_id, mode)
+      SELECT tenant_id, id, $2 FROM tickets WHERE id=$1
+      ON CONFLICT (ticket_id) DO NOTHING`, [ticketId, EMAIL_QUOTA_POLICY]);
+    journey = await db.pool.query("SELECT id FROM queue_email_journeys WHERE ticket_id=$1", [ticketId]);
+  }
+  if (!journey.rows[0]) return false;
   await db.pool.query(`INSERT INTO queue_email_slots (journey_id, slot_key)
     VALUES ($1,$2) ON CONFLICT (journey_id, slot_key) DO NOTHING`, [journey.rows[0].id, slotKey]);
   const claim = await db.pool.query(
@@ -13,7 +19,7 @@ async function withLifecycleSlot(ticketId, slotKey, logicalMessageKey, deliver) 
      FROM queue_email_journeys j
      WHERE s.journey_id = j.id AND j.ticket_id = $1
        AND s.slot_key = $2 AND s.status IN ('unused', 'failed')
-     RETURNING s.id`, [Number(ticketId), slotKey, logicalMessageKey]
+     RETURNING s.id`, [ticketId, slotKey, logicalMessageKey]
   );
   if (!claim.rows[0]) return false;
   try {

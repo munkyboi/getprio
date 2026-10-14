@@ -37,7 +37,7 @@ test('capacity reconciles current-cycle facts without mutating ledger or histori
         revoked_units integer DEFAULT 0,frozen_units integer DEFAULT 0,source_type text,status text,expires_at timestamptz,created_at timestamptz);
       CREATE TABLE allowance_warning_claims(id bigint PRIMARY KEY,usage_account_id bigint,allowance_period_id bigint,
         threshold_percent integer,claimed_at timestamptz,delivered_at timestamptz);
-      CREATE TABLE queue_email_journeys(id bigserial PRIMARY KEY,ticket_id bigint UNIQUE,mode text CHECK(mode IN ('metered','journey_exhausted')));
+      CREATE TABLE queue_email_journeys(id bigserial PRIMARY KEY,tenant_id bigint,ticket_id bigint UNIQUE,mode text CHECK(mode IN ('metered','journey_exhausted')));
       CREATE TABLE queue_email_slots(id bigserial PRIMARY KEY,journey_id bigint,slot_key text,status text DEFAULT 'unused',
         logical_message_key text,queued_at timestamptz,sent_at timestamptz,failed_at timestamptz,UNIQUE(journey_id,slot_key));
       CREATE TABLE usage_credit_packs(id bigint PRIMARY KEY,code text,state text,current_revision integer,updated_at timestamptz);
@@ -126,6 +126,28 @@ test('capacity reconciles current-cycle facts without mutating ledger or histori
       assert.equal(sent, 1);
       assert.equal(results.filter(Boolean).length, 1);
       assert.equal((await pool.query("SELECT status FROM queue_email_slots WHERE slot_key='called'")).rows[0].status, 'sent');
+    });
+    await t.test('legacy ticket without a journey retries failures and deduplicates concurrent lifecycle calls', async () => {
+      const journeys = loadModuleWithMocks(require.resolve('../src/services/queueEmailJourneyService'), { '../config/db': database });
+      assert.equal((await pool.query('SELECT count(*)::integer AS count FROM queue_email_journeys WHERE ticket_id=2')).rows[0].count, 0);
+      await assert.rejects(journeys.withLifecycleSlot('2', 'near_turn', 'near:2', async () => { throw new Error('provider unavailable'); }), /provider unavailable/);
+      let sent = 0;
+      const results = await Promise.all(Array.from({ length: 5 }, () => journeys.withLifecycleSlot('2', 'near_turn', 'near:2', async () => { sent++; return true; })));
+      assert.equal(sent, 1);
+      assert.equal(results.filter(Boolean).length, 1);
+      assert.deepEqual((await pool.query('SELECT tenant_id,mode FROM queue_email_journeys WHERE ticket_id=2')).rows, [{ tenant_id: '5', mode: 'unmetered' }]);
+      assert.equal(await journeys.withLifecycleSlot('2', 'near_turn', 'near:2', async () => { sent++; return true; }), false);
+      assert.equal(sent, 1);
+    });
+    await t.test('simultaneous first deliveries create one legacy journey and never deliver for missing tickets', async () => {
+      const journeys = loadModuleWithMocks(require.resolve('../src/services/queueEmailJourneyService'), { '../config/db': database });
+      let sent = 0;
+      const results = await Promise.all(Array.from({ length: 5 }, () => journeys.withLifecycleSlot('3', 'called', 'called:3', async () => { sent++; return true; })));
+      assert.equal(sent, 1);
+      assert.equal(results.filter(Boolean).length, 1);
+      assert.equal((await pool.query('SELECT count(*)::integer AS count FROM queue_email_journeys WHERE ticket_id=3')).rows[0].count, 1);
+      assert.equal(await journeys.withLifecycleSlot('999', 'called', 'called:999', async () => { sent++; return true; }), false);
+      assert.equal(sent, 1);
     });
   } finally { await pool.end(); await admin.query(`DROP SCHEMA ${schema} CASCADE`); await admin.end(); }
 });

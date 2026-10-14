@@ -1,7 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { boardSnapshot, trackingSnapshot, queueMetadata } = require("../src/services/queueBoardProjection");
-const snapshot = { tenant: { name: "Vendor", monitorUrl: "private-board-url" }, location: { name: "Location", monitorUrl: "private-board-url" },
+const snapshot = { emailQuotaPolicy: "unmetered", tenant: { name: "Vendor", monitorUrl: "private-board-url" }, location: { name: "Location", monitorUrl: "private-board-url" },
   stats: { waitingCount: 3, currentTicketNumber: "P001" }, current: { id: "1", ticketNumber: "P001", customerName: "Other Customer", lookupCode: "SECRET" },
   calledTickets: [{ id: "1", ticketNumber: "P001", customerPhone: "private", serviceCounterId: "2" }],
   nextUp: [{ id: "3", ticketNumber: "P002", customerDisplayName: "Private", customerEmail: "private", lookupCode: "OTHER" }],
@@ -21,4 +21,12 @@ test("customer tracking and discovery cannot expose full board lists", () => {
   assert.deepEqual(own.nextUp, []); assert.deepEqual(own.calledTickets, []); assert.equal(own.current, null);
   assert.equal(queueMetadata(snapshot).focusTicket, null);
   assert.doesNotMatch(JSON.stringify(own), /SECRET|OTHER|Other Customer|P001/);
+});
+
+test("public projections retain the non-sensitive email quota policy", () => {
+  for (const project of [queueMetadata, boardSnapshot, trackingSnapshot]) {
+    assert.equal(project(snapshot).emailQuotaPolicy, "unmetered");
+    assert.equal(project({ ...snapshot, emailQuotaPolicy: undefined }).emailQuotaPolicy, undefined);
+    assert.doesNotMatch(JSON.stringify(project(snapshot)), /must not leak|staff only|private-board-url/);
+  }
 });
