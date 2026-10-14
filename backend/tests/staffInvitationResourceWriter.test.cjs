@@ -30,6 +30,14 @@ test('staff invitation admission and resource effects share one PostgreSQL trans
       await reset(); await invite({ role: 'admin' });
       assert.deepEqual((await revisions()).map(row => row.revision), ['2','2','2','1']);
     });
+    await t.test('current administrator role admits only ordinary staff on the actual service', async () => {
+      for (const role of ['admin','owner']) {
+        await reset(); await pool.query("UPDATE tenant_memberships SET role='admin' WHERE id=1");
+        await assert.rejects(invite({ role }), error => error.statusCode === 403); await unchanged();
+      }
+      await reset(); await pool.query("UPDATE tenant_memberships SET role='admin' WHERE id=1");
+      await invite(); assert.equal(await newMembers(), 1);
+    });
     await t.test('preexisting active counter grants affect only this vendor; inactive and foreign grants remain distinct', async () => {
       await reset();
       await pool.query(`UPDATE service_counters SET is_active=FALSE WHERE id=2;
