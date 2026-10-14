@@ -147,6 +147,7 @@ test('staff invitation admission and resource effects share one PostgreSQL trans
     });
     await t.test('reciprocal cross-vendor target upgrades return promptly without collateral actor changes', async () => {
       await reset(); await pool.query("INSERT INTO tenant_memberships(id,user_id,tenant_id,role,is_active) VALUES(4,3,2,'owner',TRUE)");
+      await pool.query("INSERT INTO tenant_subscriptions(id,tenant_id,status,plan_slug,entitlements,updated_at) VALUES(2,2,'active','pro','{}',NOW())");
       await pool.query("SELECT setval(pg_get_serial_sequence('tenant_memberships','id'),4)");
       let release, entered; const gate = new Promise(resolve => { release = resolve; });
       const bothEntered = new Promise(resolve => { entered = resolve; }); let count = 0;
@@ -163,7 +164,7 @@ test('staff invitation admission and resource effects share one PostgreSQL trans
       const settled = Promise.allSettled([one,two]);
       await bothEntered; release(); const results = await settled;
       const rejected = results.filter(row => row.status === 'rejected');
-      assert.ok(rejected.length >= 1); assert.ok(rejected.every(row => row.reason.code === 'STAFF_INVITATION_BUSY'));
+      assert.ok(rejected.length >= 1); assert.ok(rejected.every(row => row.reason.code === 'STAFF_INVITATION_BUSY'), rejected.map(row => `${row.reason.code}: ${row.reason.message}`).join('; '));
       const successes = results.filter(row => row.status === 'fulfilled').length;
       assert.equal((await pool.query('SELECT 1 FROM staff_access_email_outbox')).rowCount, successes);
       assert.deepEqual((await pool.query('SELECT role FROM tenant_memberships WHERE id IN (1,4) ORDER BY id')).rows, [{ role:'owner' },{ role:'owner' }]);
