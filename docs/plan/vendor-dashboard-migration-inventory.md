@@ -147,3 +147,15 @@ VD-10 callback now locally uses vendor composition for existing dashboard target
 VD-10 operational queue/booking alerts are now native scoped panels with bounded scrolling and original callbacks/state. Removed only the redundant outer portal; each task dialog still owns its portal. Global transient toasts remain pending.
 
 VD-10 transient feedback is locally migrated to a scoped Base UI provider/viewport with a shared vendor queue; customer fallback remains unchanged. FIFO display/timing/duplicate behavior is preserved. Account deletion receipt remains a deliberate global lifetime exception because it survives session closure. Legacy presentation retirement must retain that receipt evidence until a replacement spans logout.
+
+### VD-12 first retirement inventory (14 October)
+
+| Consumer | Decision | Evidence / acceptance boundary |
+| --- | --- | --- |
+| Legacy dashboard-notification-stack/dashboard-notification styles | Removed four unused rules | No remaining frontend source callers after native operational alert migration; native alerts keep scoped styles. |
+| Old neura-sidebar selectors | Candidate only | Source search found no current frontend callers; grouped/shared selectors still need review before deletion. |
+| finazze-auth-card/customer auth defaults | Retain | Plain/customer Login, callback, registration and shared Account defaults still use this presentation. |
+| Global account-deletion receipt notification | Retain lifetime exception | Persistent request reference must survive logout; ordinary vendor toast provider unmounts with the dashboard. |
+| Secure/public queue-board presentation | Retain | Board intentionally keeps prior UI/UX and does not inherit the authenticated shell. |
+
+Retirement and local fixtures do not close authenticated/provider/device, deployed or simultaneous-resource acceptance. VD11 remains fail-closed pending authoritative contracts/readiness/pilot evidence.

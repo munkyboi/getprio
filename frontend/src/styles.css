@@ -6300,16 +6300,6 @@ h2 {
     line-height: 1.05;
   }
 
-  .dashboard-notification-stack {
-    bottom: 12px !important;
-    width: calc(100vw - 24px) !important;
-  }
-
-  .dashboard-notification {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
   .dashboard-notification .mantine-Button-root {
     width: 100%;
   }
@@ -7285,14 +7275,6 @@ h2 {
 .customer-booking-campaign-stat {
   border: 1px solid #e7edf4;
   background: rgba(248, 250, 252, 0.78);
-}
-
-.dashboard-notification-stack {
-  width: calc(100vw - 64px);
-}
-
-.dashboard-notification {
-  align-items: center;
 }
 
 .service-dialog__header {
