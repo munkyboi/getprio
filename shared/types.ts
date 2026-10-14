@@ -190,6 +190,7 @@ export interface OAuthProviderAvailability {
 
 export interface PasswordResetRequest {
   email: string;
+  next?: string;
 }
 
 export interface PasswordResetConfirmRequest {

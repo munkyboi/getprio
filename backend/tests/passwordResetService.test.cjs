@@ -281,3 +281,55 @@ test("password reset service issues tokens, resets passwords, and rejects invali
     Date.now = originalNow;
   }
 });
+
+test('reset emails retain safe vendor targets and preserve query values without changing the trusted origin', () => {
+  const service = requireWithMocks('../src/services/passwordResetService.js', {
+    '../config/env': { clientUrl: 'https://app.example.com/' },
+    '../config/db': {}, './sessionService': {}, './securityEventService': {}
+  });
+  for (const next of ['/dashboard', '/dashboard/queue?boardPairing=' + 'a'.repeat(32),
+    '/dashboard/services?filter=one%26two#availability', '/dashboard/reports?range=last%20month']) {
+    const link = new URL(service.buildPasswordResetUrl('token&next=//evil.example', next));
+    assert.equal(link.origin, 'https://app.example.com');
+    assert.equal(link.pathname, '/login');
+    assert.equal(link.searchParams.get('resetToken'), 'token&next=//evil.example');
+    assert.equal(link.searchParams.get('next'), next);
+  }
+});
+
+test('unsafe and non-vendor reset targets retain the existing default login link', () => {
+  const service = requireWithMocks('../src/services/passwordResetService.js', {
+    '../config/env': { clientUrl: 'https://app.example.com' },
+    '../config/db': {}, './sessionService': {}, './securityEventService': {}
+  });
+  for (const next of [undefined, null, [], {}, '', '/customer', '/dashboard-evil',
+    'https://evil.example/dashboard', '//evil.example/dashboard', '/\\evil.example/dashboard',
+    '/dashboard/../customer', '/dashboard/%2e%2e/customer', '/dashboard/%2f%2fevil.example',
+    '/dashboard/%255cevil', '/dashboard/queue\n', '/dashboard/queue?x=%0d%0a',
+    '/dashboard/queue?x=%5c', '/dashboard/%ZZ', '/dashboard/queue?x=%FF', '/dashboard/' + 'a'.repeat(2048)]) {
+    assert.equal(service.buildPasswordResetUrl('token', next), 'https://app.example.com/login?resetToken=token');
+  }
+});
+
+test('token issuance forwards the validated return target only into the email link', async () => {
+  const client = {};
+  const calls = [];
+  const events = [];
+  const service = requireWithMocks('../src/services/passwordResetService.js', {
+    '../config/env': { clientUrl: 'https://app.example.com', passwordResetTtlMinutes: 30 },
+    '../config/db': {}, './sessionService': {},
+    './securityEventService': { logSecurityEvent: async (event, options) => { events.push(event); assert.equal(options.client, client); } },
+    '../repositories/passwordResetTokens': {
+      invalidateUnusedTokensForUser: async (id, options) => { assert.equal(id, 'test-user'); assert.equal(options.client, client); },
+      createResetToken: async (data, options) => { calls.push(data); assert.equal(options.client, client); }
+    }
+  });
+  const next = '/dashboard/queue?boardPairing=' + 'a'.repeat(32);
+  const issued = await service.issuePasswordResetToken({ user: { _id: 'test-user', email: 'test@example.invalid', roles: ['vendor'] }, client, next });
+  const url = new URL(issued.resetUrl);
+  assert.equal(url.searchParams.get('next'), next);
+  assert.equal(url.searchParams.get('resetToken'), issued.token);
+  assert.notEqual(calls[0].tokenHash, issued.token);
+  assert.equal(Object.hasOwn(calls[0], 'next'), false);
+  assert.equal(Object.hasOwn(events[0].metadata, 'next'), false);
+});

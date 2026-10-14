@@ -14,16 +14,36 @@ function createResetTokenValue() {
   return crypto.randomBytes(32).toString("hex");
 }
 
-function buildPasswordResetUrl(token) {
+function hasReturnPathControls(value) {
+  return Array.from(value).some(character => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127);
+}
+
+function getVendorResetReturnPath(value) {
+  if (typeof value !== "string" || value.length > 2048 || !value.startsWith("/")
+    || value.startsWith("//") || value.includes("\\") || value.includes(" ")
+    || hasReturnPathControls(value)) return null;
+  try {
+    const url = new URL(value, "https://getprio.invalid");
+    // Dashboard routes use literal path segments. Encoded separators and nested
+    // encodings cannot become a different navigation target after another decode.
+    if (url.origin !== "https://getprio.invalid" || url.pathname.includes("%")
+      || !/^\/dashboard(?:\/|$)/.test(url.pathname)
+      || decodeURIComponent(value).includes("\\") || hasReturnPathControls(decodeURIComponent(value))) return null;
+    return `${url.pathname}${url.search}${url.hash}`;
+  } catch { return null; }
+}
+
+function buildPasswordResetUrl(token, next) {
   const baseUrl = String(env.clientUrl || "").replace(/\/$/, "");
-  return `${baseUrl}/login?resetToken=${encodeURIComponent(token)}`;
+  const returnPath = getVendorResetReturnPath(next);
+  return `${baseUrl}/login?resetToken=${encodeURIComponent(token)}${returnPath ? `&next=${encodeURIComponent(returnPath)}` : ""}`;
 }
 
 function getPasswordResetExpiry() {
   return new Date(Date.now() + Math.max(1, Number(env.passwordResetTtlMinutes) || 30) * 60 * 1000);
 }
 
-async function issuePasswordResetToken({ user, req, client }) {
+async function issuePasswordResetToken({ user, req, client, next }) {
   const token = createResetTokenValue();
   const tokenHash = hashResetToken(token);
   const expiresAt = getPasswordResetExpiry();
@@ -56,7 +76,7 @@ async function issuePasswordResetToken({ user, req, client }) {
   return {
     token,
     expiresAt,
-    resetUrl: buildPasswordResetUrl(token)
+    resetUrl: buildPasswordResetUrl(token, next)
   };
 }
 
