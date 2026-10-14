@@ -3,7 +3,7 @@ import { apiRequest } from "./client";
 
 export interface VendorCapacityResource {
   limit: number;
-  used: number;
+  used: number | null;
   creditRemaining: number;
   resetAt: string | null;
 }
