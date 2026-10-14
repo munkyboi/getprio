@@ -1610,7 +1610,7 @@ router.post(
   "/subscriptions/:subscriptionId/suspend",
   requirePlatformPermission("platform.subscription_lifecycle.manage"),
   requireReleaseControl("subscriptionLifecycle"),
-  requireIdempotency("platform.subscription.suspend"),
+  requireIdempotency("platform.subscription.suspend", { retryableErrorCodes: ["SUBSCRIPTION_BUSY", "SUBSCRIPTION_ACTOR_BUSY"] }),
   asyncHandler(async (req, res) => {
     const payload = { subscriptionId: req.params.subscriptionId };
     const subscription = await db.withTransaction(async (client) => {

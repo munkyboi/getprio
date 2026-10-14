@@ -30,14 +30,14 @@ test('suspension reader translates only its scoped NOWAIT conflict', async () =>
   await assert.rejects(readSubscription(client, '1', true), value => value === error);
 });
 
-function platformHandler(db, lifecycle, preview, confirmations) {
+function platformHandler(db, lifecycle, preview, confirmations, idempotency) {
   const registrations = [];
   const router = new Proxy({}, { get: (_, method) => (...args) => registrations.push({ method, args }) });
   const fallback = new Proxy({}, { get: () => () => undefined });
   const mocks = {
     express: { Router: () => router }, '../middleware/asyncHandler': value => value,
     '../middleware/auth': { authenticate() {}, requirePlatformPermission: permission => ({ permission }) },
-    '../middleware/idempotency': { requireIdempotency: scope => ({ scope }) },
+    '../middleware/idempotency': idempotency || { requireIdempotency: (scope, options) => ({ scope, options }) },
     '../middleware/releaseControl': { requireReleaseControl: control => ({ control }) },
     '../config/db': db, '../services/subscriptionLifecycleService': lifecycle,
     '../services/privilegedPreviewService': preview, '../services/privilegedTransactionService': confirmations
@@ -48,8 +48,13 @@ function platformHandler(db, lifecycle, preview, confirmations) {
   const route = registrations.find(({ method, args }) => method === 'post' && args[0] === '/subscriptions/:subscriptionId/suspend');
   assert.equal(route.args[1].permission, 'platform.subscription_lifecycle.manage');
   assert.equal(route.args[2].control, 'subscriptionLifecycle');
-  assert.equal(route.args[3].scope, 'platform.subscription.suspend');
-  return route.args.at(-1);
+  if (!idempotency) {
+    assert.equal(route.args[3].scope, 'platform.subscription.suspend');
+    assert.deepEqual(Array.from(route.args[3].options.retryableErrorCodes), ['SUBSCRIPTION_BUSY', 'SUBSCRIPTION_ACTOR_BUSY']);
+  }
+  const handler = route.args.at(-1);
+  handler.idempotencyMiddleware = route.args[3];
+  return handler;
 }
 
 const databaseUrl = process.env.RESOURCE_LEDGER_TEST_DATABASE_URL;
@@ -121,7 +126,7 @@ test('prepared suspension and Platform confirmations preserve PostgreSQL transac
   try {
     await pool.query(`CREATE SCHEMA ${schema}; CREATE TABLE tenants(id BIGINT PRIMARY KEY); CREATE TABLE users(id BIGINT PRIMARY KEY, roles TEXT[], deletion_requested_at TIMESTAMPTZ, platform_access_suspended_at TIMESTAMPTZ); CREATE TABLE queue_events(id BIGSERIAL PRIMARY KEY, tenant_id BIGINT NOT NULL REFERENCES tenants(id)); CREATE TABLE auth_sessions(id BIGINT PRIMARY KEY); CREATE TABLE subscription_plans(slug TEXT PRIMARY KEY);`);
     const sql = fs.readFileSync(path.resolve(__dirname, '../../database/init.sql'), 'utf8');
-    for (const table of ['tenant_subscriptions', 'subscription_transitions', 'privileged_transaction_confirmations', 'billing_checkout_sessions']) {
+    for (const table of ['tenant_subscriptions', 'subscription_transitions', 'privileged_transaction_confirmations', 'billing_checkout_sessions', 'idempotency_records']) {
       await pool.query(sql.match(new RegExp(`CREATE TABLE ${table} \\([\\s\\S]*?\\n\\);`))[0]);
     }
     await t.test('Platform confirmation and transition commit once; fresh suspended confirmation is a no-op', async () => {
@@ -281,6 +286,42 @@ test('prepared suspension and Platform confirmations preserve PostgreSQL transac
     await t.test('system actor remains supported without an actor foreign key', async () => {
       await reset(); await lifecycle.suspendSubscription('1', { reason });
       assert.equal((await pool.query('SELECT created_by_user_id FROM subscription_transitions')).rows[0].created_by_user_id, null);
+    });
+    await t.test('real idempotency middleware releases busy claims before same-key retry and replays success', async () => {
+      await reset();
+      const idempotencyRepository = load('../src/repositories/idempotency', { '../config/db': db });
+      const idempotencyService = load('../src/services/idempotencyService', { '../repositories/idempotency': idempotencyRepository });
+      const idempotency = load('../src/middleware/idempotency', { '../services/idempotencyService': idempotencyService, '../repositories/idempotency': idempotencyRepository });
+      const actual = platformHandler(db, lifecycle, preview, confirmations, idempotency);
+      const confirmation = await issue();
+      const request = () => new Promise((resolve, reject) => {
+        const req = { params: { subscriptionId: '1' }, body: { reason, previewRevision: confirmation.revision }, user: { _id: '1' }, auth: { session }, get: header => header === 'idempotency-key' ? 'suspension-retry-1' : confirmation.token };
+        const res = { statusCode: 200, status(code) { this.statusCode = code; return this; }, json(body) { resolve({ status: this.statusCode, body: JSON.parse(JSON.stringify(body)) }); return this; } };
+        const errors = require('../src/middleware/errorHandler');
+        actual.idempotencyMiddleware(req, res, error => {
+          if (error) return reject(error);
+          actual(req, res).catch(failure => errors(failure, req, res, reject));
+        });
+      });
+      const holder = await pool.connect();
+      try {
+        for (const table of ['tenant_subscriptions', 'users']) {
+          await holder.query('BEGIN'); await holder.query(`SELECT id FROM ${table} WHERE id=1 FOR ${table === 'users' ? 'NO KEY UPDATE' : 'UPDATE'}`);
+          const busy = await request();
+          assert.equal(busy.status, 409);
+          assert.equal(busy.body.code, table === 'users' ? 'SUBSCRIPTION_ACTOR_BUSY' : 'SUBSCRIPTION_BUSY');
+          assert.equal((await pool.query('SELECT count(*)::int AS n FROM idempotency_records')).rows[0].n, 0);
+          assert.deepEqual(await state(), { status: 'active', transitions: 0, consumed: 0 });
+          await holder.query('COMMIT');
+        }
+        const success = await request(); assert.equal(success.status, 200);
+        for (let attempt=0; attempt<100; attempt++) {
+          if ((await pool.query("SELECT id FROM idempotency_records WHERE status='completed'")).rowCount) break;
+          await new Promise(resolve => setTimeout(resolve, 10));
+        }
+        assert.deepEqual(await request(), success);
+        assert.deepEqual(await state(), { status: 'suspended', transitions: 1, consumed: 1 });
+      } finally { await holder.query('ROLLBACK'); holder.release(); }
     });
     await t.test('missing targets return null or 404 without confirmation consumption', async () => {
       await reset(); const confirmation = await issue('404');

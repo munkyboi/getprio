@@ -39,4 +39,11 @@ async function fail(id, options = {}) {
   );
 }
 
-module.exports = { claim, complete, fail };
+async function releasePending(id, options = {}) {
+  await (options.client || db.pool).query(
+    "DELETE FROM idempotency_records WHERE id = $1 AND status = 'pending'",
+    [String(id)]
+  );
+}
+
+module.exports = { claim, complete, fail, releasePending };
