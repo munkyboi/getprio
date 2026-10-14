@@ -344,3 +344,10 @@ Billing capabilities HTTP200 returns vendorCapacityExperience:false, explaining 
 
 
 Heartbeat restoration and main refresh: preview/API/Docker were stopped again; restarted Docker, the existing getprio-local-database on loopback6432, Vite5179 and API5001. Both HTTP checks return200 and directSELECT1passes; verified existing local environment with mail disabled, no retarget/migration/provider work. #441 merged524c109e and#442 mergedf0c1f4ec verified in GitHub, then integrated main without conflicts or frontend presentation changes. Deployment workflow policy checks pass6/0fail. AI owner was asked for actual deployment/SHA/smoke evidence; merge is not deployment/runtime acceptance. Remaining presentation publication and VD11 readiness gates are unchanged.
+
+
+### Live usage-source reconciliation finding
+
+API owner read-only live tenant5 snapshot at2026-10-14T15:57:15.097Z reports109 all-time tickets/15 ordinary bookings; effective allowance window2026-10-11T16:31:21.376Z–2026-11-11T16:31:21.376Z has18 tickets/2 bookings(quantity6), zero ledger operations/credit lots. The single Manila-day served ticket explains the live1/5000, because main uses snapshot.stats.servedToday while labeling it Current period. This is a presentation source mismatch, not evidence of lost history. Exact countServedToday date-key semantics remain under API review.
+
+The unpublished native Reports/Subscription consumers already avoid that mismatch: both show Tickets served today / At the selected location, with no monthly denominator and an unknown/stale guard. A current-period figure must use an authorized authoritative period usage contract with availability semantics; the capacity UI capability remainsfalse and must not be bypassed to infer readiness. API was asked to confirm that contract. Local correction is not a deployed fix; remaining presentation publication is still pending separate authorization.
