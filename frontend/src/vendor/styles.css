@@ -331,3 +331,10 @@
  .vendor-auth-layout { display: grid; grid-template-columns: minmax(0,2fr) minmax(0,1fr); align-items: start; }
  .vendor-workspace.vendor-auth { padding: 32px; }
 }
+
+.vendor-workspace .vendor-auth-link { color: var(--foreground); text-decoration: underline; text-underline-offset: 3px; }
+
+.vendor-login-container { max-width: 76rem; margin-inline: auto; }
+
+.vendor-login-guide { display: none; }
+@media (min-width: 48.0625em) { .vendor-login-layout { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } .vendor-login-guide { display: flex; flex-direction: column; gap: 16px; } }

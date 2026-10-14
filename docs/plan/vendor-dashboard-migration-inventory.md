@@ -137,3 +137,7 @@ Reports now consumes scoped snapshot metrics and capability-gated period usage w
 ### VD-10 vendor registration/onboarding local migration
 
 `/register/vendor` now uses VendorAuthLayout, scoped native fields/actions, configured provider controls and ref-compatible form primitives. Both signup and authenticated completion remain on the same routes/endpoints/identity; shared `/login`, customer registration and callbacks are still pending/unchanged. useVendorTheme centralizes existing dashboard/auth preference behavior; VendorPortal prevents category dropdowns escaping auth theme scope. No provider or registration policy was forked.
+
+### VD-10 Login local migration
+
+Dashboard-return Login/reset/MFA now uses scoped vendor fields/actions and branded desktop composition. Plain/customer Login keeps Mantine/card/PIN defaults. Existing handler bodies and provider/identity policies remain shared; vendor reset retains the approved return target. Callback presentation and shared notification consumers remain pending inventory. Local-only verification is recorded in progress; no publication/deployment claim.

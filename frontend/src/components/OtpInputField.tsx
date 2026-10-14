@@ -5,6 +5,7 @@ import { ConfigurationInput } from "../vendor/ConfigurationUi";
 
 type OtpInputFieldProps = {
   label: string;
+  vendor?: boolean;
   value: string;
   onChange: (value: string) => void;
   onVerify?: () => Promise<void>;
@@ -18,6 +19,7 @@ type OtpInputFieldProps = {
 };
 
 export function OtpInputField({
+  vendor: vendorPresentation = false,
   label,
   value,
   onChange,
@@ -31,7 +33,8 @@ export function OtpInputField({
   required,
 }: OtpInputFieldProps) {
   const id = useId();
-  const vendor = useVendorAccount();
+  const accountPresentation = useVendorAccount();
+  const vendor = vendorPresentation || accountPresentation;
   const verifying = useRef(false);
   const lastAttempt = useRef(
     /^\d{6}$/.test(value) ? `${verificationKey}:${value}` : "",

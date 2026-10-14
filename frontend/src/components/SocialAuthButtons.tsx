@@ -57,7 +57,7 @@ export default function SocialAuthButtons({
         </div>
         {!oauthLoading && !hasConfiguredProvider ? (
           <p className="ops-muted">
-            Social sign-in is currently unavailable. Use the form below.
+            Social sign-in is currently unavailable. Use the account form.
           </p>
         ) : null}
       </div>

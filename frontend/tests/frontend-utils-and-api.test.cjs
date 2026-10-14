@@ -1177,7 +1177,7 @@ test("login actions are mobile-first", () => {
   const styles = fs.readFileSync(path.join(frontendRoot, "src", "styles.css"), "utf8");
 
   assert.ok((loginSource.match(/className="auth-primary-action"/g) || []).length >= 3);
-  assert.match(loginSource, /<SocialAuthButtons iconOnly intent="login"/);
+  assert.match(loginSource, /<SocialAuthButtons[^>]*iconOnly intent="login"/);
   assert.match(loginSource, /result\.user\.mfaRequired && !result\.user\.mfaEnabled[\s\S]*?mfaEnrollmentPath/);
   assert.match(socialSource, /className="auth-social-action"/);
   assert.match(styles, /\.finazze-auth-card \.auth-primary-action,[\s\S]*?\.finazze-auth-card \.auth-social-action \{\s+width: 100%;\s+min-height: 3\.25rem;/);

@@ -74,3 +74,7 @@ Preserved current location/day metrics, resource usage periods, unknown versus z
 ### VD-10 onboarding checkpoint
 
 Synthetic fixtures verified generated business-link/username fields, categoryId, optional normalized PH phone, 409 preserving signup inputs then exact retry payload, Account continuation, authenticated completion without password, prefilled E164-phone normalization, customer social/card fallback, both themes/four widths and system/explicit theme behavior with scoped category portals. Native ref forwarding preserves form-registration/prefill/error-focus capability. Real OAuth redirect/completion, email/MFA delivery and device keyboard acceptance remain separate. Shared Login/notifications/callback presentation remains unfinished.
+
+### VD-10 Login checkpoint
+
+Preserved shared identity, safe return handling, mandatory MFA destinations, leading-zero OTP/dedup behavior, original versus email challenge tokens, recovery payload and configured provider semantics. Synthetic checks prove request-error visibility/retry, registered input error focus, retained dashboard target through password reset, and customer six-cell/card fallback. Vendor context is presentation only, never a permission grant. Real provider/mail/device acceptance remains separate.
