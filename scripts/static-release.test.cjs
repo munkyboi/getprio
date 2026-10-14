@@ -58,6 +58,30 @@ test("staging inside a served directory or through an output symlink is rejected
   await assertOld(repo);
 });
 
+test("private or writable artifacts fail before changing served pages", async (t) => {
+  const { repo, stage } = await fixture(t);
+  const artifact = path.join(stage, "platform/assets/new.js");
+  await fs.chmod(artifact, 0o600);
+  await assert.rejects((await release).publishStaticRelease(stage, repo, SHA), /public-readable/u);
+  await assertOld(repo);
+  await fs.chmod(artifact, 0o666);
+  await assert.rejects((await release).publishStaticRelease(stage, repo, SHA), /public-readable/u);
+  await assertOld(repo);
+});
+
+test("a restrictive publication umask fails without exposing new HTML", async (t) => {
+  const { repo, stage } = await fixture(t);
+  await fs.mkdir(path.join(stage, "frontend/new-assets"));
+  await fs.writeFile(path.join(stage, "frontend/new-assets/extra.js"), "public");
+  const previous = process.umask(0o077);
+  try { await assert.rejects((await release).publishStaticRelease(stage, repo, SHA), /umask 022/u); }
+  finally { process.umask(previous); }
+  await assertOld(repo);
+  // A retry must not reuse the private directory left by the failed attempt.
+  await assert.rejects((await release).publishStaticRelease(stage, repo, SHA), /umask 022/u);
+  await assertOld(repo);
+});
+
 test("symlink artifacts cannot publish outside the static release", async (t) => {
   const { repo, stage } = await fixture(t);
   await fs.symlink(path.join(repo, "frontend/dist/assets/old.js"), path.join(stage, "frontend/assets/link.js"));
