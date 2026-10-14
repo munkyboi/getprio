@@ -51,7 +51,7 @@ import { BookingCheckInNotice } from "../components/BookingCheckInNotice";
 import { getBookingCheckInState } from "../utils/bookingCheckIn";
 import { VendorResourceConfiguration } from "../components/VendorResourceConfiguration";
 import { VendorRatingsPanel } from "../components/VendorRatingsPanel";
-import { useContext, useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from "react";
+import { useCallback, useContext, useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Badge,
@@ -72,8 +72,7 @@ import {
   TextInput,
   ThemeIcon,
   Title,
-  Tooltip,
-  Box
+  Tooltip
 } from "@mantine/core";
 import {
   IconBellRinging,
@@ -102,7 +101,7 @@ import {
   IconUserPlus,
   IconUsersGroup
 } from "@tabler/icons-react";
-import { notifications } from "@mantine/notifications";
+import { VendorToastProvider, VendorToastViewport, useVendorNotifications } from "../vendor/VendorToasts";
 import { getDay } from "date-fns";
 import { Link, Navigate, NavLink, useLocation, useNavigate, useParams } from "react-router-dom";
 import type {
@@ -851,6 +850,17 @@ function ActivationPanel({ onViewPlans }: { onViewPlans: () => void }) {
 
 
 export default function VendorDashboardPage() {
+  return <VendorToastProvider><VendorDashboardContent /></VendorToastProvider>;
+}
+
+function VendorDashboardContent() {
+  const notifications = useVendorNotifications();
+  const showSuccessNotification = useCallback((title: string, message: string) => {
+    notifications.show({color: "teal", icon: <IconCheck size={18} />, title, message});
+  }, [notifications]);
+  const showInfoNotification = useCallback((title: string, message: string) => {
+    notifications.show({color: "blue", icon: <IconInfoCircle size={18} />, title, message});
+  }, [notifications]);
   const { token, user, loading, logout, refreshUser, changePassword } = useAuth();
   const { section } = useParams<{ section: string }>();
   const location = useLocation();
@@ -1124,7 +1134,7 @@ export default function VendorDashboardPage() {
       message: dashboardErrorMessage,
       autoClose: 7000
     });
-  }, [dashboardErrorMessage]);
+  }, [dashboardErrorMessage, notifications]);
 
   const dashboardBootstrapQuery = useQuery({
     queryKey: ["vendor-dashboard-bootstrap", token, selectedTenantSlug, selectedLocationSlug, locationQuery, selectedTenantRole],
@@ -1582,7 +1592,7 @@ export default function VendorDashboardPage() {
         "Automatic reconciliation could not confirm a trustworthy state. Queue actions are locked."
       );
     }
-  }, [busyAction, snapshot?.queueDay]);
+  }, [busyAction, snapshot?.queueDay, showInfoNotification]);
 
   useEffect(() => {
     if (!staffQuery.data) {
@@ -1808,7 +1818,7 @@ export default function VendorDashboardPage() {
     return () => {
       active = false;
     };
-  }, [location.pathname, location.search, navigate, queryClient, selectedTenantSlug, token]);
+  }, [location.pathname, location.search, navigate, queryClient, selectedTenantSlug, token, showInfoNotification, showSuccessNotification]);
 
   useEffect(() => {
     if (!selectedTenantSlug || !selectedLocationSlug || !token) {
@@ -2017,15 +2027,6 @@ export default function VendorDashboardPage() {
     };
 
     window.sessionStorage.setItem(storageKey, JSON.stringify(payload));
-  }
-
-  function showSuccessNotification(title: string, message: string) {
-    notifications.show({
-      color: "teal",
-      icon: <IconCheck size={18} />,
-      message,
-      title
-    });
   }
 
   async function copyLocationUrl(label: "Join URL" | "QR target" | "Monitor URL" | "Queue board URL", url: string) {
@@ -2366,15 +2367,6 @@ export default function VendorDashboardPage() {
     dismissedQueueAlertIdsRef.current.add(ticketId);
     setQueueAlertIds((current) => current.filter((item) => item !== ticketId));
     persistDismissedAlerts();
-  }
-
-  function showInfoNotification(title: string, message: string) {
-    notifications.show({
-      color: "blue",
-      icon: <IconInfoCircle size={18} />,
-      message,
-      title
-    });
   }
 
 function isRecoveryWindowActive(value?: string | Date | null) {
@@ -11143,6 +11135,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       {renderCounterDialog()}
       {renderStaffDialog()}
       {renderThemeDialog()}
+      <VendorToastViewport />
       {renderDashboardAlertOverlay()}
       {renderRescheduleBlockedModal()}
       {renderWalkInDialog()}

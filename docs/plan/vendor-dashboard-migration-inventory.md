@@ -145,3 +145,5 @@ Dashboard-return Login/reset/MFA now uses scoped vendor fields/actions and brand
 VD-10 callback now locally uses vendor composition for existing dashboard targets and retains customer fallback; existing refresh/session and success destinations stay shared. Provider-error retry retains vendor context. Hash/task change cancels stale UI/navigation completion. Global toast and operational alert presentation remains pending.
 
 VD-10 operational queue/booking alerts are now native scoped panels with bounded scrolling and original callbacks/state. Removed only the redundant outer portal; each task dialog still owns its portal. Global transient toasts remain pending.
+
+VD-10 transient feedback is locally migrated to a scoped Base UI provider/viewport with a shared vendor queue; customer fallback remains unchanged. FIFO display/timing/duplicate behavior is preserved. Account deletion receipt remains a deliberate global lifetime exception because it survives session closure. Legacy presentation retirement must retain that receipt evidence until a replacement spans logout.

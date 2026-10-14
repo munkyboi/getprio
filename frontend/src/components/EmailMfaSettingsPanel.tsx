@@ -16,7 +16,7 @@ import {
   Text,
   Title,
 } from "../vendor/AccountFields";
-import { notifications } from "@mantine/notifications";
+import { useScopedNotifications } from "../vendor/VendorToasts";
 import type { UserSummary } from "@shared";
 import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
@@ -28,6 +28,7 @@ type Props = {
 };
 
 export function EmailMfaSettingsPanel({ variant, onUpdated }: Props) {
+  const notifications = useScopedNotifications();
   const { token, user, refreshUser } = useAuth();
   const [busy, setBusy] = useState(false);
   const [disableOpened, setDisableOpened] = useState(false);

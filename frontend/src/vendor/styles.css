@@ -344,3 +344,14 @@
 @media (min-width: 48.0625em) { .vendor-workspace .vendor-operational-alerts { left: 50%; right: auto; width: min(692px, calc(100vw - 64px)); transform: translateX(-50%); } }
 
 .vendor-operational-alerts > [data-slot="card"] { flex-shrink: 0; }
+
+/* Transient feedback stays in the vendor root; provider owns timing and keyboard behavior. */
+.vendor-workspace .vendor-toast-viewport { top: 80px; bottom: auto; right: 16px; left: 16px; width: auto; max-width: none; max-height: min(50dvh, 32rem); overflow-y: auto; display: flex; flex-direction: column; gap: 12px; padding: 4px; }
+.vendor-workspace .vendor-toast { position: relative; inset: auto; transform: none; height: auto; flex-shrink: 0; transition: none; }
+.vendor-workspace .vendor-toast[data-limited], .vendor-workspace .vendor-toast[data-ending-style] { display: none; }
+.vendor-workspace .vendor-toast-content { opacity: 1; align-items: flex-start; overflow: visible; }
+.vendor-toast-message { display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1; overflow-wrap: anywhere; }
+@media (min-width: 48.0625em) { .vendor-workspace .vendor-toast-viewport { left: auto; width: min(384px, calc(100vw - 32px)); } }
+
+.vendor-workspace [data-slot="toast-title"] { font-family: inherit; font-size: .875rem; line-height: 1.4; margin: 0; }
+.vendor-workspace [data-slot="toast"][data-type="error"] { border-color: var(--destructive); }

@@ -144,3 +144,5 @@ VD-10 Login follow-through: vendor-context sign-in/reset/MFA is locally migrated
 VD-10 shared callback presentation is locally migrated and tested for retry context, loading/failure/success and stale callback responses. Shared notifications and external provider/device acceptance remain open.
 
 VD-10 operational queue/booking overlay cards are locally migrated with preserved detection/dismissal/action behavior and integrated vendor-root verification. Global transient toasts and external notification delivery acceptance remain open.
+
+VD-10 transient toast presentation is locally migrated and verified for responsive/theme/accessibility controls, FIFO overflow and effect replay/display timers. Customer behavior and the session-closing deletion receipt remain preserved. External provider/device acceptance remains open; VD12 legacy-consumer inventory is the next independently actionable item while VD11 awaits authoritative readiness.
