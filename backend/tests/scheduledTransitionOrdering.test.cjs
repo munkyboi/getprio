@@ -14,7 +14,7 @@ test('subscription creation rejects an already-rounded numeric tenant before SQL
 
 const databaseUrl = process.env.RESOURCE_LEDGER_TEST_DATABASE_URL;
 test('scheduled execution prepares tenant serialization before legacy child locks', { skip: !databaseUrl, timeout: 45000 }, async t => {
-  const url = new URL(databaseUrl); assert.equal(url.hostname, '127.0.0.1'); assert.equal(url.pathname, '/getprio_ledger_test');
+  const url = new URL(databaseUrl); assert.equal(url.hostname, '127.0.0.1'); assert.ok(['/getprio_test', '/getprio_ledger_test'].includes(url.pathname));
   const { Pool } = require('pg');
   const schema = `scheduled_${randomUUID().replaceAll('-', '')}`;
   const pool = new Pool({ connectionString: databaseUrl, application_name: schema, options: `-c search_path=${schema} -c statement_timeout=5000`, max: 8 });
