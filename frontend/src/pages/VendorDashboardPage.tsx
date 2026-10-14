@@ -2434,11 +2434,12 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       snapshot?.tenant.monitorUrl ||
       ""
   };
-  const ticketLimit =
-    activeSubscription?.entitlements.monthlyTickets ||
-    currentPlan?.entitlements.monthlyTickets ||
-    0;
-  const ticketUsage = snapshot?.stats.servedToday ?? 0;
+  const ticketsServedToday =
+    !dashboardBootstrapQuery.error &&
+    snapshot?.tenant.slug === selectedTenantSlug &&
+    snapshot?.location?.slug === selectedLocationSlug
+      ? snapshot.stats.servedToday
+      : "—";
   const historyTickets = useMemo(() => history?.tickets || snapshot?.history || [], [history, snapshot]);
   const serviceTrendBars = useMemo(
     () =>
@@ -9072,11 +9073,11 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
           <Card className="neura-card" padding="lg">
             <Stack gap="md">
               <div>
-                <Text className="neura-label">Usage</Text>
-                <Title order={3}>Plan consumption</Title>
+                <Text className="neura-label">Queue activity</Text>
+                <Title order={3}>Tickets served today</Title>
               </div>
               <SimpleGrid cols={1}>
-                <MetricCard label="Tickets" value={`${ticketUsage}/${ticketLimit || "--"}`} detail="Current period" />
+                <MetricCard label="Tickets served today" value={ticketsServedToday} detail="At the selected location" />
               </SimpleGrid>
             </Stack>
           </Card>
@@ -9388,7 +9389,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     ) : null}
                   </Group>
                   <SimpleGrid cols={1}>
-                    <MetricCard label="Tickets" value={`${ticketUsage}/${ticketLimit || "--"}`} detail="Current period" />
+                    <MetricCard label="Tickets served today" value={ticketsServedToday} detail="At the selected location" />
                   </SimpleGrid>
                   {!activeSubscription ? <div>{renderPlanCards()}</div> : !isFreeSubscription ? (
                     <Button onClick={() => openPlanDialog()} variant="light" w={{ base: "100%", sm: "fit-content" }}>
