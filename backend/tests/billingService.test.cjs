@@ -314,7 +314,10 @@ test("entitlement services read caller-private PostgreSQL changes and preserve r
 }, async t => {
   const { Pool } = require("pg");
   const { randomUUID } = require("node:crypto");
-  const pool = new Pool({ connectionString: process.env.RESOURCE_LEDGER_TEST_DATABASE_URL });
+  const databaseUrl = new URL(process.env.RESOURCE_LEDGER_TEST_DATABASE_URL);
+  assert.equal(databaseUrl.hostname, "127.0.0.1", "PostgreSQL fixture requires loopback");
+  assert.ok(["/getprio_test", "/getprio_ledger_test"].includes(databaseUrl.pathname), "PostgreSQL fixture requires a test database");
+  const pool = new Pool({ connectionString: databaseUrl.href });
   const schema = `entitlement_client_${randomUUID().replaceAll("-", "")}`;
   const client = await pool.connect();
   t.after(async () => { await client.query("ROLLBACK"); client.release(); await pool.end(); });
