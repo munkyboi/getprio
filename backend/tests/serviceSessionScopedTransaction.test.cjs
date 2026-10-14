@@ -2503,10 +2503,10 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
           await observer.query('BEGIN');await assert.rejects(observer.query(sql),{code:'55P03'});await observer.query('ROLLBACK');
         }
         revocation=actualOverrides.revoke({overrideId:'1',tenantId:'1',actorId:'2'},{client:pool});revocation.catch(()=>{});
-        suspension=(async ()=>{const client=await pool.connect();try {await client.query('BEGIN');const result=await actualLifecycle.suspendSubscription('1',{reason:'Suspend policy',actorId:'2'},{client});await client.query('COMMIT');return result;}catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}})();suspension.catch(()=>{});
+        suspension=(async ()=>{const client=await pool.connect();try {await client.query('BEGIN');const suspensionContext=await actualLifecycle.prepareSubscriptionSuspension('1',{client,actorId:'2'});const result=await actualLifecycle.suspendSubscription('1',{reason:'Suspend policy',actorId:'2'},{client,suspensionContext});await client.query('COMMIT');return result;}catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}})();suspension.catch(()=>{});
         const deadline=Date.now()+3000;let waiting=0;
         while(Date.now()<deadline) {
-          waiting=Number((await pool.query("SELECT count(*) AS n FROM pg_stat_activity WHERE application_name=$1 AND wait_event_type='Lock' AND (query LIKE 'UPDATE tenant_entitlement_overrides%' OR query LIKE 'SELECT * FROM tenant_subscriptions%')",[schema])).rows[0].n);
+          waiting=Number((await pool.query("SELECT count(*) AS n FROM pg_stat_activity WHERE application_name=$1 AND wait_event_type='Lock' AND (query LIKE 'UPDATE tenant_entitlement_overrides%' OR query LIKE 'SELECT * FROM tenant_subscriptions%' OR query LIKE 'SELECT id FROM tenants%')",[schema])).rows[0].n);
           if(waiting===2)break;await new Promise(resolve=>setTimeout(resolve,10));
         }
         assert.equal(waiting,2,'policy revocation and actual subscription suspension must wait for catalog commit');
@@ -2518,13 +2518,16 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
       assert.deepEqual(await revisions(),[{location_id:'10',revision:2}]);
       const before=await revisions();await assert.rejects(saveInactive({},enforcedWriter()),{statusCode:403});assert.deepEqual(await revisions(),before);
     });
-    await t.test('subscription-first suspension contention fails catalog admission closed without a tenant FK lock cycle',async () => {
+    await t.test('explicit legacy subscription-first contention fails catalog admission closed and rejects unprepared suspension',async () => {
       await reset();await enableBookingOverride();const suspender=await pool.connect();
       try {
         await suspender.query('BEGIN');await suspender.query('SELECT id FROM tenant_subscriptions WHERE id=1 FOR UPDATE');
         await assert.rejects(saveInactive({},enforcedWriter()),{statusCode:409,code:'ENTITLEMENT_POLICY_BUSY'});
         await suspender.query("SET LOCAL lock_timeout='2s'");
-        const result=await actualLifecycle.suspendSubscription('1',{reason:'Suspend policy',actorId:'2'},{client:suspender});assert.equal(result.status,'suspended');
+        await assert.rejects(actualLifecycle.suspendSubscription('1',{reason:'Suspend policy',actorId:'2'},{client:suspender}),{code:'SUSPENSION_CONTEXT_REQUIRED'});
+        // Deliberate legacy publisher simulation, not the prepared suspension service.
+        await require('../src/repositories/subscriptionLifecycle').createTransition({tenantId:'1',fromSubscriptionId:'1',fromPlanSlug:'free',toPlanSlug:'free',transitionType:'admin_resolution',status:'effective',reason:'Legacy policy write',effectiveAt:new Date(),actorId:'2'},{client:suspender});
+        await suspender.query("UPDATE tenant_subscriptions SET status='suspended' WHERE id=1");
         await suspender.query('COMMIT');
       } finally {await suspender.query('ROLLBACK');suspender.release();}
       assert.equal((await realServices.findServiceByTenantAndId('1','1000',{client:pool})).isActive,true);assert.equal(await count('resource_ledger_scopes'),0);

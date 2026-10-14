@@ -1610,13 +1610,15 @@ router.post(
   "/subscriptions/:subscriptionId/suspend",
   requirePlatformPermission("platform.subscription_lifecycle.manage"),
   requireReleaseControl("subscriptionLifecycle"),
-  requireIdempotency("platform.subscription.suspend"),
+  requireIdempotency("platform.subscription.suspend", { retryableErrorCodes: ["SUBSCRIPTION_BUSY", "SUBSCRIPTION_ACTOR_BUSY"] }),
   asyncHandler(async (req, res) => {
     const payload = { subscriptionId: req.params.subscriptionId };
     const subscription = await db.withTransaction(async (client) => {
+      const suspensionContext = await subscriptionLifecycleService.prepareSubscriptionSuspension(req.params.subscriptionId, { client, actorId: req.user._id, requirePlatformAuthority: true });
+      if (!suspensionContext) return null;
       const preview = await privilegedPreviewService.resolvePreview({ action: "subscription.suspend", target: req.params.subscriptionId, payload }, { client, lock: true });
       await privilegedTransactionService.consumeConfirmation({ token: req.get("x-transaction-confirmation"), actorId: req.user._id, session: req.auth.session, action: "subscription.suspend", target: req.params.subscriptionId, reason: req.body.reason, payload, previewRevision: req.body.previewRevision, currentPreviewRevision: preview.revision }, { client });
-      return subscriptionLifecycleService.suspendSubscription(req.params.subscriptionId, { reason: req.body.reason, actorId: req.user._id }, { client });
+      return subscriptionLifecycleService.suspendSubscription(req.params.subscriptionId, { reason: req.body.reason, actorId: req.user._id }, { client, suspensionContext });
     });
     if (!subscription) {
       const error = new Error("Subscription not found.");
