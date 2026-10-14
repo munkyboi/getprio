@@ -105,6 +105,9 @@ async function getTenantCapacity(tenantId, commercial = true) {
         const source = activeLots[index];
         return lot.resourceKey === key && source.status === "active" && (!source.expires_at || new Date(source.expires_at) > new Date(observedAt));
       }).reduce((sum, lot) => sum + lot.remainingUnits, 0);
+      let accountingStatus = "complete";
+      if (!usageAvailable) accountingStatus = "unavailable";
+      else if (Number(traffic[key]?.unaccounted || 0) > 0) accountingStatus = "partial";
       return [key, {
         limit: Number(allowance.limit),
         used: usageAvailable ? Math.max(0, Number(usageByResource[key]?.base_used || 0)
@@ -113,7 +116,7 @@ async function getTenantCapacity(tenantId, commercial = true) {
         baseUsed: usageAvailable ? Number(usageByResource[key]?.base_used || 0) : null,
         creditUsed: usageAvailable ? Number(usageByResource[key]?.credit_used || 0) : null,
         unaccountedUsed: usageAvailable ? Number(traffic[key]?.unaccounted || 0) : null,
-        accountingStatus: !usageAvailable ? "unavailable" : Number(traffic[key]?.unaccounted || 0) > 0 ? "partial" : "complete",
+        accountingStatus,
         enforcementEnabled: policy.authority?.served === "new" && Boolean(releaseControls[key === "queueTickets" ? "allowanceQueueTickets" : "allowanceServiceBookings"]),
         creditRemaining: key === "serviceBookings" ? 0 : creditRemaining,
         resetAt: policy.period?.end || null,
@@ -148,7 +151,7 @@ async function createCheckout({ tenant, user, packCode, purchaseKey, requestOrig
     throw Object.assign(new Error("Usage Credits require an active subscription."), { statusCode: 409, code: "CREDIT_CHECKOUT_SUBSCRIPTION_RESTRICTED" });
   }
   const pack = await repository.findPack(packCode);
-  if (!pack || pack.state !== "enabled" || Number(pack.ticket_units) <= 0) throw Object.assign(new Error("This Usage Credit pack is not available."), { statusCode: 409 });
+  if (pack?.state !== "enabled" || Number(pack.ticket_units) <= 0) throw Object.assign(new Error("This Usage Credit pack is not available."), { statusCode: 409 });
   if (Number(pack.journey_units) !== 0) throw Object.assign(new Error("Ticket credit checkout is temporarily unavailable. Please try again later."), { statusCode: 503, code: "CREDIT_CATALOG_MIGRATION_REQUIRED" });
   const purchase = await repository.createPurchase({ tenantId: tenant._id, packId: pack.id, packRevisionId: pack.revision_id, purchaseKey, ticketUnits: pack.ticket_units, journeyUnits: pack.journey_units, amountCents: pack.price_cents, currency: pack.currency, provider: "paymongo", actorId: user._id });
   if (String(purchase.pack_id) !== String(pack.id)) throw Object.assign(new Error("This purchase key belongs to another credit pack."), { statusCode: 409, code: "CREDIT_PURCHASE_KEY_CONFLICT" });
