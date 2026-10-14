@@ -55,7 +55,7 @@ test('Free assignment and authenticated vendor setup compose current actor and p
     '../repositories/businessCategories':{resolve:async()=>({id:'1',name:'Services'})},
     '../repositories/tenants':{
       findTenantBySlug:async(slug,{client})=>(await client.query('SELECT * FROM tenants WHERE slug=$1',[slug])).rows[0]||null,
-      createTenant:async(data,{client})=>{const row=(await client.query("INSERT INTO tenants(slug,vendor_approval_status) VALUES($1,'approved') RETURNING id,slug",[data.slug])).rows[0];return {_id:String(row.id),slug:row.slug};}
+      createTenant:async(data,{client})=>{const row=(await client.query("INSERT INTO tenants(slug,vendor_approval_status,contact_phone) VALUES($1,'approved',$2) RETURNING id,slug",[data.slug,data.contactPhone])).rows[0];return {_id:String(row.id),slug:row.slug};}
     },
     '../repositories/users':{
       findUserById:(id,{client})=>currentUser(id,client),findUserByEmail:async()=>null,findUserByUsername:async()=>null,
@@ -81,7 +81,7 @@ test('Free assignment and authenticated vendor setup compose current actor and p
   const state=async()=>({subscriptions:(await pool.query('SELECT tenant_id::text,plan_slug,status FROM tenant_subscriptions ORDER BY id')).rows,transitions:(await pool.query('SELECT tenant_id::text,status,created_by_user_id::text FROM subscription_transitions ORDER BY id')).rows});
   const wait = fragment => waitForDatabaseLock(pool, schema, fragment);
   try{
-    await pool.query(`CREATE SCHEMA ${schema};CREATE TABLE tenants(id BIGSERIAL PRIMARY KEY,slug TEXT UNIQUE,vendor_approval_status TEXT);
+    await pool.query(`CREATE SCHEMA ${schema};CREATE TABLE tenants(id BIGSERIAL PRIMARY KEY,slug TEXT UNIQUE,vendor_approval_status TEXT,contact_phone TEXT);
       CREATE TABLE users(id BIGINT PRIMARY KEY,roles TEXT[],phone TEXT,deletion_requested_at TIMESTAMPTZ,platform_access_suspended_at TIMESTAMPTZ,mfa_enabled BOOLEAN DEFAULT FALSE,is_sandbox_test_account BOOLEAN DEFAULT FALSE,sandbox_test_account_expires_at TIMESTAMPTZ);
       CREATE TABLE subscription_plans(slug TEXT PRIMARY KEY); CREATE TABLE tenant_memberships(user_id BIGINT REFERENCES users(id),tenant_id BIGINT REFERENCES tenants(id),role TEXT);`);
     const init=fs.readFileSync(path.resolve(__dirname,'../../database/init.sql'),'utf8');
@@ -161,7 +161,7 @@ test('Free assignment and authenticated vendor setup compose current actor and p
     });
     await t.test('current roles and phone replace stale request fallback data without restoring revoked admin',async()=>{
       await reset();const result=await invoke();assert.deepEqual(Array.from(result.user.roles),['customer','vendor']);
-      const user=(await pool.query('SELECT roles,phone FROM users WHERE id=1')).rows[0];assert.deepEqual(user.roles,['customer','vendor']);assert.equal(user.phone,'09179876543');assert.equal(sessions,1);assert.equal(delivery,1);
+      const user=(await pool.query('SELECT roles,phone FROM users WHERE id=1')).rows[0];assert.deepEqual(user.roles,['customer','vendor']);assert.equal(user.phone,'09179876543');assert.equal((await pool.query("SELECT contact_phone FROM tenants WHERE slug='new-vendor'")).rows[0].contact_phone,user.phone);assert.equal(sessions,1);assert.equal(delivery,1);
     });
     for(const scenario of [
       {sql:'UPDATE users SET deletion_requested_at=NOW()',code:401},

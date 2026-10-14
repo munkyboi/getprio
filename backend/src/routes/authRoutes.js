@@ -818,7 +818,7 @@ router.post(
           name: tenantName,
           slug: normalizedSlug,
           contactEmail: normalizedEmail,
-          contactPhone: normalizedPhone || req.user.phone,
+          contactPhone: normalizedPhone || currentUser.phone,
           publicProfileCategory: selectedCategory.name,
           businessCategoryId: selectedCategory.id
         },
