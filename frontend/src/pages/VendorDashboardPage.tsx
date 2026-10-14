@@ -9451,7 +9451,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       <AccountBadge variant="light">Renews {formatDate(subscription.currentPeriodEnd)}</AccountBadge>
                     ) : null}
                   </AccountGroup>
-                  <AccountGrid cols={{ base: 1, sm: 2 }}>
+                  <AccountGrid cols={1}>
                     <OperationMetric label="Tickets served today" value={ticketUsage} detail="At the selected location" />
                   </AccountGrid>
                   {!activeSubscription ? <div>{renderPlanCards()}</div> : !isFreeSubscription ? (
