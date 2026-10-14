@@ -92,15 +92,22 @@ test("HTTP readers keep complete pages and referenced assets throughout publicat
   const { repo, stage } = await fixture(t);
   for (let i = 0; i < 40; i++) await fs.writeFile(path.join(stage, "frontend/assets", `chunk-${i}.js`), "x".repeat(65536));
   const served = path.join(repo, "frontend/dist");
+  const routes = new Map([
+    ["/", path.join(served, "index.html")],
+    ["/assets/old.js", path.join(served, "assets/old.js")],
+    ["/assets/new.js", path.join(served, "assets/new.js")]
+  ]);
   const server = http.createServer(async (req, res) => {
-    try {
-      const file = req.url === "/" ? "index.html" : req.url.slice(1);
-      res.end(await fs.readFile(path.join(served, file)));
-    } catch { res.writeHead(404).end(); }
+    const file = routes.get(req.url);
+    if (!file) { res.writeHead(404).end(); return; }
+    try { res.end(await fs.readFile(file)); }
+    catch { res.writeHead(404).end(); }
   });
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   t.after(() => new Promise((resolve) => server.close(resolve)));
   const base = `http://127.0.0.1:${server.address().port}`;
+  assert.equal((await fetch(base + "/unlisted.txt")).status, 404);
+  assert.equal((await fetch(base + "/%2e%2e%2fpackage.json")).status, 404);
   let samples = 0;
   async function readSite() {
     const response = await fetch(base);
