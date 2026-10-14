@@ -2,13 +2,45 @@ const db = require("../config/db");
 const billingRepository = require("./billing");
 
 function client(options = {}) { return options.client || db.pool; }
+const scheduledContexts = new WeakMap();
+
+async function scheduledLock(queryClient, sql, values, code) {
+  try { return await queryClient.query(sql, values); }
+  catch (error) {
+    if (error.code === "55P03") throw Object.assign(new Error("Subscription lifecycle state is being updated. Retry after that change completes."), { statusCode: 409, code });
+    throw error;
+  }
+}
+
+async function prepareScheduledTransition(transitionId, options = {}) {
+  const queryClient = options.client;
+  if (!queryClient) throw new Error("Scheduled transition preparation requires a transaction client.");
+  const located = (await queryClient.query("SELECT tenant_id FROM subscription_transitions WHERE id = $1", [String(transitionId)])).rows[0];
+  if (!located) return null;
+  const tenantId = String(located.tenant_id);
+  if (!(await queryClient.query("SELECT id FROM tenants WHERE id = $1 FOR UPDATE", [tenantId])).rows.length) return null;
+  const current = (await scheduledLock(queryClient, "SELECT * FROM subscription_transitions WHERE id = $1 FOR UPDATE NOWAIT", [String(transitionId)], "SUBSCRIPTION_TRANSITION_BUSY")).rows[0];
+  if (!current) return null;
+  assertScheduledTenant(current, tenantId);
+  const context = Object.freeze({});
+  scheduledContexts.set(context, { client: queryClient, transitionId: String(transitionId), tenantId });
+  return context;
+}
+
+function assertScheduledTenant(transition, tenantId) {
+  if (String(transition.tenant_id) !== tenantId) throw Object.assign(new Error("Transition moved while execution was being prepared."), { statusCode: 409, code: "SUBSCRIPTION_TRANSITION_SCOPE_CHANGED" });
+}
 
 async function lockCurrent(tenantId, options = {}) {
   const result = await client(options).query(
     `SELECT * FROM tenant_subscriptions WHERE tenant_id = $1
      ORDER BY updated_at DESC FOR UPDATE`, [tenantId]
   );
-  const active = result.rows.filter((row) => ["active", "past_due", "unpaid", "suspended"].includes(row.status));
+  return currentSubscription(result.rows);
+}
+
+function currentSubscription(rows) {
+  const active = rows.filter((row) => ["active", "past_due", "unpaid", "suspended"].includes(row.status));
   if (active.length > 1) throw Object.assign(new Error("Multiple current subscription records require reconciliation."), { statusCode: 409, code: "SUBSCRIPTION_AMBIGUOUS" });
   return active[0] || null;
 }
@@ -36,14 +68,33 @@ async function listTransitions(tenantId, options = {}) {
 
 async function executeTransition(transitionId, options = {}) {
   const queryClient = client(options);
-  const transitionResult = await queryClient.query(`SELECT * FROM subscription_transitions WHERE id = $1 FOR UPDATE`, [transitionId]);
+  let scheduledScope;
+  if (Object.hasOwn(options, "scheduledContext")) {
+    scheduledScope = scheduledContexts.get(options.scheduledContext);
+    if (!scheduledScope || scheduledScope.client !== queryClient || scheduledScope.transitionId !== String(transitionId)) {
+      throw Object.assign(new Error("Scheduled execution requires its prepared transaction context."), { statusCode: 409, code: "SCHEDULED_TRANSITION_CONTEXT_REQUIRED" });
+    }
+    scheduledContexts.delete(options.scheduledContext);
+  }
+  const transitionResult = scheduledScope
+    ? await scheduledLock(queryClient, "SELECT * FROM subscription_transitions WHERE id = $1 FOR UPDATE NOWAIT", [String(transitionId)], "SUBSCRIPTION_TRANSITION_BUSY")
+    : await queryClient.query(`SELECT * FROM subscription_transitions WHERE id = $1 FOR UPDATE`, [transitionId]);
   const transition = transitionResult.rows[0];
   if (!transition) return null;
+  if (scheduledScope) assertScheduledTenant(transition, scheduledScope.tenantId);
   if (transition.status === "effective") return transition;
   if (!["scheduled", "pending_payment"].includes(transition.status) || new Date(transition.effective_at) > new Date()) {
     throw Object.assign(new Error("Subscription transition is not ready."), { statusCode: 409 });
   }
-  const current = await lockCurrent(transition.tenant_id, options);
+  if (scheduledScope) {
+    const plan = await scheduledLock(queryClient, "SELECT slug FROM subscription_plans WHERE slug = $1 FOR SHARE NOWAIT", [transition.to_plan_slug], "SUBSCRIPTION_PLAN_BUSY");
+    if (!plan.rows.length) throw Object.assign(new Error("Subscription plan not found."), { statusCode: 404 });
+  }
+  let current;
+  if (scheduledScope) {
+    const result = await scheduledLock(queryClient, "SELECT * FROM tenant_subscriptions WHERE tenant_id = $1 ORDER BY updated_at DESC FOR UPDATE NOWAIT", [scheduledScope.tenantId], "SUBSCRIPTION_BUSY");
+    current = currentSubscription(result.rows);
+  } else current = await lockCurrent(transition.tenant_id, options);
   if (current && String(current.id) !== String(transition.from_subscription_id)) throw Object.assign(new Error("Subscription changed after this transition was scheduled."), { statusCode: 409, code: "SUBSCRIPTION_REVISION_CONFLICT" });
   if (current && ["past_due", "unpaid", "suspended"].includes(current.status) && transition.to_plan_slug === "free") throw Object.assign(new Error("Restricted subscriptions cannot be converted to Free."), { statusCode: 409, code: "RESTRICTED_TO_FREE_DENIED" });
   if (transition.transition_type === "upgrade" && transition.to_plan_slug !== "free") {
@@ -91,4 +142,4 @@ async function renewFreeSubscriptions(options = {}) {
   return result.rows;
 }
 
-module.exports = { createTransition, executeTransition, listTransitions, lockCurrent, renewFreeSubscriptions };
+module.exports = { prepareScheduledTransition, createTransition, executeTransition, listTransitions, lockCurrent, renewFreeSubscriptions };

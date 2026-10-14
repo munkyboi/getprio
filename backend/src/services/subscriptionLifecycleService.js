@@ -72,7 +72,10 @@ async function requestTransition(input, options = {}) {
 async function executeDue() {
   const due = await db.pool.query(`SELECT id FROM subscription_transitions WHERE status = 'scheduled' AND effective_at <= NOW() ORDER BY effective_at LIMIT 100`);
   const results = [];
-  for (const row of due.rows) results.push(await db.withTransaction((client) => repository.executeTransition(row.id, { client })));
+  for (const row of due.rows) results.push(await db.withTransaction(async (client) => {
+    const scheduledContext = await repository.prepareScheduledTransition(row.id, { client });
+    return scheduledContext ? repository.executeTransition(row.id, { client, scheduledContext }) : null;
+  }));
   const renewals = await repository.renewFreeSubscriptions();
   return { transitions: results, renewals };
 }

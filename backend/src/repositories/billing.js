@@ -349,6 +349,9 @@ async function listSubscriptions(options = {}) {
 }
 
 async function createTenantSubscription(data, options = {}) {
+  if (typeof data.tenantId === "number" && !Number.isSafeInteger(data.tenantId)) {
+    throw Object.assign(new Error("Tenant identifier must be an exact integer."), { statusCode: 400, code: "INVALID_TENANT_ID" });
+  }
   const queryClient = buildQueryClient(options.client);
   const timestamps = parseSubscriptionTimestamps(data);
   const result = await queryClient.query(
@@ -372,7 +375,7 @@ async function createTenantSubscription(data, options = {}) {
       RETURNING *
     `,
     [
-      Number(data.tenantId),
+      String(data.tenantId),
       data.planSlug,
       data.status || "unpaid",
       data.provider || "manual",
