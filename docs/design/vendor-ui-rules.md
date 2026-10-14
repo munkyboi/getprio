@@ -208,3 +208,10 @@ Loading, missing-workspace and subscription-required states use the same scoped 
 ### Configuration review corrections
 
 Checkbox help text must have its own ID referenced by the input's `aria-describedby`, retaining any existing external descriptions. Counter staff assignment supports name/email search and multiple selections; filtering retains selections and does not itself create unsaved business edits. Missing assigned IDs are retained until deliberately removed through supported actions. Do not change permissions, plan limits or scoped assignment writes to restore search.
+
+
+## Current-period consumption readouts
+
+- Reports and Account Subscription use the authorized minimal current-period usage endpoint, with actor/business/role cache scope and owner/admin visible-section/tab polling. Validate returned tenant identity; use canonical used/limit directly without reconstructing diagnostics or falling back to served-today/history/catalog defaults. Monthly usage covers all tenant locations; daily queue activity remains separately labeled for the selected location.
+- Loading is explicit and request errors offer native44px/mobile-width retry. Unavailable/null/invalid/expired periods stay unavailable rather than zero; preserve authoritative zero. The observed timestamp and current time must lie within the server-owned period.
+- A usage read does not enable capacity/credit checkout or resource/workflow/AI gates. Preserve stored subscription entitlement limits and accounting provenance; source merge, visible UI and tests do not certify complete writer reconciliation or provider/device acceptance.

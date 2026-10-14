@@ -1,6 +1,6 @@
 # Remaining vendor dashboard presentation: publication review
 
-Prepared 14 October 2026 for Carlo. Current unpublished branch: codex/vendor-services-availability, synchronized with main3bf87b34. The local preview remains http://localhost:5179/dashboard/services. This package requests authorization to publish a draft PR; it does not request merge, deployment or runtime activation.
+Prepared 15 October 2026 for Carlo. Current unpublished branch: codex/vendor-services-availability, synchronized with main98281ba7. The local preview remains http://localhost:5179/dashboard/services. Carlo authorized publication on15October2026. Publish this package as a draft PR; merge, deployment and runtime activation require their separate gates.
 
 Proposed PR title: Rework remaining vendor dashboard screens and access states
 
@@ -15,7 +15,7 @@ Proposed PR title: Rework remaining vendor dashboard screens and access states
 - Loading, missing-workspace and subscription-required states; removal of dedicated legacy styles only after their callers are gone.
 - Updated design rules, audit preservation evidence, migration inventory, progress and work tracker.
 
-The separate approved email-retirement PR#433 has merged atce8150e3 and its automatic deployment passed. This local package is synchronized with main98281ba7, which includes#433, and retains the native rework presentation while incorporating the retirement fixes. Any eventual PR must compare against current main so the already merged retirement changes are not reviewed twice. No backend/shared-type changes are proposed beyond already merged main. Publication authorization for this remaining presentation package is still pending.
+The separate approved email-retirement PR#433 has merged atce8150e3 and its automatic deployment passed. This local package is synchronized with main98281ba7, which includes#433, and retains the native rework presentation while incorporating the retirement fixes. Any eventual PR must compare against current main so the already merged retirement changes are not reviewed twice. No backend/shared-type changes are proposed beyond already merged main. Publication is authorized; hosted review and acceptance gates remain pending.
 
 ## Verification
 
