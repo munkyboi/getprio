@@ -15,7 +15,7 @@ Proposed PR title: Rework remaining vendor dashboard screens and access states
 - Loading, missing-workspace and subscription-required states; removal of dedicated legacy styles only after their callers are gone.
 - Updated design rules, audit preservation evidence, migration inventory, progress and work tracker.
 
-The separate approved email-retirement PR#433 is ready for review and has not merged. Its equivalent fixes are already present locally. Refresh against its eventual merged revision before publishing this package so reviewers do not need to review the same retirement changes twice. No backend/shared-type changes are proposed beyond already merged main.
+The separate approved email-retirement PR#433 has merged atce8150e3 and its automatic deployment passed. This local package is synchronized with main41762a86, which includes#433, and retains the native rework presentation while incorporating the retirement fixes. Any eventual PR must compare against current main so the already merged retirement changes are not reviewed twice. No backend/shared-type changes are proposed beyond already merged main. Publication authorization for this remaining presentation package is still pending.
 
 ## Verification
 
@@ -34,6 +34,6 @@ Separate actual #433/#434/#436 integration used real password/TOTP login, dispos
 
 Migrate the remaining vendor dashboard presentation to the approved scoped shell and native controls, covering Services/Availability, Staff, Settings/Queue Board, Account, Reports/Ratings and shared vendor auth/notifications. Preserve existing routes, server authorization/business contracts, draft/retry guards and shared customer defaults. Remove dedicated legacy presentation only after the last callers migrate.
 
-Validation:209 frontend tests, TypeScript and build pass on the branch synchronized with main3bf87b34. Per-slice lint, independent reviews and responsive/role/retry/confirmation fixtures are recorded in the rework evidence. Provider/device/authenticated/deployed acceptance gaps remain explicit. Simultaneous resource-pool/workflow activation remains gated and is not implemented by this presentation PR.
+Validation:209 frontend tests, TypeScript and build pass on the branch synchronized with main41762a86. Per-slice lint, independent reviews and responsive/role/retry/confirmation fixtures are recorded in the rework evidence. Provider/device/authenticated/deployed acceptance gaps remain explicit. Simultaneous resource-pool/workflow activation remains gated and is not implemented by this presentation PR.
 
 Publish as draft for review. Do not merge, deploy or activate runtime gates as part of publication.
