@@ -15,7 +15,10 @@ function createResetTokenValue() {
 }
 
 function hasReturnPathControls(value) {
-  return Array.from(value).some(character => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127);
+  return Array.from(value).some(character => {
+    const codePoint = character.codePointAt(0);
+    return codePoint < 32 || codePoint === 127;
+  });
 }
 
 function getVendorResetReturnPath(value) {
@@ -36,7 +39,8 @@ function getVendorResetReturnPath(value) {
 function buildPasswordResetUrl(token, next) {
   const baseUrl = String(env.clientUrl || "").replace(/\/$/, "");
   const returnPath = getVendorResetReturnPath(next);
-  return `${baseUrl}/login?resetToken=${encodeURIComponent(token)}${returnPath ? `&next=${encodeURIComponent(returnPath)}` : ""}`;
+  const nextQuery = returnPath ? `&next=${encodeURIComponent(returnPath)}` : "";
+  return `${baseUrl}/login?resetToken=${encodeURIComponent(token)}${nextQuery}`;
 }
 
 function getPasswordResetExpiry() {
