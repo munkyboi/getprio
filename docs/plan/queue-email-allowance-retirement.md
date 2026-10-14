@@ -17,3 +17,5 @@ The backend supplies current-window net usage without double-counting business r
 ## Validation
 
 191 frontend tests, TypeScript, affected-source lint and production build pass. Tests cover retired allowance omission across all four plan slugs while preserving ticket/booking highlights and the Email alerts feature. Synthetic dashboard fixtures verify legacy journey-resource/pack exclusion, ticket-pack retention, unavailable usage and responsive layouts at375/768/1180/1440. Public-ticket fixtures with legacy journey_exhausted metadata retain enabled email preference and omit quota-pause messages. These are synthetic UI checks; hosted gates and actual enforcement/delivery remain separate. Coordinate backend retirement before or atomically with frontend deployment.
+
+Codex review found a two-column wrapper left behind after metric removal. Reports and Subscription now give their single remaining ticket metric the full available width on mobile and desktop.

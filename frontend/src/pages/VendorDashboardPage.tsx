@@ -9075,7 +9075,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                 <Text className="neura-label">Usage</Text>
                 <Title order={3}>Plan consumption</Title>
               </div>
-              <SimpleGrid cols={2}>
+              <SimpleGrid cols={1}>
                 <MetricCard label="Tickets" value={`${ticketUsage}/${ticketLimit || "--"}`} detail="Current period" />
               </SimpleGrid>
             </Stack>
@@ -9387,7 +9387,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       <Badge variant="light">Renews {formatDate(subscription.currentPeriodEnd)}</Badge>
                     ) : null}
                   </Group>
-                  <SimpleGrid cols={{ base: 1, sm: 2 }}>
+                  <SimpleGrid cols={1}>
                     <MetricCard label="Tickets" value={`${ticketUsage}/${ticketLimit || "--"}`} detail="Current period" />
                   </SimpleGrid>
                   {!activeSubscription ? <div>{renderPlanCards()}</div> : !isFreeSubscription ? (
