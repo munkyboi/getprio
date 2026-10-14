@@ -1,3 +1,5 @@
+import { ActivationPanel, WorkspaceLoading, WorkspaceUnavailable } from "../vendor/WorkspaceAccessState";
+import { VendorAuthLayout } from "../vendor/VendorAuthLayout";
 import { OperationalAlerts } from "../vendor/OperationalAlerts";
 import { servedTicketIntervals } from "../vendor/reportState";
 import { AccountPresentation, discardAccountTask } from "../vendor/AccountPresentation";
@@ -103,7 +105,7 @@ import {
 } from "@tabler/icons-react";
 import { VendorToastProvider, VendorToastViewport, useVendorNotifications } from "../vendor/VendorToasts";
 import { getDay } from "date-fns";
-import { Link, Navigate, NavLink, useLocation, useNavigate, useParams } from "react-router-dom";
+import { Navigate, NavLink, useLocation, useNavigate, useParams } from "react-router-dom";
 import type {
   BillingOverviewResponse,
   CreateWalkInTicketRequest,
@@ -822,32 +824,6 @@ function mergeTheme(theme?: Partial<PublicBoardThemeSettings>): PublicBoardTheme
     pageBackgroundImageFit: merged.pageBackgroundImageFit || preset.pageBackgroundImageFit
   };
 }
-
-function ActivationPanel({ onViewPlans }: { onViewPlans: () => void }) {
-  return (
-    <Card className="neura-card neura-activation-card" padding="xl">
-      <SimpleGrid cols={{ base: 1, md: 2 }} spacing="xl">
-        <Stack gap="md" justify="center">
-          <Badge className="neura-soft-badge">Subscription required</Badge>
-          <Title order={2}>Choose a plan to unlock this workspace.</Title>
-          <Text c="dimmed" maw={620}>
-            Queue operations, public links, client data, history, and reports become available after
-            the selected tenant has an active plan.
-          </Text>
-          <Button className="neura-primary-button" onClick={onViewPlans} w="fit-content">
-            View plans
-          </Button>
-        </Stack>
-        <img
-          alt=""
-          className="neura-activation-art"
-          src="/illustrations/generated/vendor-onboarding.png"
-        />
-      </SimpleGrid>
-    </Card>
-  );
-}
-
 
 export default function VendorDashboardPage() {
   return <VendorToastProvider><VendorDashboardContent /></VendorToastProvider>;
@@ -10992,7 +10968,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
   });
 
   if (loading) {
-    return <Card className="neura-card">Loading dashboard...</Card>;
+    return <VendorAuthLayout><WorkspaceLoading message="Loading dashboard…" /></VendorAuthLayout>;
   }
 
   if (!user) {
@@ -11009,7 +10985,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
 
   if (currentSection === "ratings" && !canAccessVendorSection("ratings", effectiveEntitlements, tenantPlan)) {
     return effectiveEntitlementsQuery.isPending
-      ? <Card className="neura-card">Loading plan access...</Card>
+      ? <VendorAuthLayout><WorkspaceLoading message="Loading plan access…" /></VendorAuthLayout>
       : <Navigate to={defaultDashboardPath} replace />;
   }
 
@@ -11029,27 +11005,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
 
 
   if (!activeTenants.length) {
-    return (
-      <Card className="neura-card neura-no-tenant-card" padding="xl">
-        <SimpleGrid cols={{ base: 1, md: 2 }} spacing="xl">
-          <Stack justify="center" gap="md">
-            <Text className="neura-label">Workspace access</Text>
-            <Title order={1}>No vendor tenants found</Title>
-            <Text>Your account does not currently have access to a tenant workspace.</Text>
-            <Group aria-label="Workspace access recovery">
-              <Button mih={44} component={Link} to="/">Back to site</Button>
-              <Button mih={44} component={Link} to="/account/dashboard" variant="outline">My account</Button>
-              <Button mih={44} variant="subtle" onClick={() => void logout()}>Sign out</Button>
-            </Group>
-          </Stack>
-          <img
-            alt=""
-            className="neura-no-tenant-art"
-            src="/illustrations/generated/vendor-onboarding.png"
-          />
-        </SimpleGrid>
-      </Card>
-    );
+    return <VendorAuthLayout><WorkspaceUnavailable onSignOut={() => void logout()} /></VendorAuthLayout>;
   }
 
   const ContextPicker = QueueCounterPicker;

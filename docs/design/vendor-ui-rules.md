@@ -200,3 +200,7 @@ Queue/booking operational alerts use scoped native cards with labeled dismiss an
 Vendor transient notifications use the project Base UI toast primitives inside the vendor root, a single queue shared by vendor consumers, wrapped text, labeled dismissal and keyboard access. Retain original display duration and FIFO overflow semantics; queued feedback must not expire unseen and duplicate IDs must not restart a timer. Preserve customer defaults. A deletion receipt needs a lifetime beyond the authenticated vendor provider and remains global until an equivalent session-closing receipt is verified.
 
 Queue Email Journey allowances are retired across all plans: omit usage/plan/credit metrics and quota-pause copy. Retain ticket/booking quotas, actual email preference/delivery features and historical purchase evidence. Display unavailable period usage as unknown, never zero; UI removal is not evidence of backend enforcement retirement.
+
+## Workspace access states
+
+Loading, missing-workspace and subscription-required states use the same scoped vendor theme and native primitives as the reworked screens. Preserve existing subscription/RBAC conditions, View plans callback, recovery link destinations and logout handler. Recovery links remain real links with visible contrast, focus indication and at least44px targets; actions stack on narrow screens. Decorative illustrations retain their aspect ratio and empty alt text. These states do not grant access or certify backend readiness.
