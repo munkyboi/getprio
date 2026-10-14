@@ -1,9 +1,10 @@
-const { activeAllowances } = require("../domain/activePlanQuotas");
+const { activeAllowances, assertNoRetiredEmailQuotas } = require("../domain/activePlanQuotas");
 const { PAID_PLAN_PRICE_INVARIANTS, PLAN_POLICY_FIXTURES } = require("../domain/planPolicyFixtures");
 
 const PLAN_SLUGS = new Set(["free", "economical", "pro", "enterprise"]);
 
 function validatePlanMutation(plan) {
+  assertNoRetiredEmailQuotas(plan);
   if (!PLAN_SLUGS.has(plan?.slug)) {
     const error = new Error("Unknown subscription plan.");
     error.statusCode = 400;

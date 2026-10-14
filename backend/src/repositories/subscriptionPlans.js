@@ -1,4 +1,4 @@
-const { activeAllowances, activeEntitlements } = require("../domain/activePlanQuotas");
+const { activeAllowances, activeEntitlements, assertNoRetiredEmailQuotas } = require("../domain/activePlanQuotas");
 const db = require("../config/db");
 
 function buildQueryClient(client) {
@@ -60,6 +60,7 @@ async function findPlanBySlug(slug, options = {}) {
 }
 
 async function updatePlan(plan, userId, options = {}) {
+  assertNoRetiredEmailQuotas(plan);
   if (!options.client && typeof db.withTransaction === "function") {
     return db.withTransaction((client) => updatePlan(plan, userId, { client }));
   }

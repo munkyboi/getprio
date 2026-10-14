@@ -37,9 +37,22 @@ test('active plan reads and writes omit email quotas while retaining other entit
   assert.equal(Object.hasOwn(plan.entitlements, 'monthlyTransactionalEmails'), false);
   assert.equal(Object.hasOwn(plan.allowances, 'queueEmailJourneys'), false);
   assert.deepEqual(plan.included, ['Email alerts', '5,000 Queue Tickets/mo', 'Transactional email delivery']);
-  await plans.updatePlan({ ...plan, price: {}, allowances: { ...plan.allowances, queueEmailJourneys: 1 },
-    entitlements: { ...plan.entitlements, monthlyQueueEmailJourneys: 1 } }, '1', { client });
+  await plans.updatePlan({ ...plan, price: {} }, '1', { client });
   assert.deepEqual(allowanceWrites, ['queueTickets', 'serviceBookings']);
   assert.equal(Object.hasOwn(row.entitlements, 'monthlyQueueEmailJourneys'), false);
   assert.equal(row.entitlements.emailAlerts, true);
+});
+
+test('retired email mutations never write a plan revision or allowance', async () => {
+  const writes = [];
+  const client = { query: async (...args) => { writes.push(args); return { rows: [] }; } };
+  for (const retired of [
+    { allowances: { queueTickets: 500, queueEmailJourneys: 0 } },
+    { entitlements: { monthlyQueueEmailJourneys: 500 } },
+    { entitlements: { monthlyTransactionalEmails: 0 } }
+  ]) {
+    await assert.rejects(plans.updatePlan({ slug: 'free', price: { monthlyAmountCents: 0, annualAmountCents: 0 }, ...retired }, '1', { client }),
+      (error) => error.statusCode === 400 && error.code === 'EMAIL_QUOTAS_RETIRED');
+  }
+  assert.equal(writes.length, 0);
 });
