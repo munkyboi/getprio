@@ -153,7 +153,7 @@ test('interactive transition preparation precedes previews and confirmation unde
     });
     await t.test('system standalone calls remain supported and caller-owned failure rolls all state back', async () => {
       await reset(); assert.equal((await service.requestTransition(input({ actorId: null }))).created_by_user_id, null);
-      await reset(); const before = await state(); await assert.rejects(db.withTransaction(async client => { await service.requestTransition(input(), { client }); throw new Error('caller failure'); }), /caller failure/); assert.deepEqual(await state(), before);
+      await reset(); const before = await state(); await assert.rejects(db.withTransaction(async client => { const transitionContext = await service.prepareSubscriptionTransition(input(), { client }); await service.requestTransition(input(), { client, transitionContext }); throw new Error('caller failure'); }), /caller failure/); assert.deepEqual(await state(), before);
     });
     await t.test('adjacent BIGINT tenants and actor references remain exact and unsafe numbers fail before SQL', async () => {
       await reset(); const ids = ['9007199254740992','9007199254740993'];
@@ -163,6 +163,8 @@ test('interactive transition preparation precedes previews and confirmation unde
       const client = { query: () => assert.fail('invalid input reached SQL') };
       for (const changed of [{ tenantId: Number(ids[1]) }, { actorId: Number(ids[1]) }]) await assert.rejects(service.requestTransition(input(changed), { client }), error => error.statusCode === 400);
       await assert.rejects(service.requestTransition(input({ toPlanSlug: '__proto__' }), { client }), { statusCode: 404 });
+      await assert.rejects(service.requestTransition(input(), { client }), { code: 'SUBSCRIPTION_TRANSITION_CONTEXT_REQUIRED' });
+      await assert.rejects(service.requestTransition(input(), { transitionContext: {} }), { code: 'SUBSCRIPTION_TRANSITION_CONTEXT_REQUIRED' });
       await assert.rejects(service.prepareSubscriptionTransition(input(), {}), /transaction client/);
       await assert.rejects(service.prepareSubscriptionTransition(input({ actorId: null }), { client, requirePlatformAuthority: true }), { statusCode: 401 });
     });

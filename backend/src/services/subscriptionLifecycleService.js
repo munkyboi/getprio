@@ -89,6 +89,7 @@ async function prepareSubscriptionTransition(input, options = {}) {
 
 async function requestTransition(input, options = {}) {
   validateTransitionInput(input);
+  if (Boolean(options.client) !== Object.hasOwn(options, "transitionContext")) throw Object.assign(new Error("Subscription transition requires its prepared transaction context."), { statusCode: 409, code: "SUBSCRIPTION_TRANSITION_CONTEXT_REQUIRED" });
   const transition = async (client) => {
     const context = Object.hasOwn(options, "transitionContext") ? options.transitionContext : await prepareSubscriptionTransition(input, { client });
     const scope = transitionRequestContexts.get(context);
