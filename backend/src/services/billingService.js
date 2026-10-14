@@ -1,3 +1,4 @@
+const { activeEntitlements } = require("../domain/activePlanQuotas");
 const crypto = require("crypto");
 const db = require("../config/db");
 const env = require("../config/env");
@@ -138,10 +139,10 @@ async function buildSubscriptionResponse(subscription) {
     billingInterval: subscription.billingInterval,
     currentPeriodStart: subscription.currentPeriodStart,
     currentPeriodEnd: subscription.currentPeriodEnd,
-    entitlements: {
+    entitlements: activeEntitlements({
       ...(plan?.entitlements || {}),
       ...(subscription.entitlements || {})
-    }
+    })
   };
 }
 
@@ -163,10 +164,10 @@ async function getTenantEntitlements(tenantId) {
 
   if (subscription?.status === "active") {
     const plan = await findPlanBySlug(subscription.planSlug);
-    return {
+    return activeEntitlements({
       ...(plan?.entitlements || {}),
       ...(subscription.entitlements || {})
-    };
+    });
   }
 
   return {};

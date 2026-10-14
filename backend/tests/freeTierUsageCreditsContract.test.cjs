@@ -26,9 +26,9 @@ test("rollout tooling creates correlated baselines and remains explicitly gated"
   const source = fs.readFileSync(path.join(__dirname, "../../scripts/entitlement-rollout.mjs"), "utf8");
   assert.match(source, /FREE_PLAN_BACKFILL_ENABLED/);
   assert.match(source, /resource: "queueTickets"/);
-  assert.match(source, /resource: "queueEmailJourneys"/);
+  assert.doesNotMatch(source, /resource: "queueEmailJourneys"/);
   assert.match(source, /resource: "serviceBookings"/);
-  assert.match(source, /JOIN queue_email_journeys/);
+  assert.doesNotMatch(source, /JOIN queue_email_journeys/);
   assert.match(source, /LEGACY_EMAIL_UNIT_NOT_CONVERTED/);
   assert.match(source, /tenant_entitlement_overrides/);
   assert.match(source, /plan_policy_baselines/);
@@ -60,9 +60,16 @@ test("Free plan policy data preserves the complete dashboard entitlement contrac
   }
 });
 
-test("Journey paths retain retry contracts", () => {
-  const journey = fs.readFileSync(path.join(__dirname, "../src/services/queueEmailJourneyService.js"), "utf8");
-  assert.match(journey, /status IN \('unused', 'failed'\)/);
+test("unclaimed lifecycle work cannot invoke its provider", async () => {
+  const { loadModuleWithMocks } = require("./helpers/loadModuleWithMocks.cjs");
+  const journey = loadModuleWithMocks(require.resolve("../src/services/queueEmailJourneyService"), {
+    "../config/db": { pool: { query: async sql => ({
+      rows: sql.startsWith("SELECT id FROM queue_email_journeys") ? [{ id: "1" }] : [], rowCount: 0
+    }) } }
+  });
+  let delivered = 0;
+  assert.equal(await journey.withLifecycleSlot("1", "called", "called:1", async () => { delivered++; }), false);
+  assert.equal(delivered, 0);
 });
 
 test("paid queue admission commits its durable allowance reservation atomically", () => {

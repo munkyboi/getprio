@@ -1,4 +1,5 @@
 const counterDispatchService = require("./counterDispatchService");
+const { EMAIL_QUOTA_POLICY } = require("./queueEmailJourneyService");
 const serviceCounterRepository = require("../repositories/serviceCounters");
 const queueDayRepository = require("../repositories/queueDays");
 const env = require("../config/env");
@@ -271,6 +272,7 @@ async function buildQueueSnapshot(tenant, options = {}, getTenantUsage) {
   }
 
   return {
+    emailQuotaPolicy: EMAIL_QUOTA_POLICY,
     tenant: redactPublicContactDetails({
       id: String(tenant._id),
       name: tenant.publicProfileDisplayName || tenant.name,

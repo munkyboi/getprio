@@ -456,15 +456,12 @@ BEGIN
     FROM subscription_plans plan
     CROSS JOIN (VALUES
       ('queueTickets', 'monthlyTickets'),
-      ('queueEmailJourneys', 'monthlyQueueEmailJourneys'),
       ('serviceBookings', 'monthlyServiceBookings')
     ) required(allowance_key, entitlement_key)
     LEFT JOIN plan_allowances actual
       ON actual.plan_slug = plan.slug AND actual.allowance_key = required.allowance_key
     CROSS JOIN LATERAL (
-      SELECT CASE WHEN required.allowance_key = 'queueEmailJourneys'
-        THEN COALESCE(NULLIF(plan.entitlements -> required.entitlement_key, 'null'::jsonb), plan.entitlements -> 'monthlyTransactionalEmails')
-        ELSE plan.entitlements -> required.entitlement_key END AS value
+      SELECT plan.entitlements -> required.entitlement_key AS value
     ) published
     WHERE plan.slug IN ('free', 'economical', 'pro', 'enterprise')
       AND (actual.monthly_limit IS NULL OR actual.monthly_limit < 0
@@ -473,10 +470,11 @@ BEGIN
   ) THEN RAISE EXCEPTION 'Schema verification failed. Published plan allowances are missing or inconsistent.'; END IF;
 
   IF EXISTS (
-    SELECT 1 FROM (VALUES ('P100',100,100,9900),('P500',500,500,39900),('P1000',1000,1000,69900)) expected(code,tickets,journeys,price)
+    SELECT 1 FROM (VALUES ('P100',100,0,9900),('P500',500,0,39900),('P1000',1000,0,69900)) expected(code,tickets,journeys,price)
     LEFT JOIN usage_credit_packs p ON p.code=expected.code
     LEFT JOIN usage_credit_pack_revisions r ON r.pack_id=p.id AND r.revision=p.current_revision
-    WHERE r.ticket_units IS DISTINCT FROM expected.tickets OR r.journey_units IS DISTINCT FROM expected.journeys OR r.price_cents IS DISTINCT FROM expected.price
+    WHERE p.state IS DISTINCT FROM 'archived'
+      AND (r.ticket_units IS DISTINCT FROM expected.tickets OR r.journey_units IS DISTINCT FROM expected.journeys OR r.price_cents IS DISTINCT FROM expected.price)
   ) THEN RAISE EXCEPTION 'Schema verification failed. Usage Credit catalog drifted.'; END IF;
 
   IF EXISTS (SELECT 1 FROM usage_credit_lots WHERE revoked_units + frozen_units > granted_units) THEN

@@ -15,10 +15,11 @@ async function readSubscription(client, subscriptionId, lock = false) {
   }
 }
 
-async function readActor(client, actorId) {
+async function readActor(client, actorId, options = {}) {
+  const lock = options.forActorUpdate === true ? "NO KEY UPDATE" : "SHARE";
   try {
     const result = await client.query(
-      "SELECT id, roles, deletion_requested_at, platform_access_suspended_at FROM users WHERE id = $1 FOR SHARE NOWAIT",
+      `SELECT id, roles, deletion_requested_at, platform_access_suspended_at FROM users WHERE id = $1 FOR ${lock} NOWAIT`,
       [String(actorId)]
     );
     return result.rows[0] || null;

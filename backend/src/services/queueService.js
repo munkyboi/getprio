@@ -543,41 +543,28 @@ async function createTicketForTenantInTransaction(client, {
   const emailEligible = Boolean(ticket.notifyByEmail && ticket.customerEmail)
     || otpRows.some((otp) => otp.delivery_channel === "email");
   if (emailEligible) {
-    const journeyAdmission = await allowanceService.consumeAllowance({
-      tenantId: tenant._id,
-      resourceKey: "queueEmailJourneys",
-      units: 1,
-      operationKey: `queue-email-journey:${ticket._id}:created`,
-      subjectType: "queue_ticket",
-      subjectId: ticket._id,
-      reason: "Queue Email Journey created",
-      hard: false
-    }, { client });
-    if (!journeyAdmission.bypassed) {
-      const journeyMode = journeyAdmission.consumed ? "metered" : "journey_exhausted";
-      await client.query(`UPDATE tickets SET email_journey_mode = $2 WHERE id = $1`, [Number(ticket._id), journeyMode]);
-      const journeyResult = await client.query(
-        `INSERT INTO queue_email_journeys (tenant_id, ticket_id, mode, otp_chain_id, email_opted_out_at)
-         VALUES ($1, $2, $3, $4, $5)
-         ON CONFLICT (ticket_id) DO UPDATE SET mode = EXCLUDED.mode, otp_chain_id = COALESCE(queue_email_journeys.otp_chain_id, EXCLUDED.otp_chain_id)
-         RETURNING id`,
-        [Number(tenant._id), Number(ticket._id), journeyMode, otpChainId || null, ticket.notifyByEmail ? null : new Date()]
+    // Journey slots record delivery and deduplicate lifecycle messages, not quota usage.
+    const journeyMode = "unmetered";
+    await client.query(`UPDATE tickets SET email_journey_mode = $2 WHERE id = $1`, [Number(ticket._id), journeyMode]);
+    const journeyResult = await client.query(
+      `INSERT INTO queue_email_journeys (tenant_id, ticket_id, mode, otp_chain_id, email_opted_out_at)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (ticket_id) DO UPDATE SET mode = EXCLUDED.mode, otp_chain_id = COALESCE(queue_email_journeys.otp_chain_id, EXCLUDED.otp_chain_id)
+       RETURNING id`,
+      [Number(tenant._id), Number(ticket._id), journeyMode, otpChainId || null, ticket.notifyByEmail ? null : new Date()]
+    );
+    await client.query(
+      `INSERT INTO queue_email_slots (journey_id, slot_key)
+       SELECT $1, slot_key FROM unnest($2::text[]) AS slot_key
+       ON CONFLICT (journey_id, slot_key) DO NOTHING`,
+      [journeyResult.rows[0].id, ["otp_1","otp_2","otp_3","otp_4","joined","near_turn","called","exception","continuation","final"]]
+    );
+    for (const otp of otpRows.filter((row) => row.delivery_channel === "email")) {
+      await client.query(
+        `UPDATE queue_email_slots SET logical_message_key = $3, status = 'sent', sent_at = NOW()
+         WHERE journey_id = $1 AND slot_key = $2 AND status = 'unused'`,
+        [journeyResult.rows[0].id, `otp_${Number(otp.resend_ordinal) + 1}`, `queue-otp:${otp.id}`]
       );
-      if (journeyMode === "metered") {
-        await client.query(
-          `INSERT INTO queue_email_slots (journey_id, slot_key)
-           SELECT $1, slot_key FROM unnest($2::text[]) AS slot_key
-           ON CONFLICT (journey_id, slot_key) DO NOTHING`,
-          [journeyResult.rows[0].id, ["otp_1","otp_2","otp_3","otp_4","joined","near_turn","called","exception","continuation","final"]]
-        );
-        for (const otp of otpRows.filter((row) => row.delivery_channel === "email")) {
-          await client.query(
-            `UPDATE queue_email_slots SET logical_message_key = $3, status = 'sent', sent_at = NOW()
-             WHERE journey_id = $1 AND slot_key = $2 AND status = 'unused'`,
-            [journeyResult.rows[0].id, `otp_${Number(otp.resend_ordinal) + 1}`, `queue-otp:${otp.id}`]
-          );
-        }
-      }
     }
   }
   if (queueDay) {

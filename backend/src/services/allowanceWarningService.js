@@ -4,15 +4,15 @@ const notificationService = require("./notificationService");
 
 const RESOURCE_LABELS = {
   queueTickets: "Queue Ticket",
-  queueEmailJourneys: "Queue Email Journey",
   serviceBookings: "Service Booking"
 };
 
 async function dispatchPendingWarnings() {
   if (!releaseControls.allowanceObserve && !releaseControls.allowanceQueueTickets &&
-      !releaseControls.allowanceQueueEmailJourneys && !releaseControls.allowanceServiceBookings) return 0;
+      !releaseControls.allowanceServiceBookings) return 0;
   const warnings = await allowanceLedgerRepository.claimWarningDeliveries();
   for (const warning of warnings) {
+    if (warning.resource_key === "queueEmailJourneys") continue;
     try {
       const label = RESOURCE_LABELS[warning.resource_key] || warning.resource_key;
       const recipients = warning.recipients || [];

@@ -24,6 +24,7 @@ export type SupportLevel = "self_serve" | "standard" | "sla";
 export type HistoryExportRange = "today" | "week" | "month" | "quarter" | "year";
 export type PlanFeatureKey = "queue" | "branding" | "discovery" | "booking" | "campaigns";
 export type AllowanceResourceKey = "queueTickets" | "queueEmailJourneys" | "serviceBookings";
+export type ActiveAllowanceResourceKey = Exclude<AllowanceResourceKey, "queueEmailJourneys">;
 export type EntitlementValueSource = "plan" | "override" | "restriction";
 
 export interface SubscriptionEntitlements {
@@ -31,7 +32,8 @@ export interface SubscriptionEntitlements {
   counters: number;
   staffSeats: number;
   monthlyTickets: number;
-  monthlyTransactionalEmails: number | null;
+  /** @deprecated Retained only for historical snapshots; no email quota is enforced. */
+  monthlyTransactionalEmails?: number | null;
   monthlyQueueEmailJourneys?: number;
   monthlyServiceBookings?: number;
   historyDays: number;
@@ -77,7 +79,7 @@ export interface SubscriptionPlan {
   sortOrder?: number;
   policyRevision?: number;
   features?: Record<PlanFeatureKey, boolean>;
-  allowances?: Record<AllowanceResourceKey, number>;
+  allowances?: Record<ActiveAllowanceResourceKey, number> & Partial<Record<"queueEmailJourneys", number>>;
 }
 
 export interface BillingAddOn {
@@ -1406,7 +1408,7 @@ export interface QueueFocusTicket {
   linkedBookingReference?: string | null;
   bookingScheduledStartAt?: string | Date | null;
   notifyByEmail?: boolean;
-  emailJourneyMode?: "not_eligible" | "metered" | "journey_exhausted";
+  emailJourneyMode?: "not_eligible" | "metered" | "journey_exhausted" | "unmetered";
   position: number | null;
   estimatedWaitMinutes: number;
   joinedAt: string | Date;
@@ -1491,6 +1493,8 @@ export interface UnfinishedServiceTiming {
 }
 
 export interface QueueSnapshot {
+  /** Confirms this response's backend does not gate queue email delivery on quota. */
+  emailQuotaPolicy?: "unmetered";
   calledTickets?: (QueueCurrentTicket & { serviceCounterId: string | null })[];
   readyWaitingCount?: number;
   counterDispatch?: { serviceCounterId: string | null; counterSlug: string | null; counterName: string; currentTicketId: string | null; canCallNext: boolean; blockReason: string | null }[];

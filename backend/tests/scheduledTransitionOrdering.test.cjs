@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { randomUUID } = require('node:crypto');
 const { loadModuleWithMocks } = require('./helpers/loadModuleWithMocks.cjs');
+const { waitForDatabaseLock } = require('./helpers/waitForDatabaseLock.cjs');
 const { runIdempotentHandler } = require('./helpers/runIdempotentHandler.cjs');
 const load = (name, mocks) => loadModuleWithMocks(require.resolve(name), mocks);
 
@@ -43,13 +44,7 @@ test('scheduled execution prepares tenant serialization before legacy child lock
       INSERT INTO subscription_transitions(tenant_id,from_subscription_id,from_plan_slug,to_plan_slug,transition_type,status,reason,effective_at) VALUES(1,1,'pro','free','paid_exit','scheduled','Scheduled paid exit',NOW()-INTERVAL '1 second');`);
   };
   const state = async () => ({ subscriptions: (await pool.query('SELECT id::text,tenant_id::text,plan_slug,status FROM tenant_subscriptions ORDER BY id')).rows, transitions: (await pool.query('SELECT id::text,status FROM subscription_transitions ORDER BY id')).rows });
-  const wait = async fragment => {
-    for (let i=0;i<300;i++) {
-      if ((await pool.query("SELECT 1 FROM pg_stat_activity WHERE application_name=$1 AND wait_event_type='Lock' AND query LIKE $2", [schema, `%${fragment}%`])).rowCount) return;
-      await new Promise(resolve => setTimeout(resolve, 10));
-    }
-    assert.fail(`No lock waiter for ${fragment}`);
-  };
+  const wait = fragment => waitForDatabaseLock(pool, schema, fragment);
   try {
     await pool.query(`CREATE SCHEMA ${schema}; CREATE TABLE tenants(id BIGINT PRIMARY KEY); CREATE TABLE users(id BIGINT PRIMARY KEY); CREATE TABLE subscription_plans(slug TEXT PRIMARY KEY);`);
     const init = fs.readFileSync(path.resolve(__dirname, '../../database/init.sql'), 'utf8');

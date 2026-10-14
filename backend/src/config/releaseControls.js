@@ -8,7 +8,6 @@ const RELEASE_CONTROL_ENV_KEYS = Object.freeze({
   entitlementCampaignEnforcement: "ENTITLEMENT_CAMPAIGN_ENFORCEMENT_ENABLED",
   allowanceObserve: "ALLOWANCE_LEDGER_OBSERVE_ENABLED",
   allowanceQueueTickets: "ALLOWANCE_QUEUE_TICKETS_ENABLED",
-  allowanceQueueEmailJourneys: "ALLOWANCE_QUEUE_EMAIL_JOURNEYS_ENABLED",
   allowanceServiceBookings: "ALLOWANCE_SERVICE_BOOKINGS_ENABLED",
   freePlanBackfill: "FREE_PLAN_BACKFILL_ENABLED",
   usageCreditCatalog: "USAGE_CREDIT_CATALOG_ENABLED",

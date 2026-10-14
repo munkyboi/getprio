@@ -121,21 +121,20 @@ try {
     ON CONFLICT (subscription_id, period_start) DO UPDATE SET period_end = EXCLUDED.period_end;
     INSERT INTO usage_accounts (tenant_id, resource_key)
     SELECT DISTINCT tenant_id, resource_key FROM tenant_subscriptions
-    CROSS JOIN (VALUES ('queueTickets'),('queueEmailJourneys'),('serviceBookings')) resources(resource_key)
+    CROSS JOIN (VALUES ('queueTickets'),('serviceBookings')) resources(resource_key)
     WHERE status = 'active' AND plan_slug <> 'free'
     ON CONFLICT (tenant_id, resource_key) DO NOTHING;
   `);
   const baselineSources = [
     { resource: "queueTickets", subject: "queue_ticket", table: "tickets", id: "t.id", tenant: "t.tenant_id", created: "t.created_at", join: "" },
-    { resource: "serviceBookings", subject: "service_booking", table: "bookings", id: "t.id", tenant: "t.tenant_id", created: "t.created_at", join: "" },
-    { resource: "queueEmailJourneys", subject: "queue_ticket", table: "tickets", id: "t.id", tenant: "t.tenant_id", created: "t.created_at", join: "JOIN queue_email_journeys qej ON qej.ticket_id = t.id AND qej.mode = 'metered'" }
+    { resource: "serviceBookings", subject: "service_booking", table: "bookings", id: "t.id", tenant: "t.tenant_id", created: "t.created_at", join: "" }
   ];
   let baselineUnits = 0;
   for (const source of baselineSources) {
     const inserted = await client.query(`
       INSERT INTO allowance_operations (usage_account_id, allowance_period_id, operation_key, operation_type, signed_units, subject_type, subject_id, reason, metadata)
       SELECT ua.id, sap.id, 'migration-baseline:${source.resource}:' || ${source.id}, 'baseline', 1, $1, ${source.id}::text,
-             'Migration usage baseline', jsonb_build_object('rolloutRunId',$2::text,'correlatedEvidence',${source.resource === "queueEmailJourneys" ? "'queue_email_journey'" : "'business_record'"})
+             'Migration usage baseline', jsonb_build_object('rolloutRunId',$2::text,'correlatedEvidence','business_record')
       FROM ${source.table} t ${source.join}
       JOIN tenant_subscriptions s ON s.tenant_id = ${source.tenant} AND s.status = 'active' AND s.plan_slug <> 'free'
       JOIN subscription_allowance_periods sap ON sap.subscription_id = s.id AND ${source.created} >= sap.period_start AND ${source.created} < sap.period_end

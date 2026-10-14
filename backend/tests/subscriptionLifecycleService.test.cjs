@@ -28,10 +28,12 @@ test("approved vendors receive Free once and retries preserve subscription histo
   const client = {
     query: async (query) => {
       if (String(query).includes("FROM tenants")) return { rows: [{ id: 7, vendor_approval_status: "approved" }] };
+      if (String(query).includes("FROM subscription_plans")) return { rows: [{ slug: "free" }] };
       if (String(query).includes("FROM tenant_subscriptions")) return { rows: hasHistory ? [{ id: 11 }] : [] };
       throw new Error(`Unexpected query: ${query}`);
     }
   };
+  const preparedContext = Object.freeze({});
   const repository = {
     createTransition: async (input, options) => {
       assert.equal(options.client, client);
@@ -40,7 +42,9 @@ test("approved vendors receive Free once and retries preserve subscription histo
       transitionsCreated += 1;
       return { id: 9 };
     },
+    prepareScheduledTransition: async (_transitionId, options) => { assert.equal(options.client, client); return preparedContext; },
     executeTransition: async (_transitionId, options) => {
+      assert.equal(options.scheduledContext, preparedContext);
       assert.equal(options.client, client);
       hasHistory = true;
       return { id: 9, status: "effective" };

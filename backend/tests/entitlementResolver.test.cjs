@@ -35,7 +35,7 @@ test("resolver returns live Free defaults with explicit provenance", async () =>
     subscription: { id: "subscription-1", planSlug: "free", status: "active", entitlementModelVersion: 2 },
     plan: { slug: "free", revision: 3 },
     features: { queue: true, branding: false, discovery: false, booking: false, campaigns: false },
-    allowances: { queueTickets: 500, queueEmailJourneys: 500, serviceBookings: 0 },
+    allowances: { queueTickets: 500, serviceBookings: 0 },
     overrides: []
   });
   const result = await resolver.resolveTenantPolicy("tenant-1", { controls: { entitlementResolverAuthority: true } });
@@ -51,7 +51,7 @@ test("resolver applies sparse current overrides and suppresses Campaigns without
     subscription: { id: "subscription-2", planSlug: "economical", status: "active", entitlementModelVersion: 2 },
     plan: { slug: "economical", revision: 8 },
     features: { queue: true, branding: false, discovery: true, booking: true, campaigns: true },
-    allowances: { queueTickets: 1000, queueEmailJourneys: 1000, serviceBookings: 100 },
+    allowances: { queueTickets: 1000, serviceBookings: 100 },
     overrides: [
       { id: "override-booking", policyKey: "feature.booking", value: false, expiresAt: null },
       { id: "override-tickets", policyKey: "allowance.queueTickets", value: 1250, expiresAt: null },
@@ -72,7 +72,7 @@ test("resolver restricts delinquent subscriptions without silently converting th
     subscription: { id: "subscription-3", planSlug: "pro", status: "past_due" },
     plan: { slug: "pro", revision: 4 },
     features: { queue: true, branding: true, discovery: true, booking: true, campaigns: true },
-    allowances: { queueTickets: 5000, queueEmailJourneys: 5000, serviceBookings: 1000 },
+    allowances: { queueTickets: 5000, serviceBookings: 1000 },
     overrides: []
   });
   const result = await resolver.resolveTenantPolicy("tenant-1");
@@ -88,7 +88,7 @@ test("annual service terms still expose anchored monthly allowance windows", asy
     subscription: { id: "subscription-annual", planSlug: "pro", status: "active", currentPeriodStart: "2026-01-31T10:00:00.000Z", currentPeriodEnd: "2027-01-31T10:00:00.000Z" },
     plan: { slug: "pro", revision: 1 },
     features: { queue: true, branding: true, discovery: true, booking: true, campaigns: true },
-    allowances: { queueTickets: 5000, queueEmailJourneys: 5000, serviceBookings: 1000 },
+    allowances: { queueTickets: 5000, serviceBookings: 1000 },
     overrides: []
   });
   const result = await resolver.resolveTenantPolicy("tenant-annual", { now: new Date("2026-03-15T00:00:00.000Z") });
@@ -106,7 +106,7 @@ test("unconverted subscriptions remain wholly legacy when global authority is en
     },
     plan: { slug: "economical", revision: 8, legacyEntitlements: { queueSystemAccess: true, monthlyTickets: 500 } },
     features: { queue: true, branding: false, discovery: true, booking: true, campaigns: true },
-    allowances: { queueTickets: 1000, queueEmailJourneys: 1000, serviceBookings: 100 },
+    allowances: { queueTickets: 1000, serviceBookings: 100 },
     overrides: []
   });
 
@@ -134,7 +134,7 @@ test("blocking rollout anomalies quarantine converted subscriptions on legacy au
     },
     plan: { slug: "pro", revision: 4 },
     features: { queue: true, branding: true, discovery: true, booking: true, campaigns: true },
-    allowances: { queueTickets: 7000, queueEmailJourneys: 5000, serviceBookings: 1000 },
+    allowances: { queueTickets: 7000, serviceBookings: 1000 },
     overrides: [],
   });
 
@@ -157,7 +157,7 @@ test("shadow mode compares both models while continuing to serve legacy", async 
     },
     plan: { slug: "economical", revision: 2 },
     features: { queue: true, branding: false, discovery: true, booking: true, campaigns: true },
-    allowances: { queueTickets: 1000, queueEmailJourneys: 1000, serviceBookings: 100 },
+    allowances: { queueTickets: 1000, serviceBookings: 100 },
     overrides: []
   });
 
