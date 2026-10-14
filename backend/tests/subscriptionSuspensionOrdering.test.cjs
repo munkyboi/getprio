@@ -5,6 +5,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 const { randomUUID } = require('node:crypto');
 const { loadModuleWithMocks } = require('./helpers/loadModuleWithMocks.cjs');
+const { runIdempotentHandler } = require('./helpers/runIdempotentHandler.cjs');
 
 const lifecyclePath = require.resolve('../src/services/subscriptionLifecycleService');
 const load = (name, mocks) => loadModuleWithMocks(require.resolve(name), mocks);
@@ -294,14 +295,8 @@ test('prepared suspension and Platform confirmations preserve PostgreSQL transac
       const idempotency = load('../src/middleware/idempotency', { '../services/idempotencyService': idempotencyService, '../repositories/idempotency': idempotencyRepository });
       const actual = platformHandler(db, lifecycle, preview, confirmations, idempotency);
       const confirmation = await issue();
-      const request = () => new Promise((resolve, reject) => {
-        const req = { params: { subscriptionId: '1' }, body: { reason, previewRevision: confirmation.revision }, user: { _id: '1' }, auth: { session }, get: header => header === 'idempotency-key' ? 'suspension-retry-1' : confirmation.token };
-        const res = { statusCode: 200, status(code) { this.statusCode = code; return this; }, json(body) { resolve({ status: this.statusCode, body: JSON.parse(JSON.stringify(body)) }); return this; } };
-        const errors = require('../src/middleware/errorHandler');
-        actual.idempotencyMiddleware(req, res, error => {
-          if (error) return reject(error);
-          actual(req, res).catch(failure => errors(failure, req, res, reject));
-        });
+      const request = () => runIdempotentHandler(actual.idempotencyMiddleware, actual, {
+        params: { subscriptionId: '1' }, body: { reason, previewRevision: confirmation.revision }, user: { _id: '1' }, auth: { session }, get: header => header === 'idempotency-key' ? 'suspension-retry-1' : confirmation.token
       });
       const holder = await pool.connect();
       try {
