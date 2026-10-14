@@ -7,6 +7,16 @@ const { loadModuleWithMocks } = require('./helpers/loadModuleWithMocks.cjs');
 async function usageServer(t, options = {}) {
   const calls = [];
   const mocks = {
+    // Keep the HTTP usage/RBAC path real without loading unrelated billing writers.
+    '../services/billingService': {},
+    '../repositories/usageCredits': {},
+    '../services/subscriptionLifecycleService': {},
+    '../repositories/subscriptionLifecycle': {},
+    '../services/privilegedTransactionService': {},
+    '../services/privilegedPreviewService': {},
+    '../config/db': {},
+    '../services/securityAuditService': {},
+    '../middleware/idempotency': { requireIdempotency: () => (_req, _res, next) => next() },
     '../middleware/auth': {
       authenticate: (req, res, next) => {
         if (!req.get('x-test-role')) return res.sendStatus(401);
