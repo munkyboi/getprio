@@ -821,18 +821,18 @@ function createHttpPlatformApi(baseUrl = API_BASE_URL): PlatformApi {
       const [plans, queueFees, capabilities] = await Promise.all([
         getJson<{ plans: SubscriptionPlan[] }>("/platform/plans"),
         getJson<{ queueFees: QueueFeeSetting[] }>("/platform/queue-fees"),
-        getJson<{ planMatrix: boolean; planPolicyMutations: boolean }>("/platform/capabilities"),
+        getJson<{ planMatrix: boolean; planPolicyMutations: boolean; queueEmailQuotaRetired?: boolean }>("/platform/capabilities"),
       ])
       if (!capabilities.planMatrix) throw new Error("Plan Matrix access is disabled by the server.")
       const overview = await getJson<{ analytics?: { subscriptionsByPlan?: Array<{ planSlug: SubscriptionPlan["slug"]; count: number }> } }>("/platform/overview")
       const activeSubscribersByPlan = Object.fromEntries((overview.analytics?.subscriptionsByPlan || []).map((item) => [item.planSlug, item.count]))
-      return { plans: plans.plans, queueFees: queueFees.queueFees, activeSubscribersByPlan, planPolicyMutations: capabilities.planPolicyMutations }
+      return { plans: plans.plans, queueFees: queueFees.queueFees, activeSubscribersByPlan, planPolicyMutations: capabilities.planPolicyMutations, queueEmailQuotaRetired: capabilities.queueEmailQuotaRetired === true }
     },
     previewPlanPolicy: async (action, target, payload, reason, previewRevision): Promise<PlanPolicyPreview> => {
       const response = await writePlatform<{ preview: { revision: string }; confirmation: { token: string } }>(baseUrl, "/platform/privileged-actions/preview", { action, target, payload, reason, previewRevision }, crypto.randomUUID())
       return { revision: response.preview.revision, confirmationToken: response.confirmation.token }
     },
-    publishPlan: async (plan: SubscriptionPlan, reason: string, preview: PlanPolicyPreview): Promise<SubscriptionPlan> => {
+    publishPlan: async (plan, reason, preview): Promise<SubscriptionPlan> => {
       const response = await writePlatform<{ plan: SubscriptionPlan }>(baseUrl, `/platform/plans/${encodeURIComponent(plan.slug)}`, { plan, reason, previewRevision: preview.revision }, crypto.randomUUID(), "PATCH", { "X-Transaction-Confirmation": preview.confirmationToken })
       return response.plan
     },

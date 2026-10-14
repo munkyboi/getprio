@@ -13,6 +13,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import { platformApi } from "@/lib/platform-api"
 import type { PlanPolicyPreview, PlatformPlanMatrix } from "@/lib/platform-contracts"
+import { planPolicyPayload, type PlanPolicyPublication } from "../../../shared/planPolicyPayload"
 
 const features = [
   ["queue", "Queue system"], ["branding", "Branded experience"], ["discovery", "Marketplace discovery"],
@@ -36,7 +37,7 @@ type PendingPublish = {
   kind: "plan" | "fees"
   preview?: PlanPolicyPreview
   reason: string
-  plans?: Array<{ plan: SubscriptionPlan; preview: PlanPolicyPreview }>
+  plans?: Array<{ plan: PlanPolicyPublication; preview: PlanPolicyPreview }>
   queueFees?: Array<Pick<QueueFeeSetting, "planSlug" | "enabled" | "amountCents">>
   summary: string
 }
@@ -105,8 +106,9 @@ export function PlanMatrix() {
     try {
       const reviewedPlans = []
       for (const changedPlan of changedPlans) {
-        const preview = await platformApi.previewPlanPolicy("plan.defaults.publish", changedPlan.slug, { plan: changedPlan }, planReason.trim(), `plan-${changedPlan.policyRevision ?? 1}`)
-        reviewedPlans.push({ plan: changedPlan, preview })
+        const publication = planPolicyPayload(changedPlan, matrix?.queueEmailQuotaRetired === true)
+        const preview = await platformApi.previewPlanPolicy("plan.defaults.publish", changedPlan.slug, { plan: publication }, planReason.trim(), `plan-${changedPlan.policyRevision ?? 1}`)
+        reviewedPlans.push({ plan: publication, preview })
       }
       setPending({ kind: "plan", reason: planReason.trim(), plans: reviewedPlans, summary: `Publish defaults for all ${reviewedPlans.length} changed plans: ${reviewedPlans.map(({ plan }) => plan.name).join(", ")}. Each plan is published separately; a failure stops the remaining changes and keeps them unsaved for review and retry.` })
     } catch (previewError) { setError(previewError instanceof Error ? previewError.message : "A secure plan preview could not be created.") }
@@ -178,7 +180,7 @@ export function PlanMatrix() {
         <ToggleField label="Allow self-serve checkout" checked={plan.checkoutEnabled} disabled={!canPublishPlan} onChange={(checkoutEnabled) => updatePlan((current) => ({ ...current, checkoutEnabled }))} />
         <div className="grid gap-5 xl:grid-cols-2">
           <div className="space-y-3"><h2 className="text-base font-medium">Feature entitlements</h2><div className="grid gap-2">{features.map(([key, label]) => <ToggleField key={key} label={label} checked={Boolean(plan.features?.[key])} disabled={!canPublishPlan || (key === "queue" && plan.slug === "free")} onChange={(checked) => updatePlan((current) => ({ ...current, features: { queue: false, branding: false, discovery: false, booking: false, campaigns: false, ...current.features, [key]: checked, ...(key === "booking" && !checked ? { campaigns: false } : {}) } }))} />)}</div></div>
-          <div className="space-y-3"><h2 className="text-base font-medium">Monthly allowances</h2><div className="grid gap-3 sm:grid-cols-2">{allowances.map(([key, label]) => <NumericField key={key} label={label} value={plan.allowances?.[key] ?? 0} disabled={!canPublishPlan} onChange={(value) => updatePlan((current) => ({ ...current, allowances: { queueTickets: 0, queueEmailJourneys: 0, serviceBookings: 0, ...current.allowances, [key]: value } }))} />)}</div></div>
+          <div className="space-y-3"><h2 className="text-base font-medium">Monthly allowances</h2><div className="grid gap-3 sm:grid-cols-2">{allowances.map(([key, label]) => <NumericField key={key} label={label} value={plan.allowances?.[key] ?? 0} disabled={!canPublishPlan} onChange={(value) => updatePlan((current) => ({ ...current, allowances: { ...(current.allowances ?? { queueTickets: 0, queueEmailJourneys: 0, serviceBookings: 0 }), [key]: value } }))} />)}</div></div>
         </div>
         <div className="grid gap-5 xl:grid-cols-2">
           <div className="space-y-3"><h2 className="text-base font-medium">Operational limits</h2><div className="grid gap-3 sm:grid-cols-2">{numericEntitlements.map(([key, label]) => <NumericField key={key} label={label} value={Number(plan.entitlements[key] || 0)} disabled={!canPublishPlan} onChange={(value) => updatePlan((current) => ({ ...current, entitlements: { ...current.entitlements, [key]: value } }))} />)}</div></div>

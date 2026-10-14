@@ -1,5 +1,6 @@
 import { CreditTaskModal } from "../components/CreditTaskModal";
 import { canPublishCreditPack, creditPackContents, creditPackRevisionPayload } from "../../../shared/creditPackRevision";
+import { planPolicyPayload } from "../../../shared/planPolicyPayload";
 import { featureLabels, allowanceLabels, type CreditTask, type PlanMatrixCapabilities } from "./planControls";
 import { useEffect, useMemo, useState } from "react";
 import { Badge, Button, Card, Checkbox, Group, Modal, NumberInput, Paper, SegmentedControl, Select, SimpleGrid, Stack, Text, TextInput, Title } from "@mantine/core";
@@ -62,10 +63,10 @@ export function PlanMatrixPage({ token }: { token: string }) {
     try {
       const planReason = `Plan Matrix update for ${plan.name}`;
       const queueFees = fees.map((item) => ({ planSlug: item.planSlug, enabled: item.enabled, amountCents: item.amountCents }));
-      const planPayload = { plan };
+      const planPayload = { plan: planPolicyPayload(plan, capabilities.queueEmailQuotaRetired === true) };
       const feePayload = { queueFees };
       const planPreview = await apiRequest<{ confirmation: { token: string }; preview: { revision: string } }>("/platform/privileged-actions/preview", { method: "POST", token, body: { action: "plan.defaults.publish", target: plan.slug, reason: planReason, payload: planPayload, previewRevision: `plan-${plan.policyRevision ?? 1}` } });
-      const planData = await apiRequest<{ plan: SubscriptionPlan }>(`/platform/plans/${plan.slug}`, { method: "PATCH", token, headers: { "X-Transaction-Confirmation": planPreview.confirmation.token }, body: { plan, reason: planReason, previewRevision: planPreview.preview.revision } });
+      const planData = await apiRequest<{ plan: SubscriptionPlan }>(`/platform/plans/${plan.slug}`, { method: "PATCH", token, headers: { "X-Transaction-Confirmation": planPreview.confirmation.token }, body: { ...planPayload, reason: planReason, previewRevision: planPreview.preview.revision } });
       const feePreview = await apiRequest<{ confirmation: { token: string }; preview: { revision: string } }>("/platform/privileged-actions/preview", { method: "POST", token, body: { action: "queue.fees.publish", target: "all-plans", reason: "Plan Matrix queue fee update", payload: feePayload, previewRevision: "queue-fees-v1" } });
       const feeData = await apiRequest<PlatformQueueFeesResponse>("/platform/queue-fees", { method: "PATCH", token, headers: { "X-Transaction-Confirmation": feePreview.confirmation.token }, body: { queueFees, reason: "Plan Matrix queue fee update", previewRevision: feePreview.preview.revision } });
       setPlans((current) => current.map((item) => item.slug === planData.plan.slug ? planData.plan : item)); setFees(feeData.queueFees);
