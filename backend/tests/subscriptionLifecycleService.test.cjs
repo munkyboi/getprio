@@ -82,7 +82,7 @@ test("automatic Free assignment excludes unapproved vendors", async () => {
 test("manual Platform Admin paid upgrades cannot bypass provider-confirmed checkout", async () => {
   const current = { id: 3, plan_slug: "free", status: "active", current_period_end: new Date(Date.now() + 86_400_000) };
   const service = requireWithMocks("../src/services/subscriptionLifecycleService.js", {
-    "../config/db": { pool: {}, withTransaction: async (callback) => callback({}) },
+    "../config/db": { pool: {}, withTransaction: async (callback) => callback({ query: async sql => ({ rows: sql.includes("FROM tenants") ? [{ id: "7" }] : [{ slug: "pro" }] }) }) },
     "../config/releaseControls": {},
     "../repositories/subscriptionLifecycle": {
       lockCurrent: async () => current,

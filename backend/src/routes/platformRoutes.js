@@ -1569,7 +1569,7 @@ router.post(
   "/subscriptions",
   requirePlatformPermission("platform.subscription_lifecycle.manage"),
   requireReleaseControl("subscriptionLifecycle"),
-  requireIdempotency("platform.subscription_transition.create"),
+  requireIdempotency("platform.subscription_transition.create", { retryableErrorCodes: ["SUBSCRIPTION_BUSY", "SUBSCRIPTION_ACTOR_BUSY", "SUBSCRIPTION_PLAN_BUSY", "SUBSCRIPTION_TRANSITION_BUSY"] }),
   asyncHandler(async (req, res) => {
     const { tenantId, planSlug, reason, metadata } = req.body || {};
     const tenant = await tenantRepository.findTenantById(tenantId);
@@ -1587,10 +1587,12 @@ router.post(
     }
 
     const transition = await db.withTransaction(async (client) => {
+      const transitionInput = { tenantId: tenant._id, toPlanSlug: plan.slug, reason: String(reason || "Platform subscription lifecycle change"), actorId: req.user._id, metadata };
+      const transitionContext = await subscriptionLifecycleService.prepareSubscriptionTransition(transitionInput, { client, requirePlatformAuthority: true });
       const payload = { tenantId: String(tenantId), planSlug };
       const preview = await privilegedPreviewService.resolvePreview({ action: "subscription.transition", target: tenantId, payload }, { client, lock: true });
       await privilegedTransactionService.consumeConfirmation({ token: req.get("x-transaction-confirmation"), actorId: req.user._id, session: req.auth.session, action: "subscription.transition", target: tenantId, reason, payload, previewRevision: req.body.previewRevision, currentPreviewRevision: preview.revision }, { client });
-      return subscriptionLifecycleService.requestTransition({ tenantId: tenant._id, toPlanSlug: plan.slug, reason: String(reason || "Platform subscription lifecycle change"), actorId: req.user._id, metadata }, { client });
+      return subscriptionLifecycleService.requestTransition(transitionInput, { client, transitionContext });
     });
     res.status(201).json({ transition });
   })

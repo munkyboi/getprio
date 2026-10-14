@@ -207,16 +207,18 @@ router.post(
   authenticate,
   requireReleaseControl("subscriptionLifecycle"),
   authorizeTenant("tenant.billing.manage"),
-  requireIdempotency("tenant.subscription_transition.create"),
+  requireIdempotency("tenant.subscription_transition.create", { retryableErrorCodes: ["SUBSCRIPTION_BUSY", "SUBSCRIPTION_ACTOR_BUSY", "SUBSCRIPTION_PLAN_BUSY", "SUBSCRIPTION_TRANSITION_BUSY"] }),
   asyncHandler(async (req, res) => {
     const tenant = req.authorizedTenant;
     const reason = String(req.body.reason || "").trim();
     if (reason.length < 8) throw Object.assign(new Error("Please provide a clear reason for this plan change."), { statusCode: 400 });
     const transition = await db.withTransaction(async(client)=>{
+      const transitionInput = { tenantId: tenant._id, toPlanSlug: req.body.toPlanSlug, reason, actorId: req.user._id, vendorRequested: true, metadata: { requestedBy: "vendor" } };
+      const transitionContext = await subscriptionLifecycleService.prepareSubscriptionTransition(transitionInput, { client });
       const payload={toPlanSlug:req.body.toPlanSlug};
       const preview=await privilegedPreviewService.resolvePreview({action:"subscription.transition.request",target:tenant._id,payload},{client,lock:true});
       await privilegedTransactionService.consumeConfirmation({ token: req.get("x-transaction-confirmation"), actorId: req.user._id, session: req.auth.session, action: "subscription.transition.request", target: tenant._id, reason, payload, previewRevision: req.body.previewRevision,currentPreviewRevision:preview.revision },{client});
-      return subscriptionLifecycleService.requestTransition({ tenantId: tenant._id, toPlanSlug: req.body.toPlanSlug, reason, actorId: req.user._id, vendorRequested: true, metadata: { requestedBy: "vendor" } },{client});
+      return subscriptionLifecycleService.requestTransition(transitionInput, { client, transitionContext });
     });
     await securityAuditService.record({actorId:req.user._id,actorRole:"vendor",sessionId:req.auth.sessionId,tenantId:tenant._id,action:"subscription.transition.request",resourceType:"subscription_transition",resourceId:transition.id,reason,outcome:transition.status,afterState:transition});
     res.status(201).json({ transition });
