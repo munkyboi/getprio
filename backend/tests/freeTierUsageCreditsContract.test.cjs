@@ -60,9 +60,16 @@ test("Free plan policy data preserves the complete dashboard entitlement contrac
   }
 });
 
-test("Journey paths retain retry contracts", () => {
-  const journey = fs.readFileSync(path.join(__dirname, "../src/services/queueEmailJourneyService.js"), "utf8");
-  assert.match(journey, /status IN \('unused', 'failed'\)/);
+test("unclaimed lifecycle work cannot invoke its provider", async () => {
+  const { loadModuleWithMocks } = require("./helpers/loadModuleWithMocks.cjs");
+  const journey = loadModuleWithMocks(require.resolve("../src/services/queueEmailJourneyService"), {
+    "../config/db": { pool: { query: async sql => ({
+      rows: sql.startsWith("SELECT id FROM queue_email_journeys") ? [{ id: "1" }] : [], rowCount: 0
+    }) } }
+  });
+  let delivered = 0;
+  assert.equal(await journey.withLifecycleSlot("1", "called", "called:1", async () => { delivered++; }), false);
+  assert.equal(delivered, 0);
 });
 
 test("paid queue admission commits its durable allowance reservation atomically", () => {
