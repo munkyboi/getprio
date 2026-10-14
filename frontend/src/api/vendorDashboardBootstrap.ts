@@ -74,3 +74,20 @@ export async function getCapacityExperience(
   );
   return { enabled: true, capacity: response.capacity };
 }
+
+export interface VendorPeriodUsage {
+  subscriptionId: string | null;
+  planSlug: string | null;
+  observedAt: string;
+  period: { start: string; end: string } | null;
+  usageAvailable: boolean;
+  resources: Record<string, { limit: number; used: number | null; observedUsed: number | null; accountingStatus: "complete" | "partial" | "unavailable" }>;
+}
+
+export async function getPeriodUsage(token: string, tenantSlug: string) {
+  const response = await apiRequest<{ tenant: { id: string; slug: string }; usage: VendorPeriodUsage }>(
+    `/billing/tenant/${tenantSlug}/usage`, { token }
+  );
+  if (response.tenant?.slug !== tenantSlug) throw new Error("Usage response does not match the selected business.");
+  return response;
+}
