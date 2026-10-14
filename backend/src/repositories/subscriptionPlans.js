@@ -40,7 +40,7 @@ function mapPlan(row) {
       serviceBookings: Number(row.entitlements?.monthlyServiceBookings || 0)
     },
     entitlements: activeEntitlements({ ...(row.entitlements || {}), groupFundedCampaignAccess: false }),
-    included: (row.included || []).filter(item => !/Queue Email Journey|(?:monthly|\d[\d,]*)\s+transactional emails?/i.test(String(item)))
+    included: (row.included || []).filter(item => !/Queue Email Journey|^(?:monthly|[\d,]+) transactional emails?/i.test(String(item).trim()))
   };
 }
 

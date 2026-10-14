@@ -1,5 +1,9 @@
 BEGIN;
 
+-- Capacity fact scans select one tenant and one creation-time billing window.
+CREATE INDEX IF NOT EXISTS tickets_tenant_created_at_idx ON tickets (tenant_id, created_at);
+CREATE INDEX IF NOT EXISTS bookings_tenant_created_at_idx ON bookings (tenant_id, created_at);
+
 -- Preserve historical quota values, allocations, purchases and refunds. New
 -- journeys record delivery slots only; an old exhausted mode is not a quota.
 ALTER TABLE tickets DROP CONSTRAINT IF EXISTS tickets_email_journey_mode_check;

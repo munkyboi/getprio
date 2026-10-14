@@ -31,7 +31,14 @@ test('deployment verifies published allowance consistency on disposable PostgreS
     // and the disposable database's public policy rows remain untouched.
     await client.query('CREATE TEMP TABLE subscription_plans AS TABLE public.subscription_plans');
     await client.query('CREATE TEMP TABLE plan_allowances AS TABLE public.plan_allowances');
+    await client.query('CREATE TEMP TABLE usage_credit_packs AS TABLE public.usage_credit_packs');
+    await client.query('CREATE TEMP TABLE usage_credit_pack_revisions AS TABLE public.usage_credit_pack_revisions');
     await scenario('seeded published plans pass',null);
+    await scenario('archived historical default pack does not require a new quota revision', `
+      UPDATE usage_credit_packs SET state='archived' WHERE code='P100';
+      UPDATE usage_credit_pack_revisions SET journey_units=100 WHERE pack_id=(SELECT id FROM usage_credit_packs WHERE code='P100');
+    `);
+    await scenario('active default pack still requires ticket-only revision', "UPDATE usage_credit_pack_revisions SET journey_units=100 WHERE pack_id=(SELECT id FROM usage_credit_packs WHERE code='P100')", /Usage Credit catalog drifted/);
     await scenario('published economical booking limit 500 passes without resetting it',`
       UPDATE subscription_plans SET entitlements=jsonb_set(entitlements,'{monthlyServiceBookings}','500'),policy_revision=policy_revision+1 WHERE slug='economical';
       UPDATE plan_allowances SET monthly_limit=500 WHERE plan_slug='economical' AND allowance_key='serviceBookings';

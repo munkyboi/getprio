@@ -17,7 +17,7 @@ test('capacity reconciles current-cycle facts without mutating ledger or histori
   const period = { start: '2026-10-01T00:00:00Z', end: '2026-11-01T00:00:00Z' };
   const database = { pool, withTransaction: async callback => {
     const client = await pool.connect();
-    try { await client.query('BEGIN'); const result = await callback(client); await client.query('COMMIT'); return result; }
+    try { await client.query('BEGIN'); const result = await callback({ query: (sql, values) => client.query(sql === 'SELECT CURRENT_TIMESTAMP AS now' ? "SELECT '2026-10-14T00:00:00Z'::timestamptz AS now" : sql, values) }); await client.query('COMMIT'); return result; }
     catch (error) { await client.query('ROLLBACK'); throw error; }
     finally { client.release(); }
   } };
@@ -56,8 +56,8 @@ test('capacity reconciles current-cycle facts without mutating ledger or histori
         (4,4,'base',2,NULL,50),(5,5,'base',1,NULL,1),(6,6,'base',1,NULL,1);
       INSERT INTO usage_credit_lots VALUES(1,5,'queueTickets',100,0,0,'purchased','active',NULL,NOW()),
         (2,5,'queueEmailJourneys',100,0,0,'purchased','active',NULL,NOW());
-      INSERT INTO usage_credit_packs VALUES(1,'P100','enabled',1,NOW());
-      INSERT INTO usage_credit_pack_revisions(pack_id,revision,ticket_units,journey_units,price_cents,currency) VALUES(1,1,100,100,9900,'PHP');
+      INSERT INTO usage_credit_packs VALUES(1,'P100','enabled',1,NOW()),(2,'P500','archived',1,NOW());
+      INSERT INTO usage_credit_pack_revisions(pack_id,revision,ticket_units,journey_units,price_cents,currency) VALUES(1,1,100,100,9900,'PHP'),(2,1,500,500,39900,'PHP');
       INSERT INTO usage_credit_purchases VALUES(1,1,100,100,9900);`);
     const before = (await pool.query('SELECT * FROM allowance_operations ORDER BY id')).rows;
     const service = loadModuleWithMocks(require.resolve('../src/services/usageCreditService'), {
@@ -98,11 +98,24 @@ test('capacity reconciles current-cycle facts without mutating ledger or histori
     await t.test('retirement migration appends revisions idempotently and preserves purchased terms', async () => {
       const sql = fs.readFileSync(path.resolve(__dirname, '../../database/migrations/20261014_retire_queue_email_quotas.sql'), 'utf8');
       await pool.query(sql); await pool.query(sql);
-      assert.deepEqual((await pool.query('SELECT ticket_units,journey_units,price_cents,currency FROM usage_credit_pack_revisions ORDER BY revision')).rows,
+      assert.deepEqual((await pool.query('SELECT ticket_units,journey_units,price_cents,currency FROM usage_credit_pack_revisions WHERE pack_id=1 ORDER BY revision')).rows,
         [{ ticket_units: 100, journey_units: 100, price_cents: 9900, currency: 'PHP' }, { ticket_units: 100, journey_units: 0, price_cents: 9900, currency: 'PHP' }]);
+      assert.deepEqual((await pool.query('SELECT state,current_revision FROM usage_credit_packs WHERE id=2')).rows[0], { state: 'archived', current_revision: 1 });
+      assert.equal((await pool.query('SELECT journey_units FROM usage_credit_pack_revisions WHERE pack_id=2')).rows[0].journey_units, 500);
       assert.equal((await pool.query('SELECT journey_units FROM usage_credit_purchases')).rows[0].journey_units, 100);
       assert.equal((await pool.query("SELECT granted_units FROM usage_credit_lots WHERE resource_key='queueEmailJourneys'")).rows[0].granted_units, 100);
       await pool.query("UPDATE tickets SET email_journey_mode='unmetered' WHERE id=1");
+    });
+    await t.test('cycle scans can use tenant and creation-time indexes', async () => {
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        await client.query('SET LOCAL enable_seqscan=off');
+        for (const table of ['tickets', 'bookings']) {
+          const result = await client.query(`EXPLAIN SELECT id FROM ${table} WHERE tenant_id=$1 AND created_at >= $2 AND created_at < $3`, ['5', period.start, period.end]);
+          assert.match(result.rows.map(row => row['QUERY PLAN']).join('\n'), new RegExp(`${table}_tenant_created_at_idx`));
+        }
+      } finally { await client.query('ROLLBACK'); client.release(); }
     });
     await t.test('historically exhausted journey delivers once, retries failures and deduplicates concurrent calls', async () => {
       const journeys = loadModuleWithMocks(require.resolve('../src/services/queueEmailJourneyService'), { '../config/db': database });

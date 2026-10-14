@@ -105,23 +105,23 @@ The state reached when a vendor has consumed its effective monthly Queue Ticket 
 _Avoid_: Existing-ticket cancellation, post-payment rejection, silent overage
 
 **Usage Credit Pack**:
-A vendor add-on that contains positive quantities of both Queue Ticket and Queue Email Journey credits. The quantities may differ, while the initial packs are `P100` for 100 of each, `P500` for 500 of each, and `P1000` for 1,000 of each.
-_Avoid_: Cash balance, customer queue fee, zero-resource retail pack, separate ticket and email packs
+A vendor add-on containing a positive Queue Ticket quantity only. Current `P100`, `P500` and `P1000` revisions contain 100, 500 and 1,000 tickets respectively, with zero Journey units. Earlier paired Ticket/Journey revisions remain immutable historical purchase evidence; Journey units no longer control delivery.
+_Avoid_: Cash balance, customer queue fee, zero-ticket retail pack, new email credit pack
 
 **Usage Credit Pack Catalog**:
 The Platform Admin-controlled set of Usage Credit Packs available to vendors. Platform Admin may add, remove, edit, disable, or enable packs without changing base plan allowances.
 _Avoid_: Hard-coded pack list, vendor-authored pack, plan entitlement
 
 **Usage Credit Pack Revision**:
-An immutable version of one stable catalog-pack identity containing its name, Ticket quantity, Journey quantity, price, currency, and purchase settings. Each Platform Admin edit publishes a new current revision for future checkouts; earlier revisions remain for audit and purchase history, and rollback publishes another revision rather than deleting history.
+An immutable version of one stable catalog-pack identity containing its name, Ticket quantity, price, currency, and purchase settings. New revisions contain zero Journey units; older captured Journey quantities remain historical evidence. Each Platform Admin edit publishes a new current revision for future checkouts; earlier revisions remain for audit and purchase history, and rollback publishes another revision rather than deleting history.
 _Avoid_: Mutable catalog history, duplicate visible pack, historical revision deletion
 
 **Usage Credit Pack Pricing**:
-The initial purchase prices are `P100` at PHP 99, `P500` at PHP 399, and `P1000` at PHP 699. Platform Admin may edit a pack's name, Queue Ticket quantity, Queue Email Journey quantity, price, currency, purchase availability, and enabled state.
+The initial purchase prices are `P100` at PHP 99, `P500` at PHP 399, and `P1000` at PHP 699. Platform Admin may edit a pack's name, Queue Ticket quantity, price, currency, purchase availability, and enabled state. Journey quantities cannot be added to new revisions.
 _Avoid_: Fixed code price, subscription price, customer queue-join fee
 
 **Usage Credit Pack Archival**:
-A pack with no checkout, purchase, lot, grant, refund, or other commerce and credit reference may be deleted while its lifecycle audit retains a tombstone snapshot; once referenced, removal archives it instead. Disabled packs are temporarily unavailable and may be re-enabled, while archival is a terminal retirement that cannot be edited or restored. Both states leave vendor purchase options, while historical records retain their captured pack name, quantities, price, and currency and previously acquired credits remain valid.
+A pack with no checkout, purchase, lot, grant, refund, or other commerce and credit reference may be deleted while its lifecycle audit retains a tombstone snapshot; once referenced, removal archives it instead. Disabled packs are temporarily unavailable and may be re-enabled, while archival is a terminal retirement that cannot be edited or restored. Both states leave vendor purchase options, while historical records retain their captured pack name, quantities, price, and currency and previously acquired Ticket credits remain valid. Historical Journey lots are retained but never enforce email delivery.
 _Avoid_: Destructive referenced-pack deletion, archived-pack restoration, retroactive pack edit, balance invalidation
 
 **Usage Credit Acquisition**:
@@ -129,11 +129,11 @@ A vendor on any subscription plan, including Free, may purchase an enabled Usage
 _Avoid_: Free-only credits, unaudited balance edit, customer-purchased queue credit
 
 **Usage Credit Grant**:
-A reasoned Platform Admin acquisition that may add Queue Ticket and Queue Email Journey quantities independently, including zero for either resource, without requiring a retail Usage Credit Pack. Each non-zero quantity becomes its own promotional lot and may carry the grant's optional expiration.
+A reasoned Platform Admin acquisition of positive Queue Ticket units without requiring a retail pack. Each grant creates one promotional Ticket lot with optional expiration. New Journey grants are rejected; prior Journey grants remain historical evidence.
 _Avoid_: Forced paired grant, vendor-authored grant, base-plan mutation
 
 **Usage Credit Revocation**:
-A reasoned Platform Admin removal of a selected Queue Ticket or Queue Email Journey quantity from a promotional or purchased lot's unconsumed, unreserved balance. Consumed history and credits protecting an active Allowance Reservation remain untouched, and a request above the revocable balance is rejected instead of creating a negative balance.
+A reasoned Platform Admin removal of a selected active Queue Ticket quantity from a promotional or purchased lot's unconsumed, unreserved balance. Consumed history and credits protecting an active Allowance Reservation remain untouched, and a request above the revocable balance is rejected instead of creating a negative balance.
 _Avoid_: Consumed-credit deletion, reservation clawback, negative balance
 
 **Usage Credit Payment Dispute**:
@@ -141,7 +141,7 @@ The recovery state entered when a PayMongo dispute or chargeback affects a fulfi
 _Avoid_: Immediate reserved-credit clawback, consumed-history deletion, negative credit debt
 
 **Usage Credit Lot**:
-An immutable, resource-specific allotment of Queue Ticket or Queue Email Journey credits created by one fulfilled purchase or Platform Admin grant. It retains its captured quantity, source, acquisition time, and optional promotional expiration; later corrections are separate grant, revocation, refund, dispute, or adjustment records rather than edits to the lot.
+An immutable, resource-specific allotment of Queue Ticket credits created by a new fulfilled purchase or Platform Admin grant. Older Journey lots remain historical evidence and are excluded from active email quota capacity. It retains its captured quantity, source, acquisition time, and optional promotional expiration; later corrections are separate grant, revocation, refund, dispute, or adjustment records rather than edits to the lot.
 _Avoid_: Editable issued balance, shared Ticket/Journey lot, retroactive catalog update
 
 **Usage Credit Purchase Fulfillment**:
@@ -157,7 +157,7 @@ One quantity-one Usage Credit Pack acquired through one PayMongo checkout, produ
 _Avoid_: Multi-pack cart, mutable checkout quantity, shared refund across purchases
 
 **Usage Credit Purchase Refund**:
-An entirely unused and unreserved paid credit purchase may be refunded and, after confirmed refund, both captured credit lots are revoked. Consumption or an active Allowance Reservation against either lot blocks automatic refund until eligible; exceptional partial handling requires a reasoned Platform Admin adjustment, preserves audit history, and never creates a negative balance.
+An entirely unused and unreserved paid credit purchase may be refunded and, after confirmed refund, all captured credit lots are revoked (one Ticket lot for new purchases; the retained Ticket/Journey pair for older purchases). Consumption or an active Allowance Reservation against any captured lot blocks automatic refund until eligible; exceptional partial handling requires a reasoned Platform Admin adjustment, preserves audit history, and never creates a negative balance.
 _Avoid_: Reserved-credit refund, automatic partial refund, negative credit balance, archive-triggered refund
 
 **Usage Credit Refund Window**:
@@ -165,15 +165,15 @@ The seven-calendar-day period after PayMongo captures payment in which a Vendor 
 _Avoid_: Indefinite self-service refund, staff refund, partially consumed automatic refund
 
 **Usage Credit Refund Processing**:
-The provider-confirmed lifecycle for refunding an eligible Usage Credit Purchase made through a PayMongo payment method that supports refunds. Both unused lots freeze while the request is pending, revoke only after PayMongo confirms the refund, and return to their prior availability if PayMongo rejects or fails it.
+The provider-confirmed lifecycle for refunding an eligible Usage Credit Purchase made through a PayMongo payment method that supports refunds. All captured unused lots freeze (one Ticket lot for new purchases, with historical Journey lots retained for older purchases) while the request is pending, revoke only after PayMongo confirms the refund, and return to their prior availability if PayMongo rejects or fails it.
 _Avoid_: Over-the-counter credit purchase, request-time revocation, unconfirmed refund success
 
 **Usage Credit Monetary Adjustment**:
-A reasoned Platform Admin exception for returning a specific currency amount after either lot in a Usage Credit Purchase has been consumed. It is not an automatic per-credit refund: only unused, unreserved credits may be revoked, consumed history remains unchanged, and the monetary amount is recorded independently because pack price is not divided between Ticket and Journey units.
+A reasoned Platform Admin exception for returning a specific currency amount after any captured lot in a Usage Credit Purchase has been consumed. It is not an automatic per-credit refund: only unused, unreserved credits may be revoked, consumed history remains unchanged, and the monetary amount is recorded independently because pack price is not divided between Ticket and Journey units.
 _Avoid_: Calculated partial refund, consumed-credit clawback, hidden cash adjustment
 
 **Usage Credit Expiration**:
-Purchased Usage Credits remain available until consumed and do not disappear at a subscription billing reset. Platform Admin-granted promotional credits may carry an explicit expiration date; absence of one makes the grant non-expiring. At expiration, unconsumed and unreserved units become unavailable, while units protecting an active Allowance Reservation remain valid until it commits or safely ends; a later release returns them to expired state rather than reviving them.
+Purchased Ticket Usage Credits remain available until consumed and do not disappear at a subscription billing reset. Platform Admin-granted promotional credits may carry an explicit expiration date; absence of one makes the grant non-expiring. At expiration, unconsumed and unreserved units become unavailable, while units protecting an active Allowance Reservation remain valid until it commits or safely ends; a later release returns them to expired state rather than reviving them.
 _Avoid_: Monthly paid-credit reset, hidden expiration, reservation invalidation, released-credit revival
 
 **Usage Credit Expiration Notice**:

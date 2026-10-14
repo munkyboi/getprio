@@ -2,14 +2,14 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { loadModuleWithMocks } = require('./helpers/loadModuleWithMocks.cjs');
 
-function capacityService({ usage = [], traffic = { queueTickets: { created: 7, unaccounted: 7 }, serviceBookings: { created: 3, unaccounted: 3 } }, hasPeriod = true } = {}) {
+function capacityService({ usage = [], traffic = { queueTickets: { created: 7, unaccounted: 7 }, serviceBookings: { created: 3, unaccounted: 3 } }, hasPeriod = true, observedAt = '2026-10-14T00:00:00Z', limit = 5000, lots = [] } = {}) {
   const period = { start: '2026-10-01T00:00:00.000Z', end: '2026-11-01T00:00:00.000Z' };
   const policy = { lifecycle: { state: 'active', planSlug: 'pro', subscriptionId: '5' }, period: hasPeriod ? period : null,
-    allowances: { queueTickets: { limit: 5000 }, serviceBookings: { limit: 1000 } } };
+    allowances: { queueTickets: { limit }, serviceBookings: { limit: 1000 } } };
   const calls = [];
   const mocks = {
-    '../config/db': { withTransaction: callback => callback({ query: async () => ({ rows: [] }) }) }, '../config/env': {}, '../config/releaseControls': {},
-    '../repositories/usageCredits': { listLots: async () => [] },
+    '../config/db': { withTransaction: callback => callback({ query: async sql => ({ rows: sql.includes('CURRENT_TIMESTAMP') ? [{ now: observedAt }] : [] }) }) }, '../config/env': {}, '../config/releaseControls': {},
+    '../repositories/usageCredits': { listLots: async () => lots },
     '../repositories/allowanceLedger': { getCapacity: async () => ({ usage, warnings: [] }) },
     './entitlementResolver': { resolveTenantPolicy: async () => policy },
     '../repositories/subscriptionUsage': { getCycleUsage: async (tenantId, window) => {
@@ -47,4 +47,41 @@ test('missing subscription window reports unavailable usage instead of a fabrica
   assert.equal(result.resources.queueTickets.used, null);
   assert.equal(result.resources.serviceBookings.observedUsed, null);
   assert.equal(calls.length, 0);
+});
+
+
+test('capacity accepts only windows containing the database observation time', async () => {
+  for (const [observedAt, available] of [['2026-09-30T23:59:59Z', false], ['2026-10-01T00:00:00Z', true], ['2026-11-01T00:00:00Z', false]]) {
+    const { service, calls } = capacityService({ observedAt });
+    const result = await service.getTenantCapacity('5');
+    assert.equal(result.usageAvailable, available);
+    assert.equal(calls.length, available ? 1 : 0);
+    if (!available) assert.equal(result.resources.queueTickets.used, null);
+  }
+});
+
+test('unaccounted tickets reduce projected credit availability after unused base capacity', async () => {
+  const lots = [{ id: '1', resource_key: 'queueTickets', status: 'active', granted_units: 10, revoked_units: 0, frozen_units: 0 }];
+  const { service } = capacityService({ limit: 5, lots,
+    usage: [{ resource_key: 'queueTickets', base_used: 4, credit_used: 0 }],
+    traffic: { queueTickets: { created: 6, unaccounted: 2 } } });
+  const result = await service.getTenantCapacity('5');
+  assert.equal(result.resources.queueTickets.used, 5);
+  assert.equal(result.resources.queueTickets.creditRemaining, 9);
+  assert.equal(result.resources.queueTickets.unaccountedCreditUsed, 1);
+  assert.equal(result.resources.queueTickets.creditUsed, 0);
+  assert.equal(result.lots[0].remainingUnits, 10);
+  assert.equal(lots[0].granted_units, 10);
+});
+
+test('projection excludes expired credits and retains uncovered usage without negative balances', async () => {
+  const lots = [{ id: '1', resource_key: 'queueTickets', status: 'active', granted_units: 1, revoked_units: 0, frozen_units: 0 },
+    { id: '2', resource_key: 'queueTickets', status: 'active', granted_units: 10, revoked_units: 0, frozen_units: 0, expires_at: '2026-10-13T00:00:00Z' }];
+  const { service } = capacityService({ limit: 5, lots,
+    usage: [{ resource_key: 'queueTickets', base_used: 4, credit_used: 0 }],
+    traffic: { queueTickets: { created: 8, unaccounted: 4 } } });
+  const result = await service.getTenantCapacity('5');
+  assert.equal(result.resources.queueTickets.used, 7);
+  assert.equal(result.resources.queueTickets.creditRemaining, 0);
+  assert.equal(result.resources.queueTickets.unaccountedCreditUsed, 1);
 });

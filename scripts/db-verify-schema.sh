@@ -473,7 +473,8 @@ BEGIN
     SELECT 1 FROM (VALUES ('P100',100,0,9900),('P500',500,0,39900),('P1000',1000,0,69900)) expected(code,tickets,journeys,price)
     LEFT JOIN usage_credit_packs p ON p.code=expected.code
     LEFT JOIN usage_credit_pack_revisions r ON r.pack_id=p.id AND r.revision=p.current_revision
-    WHERE r.ticket_units IS DISTINCT FROM expected.tickets OR r.journey_units IS DISTINCT FROM expected.journeys OR r.price_cents IS DISTINCT FROM expected.price
+    WHERE p.state IS DISTINCT FROM 'archived'
+      AND (r.ticket_units IS DISTINCT FROM expected.tickets OR r.journey_units IS DISTINCT FROM expected.journeys OR r.price_cents IS DISTINCT FROM expected.price)
   ) THEN RAISE EXCEPTION 'Schema verification failed. Usage Credit catalog drifted.'; END IF;
 
   IF EXISTS (SELECT 1 FROM usage_credit_lots WHERE revoked_units + frozen_units > granted_units) THEN

@@ -86,7 +86,8 @@ async function getTenantCapacity(tenantId, commercial = true) {
     const usageAvailable = Boolean(period?.start && period?.end
       && Number.isFinite(new Date(period.start).getTime())
       && Number.isFinite(new Date(period.end).getTime())
-      && new Date(period.start) < new Date(period.end));
+      && new Date(period.start) <= new Date(observedAt)
+      && new Date(observedAt) < new Date(period.end));
     const options = { client, subscriptionId: policy.lifecycle.subscriptionId,
       periodStart: usageAvailable ? period.start : null, periodEnd: usageAvailable ? period.end : null };
     const lots = await repository.listLots(tenantId, { client });
@@ -105,21 +106,27 @@ async function getTenantCapacity(tenantId, commercial = true) {
         const source = activeLots[index];
         return lot.resourceKey === key && source.status === "active" && (!source.expires_at || new Date(source.expires_at) > new Date(observedAt));
       }).reduce((sum, lot) => sum + lot.remainingUnits, 0);
+      const baseUsed = Number(usageByResource[key]?.base_used || 0);
+      const unaccounted = Number(traffic[key]?.unaccounted || 0);
+      const unusedBase = Math.max(0, Number(allowance.limit) - baseUsed);
+      // Project available capacity without mutating historical lots or ledger.
+      const unaccountedCreditUsed = key === "queueTickets"
+        ? Math.min(creditRemaining, Math.max(0, unaccounted - unusedBase)) : 0;
       let accountingStatus = "complete";
       if (!usageAvailable) accountingStatus = "unavailable";
-      else if (Number(traffic[key]?.unaccounted || 0) > 0) accountingStatus = "partial";
+      else if (unaccounted > 0) accountingStatus = "partial";
       return [key, {
         limit: Number(allowance.limit),
-        used: usageAvailable ? Math.max(0, Number(usageByResource[key]?.base_used || 0)
-          + Number(traffic[key]?.unaccounted || 0)) : null,
+        used: usageAvailable ? Math.max(0, baseUsed + unaccounted - unaccountedCreditUsed) : null,
         observedUsed: usageAvailable ? Number(traffic[key]?.created || 0) : null,
         baseUsed: usageAvailable ? Number(usageByResource[key]?.base_used || 0) : null,
         creditUsed: usageAvailable ? Number(usageByResource[key]?.credit_used || 0) : null,
         unaccountedUsed: usageAvailable ? Number(traffic[key]?.unaccounted || 0) : null,
+        unaccountedCreditUsed: usageAvailable ? unaccountedCreditUsed : null,
         accountingStatus,
         enforcementEnabled: policy.authority?.served === "new" && Boolean(releaseControls[key === "queueTickets" ? "allowanceQueueTickets" : "allowanceServiceBookings"]),
-        creditRemaining: key === "serviceBookings" ? 0 : creditRemaining,
-        resetAt: policy.period?.end || null,
+        creditRemaining: key === "serviceBookings" ? 0 : creditRemaining - unaccountedCreditUsed,
+        resetAt: usageAvailable ? period.end : null,
         source: allowance.source,
         overrideId: allowance.overrideId,
         warningThresholds: (warningsByResource[key] || []).map((row) => ({
