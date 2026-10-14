@@ -772,6 +772,15 @@ router.post(
     });
 
     const { user, tenant } = await db.withTransaction(async (client) => {
+      await subscriptionLifecycleService.prepareFreeAssignmentActor(req.user._id, { client });
+      const currentUser = await userRepository.findUserById(req.user._id, { client });
+      if (!currentUser) throw Object.assign(new Error("User session is no longer valid."), { statusCode: 401 });
+      assertSandboxTestAccountRequest(currentUser, req);
+      if (isDeveloperOnlyIdentity(currentUser)) throw Object.assign(new Error("This account is only available in the Developer Portal."), { statusCode: 403, code: "DEVELOPER_PORTAL_ONLY" });
+      if (userRequiresPrivilegedMfa(currentUser)) {
+        if (!currentUser.mfaEnabled) throw Object.assign(new Error("Set up multi-factor authentication before accessing this account."), { statusCode: 403, code: "MFA_ENROLLMENT_REQUIRED" });
+        if (!req.auth?.session?.mfaVerifiedAt) throw Object.assign(new Error("Confirm your multi-factor authentication before accessing this account."), { statusCode: 403, code: "MFA_VERIFICATION_REQUIRED" });
+      }
       const [existingTenant, conflictingUser, conflictingUsername] = await Promise.all([
         tenantRepository.findTenantBySlug(normalizedSlug, { client }),
         userRepository.findUserByEmail(normalizedEmail, {
@@ -829,8 +838,8 @@ router.post(
           name: resolvedName,
           username: resolvedUsername.username,
           email: normalizedEmail,
-          phone: normalizedPhone || req.user.phone,
-          roles: [...new Set([...(req.user.roles || []), "customer", "vendor"])]
+          phone: normalizedPhone || currentUser.phone,
+          roles: [...new Set([...(currentUser.roles || []), "customer", "vendor"])]
         },
         { client }
       );
