@@ -1,3 +1,4 @@
+const { activeAllowances, activeEntitlements } = require("../domain/activePlanQuotas");
 const db = require("../config/db");
 
 function buildQueryClient(client) {
@@ -36,11 +37,10 @@ function mapPlan(row) {
     },
     allowances: {
       queueTickets: Number(row.entitlements?.monthlyTickets || 0),
-      queueEmailJourneys: Number(row.entitlements?.monthlyQueueEmailJourneys ?? row.entitlements?.monthlyTransactionalEmails ?? 0),
       serviceBookings: Number(row.entitlements?.monthlyServiceBookings || 0)
     },
-    entitlements: { ...(row.entitlements || {}), groupFundedCampaignAccess: false },
-    included: row.included || []
+    entitlements: activeEntitlements({ ...(row.entitlements || {}), groupFundedCampaignAccess: false }),
+    included: (row.included || []).filter(item => !/Queue Email Journey|monthly transactional email/i.test(String(item)))
   };
 }
 
@@ -63,7 +63,7 @@ async function updatePlan(plan, userId, options = {}) {
   if (!options.client && typeof db.withTransaction === "function") {
     return db.withTransaction((client) => updatePlan(plan, userId, { client }));
   }
-  const entitlements = {
+  const entitlements = activeEntitlements({
     ...(plan.entitlements || {}),
     queueSystemAccess: Boolean(plan.features?.queue),
     publicFacingBranding: Boolean(plan.features?.branding),
@@ -71,10 +71,8 @@ async function updatePlan(plan, userId, options = {}) {
     serviceBookingAccess: Boolean(plan.features?.booking),
     groupFundedCampaignAccess: false,
     monthlyTickets: Number(plan.allowances?.queueTickets || 0),
-    monthlyTransactionalEmails: Number(plan.allowances?.queueEmailJourneys || 0),
-    monthlyQueueEmailJourneys: Number(plan.allowances?.queueEmailJourneys || 0),
     monthlyServiceBookings: Number(plan.allowances?.serviceBookings || 0)
-  };
+  });
   const queryClient = buildQueryClient(options.client);
   const result = await buildQueryClient(options.client).query(
     `
@@ -115,7 +113,7 @@ async function updatePlan(plan, userId, options = {}) {
       [plan.slug, featureKey, Boolean(enabled), userId ? Number(userId) : null]
     );
   }
-  for (const [allowanceKey, monthlyLimit] of Object.entries(plan.allowances || {})) {
+  for (const [allowanceKey, monthlyLimit] of Object.entries(activeAllowances(plan.allowances))) {
     await queryClient.query(
       `INSERT INTO plan_allowances (plan_slug, allowance_key, monthly_limit, updated_by_user_id)
        VALUES ($1, $2, $3, $4)

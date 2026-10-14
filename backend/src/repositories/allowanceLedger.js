@@ -138,21 +138,24 @@ async function consumeBaseWithClient(input, client) {
   };
 }
 
+// Policy windows are JavaScript Dates; align retained SQL rollout timestamps at
+// millisecond precision without rewriting the original periods or allocations.
 async function getCapacity(tenantId, options = {}) {
   const client = options.client || db.pool;
   const result = await client.query(
     `SELECT ua.resource_key,
             COALESCE(SUM(CASE WHEN aa.source_type = 'base'
-              AND sap.period_start <= NOW() AND sap.period_end > NOW()
+              AND (($2::bigint IS NULL AND sap.period_start <= NOW() AND sap.period_end > NOW())
+                OR (sap.subscription_id=$2 AND date_trunc('milliseconds',sap.period_start)=date_trunc('milliseconds',$3::timestamptz) AND date_trunc('milliseconds',sap.period_end)=date_trunc('milliseconds',$4::timestamptz)))
               THEN CASE WHEN ao.signed_units < 0 THEN -aa.units ELSE aa.units END ELSE 0 END), 0)::INTEGER AS base_used,
-            COALESCE(SUM(CASE WHEN aa.source_type = 'credit' THEN CASE WHEN ao.signed_units < 0 THEN -aa.units ELSE aa.units END ELSE 0 END), 0)::INTEGER AS credit_used
+            COALESCE(SUM(CASE WHEN aa.source_type = 'credit' AND ($2::bigint IS NULL OR (sap.subscription_id=$2 AND date_trunc('milliseconds',sap.period_start)=date_trunc('milliseconds',$3::timestamptz) AND date_trunc('milliseconds',sap.period_end)=date_trunc('milliseconds',$4::timestamptz))) THEN CASE WHEN ao.signed_units < 0 THEN -aa.units ELSE aa.units END ELSE 0 END), 0)::INTEGER AS credit_used
      FROM usage_accounts ua
      LEFT JOIN allowance_operations ao ON ao.usage_account_id = ua.id
      LEFT JOIN allowance_allocations aa ON aa.operation_id = ao.id
-     LEFT JOIN subscription_allowance_periods sap ON sap.id = aa.allowance_period_id
+     LEFT JOIN subscription_allowance_periods sap ON sap.id = COALESCE(aa.allowance_period_id, ao.allowance_period_id)
      WHERE ua.tenant_id = $1
      GROUP BY ua.resource_key`,
-    [Number(tenantId)]
+    [tenantId, options.subscriptionId || null, options.periodStart || null, options.periodEnd || null]
   );
   const lots = await client.query(
     `SELECT resource_key,
@@ -161,16 +164,17 @@ async function getCapacity(tenantId, options = {}) {
      FROM usage_credit_lots
      WHERE tenant_id = $1 AND status = 'active' AND (expires_at IS NULL OR expires_at > NOW())
      GROUP BY resource_key`,
-    [Number(tenantId)]
+    [tenantId]
   );
   const warnings = await client.query(
     `SELECT ua.resource_key, awc.threshold_percent, awc.claimed_at, awc.delivered_at
      FROM allowance_warning_claims awc
      JOIN usage_accounts ua ON ua.id=awc.usage_account_id
      JOIN subscription_allowance_periods sap ON sap.id=awc.allowance_period_id
-     WHERE ua.tenant_id=$1 AND sap.period_start <= NOW() AND sap.period_end > NOW()
+     WHERE ua.tenant_id=$1 AND (($2::bigint IS NULL AND sap.period_start <= NOW() AND sap.period_end > NOW())
+                OR (sap.subscription_id=$2 AND date_trunc('milliseconds',sap.period_start)=date_trunc('milliseconds',$3::timestamptz) AND date_trunc('milliseconds',sap.period_end)=date_trunc('milliseconds',$4::timestamptz)))
      ORDER BY ua.resource_key, awc.threshold_percent`,
-    [Number(tenantId)]
+    [tenantId, options.subscriptionId || null, options.periodStart || null, options.periodEnd || null]
   );
   return { usage: result.rows, credits: lots.rows, warnings: warnings.rows };
 }
@@ -310,6 +314,8 @@ async function claimWarningDeliveries(limit = 20, options = {}) {
        WHERE (delivery_status IN ('pending','failed')
           OR (delivery_status='processing' AND last_delivery_attempt_at < NOW() - INTERVAL '5 minutes'))
          AND delivery_attempts < 5
+         AND EXISTS (SELECT 1 FROM usage_accounts account WHERE account.id=allowance_warning_claims.usage_account_id
+           AND account.resource_key IN ('queueTickets','serviceBookings'))
        ORDER BY claimed_at, id
        FOR UPDATE SKIP LOCKED LIMIT $1
      ), claimed AS (

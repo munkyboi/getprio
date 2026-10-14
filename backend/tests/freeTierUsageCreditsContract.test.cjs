@@ -26,9 +26,9 @@ test("rollout tooling creates correlated baselines and remains explicitly gated"
   const source = fs.readFileSync(path.join(__dirname, "../../scripts/entitlement-rollout.mjs"), "utf8");
   assert.match(source, /FREE_PLAN_BACKFILL_ENABLED/);
   assert.match(source, /resource: "queueTickets"/);
-  assert.match(source, /resource: "queueEmailJourneys"/);
+  assert.doesNotMatch(source, /resource: "queueEmailJourneys"/);
   assert.match(source, /resource: "serviceBookings"/);
-  assert.match(source, /JOIN queue_email_journeys/);
+  assert.doesNotMatch(source, /JOIN queue_email_journeys/);
   assert.match(source, /LEGACY_EMAIL_UNIT_NOT_CONVERTED/);
   assert.match(source, /tenant_entitlement_overrides/);
   assert.match(source, /plan_policy_baselines/);

@@ -1161,7 +1161,7 @@ router.post(
 
 router.post("/tenants/:tenantId/entitlement-overrides", requirePlatformPermission("platform.entitlement_overrides.manage"), requireReleaseControl("entitlementOverrides"), requireIdempotency("platform.entitlement_override.publish"), asyncHandler(async (req,res) => {
   const payload={tenantId:req.params.tenantId,subscriptionId:req.body.subscriptionId,policyKey:req.body.policyKey,value:req.body.value,expiresAt:req.body.expiresAt || null};
-  if (!/^(feature\.(queue|branding|discovery|booking)|allowance\.(queueTickets|queueEmailJourneys|serviceBookings))$/.test(String(payload.policyKey || ""))) throw Object.assign(new Error("Entitlement override key is invalid."),{statusCode:400});
+  if (!/^(feature\.(queue|branding|discovery|booking)|allowance\.(queueTickets|serviceBookings))$/.test(String(payload.policyKey || ""))) throw Object.assign(new Error("Entitlement override key is invalid."),{statusCode:400});
   const override=await executeCreditConfirmation(req,"entitlement.override.publish",req.params.tenantId,payload,(client)=>entitlementOverrideRepository.create({...payload,reason:req.body.reason,actorId:req.user._id},{client}));
   if(!override) throw Object.assign(new Error("Subscription not found for this tenant."),{statusCode:404});
   await securityAuditService.record({actorId:req.user._id,actorRole:"platform_admin",sessionId:req.auth.sessionId,tenantId:req.params.tenantId,action:"entitlement.override.publish",resourceType:"tenant_entitlement_override",resourceId:override.id,reason:req.body.reason,outcome:"success",afterState:override});

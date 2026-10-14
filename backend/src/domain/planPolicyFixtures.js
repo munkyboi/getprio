@@ -16,7 +16,6 @@ const PLAN_POLICY_FIXTURES = Object.freeze({
     }),
     allowances: Object.freeze({
       queueTickets: 500,
-      queueEmailJourneys: 500,
       serviceBookings: 0
     })
   }),
@@ -31,7 +30,6 @@ const PLAN_POLICY_FIXTURES = Object.freeze({
     }),
     allowances: Object.freeze({
       queueTickets: 1000,
-      queueEmailJourneys: 1000,
       serviceBookings: 100
     })
   }),
@@ -46,7 +44,6 @@ const PLAN_POLICY_FIXTURES = Object.freeze({
     }),
     allowances: Object.freeze({
       queueTickets: 5000,
-      queueEmailJourneys: 5000,
       serviceBookings: 1000
     })
   }),
@@ -61,7 +58,6 @@ const PLAN_POLICY_FIXTURES = Object.freeze({
     }),
     allowances: Object.freeze({
       queueTickets: 50000,
-      queueEmailJourneys: 50000,
       serviceBookings: 10000
     })
   })

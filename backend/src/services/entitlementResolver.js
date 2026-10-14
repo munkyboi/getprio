@@ -3,7 +3,7 @@ const repository = require("../repositories/entitlementResolver");
 const releaseControls = require("../config/releaseControls");
 
 const FEATURE_KEYS = ["queue", "branding", "discovery", "booking", "campaigns"];
-const ALLOWANCE_KEYS = ["queueTickets", "queueEmailJourneys", "serviceBookings"];
+const ALLOWANCE_KEYS = ["queueTickets", "serviceBookings"];
 const RESTRICTED_STATUSES = new Set(["past_due", "unpaid", "suspended"]);
 
 function emptyFeatures() {
@@ -47,7 +47,6 @@ function buildLegacyValues(input) {
   };
   const allowanceMap = {
     queueTickets: "monthlyTickets",
-    queueEmailJourneys: "monthlyQueueEmailJourneys",
     serviceBookings: "monthlyServiceBookings"
   };
   const features = Object.fromEntries(FEATURE_KEYS.map((key) => [key, {

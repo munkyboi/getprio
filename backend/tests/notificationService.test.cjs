@@ -51,7 +51,7 @@ function requireWithMocks(targetPath, mocks) {
   }
 }
 
-test("notification service selects providers and enforces transactional email limits", async () => {
+test("notification service delivers lifecycle email despite exhausted historical email quota", async () => {
   const deliveryCalls = [];
   const service = requireWithMocks("../src/services/notificationService.js", {
     "../config/env": {
@@ -85,19 +85,11 @@ test("notification service selects providers and enforces transactional email li
   });
 
   assert.equal(await service.sendEmail({ to: "", subject: "x", text: "y" }), false);
-  await assert.rejects(
-    () =>
-      service.sendEmail({
-        to: "customer@example.com",
-        subject: "Hello",
-        text: "Body",
-        tenantId: "tenant-1",
-        purpose: "almost_there"
-      }),
-    (error) => error.statusCode === 403
-  );
+  assert.equal(await service.sendEmail({
+    to: "customer@example.com", subject: "Hello", text: "Body", tenantId: "tenant-1", purpose: "almost_there"
+  }), true);
   assert.equal(deliveryCalls.length, 1);
-  assert.equal(deliveryCalls[0].status, "failed");
+  assert.equal(deliveryCalls[0].status, "sent");
 });
 
 test("notification service falls back to console transport and sms fallback", async () => {

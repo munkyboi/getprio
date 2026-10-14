@@ -4,7 +4,6 @@ const { resolveTenantPolicy } = require("./entitlementResolver");
 
 const RESOURCE_FLAGS = {
   queueTickets: "allowanceQueueTickets",
-  queueEmailJourneys: "allowanceQueueEmailJourneys",
   serviceBookings: "allowanceServiceBookings"
 };
 
@@ -33,6 +32,7 @@ function calculateMonthlyPeriod(anchorValue, nowValue = new Date()) {
 }
 
 async function consumeAllowance(input, options = {}) {
+  if (input.resourceKey === "queueEmailJourneys") return { consumed: true, bypassed: "retired_resource" };
   const controls = options.controls || releaseControls;
   if (!controls[RESOURCE_FLAGS[input.resourceKey]]) {
     return { consumed: true, bypassed: true };
@@ -66,6 +66,7 @@ async function consumeAllowance(input, options = {}) {
 }
 
 async function reserveAllowance(input, options = {}) {
+  if (input.resourceKey === "queueEmailJourneys") return { reserved: true, bypassed: "retired_resource" };
   const controls = options.controls || releaseControls;
   if (!controls[RESOURCE_FLAGS[input.resourceKey]]) return { reserved: true, bypassed: true };
   const policy = await resolveTenantPolicy(input.tenantId, { client: options.client });
@@ -85,6 +86,7 @@ async function releaseReservation(input, options = {}) {
 }
 
 async function commitReservation(input, options={}) {
+  if (input.resourceKey === "queueEmailJourneys") return { committed: true, bypassed: "retired_resource" };
   if (!(options.controls || releaseControls)[RESOURCE_FLAGS[input.resourceKey]]) return {committed:true,bypassed:true};
   const result=await allowanceLedgerRepository.commitReservation(input,{client:options.client});
   if(!result) throw Object.assign(new Error("The reserved capacity could not be found for this payment."),{statusCode:409,code:"ALLOWANCE_RESERVATION_MISSING"});

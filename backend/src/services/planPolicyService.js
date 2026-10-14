@@ -1,3 +1,4 @@
+const { activeAllowances } = require("../domain/activePlanQuotas");
 const { PAID_PLAN_PRICE_INVARIANTS, PLAN_POLICY_FIXTURES } = require("../domain/planPolicyFixtures");
 
 const PLAN_SLUGS = new Set(["free", "economical", "pro", "enterprise"]);
@@ -41,7 +42,7 @@ function validatePlanMutation(plan) {
     error.code = "CAMPAIGN_BOOKING_DEPENDENCY";
     throw error;
   }
-  for (const value of Object.values(plan.allowances || {})) {
+  for (const value of Object.values(activeAllowances(plan.allowances))) {
     if (!Number.isInteger(Number(value)) || Number(value) < 0) {
       const error = new Error("Monthly allowances must be whole numbers of zero or greater.");
       error.statusCode = 400;

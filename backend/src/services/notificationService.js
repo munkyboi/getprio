@@ -1,15 +1,11 @@
 const nodemailer = require("nodemailer");
 const { createBrandedEmail } = require("./emailTemplates");
 const env = require("../config/env");
-const billingRepository = require("../repositories/billing");
 const notificationDeliveryRepository = require("../repositories/notificationDeliveries");
-const { getPlanEntitlements } = require("./subscriptionPlans");
-const releaseControls = require("../config/releaseControls");
 const queueEmailJourneyService = require("./queueEmailJourneyService");
 const { queueLifecycleEmail } = require("./queueEmailTemplates");
 
 let transport;
-const TRANSACTIONAL_EMAIL_PURPOSES = new Set(["almost_there", "called"]);
 
 function formatSender(name, email) {
   return name ? `${name} <${email}>` : email;
@@ -49,59 +45,6 @@ function getEmailProvider() {
   }
 
   return "console";
-}
-
-function getCurrentMonthStart() {
-  const now = new Date();
-  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
-}
-
-async function getEmailEntitlements(tenantId) {
-  const subscription = await billingRepository.getActiveSubscriptionByTenantId(tenantId);
-
-  if (subscription?.status === "active" && subscription.entitlements) {
-    const planEntitlements = (await getPlanEntitlements(subscription.planSlug)) || {};
-
-    return {
-      entitlements: {
-        ...planEntitlements,
-        ...subscription.entitlements
-      },
-      periodStart: subscription.currentPeriodStart || getCurrentMonthStart(),
-      periodEnd: subscription.currentPeriodEnd || null
-    };
-  }
-
-  return {
-    entitlements: {},
-    periodStart: getCurrentMonthStart(),
-    periodEnd: null
-  };
-}
-
-async function assertTransactionalEmailAllowance({ tenantId, purpose }) {
-  if (releaseControls.allowanceQueueEmailJourneys && TRANSACTIONAL_EMAIL_PURPOSES.has(purpose)) return;
-  if (!tenantId || !TRANSACTIONAL_EMAIL_PURPOSES.has(purpose)) {
-    return;
-  }
-
-  const { entitlements, periodStart, periodEnd } = await getEmailEntitlements(tenantId);
-  const limit = entitlements?.emailAlerts ? entitlements.monthlyTransactionalEmails : 0;
-
-  if (limit === null || limit === undefined) {
-    return;
-  }
-
-  const used = await notificationDeliveryRepository.countSentTransactionalEmails(tenantId, {
-    from: periodStart,
-    to: periodEnd
-  });
-
-  if (used >= Number(limit)) {
-    const error = new Error("Transactional email limit reached for this subscription.");
-    error.statusCode = 403;
-    throw error;
-  }
 }
 
 async function recordEmailDelivery({ to, subject, tenantId, ticketId, purpose, provider, status, error, metadata, outboxId }) {
@@ -184,7 +127,6 @@ async function sendEmail({ to, subject, text, html, emailTemplate, tenantId, tic
   const provider = getEmailProvider();
 
   try {
-    await assertTransactionalEmailAllowance({ tenantId, purpose });
     // Resend-managed templates may carry a branded inline fallback for other configured providers.
     if (resendTemplate && provider !== "resend" && !text && !html) {
       throw new Error("Managed email templates require Resend or an inline fallback");

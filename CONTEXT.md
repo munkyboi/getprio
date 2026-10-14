@@ -21,7 +21,7 @@ The one-time classification of an existing subscription's full entitlement snaps
 _Avoid_: Full-snapshot override, silent difference loss, comparison against post-rollout defaults
 
 **Migration Usage Baseline**:
-An immutable opening Allowance Ledger entry that attributes usage already completed in the current Subscription Allowance Period before live allowance accounting begins. Exact Queue Ticket and Booking facts are retained; Queue Email Journey usage uses only evidence that can be correlated to a ticket and never invents consumption from an unlinked delivery.
+An immutable opening Allowance Ledger entry that attributes usage already completed in the current Subscription Allowance Period before live allowance accounting begins. Exact Queue Ticket and Booking facts are retained. Historical Queue Email Journey baselines remain audit evidence; new email journeys do not consume quota or credits.
 _Avoid_: Mutable starting counter, historical guess, Free Plan backfill usage
 
 **Subscription Transition**:
@@ -37,7 +37,7 @@ A short-lived, one-use authorization that binds a privileged actor's Recent Auth
 _Avoid_: Generic MFA flag, reusable approval, confirmation of client-supplied impact
 
 **Operational Capacity View**:
-The Vendor Staff-safe view of whether new Queue Tickets and Queue Email Journeys are available, the remaining operational amount or exhaustion state, reset timing, fallback guidance, and confirmation that admitted work continues. It excludes plan prices, purchases, receipts, credit-lot provenance, override reasons, refunds, disputes, and commercial history.
+The Vendor Staff-safe view of whether new Queue Tickets and Service Bookings are available, the remaining operational amount or exhaustion state, reset timing, fallback guidance, and confirmation that admitted work continues. It excludes plan prices, purchases, receipts, credit-lot provenance, override reasons, refunds, disputes, and commercial history.
 _Avoid_: Billing read access, credit ledger, plan administration, hidden purchase button
 
 **Security Audit Event**:
@@ -49,19 +49,19 @@ A vendor-requested paid subscription cancellation retains paid entitlements thro
 _Avoid_: Immediate voluntary downgrade, delinquency-to-Free conversion, silent restriction bypass
 
 **Paid Plan Upgrade**:
-A successful upgrade payment activates the higher paid plan immediately and begins a new Subscription Allowance Period with fresh base Queue Ticket, Queue Email Journey, and Booking limits. Purchased and granted credits carry forward unchanged, while scheduled downgrades remain effective only at the current paid period's end.
+A successful upgrade payment activates the higher paid plan immediately and begins a new Subscription Allowance Period with fresh base Queue Ticket and Booking limits. Purchased and granted credits carry forward unchanged, while scheduled downgrades remain effective only at the current paid period's end.
 _Avoid_: Delayed upgrade, inherited lower-plan usage period, credit reset
 
 **Free Queue Allowance**:
-The Free Plan's included operating capacity: one location, one counter, one vendor seat, 500 Queue Tickets and 500 Queue Email Journeys per month, seven-day queue history, QR joining, a GetPrio-branded public queue page, and the basic queue dashboard and required settings. It excludes custom branding, Marketplace Discovery, Service Booking Access, and Group-Funded Campaign Access.
+The Free Plan's included operating capacity: one location, one counter, one vendor seat, 500 Queue Tickets per month with unmetered lifecycle email delivery, seven-day queue history, QR joining, a GetPrio-branded public queue page, and the basic queue dashboard and required settings. It excludes custom branding, Marketplace Discovery, Service Booking Access, and Group-Funded Campaign Access.
 _Avoid_: Unlimited free usage, Economical Plan, trial allowance
 
 **Plan Queue Allowance**:
-The monthly Queue Ticket and Queue Email Journey limits assigned by Vendor Subscription Plan: Free includes 500 of each, Economical 1,000 of each, Pro 5,000 of each, and Enterprise 50,000 of each. Ticket and journey usage remain separate counters even when their plan limits are equal.
+The monthly Queue Ticket limits assigned by Vendor Subscription Plan: Free includes 500, Economical 1,000, Pro 5,000, and Enterprise 50,000. Queue Email Journeys are not a plan quota or credit resource.
 _Avoid_: Shared usage pool, unlimited Enterprise usage, annual allowance
 
 **Subscription Allowance Period**:
-The subscription-specific monthly period in which base Queue Ticket, Queue Email Journey, and Booking allowances are measured and reset together. Free renews monthly from activation; paid plans use monthly windows anchored to their PayMongo-confirmed activation even when billed annually. Purchased and non-expiring granted credits persist, while expiring promotions follow their own timestamps.
+The subscription-specific monthly period in which base Queue Ticket and Booking allowances are measured and reset together. Free renews monthly from activation; paid plans use monthly windows anchored to their PayMongo-confirmed activation even when billed annually. Purchased and non-expiring granted credits persist, while expiring promotions follow their own timestamps.
 _Avoid_: Calendar-month quota, annual usage period, credit reset, separate feature periods
 
 **Allowance Ledger**:
@@ -73,11 +73,11 @@ A short-lived hold on Queue Ticket or Service Booking capacity created before a 
 _Avoid_: OTP reservation, permanent hold, committed consumption
 
 **Queue Email Journey**:
-A single metered customer-notification flow attached to one successfully created Queue Ticket, covering up to ten logical emails: as many as four Queue Join OTP messages and six ticket-lifecycle messages through a terminal outcome. Carry-over retains the journey, a Replacement Queue Ticket starts another, and abandoned OTP attempts, failed deliveries, retries, and duplicate events do not consume another journey unit.
+An unmetered customer-notification flow attached to one successfully created Queue Ticket, tracking up to ten logical emails: as many as four Queue Join OTP messages and six ticket-lifecycle messages through a terminal outcome. Carry-over retains the journey, a Replacement Queue Ticket starts another, and abandoned OTP attempts, failed deliveries, retries, and duplicate events do not consume quota or credits.
 _Avoid_: Transactional email, individual email delivery, unlimited ticket messaging
 
 **Logical Queue Email**:
-One durably queued OTP or lifecycle message occupying one protected Queue Email Journey slot. Provider retries preserve its identity and do not add messages; permanent failure keeps the slot failed, and neither failure nor under-delivery refunds the Journey.
+One durably queued OTP or lifecycle message occupying one protected Queue Email Journey slot. Provider retries preserve its identity and do not add messages; permanent failure keeps the slot failed, and retry/deduplication is independent of plan allowances.
 _Avoid_: Provider attempt, retry email, replaceable failed slot
 
 **Queue Email Journey Lifecycle Slots**:
@@ -85,15 +85,15 @@ The six once-only email moments protected within one Queue Email Journey: Ticket
 _Avoid_: First-six event stream, duplicate lifecycle email, unreserved terminal notice
 
 **Queue Email Journey Eligibility**:
-A successfully created Queue Ticket qualifies for one Queue Email Journey only when it has a valid customer email and email updates enabled. Earlier Queue Join OTP emails attach to that journey, while SMS-only, email-opted-out, abandoned, and journey-exhausted attempts consume no journey.
+A successfully created Queue Ticket records a delivery journey when it has opted-in lifecycle email or a correlated email OTP chain. No journey consumes allowance or credits. SMS-only and abandoned attempts remain separate operational evidence.
 _Avoid_: OTP-time consumption, email-address-only eligibility, abandoned-attempt usage
 
 **Queue Email Journey Mode**:
-The immutable email-admission result recorded when a Queue Ticket is created: metered Journey or journey-exhausted. Later allowance recovery never starts email for an exhausted ticket, carry-over retains the mode, and only a Replacement Queue Ticket makes a fresh decision.
+New email journeys use unmetered mode. Historical metered and journey-exhausted values remain retained evidence; neither is an active quota or credit admission result. Current preferences and protected delivery slots determine notification behavior.
 _Avoid_: Mid-journey admission, retroactive journey charge, carry-over recheck
 
 **Queue Email Journey Opt-Out**:
-The customer's suppression of unqueued lifecycle email for an already metered Journey without refunding its unit. Re-enabling email during the active ticket permits only future unused slots; suppressed events are never backfilled, while already queued messages and non-email history retain their normal outcomes.
+The customer's suppression of unqueued lifecycle email for a recorded delivery journey. Re-enabling email during the active ticket permits only future unused slots; suppressed events are never backfilled, while already queued messages and non-email history retain their normal outcomes.
 _Avoid_: Journey refund, event backfill, queued-message recall
 
 **Plan Queue-Join Fee**:
@@ -145,15 +145,15 @@ An immutable, resource-specific allotment of Queue Ticket or Queue Email Journey
 _Avoid_: Editable issued balance, shared Ticket/Journey lot, retroactive catalog update
 
 **Usage Credit Purchase Fulfillment**:
-A self-service credit purchase grants one captured Queue Ticket lot and one Queue Email Journey lot only after PayMongo confirms payment, with one immutable purchase record and idempotent fulfillment across webhook and manual synchronization. Failed, cancelled, expired, or repeated payment events grant nothing extra, while the vendor receives a receipt and balance-history entry.
+A new self-service credit purchase grants one captured Queue Ticket lot only after PayMongo confirms payment. Existing purchased Journey quantities remain historical evidence and do not control delivery, with one immutable purchase record and idempotent fulfillment across webhook and manual synchronization. Failed, cancelled, expired, or repeated payment events grant nothing extra, while the vendor receives a receipt and balance-history entry.
 _Avoid_: Checkout-created balance, duplicate webhook grant, mutable purchase snapshot
 
 **Usage Credit Checkout Snapshot**:
-The immutable pack name, Queue Ticket quantity, Queue Email Journey quantity, price, and currency captured when a PayMongo credit checkout is created. That checkout may fulfill its snapshot until its existing expiry even if Platform Admin later edits, disables, or archives the catalog pack; catalog changes affect only new checkouts.
+The immutable pack name, Queue Ticket quantity, historical Queue Email Journey quantity (zero in new revisions), price, and currency captured when a PayMongo credit checkout is created. That checkout may fulfill its snapshot until its existing expiry even if Platform Admin later edits, disables, or archives the catalog pack; catalog changes affect only new checkouts.
 _Avoid_: Fulfillment-time catalog lookup, retroactive price change, disabled-checkout cancellation
 
 **Usage Credit Purchase**:
-One quantity-one Usage Credit Pack acquired through one PayMongo checkout, producing one immutable purchase record, one receipt, and one captured Queue Ticket lot and Queue Email Journey lot after confirmed payment. A vendor starts another checkout to acquire another pack.
+One quantity-one Usage Credit Pack acquired through one PayMongo checkout, producing one immutable purchase record, one receipt, and one captured Queue Ticket lot after confirmed payment. Historical purchases retain their original Ticket and Journey quantities. A vendor starts another checkout to acquire another pack.
 _Avoid_: Multi-pack cart, mutable checkout quantity, shared refund across purchases
 
 **Usage Credit Purchase Refund**:
@@ -181,15 +181,15 @@ A once-only Vendor Owner/Admin dashboard and unmetered vendor-account email noti
 _Avoid_: Metered warning email, staff billing disclosure, repeated expiry spam
 
 **Usage Credit Consumption**:
-Queue Ticket and Queue Email Journey credits are independent balances even when acquired together. Each counter consumes its current monthly Plan Queue Allowance first, then the nearest-expiring promotional grant, then the oldest non-expiring promotional grant, and finally the oldest purchased credits.
+New Usage Credits cover Queue Tickets only. Historical Journey lots and purchased snapshots remain audit/refund evidence without controlling email delivery. Queue Tickets consume their current monthly Plan Queue Allowance first, then the nearest-expiring promotional grant, then the oldest non-expiring promotional grant, and finally the oldest purchased credits.
 _Avoid_: Shared depletion, paid-credit-first usage, synchronized balances
 
 **Queue Email Journey Allowance Exhaustion**:
-The state reached when a vendor has consumed its effective Queue Email Journey allowance. Queue operations continue and in-app or Web Push delivery remains available, while new metered queue-email journeys pause; authentication, password-reset, security, billing-receipt, and legal or compliance emails remain unmetered.
+A retired historical state retained in stored tickets and journeys. It no longer suppresses lifecycle emails or admits a plan quota; preferences, protected message slots, retries and provider availability still govern delivery.
 _Avoid_: Queue shutdown, security-email suppression, all-email quota
 
 **Journey-Exhausted Queue Verification**:
-An email Queue Join OTP sent without consuming a Queue Email Journey when ticket capacity remains but journey capacity is exhausted. The customer may join, receives no later lifecycle email for that ticket, and instead follows status-page, in-app, and Web Push updates.
+A retained legacy label. Queue Join OTP and opted-in lifecycle emails no longer depend on a Journey quota or credit balance; the status page remains authoritative.
 _Avoid_: Queue-intake shutdown, negative journey balance, hidden update loss
 
 **Queue OTP Resend Policy**:
@@ -209,7 +209,7 @@ The layered abuse boundary for initial and replacement Queue OTP Chains: anonymo
 _Avoid_: QR-only challenge, resend challenge, recipient enumeration, unlimited fresh chain
 
 **Abandoned Queue OTP Chain**:
-A Queue OTP Chain that never results in a Queue Ticket and therefore consumes no Queue Email Journey or Journey capacity. A verified chain awaiting a fulfillable queue-fee checkout is still pending rather than abandoned; only the chain that ultimately creates the ticket attaches to its Journey, while failed, cancelled, safely expired, and earlier restarted chains remain unmetered audit history.
+A Queue OTP Chain that never results in a Queue Ticket and remains delivery audit history rather than a capacity debit. A verified chain awaiting a fulfillable queue-fee checkout is still pending rather than abandoned; only the chain that ultimately creates the ticket attaches to its Journey, while failed, cancelled, safely expired, and earlier restarted chains remain unmetered audit history.
 _Avoid_: OTP-time journey charge, payment-pending abandonment, retroactive chain merge
 
 **Queue OTP Restart Lockout**:
@@ -265,7 +265,7 @@ A Platform Admin edit to a plan limit applies immediately without rewriting cons
 _Avoid_: Usage reset, deferred plan default, silent subscriber impact
 
 **Allowance Usage Warning**:
-A once-per-period vendor notice emitted independently at 80, 90, and 100 percent consumption of Queue Tickets, Queue Email Journeys, or Service Bookings. Notices appear in the vendor dashboard and by unmetered vendor-account email, explain the affected capability, and link to upgrade or Usage Credit Pack actions where applicable.
+A once-per-period vendor notice emitted independently at 80, 90, and 100 percent consumption of Queue Tickets or Service Bookings. Notices appear in the vendor dashboard and by unmetered vendor-account email, explain the affected capability, and link to upgrade or Usage Credit Pack actions where applicable.
 _Avoid_: Customer warning, metered warning email, repeated threshold spam
 
 **Plan Feature Defaults**:

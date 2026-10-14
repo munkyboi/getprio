@@ -1336,7 +1336,8 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
         assert.equal(pushes,0);
       }
       await reset(); await walkin({customerEmail:'walkin@example.com',notifyByEmail:true});
-      assert.equal(await count('queue_email_journeys'),1); assert.equal(await count('queue_email_slots'),10); assert.equal(await count('allowance_audit'),2);
+      assert.equal(await count('queue_email_journeys'),1); assert.equal(await count('queue_email_slots'),10); assert.equal(await count('allowance_audit'),1);
+      assert.equal((await pool.query('SELECT mode FROM queue_email_journeys')).rows[0].mode,'unmetered');
     });
     await t.test('walk-ins reject membership or operating-hours changes committed while waiting for the location lock',async () => {
       for(const sql of ["UPDATE tenant_memberships SET is_active=FALSE WHERE user_id=1","UPDATE store_hours SET is_closed=TRUE"]) {
@@ -1406,7 +1407,7 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
       await reset(); const results=await Promise.all([publicJoin(),publicJoin({userId:'1',joinChannel:'online',notifyByEmail:true,customerEmail:'owner@example.com'})]);
       assert.deepEqual(results.map(r=>r.ticket.sequence).sort(),[1,2]);
       assert.equal(await count('tickets'),2); assert.equal(await count('events'),2); assert.equal(await count('webhooks'),2);
-      assert.equal(await count('allowance_audit'),3); assert.equal(await count('queue_email_journeys'),1); assert.equal(await count('queue_email_slots'),10);
+      assert.equal(await count('allowance_audit'),2); assert.equal(await count('queue_email_journeys'),1); assert.equal(await count('queue_email_slots'),10);
       assert.equal(await count('ticket_service_plans'),0); assert.equal(await count('resource_allocations'),0); assert.equal(await count('resource_ledger_commands'),0);
       assert.equal((await pool.query('SELECT revision::text FROM resource_ledger_scopes')).rows[0].revision,'3');
     });

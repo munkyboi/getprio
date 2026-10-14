@@ -159,6 +159,7 @@ free_tier_migrations=(
   "20260809_01_finalize_free_tier_rollout.sql"
   "20260809_02_repair_free_plan_entitlement_shape.sql"
   "20260809_03_repair_mfa_replacement_indexes.sql"
+  "20261014_retire_queue_email_quotas.sql"
 )
 
 queue_day_prerequisites=(
