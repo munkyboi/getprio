@@ -19,7 +19,6 @@ Before enabling a control, confirm its slice acceptance tests, database verifica
 | `ENTITLEMENT_CAMPAIGN_ENFORCEMENT_ENABLED` | Enforce Campaign feature access. |
 | `ALLOWANCE_LEDGER_OBSERVE_ENABLED` | Calculate allowance decisions without denying admission. |
 | `ALLOWANCE_QUEUE_TICKETS_ENABLED` | Enforce Queue Ticket allowance decisions. |
-| `ALLOWANCE_QUEUE_EMAIL_JOURNEYS_ENABLED` | Meter Queue Email Journey delivery. |
 | `ALLOWANCE_SERVICE_BOOKINGS_ENABLED` | Enforce Service Booking allowance decisions. |
 | `FREE_PLAN_BACKFILL_ENABLED` | Permit the reviewed Free backfill apply/resume command. |
 | `USAGE_CREDIT_CATALOG_ENABLED` | Expose the Usage Credit catalog and permit catalog publication. |
@@ -34,5 +33,7 @@ Before enabling a control, confirm its slice acceptance tests, database verifica
 | `VENDOR_CAPACITY_EXPERIENCE_ENABLED` | Expose vendor operational/commercial capacity APIs and UI. |
 
 All keys accept only `true` or `1`; any missing or other value is disabled. Mutation gates execute before idempotency claims, confirmation consumption, database writes, or provider calls. A disabled API returns `404` with code `RELEASE_CONTROL_DISABLED`. The Plan Matrix read surface and automatic Free assignment for newly approved vendors are core product behavior, not rollout-controlled operations; policy publishing, backfill, enforcement, overrides, and commerce remain independently gated.
+
+Queue Email Journey quotas and credit enforcement are retired across all plans. Email delivery is unmetered by this policy, with preferences, provider delivery results, retries and deduplication still enforced. The obsolete `ALLOWANCE_QUEUE_EMAIL_JOURNEYS_ENABLED` variable has no effect, including when set to `true`; it cannot enable quota enforcement or roll back retirement. Queue snapshots advertise `emailQuotaPolicy: unmetered` for compatible clients. Existing journey records, purchases, credit lots and ledger entries remain historical evidence. Queue Ticket and Service Booking enforcement controls remain independent and unchanged.
 
 Do not enable authority or enforcement as a shortcut around prerequisites. Resolver shadowing precedes resolver authority; observation precedes allowance denial; catalog precedes grants and checkout; checkout precedes refunds/disputes; backend controls precede their UI controls.
