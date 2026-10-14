@@ -1,3 +1,4 @@
+import { getBookingEmailStatus, needsEmailDeliveryFallback } from "../utils/ticketEmailStatus";
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import {
   Alert,
@@ -194,7 +195,7 @@ export default function JoinedQueuePage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { token, user } = useAuth();
-  const [snapshot, setSnapshot] = useState<QueueSnapshot | null>(null);
+  const [snapshot, setSnapshot] = useState<(QueueSnapshot & { emailQuotaPolicy?: "unmetered" }) | null>(null);
   const [bookingAvailable, setBookingAvailable] = useState(false);
   const [error, setError] = useState("");
   const [responseStatus, setResponseStatus] = useState<number | null>(null);
@@ -300,13 +301,8 @@ export default function JoinedQueuePage() {
   const locationDetailLabel = [snapshot?.location?.city, snapshot?.location?.province].filter(Boolean).join(", ") || snapshot?.location?.country || "Philippines";
   const linkedBookingReference = snapshot?.focusTicket?.linkedBookingReference;
   const isBookingTicket = Boolean(linkedBookingReference) || snapshot?.focusTicket?.servicePriorityBand === "checked_in_booking";
-  const bookingEmailStatus = snapshot?.focusTicket?.emailJourneyMode === "journey_exhausted"
-    ? "Paused — the vendor's email allowance has been reached."
-    : snapshot?.focusTicket?.notifyByEmail === true
-      ? "Enabled — carried over from your booking."
-      : snapshot?.focusTicket?.notifyByEmail === false
-        ? "Not enabled for this ticket."
-        : "Email alert status is unavailable. Follow updates on this page.";
+  const emailDeliveryFallback = needsEmailDeliveryFallback(snapshot?.focusTicket, snapshot?.emailQuotaPolicy);
+  const bookingEmailStatus = getBookingEmailStatus(snapshot?.focusTicket, snapshot?.emailQuotaPolicy);
   const ticketIsConfirmed = Boolean(
     snapshot?.focusTicket?.status === "called" && snapshot.focusTicket.customerConfirmedAt
   );
@@ -888,8 +884,9 @@ export default function JoinedQueuePage() {
             </Group>
           </div>
         </Modal>
-        {(shouldAwaitPaymentSync || paymentSyncing || snapshot?.focusTicket?.emailJourneyMode === "journey_exhausted" || (snapshot && queueState.label !== "Open")) ? (
+        {(shouldAwaitPaymentSync || paymentSyncing || emailDeliveryFallback || (snapshot && queueState.label !== "Open")) ? (
           <Stack className="ticket-page-notifications" gap="sm">
+            {emailDeliveryFallback ? <Alert className="ticket-page-status-alert" color="blue" title="Follow updates here">Email updates are not confirmed for this ticket. Keep this page open or use browser notifications to follow your turn.</Alert> : null}
             {shouldAwaitPaymentSync || paymentSyncing ? (
               <Alert className="ticket-page-status-alert" color="blue" title="Confirming payment">
                 We are confirming your queue fee payment and loading your ticket.
@@ -905,11 +902,7 @@ export default function JoinedQueuePage() {
                 {queueState.message}
               </Alert>
             ) : null}
-            {snapshot?.focusTicket?.emailJourneyMode === "journey_exhausted" ? (
-              <Alert className="ticket-page-status-alert" color="blue" icon={<IconInfoCircle size={18} />} title="Follow updates here">
-                Your ticket is active. This vendor has reached its monthly email journey allowance, so email updates are paused. Keep this page open or enable browser notifications for live updates.
-              </Alert>
-            ) : null}
+
           </Stack>
         ) : null}
         <Paper className="vendor-hero-shell ticket-page-hero booking-detail-page-hero" p={{ base: "lg", md: "xl" }}>

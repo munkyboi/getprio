@@ -1202,17 +1202,6 @@ export default function VendorDashboardPage() {
     },
     enabled: shouldEnableVendorDashboardBootstrap(token, selectedTenantSlug, requiresMfaEnrollment)
   });
-  const capacityExperienceQuery = useQuery({
-    queryKey: ["vendor-dashboard-capacity-experience", token, selectedTenantSlug],
-    queryFn: async () => {
-      if (!token || !selectedTenantSlug) {
-        throw new Error("Missing capacity context.");
-      }
-
-      return vendorDashboardBootstrap.getCapacityExperience(token, selectedTenantSlug);
-    },
-    enabled: shouldEnableVendorDashboardBootstrap(token, selectedTenantSlug, requiresMfaEnrollment)
-  });
   const effectiveBilling = billingOverviewQuery.data || null;
   const activeSubscription =
     effectiveBilling?.subscription?.status === "active" ? effectiveBilling.subscription : null;
@@ -2450,23 +2439,6 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     currentPlan?.entitlements.monthlyTickets ||
     0;
   const ticketUsage = snapshot?.stats.servedToday ?? 0;
-  const configuredEmailJourneyLimit = activeSubscription?.entitlements.emailAlerts
-    ? activeSubscription.entitlements.monthlyQueueEmailJourneys ??
-      activeSubscription.entitlements.monthlyTransactionalEmails ??
-      currentPlan?.entitlements.monthlyQueueEmailJourneys ??
-      currentPlan?.entitlements.monthlyTransactionalEmails
-    : 0;
-  const emailJourneyResource =
-    capacityExperienceQuery.data?.capacity?.resources.queueEmailJourneys;
-  const emailJourneyLimit = emailJourneyResource?.limit ?? configuredEmailJourneyLimit;
-  const emailJourneyUsage = emailJourneyResource?.used ?? 0;
-  const emailJourneyDetail = capacityExperienceQuery.isPending
-    ? "Loading journey usage"
-    : capacityExperienceQuery.error
-      ? "Journey usage unavailable"
-      : capacityExperienceQuery.data?.enabled
-        ? "Journeys started this period"
-        : "Journey tracking pending rollout";
   const historyTickets = useMemo(() => history?.tickets || snapshot?.history || [], [history, snapshot]);
   const serviceTrendBars = useMemo(
     () =>
@@ -9103,9 +9075,8 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                 <Text className="neura-label">Usage</Text>
                 <Title order={3}>Plan consumption</Title>
               </div>
-              <SimpleGrid cols={2}>
+              <SimpleGrid cols={1}>
                 <MetricCard label="Tickets" value={`${ticketUsage}/${ticketLimit || "--"}`} detail="Current period" />
-                <MetricCard label="Email journeys" value={`${emailJourneyUsage}/${emailJourneyLimit ?? "--"}`} detail={emailJourneyDetail} />
               </SimpleGrid>
             </Stack>
           </Card>
@@ -9416,9 +9387,8 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       <Badge variant="light">Renews {formatDate(subscription.currentPeriodEnd)}</Badge>
                     ) : null}
                   </Group>
-                  <SimpleGrid cols={{ base: 1, sm: 2 }}>
+                  <SimpleGrid cols={1}>
                     <MetricCard label="Tickets" value={`${ticketUsage}/${ticketLimit || "--"}`} detail="Current period" />
-                    <MetricCard label="Email journeys" value={`${emailJourneyUsage}/${emailJourneyLimit ?? "--"}`} detail={emailJourneyDetail} />
                   </SimpleGrid>
                   {!activeSubscription ? <div>{renderPlanCards()}</div> : !isFreeSubscription ? (
                     <Button onClick={() => openPlanDialog()} variant="light" w={{ base: "100%", sm: "fit-content" }}>

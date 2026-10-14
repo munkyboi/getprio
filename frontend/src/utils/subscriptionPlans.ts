@@ -15,7 +15,6 @@ export function getPlanHighlights(plan: SubscriptionPlan): string[] {
   count(e.counters, "counter");
   count(e.staffSeats, "staff seat");
   count(plan.allowances?.queueTickets ?? e.monthlyTickets, "Queue Ticket", "Queue Tickets", "/mo");
-  count(plan.allowances?.queueEmailJourneys ?? e.monthlyQueueEmailJourneys ?? e.monthlyTransactionalEmails, "Queue Email Journey", "Queue Email Journeys", "/mo");
   if (plan.features?.booking ?? e.serviceBookingAccess) {
     count(plan.allowances?.serviceBookings ?? e.monthlyServiceBookings, "service booking", "service bookings", "/mo");
   }
