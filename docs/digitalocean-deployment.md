@@ -378,12 +378,20 @@ Notes:
 ## 6. Build the App
 
 ```bash
+set -e
 cd /var/www/getprio
 npm run typecheck
 npm run test:backend
-npm run build
+deploy_sha="$(git rev-parse HEAD)"
+umask 022
+static_stage="$(mktemp -d /tmp/getprio-static.XXXXXX)"
+trap 'rm -rf -- "$static_stage"' EXIT
+VITE_DEPLOY_SHA="$deploy_sha" VITE_PLATFORM_DATA_SOURCE=live node scripts/static-release.mjs build "$static_stage"
 npm run build:backend
+node scripts/static-release.mjs publish "$static_stage" "$deploy_sha"
 ```
+
+Builds run in a private temporary directory. Publication validates all served sites, copies assets first, and replaces each HTML file with an atomic rename. Prior assets remain available for cached HTML. See [static publication and incident evidence](deployment-static-publication.md) for failure behavior and limitations.
 
 ## 7. Start the Backend
 
@@ -500,11 +508,17 @@ If you are only launching the booking/manual-QR flow first, this webhook is not 
 ## 11. Deploy Updates
 
 ```bash
+set -e
 cd /var/www/getprio
 git pull
 npm install
-npm run build
+deploy_sha="$(git rev-parse HEAD)"
+umask 022
+static_stage="$(mktemp -d /tmp/getprio-static.XXXXXX)"
+trap 'rm -rf -- "$static_stage"' EXIT
+VITE_DEPLOY_SHA="$deploy_sha" VITE_PLATFORM_DATA_SOURCE=live node scripts/static-release.mjs build "$static_stage"
 npm run build:backend
+node scripts/static-release.mjs publish "$static_stage" "$deploy_sha"
 pm2 restart getprio-api
 ```
 
