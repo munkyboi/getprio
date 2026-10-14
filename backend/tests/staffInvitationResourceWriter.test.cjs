@@ -46,7 +46,7 @@ test('staff invitation admission and resource effects share one PostgreSQL trans
       assert.deepEqual((await revisions()).map(row => row.revision), ['2','1','1','1']);
     });
     await t.test('committed actor revocation, target flags and email change after root wait reject stale preflight', async () => {
-      for (const sql of ["UPDATE tenant_memberships SET role='staff' WHERE id=1", "UPDATE users SET deletion_requested_at='2026-01-01' WHERE id=3", "UPDATE users SET platform_access_suspended_at='2026-01-01' WHERE id=3", "UPDATE users SET email='changed@example.test' WHERE id=3"]) {
+      for (const sql of ["UPDATE tenant_memberships SET role='staff' WHERE id=1", "UPDATE tenant_memberships SET is_active=FALSE WHERE id=1", "UPDATE users SET deletion_requested_at='2026-01-01' WHERE id=1", "UPDATE users SET platform_access_suspended_at='2026-01-01' WHERE id=1", "UPDATE users SET deletion_requested_at='2026-01-01' WHERE id=3", "UPDATE users SET platform_access_suspended_at='2026-01-01' WHERE id=3", "UPDATE users SET email='changed@example.test' WHERE id=3"]) {
         await reset(); const writer = await transaction();
         try {
           await writer.query('SELECT id FROM tenants WHERE id=1 FOR UPDATE');
@@ -129,6 +129,18 @@ test('staff invitation admission and resource effects share one PostgreSQL trans
       await reset(); await pool.query('UPDATE service_counters SET location_id=20 WHERE id=1');
       await pool.query('INSERT INTO service_counter_assignments VALUES(1,3)');
       await assert.rejects(invite(), /counter scope requires reconciliation/u); await unchanged();
+    });
+    await t.test('unknown seat policy and oversized member or counter inventories never admit truncated work', async () => {
+      await reset(); await pool.query(`UPDATE subscription_plans SET entitlements='{"staffSeats":"unknown"}'`);
+      await assert.rejects(invite(), error => error.code === 'STAFF_SEAT_POLICY_UNAVAILABLE'); await unchanged();
+      await reset();
+      await pool.query(`INSERT INTO users(id,roles,name,email,email_verified) SELECT n,'{}','Extra','extra'||n||'@example.test',FALSE FROM generate_series(100,1100) n;
+        INSERT INTO tenant_memberships(user_id,tenant_id,role,is_active) SELECT id,1,'staff',TRUE FROM users WHERE id>=100`);
+      await assert.rejects(invite(), error => error.code === 'STAFF_INVENTORY_LIMIT'); await unchanged();
+      await reset();
+      await pool.query(`INSERT INTO service_counters(id,tenant_id,location_id,name,slug,is_active) SELECT n,1,10,'Extra','extra'||n,TRUE FROM generate_series(4,1004) n;
+        INSERT INTO service_counter_assignments SELECT id,3 FROM service_counters WHERE id>=4`);
+      await assert.rejects(invite(), error => error.code === 'STAFF_COUNTER_INVENTORY_LIMIT'); await unchanged();
     });
     await t.test('exact adjacent BIGINT accounts and vendors remain distinct with zero branches', async () => {
       await reset();
