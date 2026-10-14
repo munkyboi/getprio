@@ -10,11 +10,9 @@ import {
   ConfigurationCheck,
   ConfigurationInput,
 } from "../vendor/ConfigurationUi";
-import { QueueConfirmation } from "../vendor/TaskDialog";
-import { buttonVariants } from "../vendor/components/ui/button";
+import { QueueConfirmation, TaskDialog } from "../vendor/TaskDialog";
+import { buttonVariants, Button as QueueButton } from "../vendor/components/ui/button";
 import { Badge } from "../vendor/components/ui/badge";
-import { TaskDialog } from "../vendor/TaskDialog";
-import { Button as QueueButton } from "../vendor/components/ui/button";
 import {
   Card as QueueCard,
   CardHeader as QueueCardHeader,
