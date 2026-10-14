@@ -70,20 +70,32 @@ function validateTransitionInput(input) {
   if (typeof input.actorId === "number" && !Number.isSafeInteger(input.actorId)) throw Object.assign(new Error("Actor identifier must be an exact integer."), { statusCode: 400, code: "INVALID_ACTOR_ID" });
 }
 
+async function assertTransitionActor(client, scope) {
+  const actor = await assertSubscriptionActor(client, scope.actorId, scope.requirePlatformAuthority);
+  if (!scope.vendorRequested) return;
+  if (!actor) throw Object.assign(new Error("User session is no longer valid."), { statusCode: 401 });
+  const membership = (await lifecycleLock(client,
+    "SELECT id, user_id, tenant_id, role, is_active FROM tenant_memberships WHERE user_id = $1 AND tenant_id = $2 FOR SHARE NOWAIT",
+    [scope.actorId, scope.tenantId], "SUBSCRIPTION_MEMBERSHIP_BUSY")).rows[0];
+  if (!membership || membership.is_active === false) throw Object.assign(new Error("You do not have access to that tenant."), { statusCode: 403 });
+  assertPermission({ roles: actor.roles, tenantMemberships: [{ tenantId: String(membership.tenant_id), role: membership.role, isActive: membership.is_active !== false }] }, "tenant.billing.manage", { tenantId: scope.tenantId });
+}
+
 async function prepareSubscriptionTransition(input, options = {}) {
   const client = options.client;
   if (!client) throw new Error("Subscription transition preparation requires a transaction client.");
   validateTransitionInput(input);
   const tenantId = String(input.tenantId);
   const actorId = input.actorId == null ? null : String(input.actorId);
-  if (options.requirePlatformAuthority && actorId === null) throw Object.assign(new Error("User session is no longer valid."), { statusCode: 401 });
+  if ((options.requirePlatformAuthority || input.vendorRequested) && actorId === null) throw Object.assign(new Error("User session is no longer valid."), { statusCode: 401 });
   if (!(await client.query("SELECT id FROM tenants WHERE id = $1 FOR UPDATE", [tenantId])).rows.length) throw Object.assign(new Error("Vendor not found."), { statusCode: 404 });
-  await assertSubscriptionActor(client, actorId, options.requirePlatformAuthority);
+  const scope = { client, tenantId, actorId, toPlanSlug: input.toPlanSlug, vendorRequested: Boolean(input.vendorRequested), requirePlatformAuthority: Boolean(options.requirePlatformAuthority) };
+  await assertTransitionActor(client, scope);
   const plan = await lifecycleLock(client, "SELECT slug FROM subscription_plans WHERE slug = $1 FOR SHARE NOWAIT", [input.toPlanSlug], "SUBSCRIPTION_PLAN_BUSY");
   if (!plan.rows.length) throw Object.assign(new Error("Subscription plan not found."), { statusCode: 404 });
   await repository.lockCurrent(tenantId, { client, nonblocking: true });
   const context = Object.freeze({});
-  transitionRequestContexts.set(context, { client, tenantId, actorId, toPlanSlug: input.toPlanSlug, vendorRequested: Boolean(input.vendorRequested), requirePlatformAuthority: Boolean(options.requirePlatformAuthority) });
+  transitionRequestContexts.set(context, scope);
   return context;
 }
 
@@ -97,7 +109,7 @@ async function requestTransition(input, options = {}) {
       throw Object.assign(new Error("Subscription transition requires its prepared transaction context."), { statusCode: 409, code: "SUBSCRIPTION_TRANSITION_CONTEXT_REQUIRED" });
     }
     transitionRequestContexts.delete(context);
-    await assertSubscriptionActor(client, scope.actorId, scope.requirePlatformAuthority);
+    await assertTransitionActor(client, scope);
     const current = await repository.lockCurrent(scope.tenantId, { client, nonblocking: true });
     if (!current && input.toPlanSlug !== "free") throw Object.assign(new Error("A paid transition requires an existing subscription lifecycle."), { statusCode: 409 });
     if (current && ["past_due", "unpaid", "suspended"].includes(current.status)) throw Object.assign(new Error("Resolve the restricted subscription before changing plans."), { statusCode: 409, code: "RESTRICTED_PLAN_CHANGE_DENIED" });
@@ -189,7 +201,7 @@ async function suspendSubscription(subscriptionId, input = {}, options = {}) {
       });
     }
     suspensionContexts.delete(context);
-    await assertSubscriptionActor(client, scope.actorId, scope.requirePlatformAuthority);
+    await assertTransitionActor(client, scope);
     const current = await suspensionRepository.readSubscription(client, subscriptionId, true);
     if (!current) return null;
     assertSuspensionTenant(current, scope.tenantId);

@@ -25,6 +25,7 @@ function routeHandler(kind, mocks) {
   assert.ok(route); const idempotency = route.args.find(value => value?.scope);
   assert.equal(idempotency.scope, `${kind === 'platform' ? 'platform' : 'tenant'}.subscription_transition.create`);
   assert.ok(Array.from(idempotency.options.retryableErrorCodes).includes('SUBSCRIPTION_BUSY'));
+  if (kind === 'vendor') assert.ok(Array.from(idempotency.options.retryableErrorCodes).includes('SUBSCRIPTION_MEMBERSHIP_BUSY'));
   if (kind === 'platform') assert.equal(route.args[1].permission, 'platform.subscription_lifecycle.manage');
   return route.args.at(-1);
 }
@@ -68,8 +69,9 @@ test('interactive transition preparation precedes previews and confirmation unde
   const state = async () => ({ subscriptions: (await pool.query('SELECT id::text,tenant_id::text,plan_slug,status,current_period_end FROM tenant_subscriptions ORDER BY id')).rows, transitions: (await pool.query('SELECT id::text,tenant_id::text,status,created_by_user_id::text FROM subscription_transitions ORDER BY id')).rows, receipt: (await pool.query('SELECT consumed FROM confirmations')).rows[0].consumed });
   const reset = async () => {
     fault = false; previews = 0; confirmations = 0; audits = 0;
-    await pool.query(`TRUNCATE tenants,users,subscription_plans,tenant_subscriptions,subscription_transitions,idempotency_records,confirmations,refs RESTART IDENTITY CASCADE;
+    await pool.query(`TRUNCATE tenants,users,subscription_plans,tenant_subscriptions,subscription_transitions,idempotency_records,tenant_memberships,confirmations,refs RESTART IDENTITY CASCADE;
       INSERT INTO tenants VALUES(1),(2); INSERT INTO users VALUES(1,ARRAY['platform_admin'],NULL,NULL),(2,ARRAY['customer','vendor'],NULL,NULL);
+      INSERT INTO tenant_memberships(user_id,tenant_id,role) VALUES(2,1,'owner');
       INSERT INTO subscription_plans VALUES('free'),('pro'),('economical'); INSERT INTO confirmations VALUES(0);
       INSERT INTO tenant_subscriptions(tenant_id,plan_slug,status,current_period_start,current_period_end) VALUES(1,'pro','active',clock_timestamp()-INTERVAL '1 day',clock_timestamp()+INTERVAL '20 days');`);
   };
@@ -77,7 +79,7 @@ test('interactive transition preparation precedes previews and confirmation unde
   try {
     await pool.query(`CREATE SCHEMA ${schema}; CREATE TABLE tenants(id BIGINT PRIMARY KEY); CREATE TABLE users(id BIGINT PRIMARY KEY,roles TEXT[],deletion_requested_at TIMESTAMPTZ,platform_access_suspended_at TIMESTAMPTZ); CREATE TABLE subscription_plans(slug TEXT PRIMARY KEY); CREATE TABLE confirmations(consumed INTEGER); CREATE TABLE refs(tenant_id BIGINT REFERENCES tenants(id));`);
     const init = fs.readFileSync(path.resolve(__dirname, '../../database/init.sql'), 'utf8');
-    for (const table of ['tenant_subscriptions','subscription_transitions','idempotency_records']) await pool.query(init.match(new RegExp(`CREATE TABLE ${table} \\([\\s\\S]*?\\n\\);`))[0]);
+    for (const table of ['tenant_subscriptions','subscription_transitions','idempotency_records','tenant_memberships']) await pool.query(init.match(new RegExp(`CREATE TABLE ${table} \\([\\s\\S]*?\\n\\);`))[0]);
     for (const kind of ['platform', 'vendor']) {
       await t.test(`${kind} scheduled exit preserves current term and consumes only after preparation`, async () => {
         await reset(); const before = await state(); const result = await invoke(kind, { actorId: kind === 'vendor' ? '2' : '1' });
@@ -167,6 +169,57 @@ test('interactive transition preparation precedes previews and confirmation unde
       await assert.rejects(service.requestTransition(input(), { transitionContext: {} }), { code: 'SUBSCRIPTION_TRANSITION_CONTEXT_REQUIRED' });
       await assert.rejects(service.prepareSubscriptionTransition(input(), {}), /transaction client/);
       await assert.rejects(service.prepareSubscriptionTransition(input({ actorId: null }), { client, requirePlatformAuthority: true }), { statusCode: 401 });
+    });
+    for (const update of ["is_active=FALSE", "role='staff'", 'tenant_id=2', 'user_id=1']) {
+      await t.test(`vendor tenant wait rechecks current membership ${update} before confirmation`, async () => {
+        await reset(); await hold('SELECT id FROM tenants WHERE id=1 FOR UPDATE', async holder => {
+          const pending = assert.rejects(invoke('vendor', { actorId: '2' }), { statusCode: 403 }); await waitForDatabaseLock(pool, schema, 'SELECT id FROM tenants');
+          await holder.query(`UPDATE tenant_memberships SET ${update} WHERE user_id=2 AND tenant_id=1`); await holder.query('COMMIT'); const before = await state(); await pending; assert.deepEqual(await state(), before); assert.equal(previews, 0); assert.equal(audits, 0);
+        });
+      });
+    }
+    await t.test('current admin membership is supported and a Platform role alone does not bypass vendor membership', async () => {
+      await reset(); await pool.query("UPDATE tenant_memberships SET role='admin'"); assert.equal((await invoke('vendor', { actorId: '2' })).status, 'scheduled');
+      await reset(); await assert.rejects(invoke('vendor', { actorId: '1' }), { statusCode: 403 }); assert.equal(previews, 0); assert.equal((await state()).receipt, 0);
+      await assert.rejects(service.prepareSubscriptionTransition(input({ actorId: null, vendorRequested: true }), { client: { query: () => assert.fail('missing vendor actor reached SQL') } }), { statusCode: 401 });
+    });
+    await t.test('vendor admission holds actor and exact membership through commit before later revocation', async () => {
+      await reset(); let reached, release; const entered = new Promise(resolve => { reached = resolve; }); barrier = { fragment: 'UPDATE confirmations', reached, release: new Promise(resolve => { release = resolve; }) };
+      const pending = invoke('vendor', { actorId: '2' }); pending.catch(() => {}); await entered;
+      await hold('SELECT 1', async holder => {
+        try {
+          for (const sql of ['SELECT id FROM users WHERE id=2 FOR UPDATE NOWAIT','SELECT id FROM tenant_memberships WHERE user_id=2 AND tenant_id=1 FOR UPDATE NOWAIT']) await assert.rejects(pool.query(sql), { code: '55P03' });
+          const revoke = holder.query('SELECT id FROM tenants WHERE id=1 FOR UPDATE'); revoke.catch(() => {});
+          await waitForDatabaseLock(pool, schema, 'SELECT id FROM tenants WHERE id=1'); barrier = null; release(); await pending; await revoke;
+          await holder.query('UPDATE tenant_memberships SET is_active=FALSE WHERE user_id=2 AND tenant_id=1'); await holder.query('COMMIT');
+        } finally { barrier = null; release(); }
+      });
+      assert.equal((await state()).transitions.length, 1); await assert.rejects(invoke('vendor', { actorId: '2' }), { statusCode: 403 }); assert.equal((await state()).receipt, 1);
+    });
+    await t.test('membership-first tenant-FK contention releases root and same-key retry retains confirmation', async () => {
+      await reset(); const records = load('../src/repositories/idempotency', { '../config/db': db }); const claims = load('../src/services/idempotencyService', { '../repositories/idempotency': records }); let completion;
+      const observed = { ...records, complete: (...args) => { completion = records.complete(...args); return completion; } };
+      const middleware = load('../src/middleware/idempotency', { '../services/idempotencyService': claims, '../repositories/idempotency': observed }).requireIdempotency('tenant.subscription_transition.create', { retryableErrorCodes: ['SUBSCRIPTION_MEMBERSHIP_BUSY'] });
+      const request = () => runIdempotentHandler(middleware, async (_req, res) => res.json(await invoke('vendor', { actorId: '2' })), { user: { _id: '2' }, authorizedTenant: { _id: '1' }, body: {}, get: () => 'membership-retry' });
+      let reached, release; const entered = new Promise(resolve => { reached = resolve; }); barrier = { fragment: 'FROM tenants', reached, release: new Promise(resolve => { release = resolve; }) };
+      await hold('SELECT id FROM tenant_memberships WHERE user_id=2 AND tenant_id=1 FOR UPDATE', async holder => {
+        const busy = request(); busy.catch(() => {}); await entered; const write = holder.query('INSERT INTO refs VALUES(1)'); write.catch(() => {});
+        try { await waitForDatabaseLock(pool, schema, 'INSERT INTO refs'); } finally { barrier = null; release(); }
+        const result = await busy; assert.equal(result.body.code, 'SUBSCRIPTION_MEMBERSHIP_BUSY'); await write; await holder.query('COMMIT'); assert.equal((await state()).receipt, 0); assert.equal((await state()).transitions.length, 0); assert.equal(previews, 0);
+      });
+      const success = await request(); await completion; assert.equal(success.status, 200); assert.deepEqual(await request(), success); assert.equal((await state()).transitions.length, 1); assert.equal((await state()).receipt, 1);
+    });
+    await t.test('vendor membership and tenant identities above safe-integer range remain exact', async () => {
+      await reset(); const ids = ['9007199254740992','9007199254740993'];
+      for (const id of ids) {
+        await pool.query('INSERT INTO tenants VALUES($1)', [id]); await pool.query("INSERT INTO users(id,roles) VALUES($1,ARRAY['customer','vendor'])", [id]);
+        await pool.query("INSERT INTO tenant_memberships(id,user_id,tenant_id,role) VALUES($1,$1,$1,'owner')", [id]);
+        await pool.query("INSERT INTO tenant_subscriptions(tenant_id,plan_slug,status,current_period_end) VALUES($1,'pro','active',clock_timestamp()+INTERVAL '1 day')", [id]);
+      }
+      for (const id of ids) await service.requestTransition(input({ tenantId: id, actorId: id, vendorRequested: true }));
+      assert.deepEqual((await state()).transitions.map(row => [row.tenant_id,row.created_by_user_id]), ids.map(id => [id,id]));
+      await pool.query('UPDATE tenant_memberships SET is_active=FALSE WHERE id=$1', [ids[1]]);
+      await assert.rejects(service.requestTransition(input({ tenantId: ids[1], actorId: ids[1], vendorRequested: true })), { statusCode: 403 });
     });
     await t.test('same-key busy retry retains confirmation then replays durable success', async () => {
       await reset(); const records = load('../src/repositories/idempotency', { '../config/db': db }); const claims = load('../src/services/idempotencyService', { '../repositories/idempotency': records }); let completion;
