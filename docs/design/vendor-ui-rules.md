@@ -222,3 +222,8 @@ Checkbox help text must have its own ID referenced by the input's `aria-describe
 - Vendor account layout adapters must render a real grid and preserve requested responsive two/three/four-column layouts, with single-column mobile defaults. Outside vendor presentation, retain existing customer/Mantine behavior.
 - Browser reload/close guards read current account challenge and MFA replacement/removal drafts. Pending enrollment and newly issued recovery codes require unload-only protection, while Security-specific navigation warnings remain separate from ordinary global dirty state.
 - Vendor password-reset requests may carry only a validated internal dashboard return hint. The API validates it again before including it in a reset email; absent/unsafe/customer targets retain defaults. Reset completion still requires normal login, MFA and authorization. Never store or transfer credentials in a return URL.
+
+### Account context discard and native grid base
+
+- After all leave confirmations succeed, discard shared Account child drafts by remounting their presentation scope. Canceled navigation and pending tasks retain state; parent authenticator enrollment and recovery-code state stays independent.
+- Native responsive grid modifiers require the `ops-grid` base class, including Reports metrics and vendor social sign-in controls.

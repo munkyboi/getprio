@@ -922,6 +922,7 @@ function VendorDashboardContent() {
   const [accountPanelBusy, setAccountPanelBusy] = useState(false);
   const [ratingsBusy, setRatingsBusy] = useState(false);
   const [accountPanelDraft, setAccountPanelDraft] = useState(false);
+  const [accountTaskRevision, setAccountTaskRevision] = useState(0);
   const [mfaEnabled, setMfaEnabled] = useState(Boolean(user?.mfaEnabled));
   const [mfaSecret, setMfaSecret] = useState("");
   const [mfaEnrollmentUri, setMfaEnrollmentUri] = useState("");
@@ -4091,7 +4092,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
 
   function renderPlanDialog() {
     return <TaskDialog opened={planDialogOpen} onClose={closePlanDialog} busy={Boolean(busyAction)} eyebrow="BILLING" title={paidPlanDialogOnly ? "Upgrade to a paid plan" : "Choose a subscription plan"} footer={<OperationButton variant="outline" onClick={closePlanDialog} disabled={Boolean(busyAction)}>Close plans</OperationButton>}>
-      <AccountPresentation onBusyChange={setAccountPanelBusy} onDraftChange={setAccountPanelDraft}>
+      <AccountPresentation key={accountTaskRevision} onBusyChange={setAccountPanelBusy} onDraftChange={setAccountPanelDraft}>
         <ConfigurationScope busy={Boolean(busyAction)}>{renderPlanCards({paidOnly:paidPlanDialogOnly})}</ConfigurationScope>
       </AccountPresentation>
     </TaskDialog>;
@@ -9142,7 +9143,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
   function renderReportsPage() {
     const ready = !dashboardBootstrapQuery.error && snapshot?.tenant.slug === selectedTenantSlug && snapshot?.location?.slug === selectedLocationSlug;
     return <div className="config-page">
-      {!ready || !snapshot ? <OperationQueryState loading={!dashboardBootstrapQuery.error} error={dashboardBootstrapQuery.error} onRetry={()=>void dashboardBootstrapQuery.refetch()} /> : <div className="ops-grid-2"><OperationMetric label="Waiting tickets" value={snapshot.stats.waitingCount} detail="At the selected location" /><OperationMetric label="Tickets served today" value={ticketUsage} detail="At the selected location" /><OperationMetric label="Estimated wait" value={`${snapshot.stats.estimatedWaitMinutes} min`} detail="Current queue estimate" /><OperationMetric label="Called ticket" value={selectedCalledTicket?.ticketNumber || "—"} detail={selectedCalledTicket?.customerName || "No called ticket for the selected counter"} /></div>}
+      {!ready || !snapshot ? <OperationQueryState loading={!dashboardBootstrapQuery.error} error={dashboardBootstrapQuery.error} onRetry={()=>void dashboardBootstrapQuery.refetch()} /> : <div className="ops-grid ops-grid-2"><OperationMetric label="Waiting tickets" value={snapshot.stats.waitingCount} detail="At the selected location" /><OperationMetric label="Tickets served today" value={ticketUsage} detail="At the selected location" /><OperationMetric label="Estimated wait" value={`${snapshot.stats.estimatedWaitMinutes} min`} detail="Current queue estimate" /><OperationMetric label="Called ticket" value={selectedCalledTicket?.ticketNumber || "—"} detail={selectedCalledTicket?.customerName || "No called ticket for the selected counter"} /></div>}
       <OperationPanel><h2 className="account-panel-title">Plan consumption</h2>{renderPeriodTicketUsage()}</OperationPanel>
       {ready ? renderRecordedIntervals() : null}
     </div>;
@@ -9400,7 +9401,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     const billingUnavailable = billingOverviewQuery.isPending || Boolean(billingOverviewQuery.error);
     const billingReadState = <OperationQueryState loading={billingOverviewQuery.isPending} error={billingOverviewQuery.error} onRetry={()=>void billingOverviewQuery.refetch()} />;
     return (
-      <AccountPresentation onBusyChange={setAccountPanelBusy} onDraftChange={setAccountPanelDraft}>
+      <AccountPresentation key={accountTaskRevision} onBusyChange={setAccountPanelBusy} onDraftChange={setAccountPanelDraft}>
       <ConfigurationScope busy={Boolean(accountProfileBusy || passwordBusy || mfaBusy || accountPanelBusy || busyAction)}>
       <div className="config-page account-page">
           <ConfigTabs
@@ -10975,6 +10976,10 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     if (currentSection === "account" && accountTab === "security") {
       if (mfaRecoveryCodes.length && !window.confirm("Save your recovery codes before leaving Security. They remain visible only in this dashboard session. Leave Security?")) return false;
       if (mfaSecret && !window.confirm("Your authenticator setup will stay pending. Return to Security to finish or cancel it. Leave Security?")) return false;
+    }
+    if (accountPanelDraft) {
+      setAccountTaskRevision((revision) => revision + 1);
+      setAccountPanelDraft(false);
     }
     unsavedForm.current.clear();
     setAccountProfileForm({name:user?.name || "",displayName:user?.displayName || ""});

@@ -41,7 +41,7 @@ export default function SocialAuthButtons({
       <div className="queue-stack">
         <Separator />
         <p className="ops-muted">Or continue with a connected account</p>
-        <div className="ops-grid-2">
+        <div className="ops-grid ops-grid-2">
           {PROVIDER_OPTIONS.map(({ id, label, Icon }) => (
             <OperationButton
               key={id}
