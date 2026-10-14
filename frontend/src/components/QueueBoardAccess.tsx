@@ -30,6 +30,7 @@ import { useEffect, useRef, useState } from "react";
 import type { IScannerControls } from "@zxing/browser";
 import { apiRequest } from "../api/client";
 import { getErrorMessage } from "../utils/errors";
+import { copyQueueBoardUrl } from "../utils/queueBoardClipboard";
 
 interface Scope {
   token: string;
@@ -474,14 +475,7 @@ export function QueueBoardSettings({
                 <OperationButton
                   variant="outline"
                   onClick={() => {
-                    void navigator.clipboard
-                      .writeText(boardUrl)
-                      .then(() => setCopyMessage("Board URL copied."))
-                      .catch(() =>
-                        setCopyMessage(
-                          "Could not copy the URL. Select and copy it from the field above.",
-                        ),
-                      );
+                    void copyQueueBoardUrl(boardUrl, navigator.clipboard).then(setCopyMessage);
                   }}
                 >
                   Copy board URL

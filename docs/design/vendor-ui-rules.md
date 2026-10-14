@@ -227,3 +227,5 @@ Checkbox help text must have its own ID referenced by the input's `aria-describe
 
 - After all leave confirmations succeed, discard shared Account child drafts by remounting their presentation scope. Canceled navigation and pending tasks retain state; parent authenticator enrollment and recovery-code state stays independent.
 - Native responsive grid modifiers require the `ops-grid` base class, including Reports metrics and vendor social sign-in controls.
+
+- Queue Board copy actions must handle unavailable Clipboard API support and denied writes with visible manual-copy instructions; failure must not escape as an uncaught exception.
