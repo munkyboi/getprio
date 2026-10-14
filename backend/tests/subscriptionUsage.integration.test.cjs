@@ -81,6 +81,17 @@ test('capacity reconciles current-cycle facts without mutating ledger or histori
       assert.equal(result.resources.queueTickets.creditRemaining, 99);
       assert.deepEqual((await pool.query('SELECT * FROM allowance_operations ORDER BY id')).rows, before);
     });
+    await t.test('monthly usage read projects exact canonical counts without commercial details or writes', async () => {
+      const usage = await service.getTenantUsage('5');
+      assert.equal(usage.resources.queueTickets.used, 3);
+      assert.equal(usage.resources.queueTickets.observedUsed, 4);
+      assert.equal(usage.resources.serviceBookings.used, 1);
+      assert.equal(usage.resources.serviceBookings.observedUsed, 2);
+      assert.deepEqual(Object.keys(usage.resources.queueTickets).sort(), ['accountingStatus', 'limit', 'observedUsed', 'used']);
+      assert.equal(Object.hasOwn(usage, 'lots'), false);
+      assert.equal(Object.hasOwn(usage, 'features'), false);
+      assert.deepEqual((await pool.query('SELECT * FROM allowance_operations ORDER BY id')).rows, before);
+    });
     await t.test('retained group-funded bookings never consume ordinary booking usage', async () => {
       await pool.query("INSERT INTO bookings VALUES(12,5,'2026-10-03',10,'standard'),(13,5,'2026-10-03',NULL,'group_funded')");
       const result = await service.getTenantCapacity('5');

@@ -85,3 +85,31 @@ test('projection excludes expired credits and retains uncovered usage without ne
   assert.equal(result.resources.queueTickets.creditRemaining, 0);
   assert.equal(result.resources.queueTickets.unaccountedCreditUsed, 1);
 });
+
+test('monthly usage DTO retains canonical credit-adjusted usage and excludes commercial and ledger details', async () => {
+  const { service, period } = capacityService({ limit: 5,
+    lots: [{ id: '1', resource_key: 'queueTickets', status: 'active', granted_units: 10, revoked_units: 0, frozen_units: 0, reason: 'private commercial reason' }],
+    usage: [{ resource_key: 'queueTickets', base_used: 4, credit_used: 0 }],
+    traffic: { queueTickets: { created: 6, unaccounted: 2 }, serviceBookings: { created: 2, unaccounted: 2 } } });
+  const result = await service.getTenantUsage('5');
+  assert.deepEqual(result, {
+    subscriptionId: '5', planSlug: 'pro', observedAt: '2026-10-14T00:00:00Z', period, usageAvailable: true,
+    resources: {
+      queueTickets: { limit: 5, used: 5, observedUsed: 6, accountingStatus: 'partial' },
+      serviceBookings: { limit: 1000, used: 2, observedUsed: 2, accountingStatus: 'partial' }
+    }
+  });
+});
+
+test('monthly usage DTO preserves unknown usage and valid zero usage separately', async () => {
+  for (const hasPeriod of [false, true]) {
+    const { service, calls } = capacityService({ hasPeriod, traffic: {} });
+    const result = await service.getTenantUsage('5');
+    assert.equal(result.usageAvailable, hasPeriod);
+    assert.equal(result.resources.queueTickets.used, hasPeriod ? 0 : null);
+    assert.equal(result.resources.queueTickets.observedUsed, hasPeriod ? 0 : null);
+    assert.equal(result.resources.queueTickets.accountingStatus, hasPeriod ? 'complete' : 'unavailable');
+    assert.equal(calls.length, hasPeriod ? 1 : 0);
+    if (!hasPeriod) assert.equal(result.period, null);
+  }
+});
