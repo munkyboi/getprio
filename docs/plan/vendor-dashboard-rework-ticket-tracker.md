@@ -64,3 +64,10 @@ Latest #433 gate refresh: Sonar quality gate nowOK for exacthead6f3e8c8ae94756b1
 VD12 workspace access cards are now migrated locally with preserved access guards/recovery actions;209 tests/types/lint/build and responsive/theme/loading/logout fixtures pass, independent reviews clear. Four unused access-state CSS rules retired. VD11 remains blocked by queue-owner source refresh at31d5627a; no accepted simultaneous pooled-session consumer contract or pilot supplied. #433 remains unmerged and approval-gated with passing latestCI/CodeQL/Sonar and no actionable findings; backend#434 and Platform#436 integration remain separate.
 
 Paired#433 actualHTTP/PG-to-UI acceptance nowpasses atcombined19b864f7; exactpublished6f3 head is readyforreview withCI/CodeQL/Sonarpassing. Requiredapprovingreview, frontendintegration/deployment and#436screenapproval remainexplicit; backend#434mergedalone doesnotclosefinalacceptance. See progress/retirement evidence forunavailableperiod,projectedcredit,retiredmetrics andpublicticketmarkerchecks.
+
+
+### 14 October deployment handoff refresh
+
+PR #433 merged at ce8150e3 and automatic deployment 38529275267 passed schema verification and authenticated Platform smoke at that exact revision. Subsequent shared deployment 38529362865 passed at 41762a86, which includes #433. Public pricing was reloaded after the temporary rollout 403 and all four expanded plans retain Email alerts without retired allowance rows. API owns availability-cause/prevention investigation; authenticated Vendor acceptance remains pending sign-in. These checkpoints supersede earlier unmerged/approval-pending #433 notes.
+
+The remaining presentation package is synchronized locally with main41762a86, with 209 tests, types, affected lint and build passing; publication still awaits separate authorization. VD11 remains dependent on authoritative pooled ticket/session/allocation contracts and readiness evidence. The deployment handoff selected VD12 documentation/acceptance reconciliation as the next unblocked work; no new screen publication or runtime activation occurred.
