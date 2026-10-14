@@ -247,3 +247,94 @@ test("review controls reject Free and inactive subscriptions and allow active pa
   const service = buildService({ '../repositories/billing': { getActiveSubscriptionByTenantId: async () => ({ planSlug: 'economical', status: 'active' }) } });
   await service.assertPaidReviewAccess('tenant-1');
 });
+
+
+test("entitlement reads preserve the caller client through the plan service wrapper", async () => {
+  const client = { query: async () => { throw new Error("not used by this contract fixture"); } };
+  const options = { client };
+  const calls = [];
+  const plans = requireWithMocks("../src/services/subscriptionPlans.js", {
+    "../repositories/subscriptionPlans": {
+      findPlanBySlug: async (slug, supplied) => {
+        calls.push(["plan", slug, supplied]);
+        return { entitlements: { staffSeats: 3, emailAlerts: true, monthlyTransactionalEmails: 99 } };
+      }
+    }
+  });
+  const service = buildService({
+    "../repositories/billing": {
+      getActiveSubscriptionByTenantId: async (tenantId, supplied) => {
+        calls.push(["subscription", tenantId, supplied]);
+        return { status: "active", planSlug: "pro", entitlements: { staffSeats: 5 } };
+      }
+    },
+    "./subscriptionPlans": plans
+  });
+  const result = await service.getTenantEntitlements("9007199254740993", options);
+  assert.equal(result.staffSeats, 5);
+  assert.equal(result.emailAlerts, true);
+  assert.equal(Object.hasOwn(result, "monthlyTransactionalEmails"), false);
+  assert.deepEqual(calls.map(call => call.slice(0, 2)), [["subscription", "9007199254740993"], ["plan", "pro"]]);
+  for (const call of calls) assert.equal(call[2], options);
+});
+
+test("entitlement client propagation retains inactive, missing-plan and error behavior", async () => {
+  const options = { client: {} };
+  let planCalls = 0;
+  let subscription = { status: "suspended", planSlug: "pro" };
+  const service = buildService({
+    "../repositories/billing": { getActiveSubscriptionByTenantId: async (_id, supplied) => {
+      assert.equal(supplied, options);
+      return subscription;
+    } },
+    "./subscriptionPlans": { findPlanBySlug: async (_slug, supplied) => {
+      assert.equal(supplied, options);
+      planCalls++;
+      return null;
+    } }
+  });
+  assert.deepEqual(await service.getTenantEntitlements("1", options), {});
+  subscription = null;
+  assert.deepEqual(await service.getTenantEntitlements("1", options), {});
+  assert.equal(planCalls, 0);
+  subscription = { status: "active", planSlug: "pro", entitlements: { staffSeats: 2 } };
+  assert.equal((await service.getTenantEntitlements("1", options)).staffSeats, 2);
+  const failure = new Error("caller transaction failed");
+  const plans = requireWithMocks("../src/services/subscriptionPlans.js", {
+    "../repositories/subscriptionPlans": { findPlanBySlug: async (_slug, supplied) => {
+      assert.equal(supplied, options);
+      throw failure;
+    } }
+  });
+  await assert.rejects(plans.findPlanBySlug("pro", options), error => error === failure);
+});
+
+test("entitlement services read caller-private PostgreSQL changes and preserve rollback", {
+  skip: !process.env.RESOURCE_LEDGER_TEST_DATABASE_URL
+}, async t => {
+  const { Pool } = require("pg");
+  const { randomUUID } = require("node:crypto");
+  const pool = new Pool({ connectionString: process.env.RESOURCE_LEDGER_TEST_DATABASE_URL });
+  const schema = `entitlement_client_${randomUUID().replaceAll("-", "")}`;
+  const client = await pool.connect();
+  t.after(async () => { await client.query("ROLLBACK"); client.release(); await pool.end(); });
+  await client.query("BEGIN");
+  await client.query(`CREATE SCHEMA ${schema}`);
+  await client.query(`SET LOCAL search_path TO ${schema}`);
+  await client.query(`CREATE TABLE subscription_plans (slug TEXT, name TEXT, entitlements JSONB);
+    CREATE TABLE tenant_subscriptions (id BIGINT,tenant_id BIGINT,plan_slug TEXT,status TEXT,entitlements JSONB,updated_at TIMESTAMPTZ)`);
+  await client.query("INSERT INTO subscription_plans VALUES ('pro','Pro',$1)", [JSON.stringify({ staffSeats: 3 })]);
+  await client.query("INSERT INTO tenant_subscriptions VALUES (1,9007199254740993,'pro','active',$1,NOW())", [JSON.stringify({ emailAlerts: true })]);
+  const db = { pool: { query: async () => { throw new Error("default pool escape"); } } };
+  const planRepository = requireWithMocks("../src/repositories/subscriptionPlans.js", { "../config/db": db });
+  const plans = requireWithMocks("../src/services/subscriptionPlans.js", { "../repositories/subscriptionPlans": planRepository });
+  const billing = requireWithMocks("../src/repositories/billing.js", { "../config/db": db, "../services/subscriptionPlans": plans });
+  const service = buildService({ "../repositories/billing": billing, "./subscriptionPlans": plans });
+  assert.equal((await service.getTenantEntitlements("9007199254740993", { client })).staffSeats, 3);
+  await client.query("UPDATE subscription_plans SET entitlements=$1", [JSON.stringify({ staffSeats: 7 })]);
+  const result = await service.getTenantEntitlements("9007199254740993", { client });
+  assert.equal(result.staffSeats, 7);
+  assert.equal(result.emailAlerts, true);
+  await client.query("ROLLBACK");
+  assert.equal((await client.query("SELECT EXISTS(SELECT 1 FROM pg_namespace WHERE nspname=$1) AS exists", [schema])).rows[0].exists, false);
+});
