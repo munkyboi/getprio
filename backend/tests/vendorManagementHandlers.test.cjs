@@ -120,7 +120,7 @@ test("vendor management handler lists history and invites staff", async () => {
       findUserByEmail: async () => ({ _id: 9 }),
       addTenantMembership: async () => {}
     },
-    staffAccessEmailService: { change: async (_context, mutate) => mutate({ client: {} }) }
+    staffInvitationResourceService: { invite: async input => { assert.equal(input.userId, 9); assert.equal(input.email, "staff@example.com"); } }
   });
   assert.equal(inviteResponse.statusCode, 201);
 });
