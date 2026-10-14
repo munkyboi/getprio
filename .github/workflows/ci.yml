@@ -34,6 +34,7 @@ jobs:
       ALLOWANCE_TEST_DATABASE_URL: postgresql://getprio_test:getprio_test@127.0.0.1:5432/getprio_test
       RESOURCE_LEDGER_TEST_DATABASE_URL: postgresql://getprio_test:getprio_test@127.0.0.1:5432/getprio_test
       AI_POLICY_TEST_DATABASE_URL: postgresql://getprio_test:getprio_test@127.0.0.1:5432/getprio_test
+      MAINTENANCE_TEST_DATABASE_URL: postgresql://getprio_test:getprio_test@127.0.0.1:5432/getprio_test
 
     steps:
       - name: Checkout
@@ -46,10 +47,10 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts
 
       - name: Install new Platform dashboard dependencies
-        run: npm ci --prefix platform-dashboard-shadcn
+        run: npm ci --ignore-scripts --prefix platform-dashboard-shadcn
 
       - name: Backend production dependency audit
         working-directory: backend
@@ -68,7 +69,7 @@ jobs:
         run: npm run test:platform
 
       - name: Post-deploy smoke runner tests
-        run: node --test scripts/smoke-test.test.cjs scripts/prepare-test-database.test.cjs
+        run: node --test scripts/smoke-test.test.cjs scripts/prepare-test-database.test.cjs scripts/deployment-workflow-policy.test.cjs
 
       - name: Frontend coverage
         run: npm run test:frontend:coverage

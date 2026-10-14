@@ -10,6 +10,8 @@ DROP TABLE IF EXISTS queue_board_pairing_requests CASCADE;
 DROP TABLE IF EXISTS queue_board_display_grants CASCADE;
 DROP TABLE IF EXISTS queue_ticket_barcodes CASCADE;
 DROP TABLE IF EXISTS ai_inference_policy_operations CASCADE;
+DROP TABLE IF EXISTS platform_maintenance_operations CASCADE;
+DROP TABLE IF EXISTS platform_maintenance CASCADE;
 DROP TABLE IF EXISTS ai_inference_policy CASCADE;
 DROP TABLE IF EXISTS service_resource_requirements CASCADE;
 DROP TABLE IF EXISTS resource_ledger_commands CASCADE;

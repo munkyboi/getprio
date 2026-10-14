@@ -70,13 +70,13 @@ async function listAssignedLocationIdsByUserIds(tenantId, userIds, options = {})
 
 async function replaceUserLocationAssignments(data, options = {}) {
   const client = options.client || db.pool;
-  const locationIds = [...new Set((data.locationIds || []).map(Number).filter(Number.isFinite))];
+  const locationIds = [...new Set((data.locationIds || []).map(String).filter(id => /^[1-9]\d*$/.test(id)))];
   const membershipResult = await client.query(
     `SELECT id, role
      FROM tenant_memberships
      WHERE user_id = $1 AND tenant_id = $2 AND is_active = TRUE
      LIMIT 1`,
-    [Number(data.userId), Number(data.tenantId)]
+    [String(data.userId), String(data.tenantId)]
   );
   const membership = membershipResult.rows[0];
   if (!membership) {
@@ -87,7 +87,7 @@ async function replaceUserLocationAssignments(data, options = {}) {
       `SELECT id
        FROM store_locations
        WHERE tenant_id = $1 AND is_active = TRUE AND id = ANY($2::BIGINT[])`,
-      [Number(data.tenantId), locationIds]
+      [String(data.tenantId), locationIds]
     );
     if (validResult.rows.length !== locationIds.length) {
       const error = new Error("One or more queue location assignments are invalid.");
@@ -109,7 +109,7 @@ async function replaceUserLocationAssignments(data, options = {}) {
       [
         membership.id,
         locationId,
-        data.assignedByUserId ? Number(data.assignedByUserId) : null
+        data.assignedByUserId ? String(data.assignedByUserId) : null
       ]
     );
   }

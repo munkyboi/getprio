@@ -1,3 +1,4 @@
+const tenantQueueSettings = require("../services/tenantQueueSettingsService");
 const counterConfiguration = require("../services/counterConfigurationService");
 const businessCategories = require("../repositories/businessCategories");
 const PDFDocument = require("pdfkit");
@@ -41,14 +42,14 @@ function normalizeBusinessDescription(value) {
   return richText;
 }
 
-async function handleUpdateSettings({ req, res, getAuthorizedTenant, assertTenantPermission, getLocationForTenant, tenantRepository, userRepository, getQueueSnapshot, categoryRepository = businessCategories }) {
+async function handleUpdateSettings({ req, res, getAuthorizedTenant, assertTenantPermission, getLocationForTenant, getQueueSnapshot, categoryRepository = businessCategories, settingsService = tenantQueueSettings }) {
   const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
   assertTenantPermission(req.user, tenant._id, "tenant.settings.manage");
   await getLocationForTenant(tenant, req.query.location);
   const { name, publicProfileDisplayName, publicProfileDescription, publicProfileCategory, ownerName, ownerDisplayName, queuePrefix, averageServiceMinutes, notificationThreshold, autoPauseEnabled, autoPauseThreshold, autoResumeEnabled, autoResumeVacancyPercent, contactEmail, contactPhone } = req.body;
   const normalizedPublicProfileDescription = typeof publicProfileDescription === "string"
     ? normalizeBusinessDescription(publicProfileDescription)
-    : tenant.publicProfileDescription;
+    : undefined;
   const wantsToChangeBusinessProfile = [
     name,
     publicProfileDisplayName,
@@ -74,26 +75,33 @@ async function handleUpdateSettings({ req, res, getAuthorizedTenant, assertTenan
   const normalizedAutoPauseThreshold = normalizedAutoPauseEnabled ? Math.max(1, Number(autoPauseThreshold || 1)) : null;
   const normalizedAutoResumeEnabled = normalizedAutoPauseEnabled && Boolean(autoResumeEnabled);
   const normalizedAutoResumeVacancyPercent = normalizedAutoResumeEnabled ? Math.max(5, Math.min(50, Number(autoResumeVacancyPercent || 20))) : null;
-  const selectedCategory = await categoryRepository.resolve({ id: req.body.businessCategoryId, label: publicProfileCategory, currentId: tenant.businessCategoryId, currentLabel: tenant.publicProfileCategory });
-  const updatedTenant = await tenantRepository.updateTenant(tenant._id, {
-    name: typeof name === "string" && name.trim() ? name.trim().slice(0, 120) : tenant.name,
-    publicProfileDisplayName: typeof publicProfileDisplayName === "string" ? publicProfileDisplayName.trim().slice(0, 120) : tenant.publicProfileDisplayName,
-    publicProfileDescription: normalizedPublicProfileDescription,
-    publicProfileCategory: selectedCategory?.name ?? tenant.publicProfileCategory,
-    businessCategoryId: selectedCategory?.id ?? tenant.businessCategoryId,
-    queuePrefix: queuePrefix ? String(queuePrefix).slice(0, 4).toUpperCase() : tenant.queuePrefix,
-    averageServiceMinutes: averageServiceMinutes ? Number(averageServiceMinutes) : tenant.averageServiceMinutes,
-    notificationThreshold: notificationThreshold ? Number(notificationThreshold) : tenant.notificationThreshold,
-    autoPauseEnabled: normalizedAutoPauseEnabled,
-    autoPauseThreshold: normalizedAutoPauseThreshold,
-    autoResumeEnabled: normalizedAutoResumeEnabled,
-    autoResumeVacancyPercent: normalizedAutoResumeVacancyPercent,
-    contactEmail: typeof contactEmail === "string" ? contactEmail : tenant.contactEmail,
-    contactPhone: typeof contactPhone === "string" ? normalizePhilippineMobileNumber(contactPhone) : tenant.contactPhone
-  });
-  const owner = await userRepository.updateUser(req.user._id, {
-    name: typeof ownerName === "string" && ownerName.trim() ? ownerName.trim().slice(0, 120) : req.user.name,
-    displayName: typeof ownerDisplayName === "string" ? ownerDisplayName.trim().slice(0, 60) || null : req.user.displayName || null
+  const { tenant: updatedTenant, owner } = await settingsService.update({
+    tenantId: tenant._id, actorId: req.user._id, locationSlug: req.query.location,
+    requiresContactPermission: wantsToChangeBusinessProfile || req.body.businessCategoryId !== undefined,
+    resolveLocation: getLocationForTenant,
+    prepare: async (currentTenant, currentActor, client) => {
+      const selectedCategory = await categoryRepository.resolve({ id: req.body.businessCategoryId, label: publicProfileCategory,
+        currentId: currentTenant.businessCategoryId, currentLabel: currentTenant.publicProfileCategory }, client);
+      return { tenantChanges: {
+        name: typeof name === "string" && name.trim() ? name.trim().slice(0, 120) : currentTenant.name,
+        publicProfileDisplayName: typeof publicProfileDisplayName === "string" ? publicProfileDisplayName.trim().slice(0, 120) : currentTenant.publicProfileDisplayName,
+        publicProfileDescription: normalizedPublicProfileDescription ?? currentTenant.publicProfileDescription,
+        publicProfileCategory: selectedCategory?.name ?? currentTenant.publicProfileCategory,
+        businessCategoryId: selectedCategory?.id ?? currentTenant.businessCategoryId,
+        queuePrefix: queuePrefix ? String(queuePrefix).slice(0, 4).toUpperCase() : currentTenant.queuePrefix,
+        averageServiceMinutes: averageServiceMinutes ? Number(averageServiceMinutes) : currentTenant.averageServiceMinutes,
+        notificationThreshold: notificationThreshold ? Number(notificationThreshold) : currentTenant.notificationThreshold,
+        autoPauseEnabled: normalizedAutoPauseEnabled,
+        autoPauseThreshold: normalizedAutoPauseThreshold,
+        autoResumeEnabled: normalizedAutoResumeEnabled,
+        autoResumeVacancyPercent: normalizedAutoResumeVacancyPercent,
+        contactEmail: typeof contactEmail === "string" ? contactEmail : currentTenant.contactEmail,
+        contactPhone: typeof contactPhone === "string" ? normalizePhilippineMobileNumber(contactPhone) : currentTenant.contactPhone
+      }, ownerChanges: {
+        name: typeof ownerName === "string" && ownerName.trim() ? ownerName.trim().slice(0, 120) : currentActor.name,
+        displayName: typeof ownerDisplayName === "string" ? ownerDisplayName.trim().slice(0, 60) || null : currentActor.displayName || null
+      } };
+    }
   });
   res.json({ tenant: { id: String(updatedTenant._id), name: updatedTenant.name, slug: updatedTenant.slug, publicProfileDisplayName: updatedTenant.publicProfileDisplayName, publicProfileDescription: updatedTenant.publicProfileDescription, publicProfileCategory: updatedTenant.publicProfileCategory, businessCategoryId: updatedTenant.businessCategoryId, queuePrefix: updatedTenant.queuePrefix, averageServiceMinutes: updatedTenant.averageServiceMinutes, notificationThreshold: updatedTenant.notificationThreshold, autoPauseEnabled: updatedTenant.autoPauseEnabled, autoPauseThreshold: updatedTenant.autoPauseThreshold, autoResumeEnabled: updatedTenant.autoResumeEnabled, autoResumeVacancyPercent: updatedTenant.autoResumeVacancyPercent, contactEmail: updatedTenant.contactEmail, contactPhone: updatedTenant.contactPhone }, owner: { id: String(owner._id), name: owner.name, displayName: owner.displayName || "" }, snapshot: await getQueueSnapshot(updatedTenant, { location: await getLocationForTenant(updatedTenant, req.query.location), includeServiceTiming: true }) });
 }
@@ -216,6 +224,11 @@ async function handleListStaff({ req, res, getAuthorizedTenant, assertTenantPerm
   res.json({ staffSeatLimit: entitlements.staffSeats || 0, staff: staff.map((user) => { const membership = user.tenantMemberships.find((item) => String(item.tenantId) === String(tenant._id)); return { id: user._id, name: user.name, email: user.email, phone: user.phone, role: membership?.role || "staff", isActive: membership?.isActive !== false, assignedCounterIds: assignedCountersByUserId.get(String(user._id)) || [], assignedLocationIds: assignedLocationsByUserId.get(String(user._id)) || [] }; }) });
 }
 
+function assertNewStaffMembership(staff, userId) {
+  if (!staff.some(member => String(member._id) === String(userId))) return;
+  throw Object.assign(new Error("This account is already a member of this vendor. Manage their access from the staff list."), { statusCode: 409 });
+}
+
 async function handleInviteStaff({ req, res, getAuthorizedTenant, assertTenantPermission, billingService, userRepository, staffAccessEmailService }) {
   const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
   assertTenantPermission(req.user, tenant._id, "tenant.staff.invite");
@@ -226,6 +239,7 @@ async function handleInviteStaff({ req, res, getAuthorizedTenant, assertTenantPe
   await staffAccessEmailService.change({ tenant, userId: user._id, actorId: req.user._id }, async (options) => {
     const entitlements = await billingService.getTenantEntitlements(tenant._id);
     const staff = await userRepository.listUsersByTenantId(tenant._id, options);
+    assertNewStaffMembership(staff, user._id);
     if (staff.length >= Number(entitlements.staffSeats || 0)) { const error = new Error("Staff seat limit exceeded for this subscription plan."); error.statusCode = 403; throw error; }
     const nextRole = ["owner", "admin", "staff"].includes(req.body.role) ? req.body.role : "staff";
     const requesterMembership = req.user.tenantMemberships?.find((item) => String(item.tenantId) === String(tenant._id) && item.isActive !== false);

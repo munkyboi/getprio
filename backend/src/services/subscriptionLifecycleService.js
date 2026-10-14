@@ -1,6 +1,9 @@
 const db = require("../config/db");
 const repository = require("../repositories/subscriptionLifecycle");
 const planRepository = require("../repositories/subscriptionPlans");
+const suspensionRepository = require("../repositories/subscriptionSuspension");
+const suspensionContexts = new WeakMap();
+const { assertPermission } = require("./permissions");
 
 const PLAN_ORDER = { free: 0, economical: 1, pro: 2, enterprise: 3 };
 
@@ -69,24 +72,81 @@ async function requestTransition(input, options = {}) {
 async function executeDue() {
   const due = await db.pool.query(`SELECT id FROM subscription_transitions WHERE status = 'scheduled' AND effective_at <= NOW() ORDER BY effective_at LIMIT 100`);
   const results = [];
-  for (const row of due.rows) results.push(await db.withTransaction((client) => repository.executeTransition(row.id, { client })));
+  for (const row of due.rows) results.push(await db.withTransaction(async (client) => {
+    const scheduledContext = await repository.prepareScheduledTransition(row.id, { client });
+    return scheduledContext ? repository.executeTransition(row.id, { client, scheduledContext }) : null;
+  }));
   const renewals = await repository.renewFreeSubscriptions();
   return { transitions: results, renewals };
 }
 
+async function prepareSubscriptionSuspension(subscriptionId, options = {}) {
+  const client = options.client;
+  if (!client) throw new Error("Suspension preparation requires a transaction client.");
+  const located = await suspensionRepository.readSubscription(client, subscriptionId);
+  if (!located) return null;
+  const tenantId = String(located.tenant_id);
+  const tenant = await client.query("SELECT id FROM tenants WHERE id = $1 FOR UPDATE", [tenantId]);
+  if (!tenant.rows.length) return null;
+  const current = await suspensionRepository.readSubscription(client, subscriptionId, true);
+  if (!current) return null;
+  assertSuspensionTenant(current, tenantId);
+  const actorId = options.actorId == null ? null : String(options.actorId);
+  if (options.requirePlatformAuthority && actorId === null) {
+    throw Object.assign(new Error("User session is no longer valid."), { statusCode: 401 });
+  }
+  await assertSuspensionActor(client, actorId, options.requirePlatformAuthority);
+  const context = Object.freeze({});
+  suspensionContexts.set(context, { client, subscriptionId: String(subscriptionId), tenantId, actorId, requirePlatformAuthority: options.requirePlatformAuthority });
+  return context;
+}
+
+async function assertSuspensionActor(client, actorId, requirePlatformAuthority) {
+  if (actorId === null) return;
+  const actor = await suspensionRepository.readActor(client, actorId);
+  if (!actor || actor.deletion_requested_at) {
+    throw Object.assign(new Error("User session is no longer valid."), { statusCode: 401 });
+  }
+  if (actor.platform_access_suspended_at) {
+    throw Object.assign(new Error("This account's access is suspended. Contact GetPrio support."), {
+      statusCode: 403, code: "ACCOUNT_ACCESS_SUSPENDED"
+    });
+  }
+  if (requirePlatformAuthority) assertPermission(actor, "platform.subscription_lifecycle.manage");
+}
+
+function assertSuspensionTenant(current, tenantId) {
+  if (String(current.tenant_id) !== tenantId) {
+    throw Object.assign(new Error("Subscription moved while the action was being prepared. Review the current target."), {
+      statusCode: 409, code: "SUBSCRIPTION_SCOPE_CHANGED"
+    });
+  }
+}
+
 async function suspendSubscription(subscriptionId, input = {}, options = {}) {
-  const suspend = async (client) => {
-    const result = await client.query(`SELECT * FROM tenant_subscriptions WHERE id = $1 FOR UPDATE`, [subscriptionId]);
-    const current = result.rows[0];
+  const suspend = async (client, context) => {
+    const scope = suspensionContexts.get(context);
+    if (!scope || scope.client !== client || scope.subscriptionId !== String(subscriptionId) || scope.actorId !== (input.actorId == null ? null : String(input.actorId))) {
+      throw Object.assign(new Error("Caller-owned suspension requires a prepared transaction context."), {
+        statusCode: 409, code: "SUSPENSION_CONTEXT_REQUIRED"
+      });
+    }
+    suspensionContexts.delete(context);
+    await assertSuspensionActor(client, scope.actorId, scope.requirePlatformAuthority);
+    const current = await suspensionRepository.readSubscription(client, subscriptionId, true);
     if (!current) return null;
+    assertSuspensionTenant(current, scope.tenantId);
     if (current.status === "suspended") return current;
     if (current.status !== "active") throw Object.assign(new Error("Only an active subscription can be suspended."), { statusCode: 409 });
     await repository.createTransition({ tenantId: current.tenant_id, fromSubscriptionId: current.id, fromPlanSlug: current.plan_slug, toPlanSlug: current.plan_slug, transitionType: "admin_resolution", status: "effective", reason: input.reason, effectiveAt: new Date(), actorId: input.actorId, metadata: { operation: "suspend", previousStatus: current.status } }, { client });
     const updated = await client.query(`UPDATE tenant_subscriptions SET status = 'suspended', updated_at = NOW() WHERE id = $1 RETURNING *`, [current.id]);
     return updated.rows[0];
   };
-  if (options.client) return suspend(options.client);
-  return db.withTransaction(suspend);
+  if (options.client) return suspend(options.client, options.suspensionContext);
+  return db.withTransaction(async client => {
+    const context = await prepareSubscriptionSuspension(subscriptionId, { client, actorId: input.actorId });
+    return context ? suspend(client, context) : null;
+  });
 }
 
-module.exports = { assignFreeToApprovedTenant, executeDue, requestTransition, suspendSubscription };
+module.exports = { assignFreeToApprovedTenant, executeDue, requestTransition, prepareSubscriptionSuspension, suspendSubscription };

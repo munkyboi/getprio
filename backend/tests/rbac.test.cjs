@@ -1330,6 +1330,38 @@ test("tenant admin cannot change another staff member role", async () => {
   }
 });
 
+test("staff access route delegates the exact request scope and preserves response and domain denial", async () => {
+  const calls = [];
+  let denied = false;
+  const vendorRouter = requireWithMocks("../src/routes/vendorRoutes.js", {
+    "../middleware/auth": buildAuthMock(),
+    "../middleware/asyncHandler": buildAsyncHandlerMock(),
+    "../repositories/tenants": { findTenantBySlug: async () => ({ _id: "tenant-1", slug: "demo", name: "Demo" }) },
+    "../services/staffAccessResourceService": { update: async context => {
+      calls.push(context);
+      if (denied) throw Object.assign(new Error("Current staff access was revoked."), { statusCode: 403 });
+    } }
+  });
+  const { server, baseUrl } = await startServer(vendorRouter, "/api/vendor");
+  try {
+    const request = () => fetch(`${baseUrl}/tenant/demo/staff/9007199254740993`, {
+      method: "PATCH", headers: { "Content-Type": "application/json", "x-test-tenant-role": "owner" },
+      body: JSON.stringify({ isActive: false })
+    });
+    const response = await request();
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { userId: "9007199254740993" });
+    assert.equal(calls[0].tenant._id, "tenant-1");
+    assert.equal(calls[0].userId, "9007199254740993");
+    assert.equal(calls[0].actorId, "user-1");
+    assert.deepEqual(calls[0].body, { isActive: false });
+    denied = true;
+    const rejection = await request();
+    assert.equal(rejection.status, 403);
+    assert.match(await rejection.text(), /Current staff access was revoked/);
+  } finally { await stopServer(server); }
+});
+
 test("tenant admin cannot remove another staff member", async () => {
   const vendorRouter = requireWithMocks("../src/routes/vendorRoutes.js", {
     "../services/staffAccessEmailService": { change: async (_context, mutate) => mutate({ client: {} }) },

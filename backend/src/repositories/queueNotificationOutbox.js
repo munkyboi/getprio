@@ -47,7 +47,8 @@ async function claimBatch(workerId, limit = 50, options = {}) {
          AND available_at <= NOW()
          AND (expires_at IS NULL OR expires_at > NOW())
          AND (leased_until IS NULL OR leased_until < NOW())
-       ORDER BY CASE WHEN booking_id IS NULL THEN 0 ELSE 1 END, available_at, id
+       ORDER BY CASE WHEN (booking_id IS NOT NULL) = $3 THEN 0 ELSE 1 END,
+         CASE WHEN booking_id IS NOT NULL THEN expires_at ELSE available_at END, available_at, id
        LIMIT $2
        FOR UPDATE SKIP LOCKED
      )
@@ -60,7 +61,7 @@ async function claimBatch(workerId, limit = 50, options = {}) {
      FROM candidates
      WHERE outbox.id = candidates.id
      RETURNING outbox.*`,
-    [workerId, Math.max(1, Math.min(Number(limit) || 50, 200))]
+    [workerId, Math.max(1, Math.min(Number(limit) || 50, 200)), options.preferBookingReminders === true]
   );
   return result.rows;
 }

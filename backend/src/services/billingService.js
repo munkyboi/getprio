@@ -492,12 +492,27 @@ async function activateCheckoutSession(checkout, providerCheckoutSessionId, paym
       expectedSubscriptionId: checkout.metadata?.expectedSubscriptionId || null,
       expectedPlanSlug: checkout.metadata?.expectedPlanSlug || null
     },
-    options
+    { ...options, forUpdateNowait: true }
   );
 
   return {
     subscription: await buildSubscriptionResponse(subscription)
   };
+}
+
+async function lockSubscriptionCheckout(checkout, client) {
+  // Serialize before event foreign-key checks or checkout/subscription writes.
+  const tenant = await client.query("SELECT id FROM tenants WHERE id = $1 FOR UPDATE", [checkout.tenantId]);
+  if (!tenant.rows.length) return null;
+  const current = await billingRepository.findCheckoutSessionById(checkout._id, { client, forUpdate: true });
+  if (!current) return null;
+  if (current.tenantId !== checkout.tenantId || current.planSlug !== checkout.planSlug ||
+      current.providerCheckoutSessionId !== checkout.providerCheckoutSessionId) {
+    throw Object.assign(new Error("Checkout changed while payment was being processed. Reconciliation is required."), {
+      statusCode: 409, code: "SUBSCRIPTION_CHECKOUT_CHANGED"
+    });
+  }
+  return current;
 }
 
 async function syncPayMongoCheckout({ tenant, checkoutId }) {
@@ -537,19 +552,26 @@ async function syncPayMongoCheckout({ tenant, checkoutId }) {
   const paymentAttributes = payment?.attributes || {};
   const providerPaymentId = payment?.id || null;
 
-  const activation = await db.withTransaction(async (client) =>
-    activateCheckoutSession(
-      checkout,
+  const activation = await db.withTransaction(async (client) => {
+    const current = await lockSubscriptionCheckout(checkout, client);
+    if (!current) throw Object.assign(new Error("Checkout session not found."), { statusCode: 404 });
+    if (current.status === "paid") {
+      return { alreadyPaid: true, subscription: await buildSubscriptionResponse(
+        await billingRepository.getActiveSubscriptionByTenantId(current.tenantId, { client })
+      ) };
+    }
+    return activateCheckoutSession(
+      current,
       providerCheckout.id || checkout.providerCheckoutSessionId,
       paymentAttributes,
       providerPaymentId,
       { client }
-    )
-  );
+    );
+  });
 
   return {
     synced: true,
-    paid: Boolean(activation.subscription),
+    paid: Boolean(activation.subscription) || Boolean(activation.alreadyPaid),
     subscription: activation.subscription || null,
     billing: await getBillingOverview(tenant._id)
   };
@@ -637,10 +659,11 @@ async function handlePayMongoWebhook(rawBody, signatureHeader) {
   }
 
   return db.withTransaction(async (client) => {
-    const checkout = await billingRepository.findCheckoutSessionByProviderId(
+    const locatedCheckout = await billingRepository.findCheckoutSessionByProviderId(
       providerCheckoutSessionId,
       { client }
     );
+    const checkout = locatedCheckout ? await lockSubscriptionCheckout(locatedCheckout, client) : null;
 
     const eventRecord = await billingRepository.recordBillingEvent(
       {

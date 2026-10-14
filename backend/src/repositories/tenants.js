@@ -229,7 +229,7 @@ async function createTenant(data, options = {}) {
 async function updateTenant(tenantId, changes, options = {}) {
   const queryClient = buildQueryClient(options.client);
   const updates = [];
-  const values = [Number(tenantId)];
+  const values = [String(tenantId)];
 
   const setters = {
     name: "name",

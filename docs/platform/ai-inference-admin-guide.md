@@ -1,6 +1,6 @@
 # AI Inference — Platform Admin guide
 
-Implementation reference: 12 October 2026, main commit `48a9d0b8`.
+Implementation reference: AI-controls usability follow-up, 13 October 2026. This guide describes the UI, not a live operational-status report.
 
 ## What this page manages
 
@@ -24,11 +24,11 @@ The displayed predictor is the deterministic `resource-service-start-shadow-v1` 
 | --- | --- |
 | **Requested mode** | The global setting saved by an administrator. It may differ from actual operation. |
 | **Effective mode** | What the server currently permits. Today this is **Off**, even when Private shadow is requested. |
-| **Predictor** | The candidate version, kind and prediction target. Its presence does not mean it is running. |
-| **Policy revision** | The saved policy version. Each committed policy edit increments it; stale previews must be reviewed again. |
+| **Customer estimates** | These controls leave the existing customer estimate path unchanged; there is no customer-delivery mode. |
+| **Predictor / policy revision** | Under **Advanced diagnostics**: candidate version, kind, target and saved revision. Their presence does not mean inference is running. |
 | **Readiness** | Server-owned integration and approval status. Administrators cannot override blockers here. |
 
-Current readiness blockers are shown as readable words on the page:
+Readiness blockers explain the cause and next action in plain language. Raw codes stay under **Advanced diagnostics**. An unknown code is explicitly treated as an additional prerequisite needing engineering review, not as evidence of readiness:
 
 | Blocker | Meaning and next action |
 | --- | --- |
@@ -37,7 +37,9 @@ Current readiness blockers are shown as readable words on the page:
 | **shadow approval missing** | Private shadow use has not been approved through the implementation process. Selecting a mode does not grant approval. |
 | **customer rollout not approved** | Customer estimate delivery has not been approved. Evaluation and rollout approval remain separate work. |
 
-**Refresh policy** reloads saved server state. It does not save edits or start inference. It replaces the policy draft with saved values and clears any pending review, so use it before editing or when deliberately discarding a draft.
+**Refresh policy** reloads saved server state without saving or starting inference. It is disabled while a draft/audit reason or bound review is pending. Save first, or cancel the review and choose **Discard draft** before refreshing. A revision conflict preserves the draft and audit reason instead of silently refreshing over them; inspect the saved policy before reapplying intended changes. Discard is local only and never changes the saved policy.
+
+Timeout and snapshot age are grouped under **Advanced settings**, collapsed by default. Both disclosures are keyboard-accessible. Read-only viewers may search and inspect pilot locations but cannot change modes, add/remove pilots, edit advanced settings or submit a review. Selected locations cannot be added twice, and the 100-location limit and bounded search results are explained explicitly.
 
 ## Requested policy controls
 
@@ -125,7 +127,7 @@ This view performs no historical repair, tracking activation, inference activati
 | --- | --- |
 | Private shadow is requested, but effective mode is Off | Read the blockers. Check global mode and exact pilot selection, then coordinate missing runtime/readiness/approval work. Repeatedly saving cannot remove server-owned blockers. |
 | No locations match, or only 50 results appear | Search by vendor business or branch name; refine the query. Verify the location belongs to the intended tenant. |
-| **The policy changed. Review the refreshed policy again.** | The preview revision is stale. Inspect the refreshed settings, reapply intended edits and prepare a new review. |
+| **The saved policy changed. Your draft is preserved.** | The preview revision is stale. Note the intended edits, explicitly discard the local draft, refresh the saved policy, compare it and reapply the intended changes before a new review. |
 | Sign-in or security-code confirmation is required | Sign in again and complete MFA, then reopen the policy and prepare a fresh review. |
 | **Session expired** | Sign in again. The page clears sensitive state and pending review. |
 | **Access denied**, or read-only controls | Check Platform Admin access and the required permissions with the platform access owner. |

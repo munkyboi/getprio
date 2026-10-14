@@ -36,6 +36,10 @@ const entitlementAdmissionService = require("../services/entitlementAdmissionSer
 
 const { queueMetadata, trackingSnapshot } = require("../services/queueBoardProjection");
 const router = express.Router();
+router.get('/maintenance', asyncHandler(async (_req, res) => {
+  res.set('Cache-Control', 'no-store');
+  return res.json(await require('../services/platformMaintenanceService').publicStatus());
+}));
 router.get("/upload-policy", asyncHandler(async (_req, res) => {
   const maxImageUploadKb = await platformRepository.getImageUploadLimitKb();
   res.set("Cache-Control", "no-store").json({ maxImageUploadKb, maxImageUploadBytes: maxImageUploadKb * 1024 });
@@ -714,12 +718,12 @@ router.post(
       tenant,
       otpId: req.body.otpId,
       code: req.body.code
-    });
+    }, { consume: false });
     const result = await queueJoinPaymentService.handleVerifiedJoin({
       tenant,
       otpId: req.body.otpId,
       payload
-    });
+    }, { admitOtp: client => queueJoinOtpService.verifyJoinOtp({ tenant, otpId: req.body.otpId, code: req.body.code }, { client }) });
 
     if (result.requiresPayment) {
       res.status(201).json(projectPublicResult(result));

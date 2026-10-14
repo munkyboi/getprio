@@ -24,7 +24,9 @@ async function claimPending(outboxId, workerId, options = {}) {
   await client.query(
     `UPDATE mobile_push_outbox_deliveries AS delivery
      SET status = 'stale', attempt_count = attempt_count + 1,
-         last_error = 'Sandbox test account is no longer active',
+         last_error = CASE WHEN registration.is_active = FALSE
+           THEN 'Push registration is no longer active'
+           ELSE 'Sandbox test account is no longer active' END,
          lease_owner = NULL, leased_until = NULL, updated_at = NOW()
      FROM mobile_push_registrations AS registration
      INNER JOIN users AS account_user ON account_user.id = registration.user_id
@@ -36,11 +38,13 @@ async function claimPending(outboxId, workerId, options = {}) {
        AND delivery.registration_id = registration.id
        AND delivery.status = 'pending'
        AND (delivery.lease_owner IS NULL OR delivery.leased_until < NOW())
-       AND account_user.is_sandbox_test_account = TRUE
        AND (
-         account_user.sandbox_test_account_expires_at IS NULL
-         OR account_user.sandbox_test_account_expires_at <= NOW()
-         OR test_project.status IS DISTINCT FROM 'active'
+         registration.is_active = FALSE
+         OR (account_user.is_sandbox_test_account = TRUE AND (
+           account_user.sandbox_test_account_expires_at IS NULL
+           OR account_user.sandbox_test_account_expires_at <= NOW()
+           OR test_project.status IS DISTINCT FROM 'active'
+         ))
        )`,
     [String(outboxId)]
   );

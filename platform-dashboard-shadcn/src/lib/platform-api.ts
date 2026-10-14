@@ -42,6 +42,7 @@ import { platformAuth } from "@/lib/platform-auth"
 import { resolvePlatformApiBaseUrl } from "@/lib/platform-api-url"
 import type { AiInferenceApi, AiStatus } from "@/lib/ai-inference-contracts"
 import type { ResourceInventoryApi } from "@/lib/resource-inventory-contracts"
+import type { MaintenanceApi, MaintenanceRecord } from "@/lib/maintenance-contracts"
 
 const API_BASE_URL = resolvePlatformApiBaseUrl(import.meta.env.VITE_API_URL, window.location.hostname, import.meta.env.DEV)
 
@@ -967,15 +968,15 @@ function createHttpPlatformApi(baseUrl = API_BASE_URL): PlatformApi {
 export const httpPlatformApi = createHttpPlatformApi()
 export const platformApi: PlatformApi = import.meta.env.VITE_PLATFORM_DATA_SOURCE === "live" ? httpPlatformApi : fixturePlatformApi
 
-async function readAi<T>(path: string): Promise<T> {
+async function readPlatformControl<T>(path: string): Promise<T> {
   const response = await fetchWithSessionRefresh(() => fetch(`${API_BASE_URL}${path}`, { credentials: 'include', cache: 'no-store', headers: { Accept: 'application/json' } }))
   const payload = await response.json()
-  if (!response.ok) throw Object.assign(new Error(payload.message || 'AI controls are unavailable.'), { status: response.status })
+  if (!response.ok) throw Object.assign(new Error(payload.message || 'Platform controls are unavailable.'), { status: response.status })
   return payload as T
 }
 export const aiInferenceApi: AiInferenceApi = {
-  read: () => readAi<AiStatus>('/platform/ai-inference'),
-  searchScopes: query => readAi(`/platform/ai-inference/scopes?q=${encodeURIComponent(query)}`),
+  read: () => readPlatformControl<AiStatus>('/platform/ai-inference'),
+  searchScopes: query => readPlatformControl(`/platform/ai-inference/scopes?q=${encodeURIComponent(query)}`),
   preview: (policy, reason) => writePlatform(API_BASE_URL, '/platform/ai-inference/preview', { policy, reason }, crypto.randomUUID()),
   save: (preview, reason, operationKey) => writePlatform(API_BASE_URL, '/platform/ai-inference/policy',
     { policy: preview.policy, reason, expectedRevision: preview.revision }, operationKey, 'POST', { 'X-Transaction-Confirmation': preview.confirmation.token }),
@@ -983,4 +984,12 @@ export const aiInferenceApi: AiInferenceApi = {
 export const resourceInventoryApi: ResourceInventoryApi = {
   searchScopes: query => writePlatform(API_BASE_URL, '/platform/resource-inventory/scopes', { q: query }, crypto.randomUUID()),
   read: input => writePlatform(API_BASE_URL, '/platform/resource-inventory/report', input, crypto.randomUUID()),
+}
+export const maintenanceApi: MaintenanceApi = {
+  read: () => readPlatformControl<MaintenanceRecord>('/platform/maintenance'),
+  operationStatus: key => readPlatformControl(`/platform/maintenance/operations/${encodeURIComponent(key)}`),
+  abandon: key => writePlatform(API_BASE_URL, `/platform/maintenance/operations/${encodeURIComponent(key)}/abandon`, {}, crypto.randomUUID()),
+  preview: (policy, reason) => writePlatform(API_BASE_URL, '/platform/maintenance/preview', { policy, reason }, crypto.randomUUID()),
+  save: (preview, reason, operationKey) => writePlatform(API_BASE_URL, '/platform/maintenance/policy',
+    { policy: preview.policy, reason, expectedRevision: preview.revision }, operationKey, 'POST', { 'X-Transaction-Confirmation': preview.confirmation.token }),
 }

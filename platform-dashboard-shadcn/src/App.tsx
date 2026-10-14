@@ -52,6 +52,7 @@ import { PlatformAccountSettings } from "@/components/platform-account-settings"
 import { PlanMatrix } from "@/components/plan-matrix"
 import { PlatformHelpCenterManager } from "@/components/platform-help-center"
 import { PlatformSettingsEditor } from "@/components/platform-settings-editor"
+import { PlatformMaintenance } from "@/components/platform-maintenance"
 import { PlatformAiInference } from "@/components/platform-ai-inference"
 import { PlatformLogin } from "@/components/platform-login"
 import { platformAuth } from "@/lib/platform-auth"
@@ -182,12 +183,29 @@ function ServiceHealth({ health }: { health: PlatformServiceHealthReadModel }) {
 
   return (
     <div className="grid gap-5">
-      <div className="grid gap-1"><p className="text-xs font-semibold uppercase tracking-[0.14em] text-brand">Operations</p><div className="flex flex-col justify-between gap-4 md:flex-row md:items-end"><div><h1 className="text-3xl font-semibold tracking-tight md:text-4xl">Service health</h1><p className="mt-1 max-w-2xl text-muted-foreground">Cross-surface observations with explicit freshness and evidence boundaries.</p></div><Button variant="outline" className="w-fit gap-2" onClick={requestPlatformRefresh}>Refresh observations <Activity data-icon="inline-start" /></Button></div></div>
+      <Button variant="outline" className="min-h-11 w-fit gap-2" onClick={requestPlatformRefresh}>Refresh observations <Activity data-icon="inline-start" /></Button>
       <div className="grid gap-3 sm:grid-cols-3"><MetricCard label="Observed services" value={String(health.services.length)} trend="Current Platform read model" trendTone="neutral" /><MetricCard label="Degraded" value={String(degraded)} trend={degraded ? "Action may be required" : "No degraded observations"} trendTone={degraded ? "attention" : "positive"} /><MetricCard label="Without heartbeat" value={String(unknown)} trend="Not deployment proof" trendTone={unknown ? "attention" : "positive"} /></div>
       <PlatformDataTable columns={serviceColumns} data={health.services} emptyMessage="No service observations." tableClassName="min-w-[760px]" searchColumn="name" searchPlaceholder="Search services…" />
       <Alert><ShieldCheck /><AlertTitle>Reading this surface</AlertTitle><AlertDescription>Healthy means the observed contract is responding. Unknown means the platform does not yet receive a service heartbeat. Neither state is a deployment or physical-device proof.</AlertDescription></Alert>
     </div>
   )
+}
+
+function ServiceHealthPage({ health, error, maintenance }: { health: PlatformServiceHealthReadModel | null; error: string | null; maintenance: ReactNode }) {
+  return <div className="grid gap-5">
+    <div className="grid gap-1"><p className="text-xs font-semibold uppercase tracking-[0.14em] text-brand">Operations</p><h1 className="text-3xl font-semibold tracking-tight md:text-4xl">Service health</h1><p className="max-w-2xl text-muted-foreground">Review service observations or manage safe maintenance without interrupting existing work.</p></div>
+    <Tabs defaultValue="observations" className="min-w-0 w-full">
+      <TabsList variant="line" aria-label="Service health sections" className="grid h-12 w-full grid-cols-2 rounded-none p-0 sm:w-fit">
+        <TabsTrigger size="lg" value="observations">Observations</TabsTrigger>
+        <TabsTrigger size="lg" value="maintenance">Maintenance</TabsTrigger>
+      </TabsList>
+      {/* Keep filters and maintenance drafts/confirmation state across tab switches. */}
+      <TabsContent value="observations" keepMounted className="min-w-0 pt-4 [[hidden]]:hidden">
+        {error ? <Alert variant="destructive"><AlertTriangle /><AlertTitle>Service health data unavailable</AlertTitle><AlertDescription>{error}</AlertDescription></Alert> : health ? <ServiceHealth health={health} /> : <p className="text-sm text-muted-foreground">Loading service health…</p>}
+      </TabsContent>
+      <TabsContent value="maintenance" keepMounted className="min-w-0 pt-4 [[hidden]]:hidden">{maintenance}</TabsContent>
+    </Tabs>
+  </div>
 }
 
 function QueueAttentionBadge({ attention }: { attention: "healthy" | "review" | "action" }) {
@@ -1585,9 +1603,11 @@ function App() {
         return
       }
       if (viewerResponse.state !== "available" || !viewerResponse.data) {
+        setViewer(null)
         setError("The Platform read model is not available.")
         return
       }
+      setViewer(viewerResponse.data)
       const capabilities = new Set(viewerResponse.data.capabilities)
       const can = (capability: string) => capabilities.has(capability)
       const deletionQueuePromise = can("platform.account_deletion.manage")
@@ -1859,10 +1879,10 @@ function App() {
               {activeRoute === "AI Inference" ? <PlatformAiInference live={usesLiveData} canRead={availableCapabilities.has('platform.ai_inference.read')} canManage={availableCapabilities.has('platform.ai_inference.manage')} canReadResources={availableCapabilities.has('platform.resource_inventory.read')} onSessionExpired={handleAccountSessionExpired} />
                 : activeRoute === "My account" ? <PlatformAccountSettings live={usesLiveData} onPasswordChanged={() => { setAuthStatus("signed-out"); setViewer(null) }} onSessionExpired={handleAccountSessionExpired} />
                 : isHelpCenterRoute && viewer && availableCapabilities.has("platform.help_center.manage") ? <PlatformHelpCenterManager page={activeRoute.replace("Help Center / ", "").toLowerCase() as "overview" | "topics" | "guides" | "faqs"} onNavigate={(page) => navigate(`Help Center / ${page[0].toUpperCase()}${page.slice(1)}`)} />
+                  : activeRoute === "Service health" ? <ServiceHealthPage health={serviceHealth} error={error} maintenance={viewer ? <PlatformMaintenance live={usesLiveData} editable={usesLiveData && availableCapabilities.has("platform.settings.manage")} /> : <p className="text-sm text-muted-foreground">Waiting for Platform authorization…</p>} />
                   : error ? <Alert variant="destructive"><AlertTriangle /><AlertTitle>Platform unavailable</AlertTitle><AlertDescription>{error}</AlertDescription></Alert>
                     : overview && viewer && serviceHealth && queueOperations && tenants && releaseReadiness
                       ? activeRoute === "Overview" ? <Overview overview={overview} health={serviceHealth} viewer={viewer} />
-                        : activeRoute === "Service health" ? <ServiceHealth health={serviceHealth} />
                           : activeRoute === "Queues & recovery" ? <QueueOperations operations={queueOperations} onPreview={handleQueueRepairPreview} onExecute={handleQueueRepairExecute} />
                             : activeRoute === "Tenants" ? <Tenants tenants={tenants} canManageOverrides={availableCapabilities.has("platform.entitlement_overrides.manage")} canGrantCredits={availableCapabilities.has("platform.credit_grants.manage")} canRevokeCredits={availableCapabilities.has("platform.credit_revocations.manage")} onInspect={handleTenantInspect} onPreviewEntitlement={handleTenantEntitlementPreview} onExecuteEntitlement={handleTenantEntitlementExecute} onGrantCredits={handleTenantCreditGrant} onRevokeCredits={handleTenantCreditRevoke} />
                               : activeRoute === "Users" && users ? <PlatformUsers users={users} viewerId={viewer.user.id} canManage={availableCapabilities.has("platform.user_sessions.revoke")} canManageRoles={availableCapabilities.has("platform.user_roles.manage")} deletionRequests={accountDeletionQueue} deletionError={accountDeletionError} canManageDeletion={availableCapabilities.has("platform.account_deletion.manage")} onCompleteDeletionTask={handleAccountDeletionTaskComplete} onPreview={handleUserSessionRevokePreview} onExecute={handleUserSessionRevokeExecute} onPageChange={setUsersPage} onSearchChange={(search) => { setUsersPage(1); setUsersSearch(search) }} />

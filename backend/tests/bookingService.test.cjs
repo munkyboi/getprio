@@ -39,6 +39,8 @@ function resolveMockPath(requestPath, baseDir) {
 }
 
 function requireWithMocks(targetPath, mocks) {
+  const fixture = require('./helpers/maintenanceFixture.cjs');
+  mocks = { '../config/db': fixture.database, './platformMaintenanceService': fixture.maintenance, ...mocks };
   const resolvedTarget = require.resolve(targetPath);
   const originals = new Map();
 
@@ -161,7 +163,7 @@ function buildBookingService({
     "../repositories/resourceLedger": {
       withSystemExpiryTransaction: async (_options, callback) => callback({query:async () => ({rows:[]})},{}),
       withScopeTransaction: scopedTransaction || (async (options, callback) => {
-        const client = { query: async (sql) => ({ rows: sql.includes("FROM users") ? [{ id: options.actorUserId, role: "owner", roles: [] }] : [] }) };
+        const client = { query: async (sql) => ({ rows: sql.includes('FROM platform_maintenance') ? [require('./helpers/maintenanceFixture.cjs').row] : sql.includes("FROM users") ? [{ id: options.actorUserId, role: "owner", roles: [] }] : [] }) };
         if (await options.authorize(client, options) !== true) {
           const error = new Error("Resource operation is not authorized.");
           error.statusCode = 403;
@@ -376,12 +378,14 @@ test("booking slots use booking quantity to set the customer-facing interval", a
 });
 
 test("composed slots resolve parallel service intervals only when every court is available", async () => {
+  let occupied = false;
   const vipCourt = {
     _id: "service-2", tenantId: "tenant-1", name: "VIP Court", slug: "vip-court",
     durationMinutes: 60, allowBookingQuantity: false, isActive: true
   };
   const bookingService = buildBookingService({
     servicesBySlug: { "vip-court": vipCourt },
+    countOverlappingActiveBookings: async (_tenantId, options) => occupied && options.startsAt === "2026-07-06T02:00:00.000Z" ? 1 : 0,
     availability: {
       blocks: [
         { _id: "court-1", serviceId: "service-1", weekday: 1, startsAt: "09:00", endsAt: "12:00", capacity: 1, isActive: true },
@@ -391,16 +395,21 @@ test("composed slots resolve parallel service intervals only when every court is
     }
   });
 
-  const result = await bookingService.evaluateComposedBookingSlots({
+  const request = {
     tenantSlug: "demo", locationSlug: "main", date: "2026-07-06", executionMode: "parallel",
     items: [{ serviceSlug: "consultation" }, { serviceSlug: "vip-court" }]
-  });
+  };
+  const result = await bookingService.evaluateComposedBookingSlots(request);
 
   assert.deepEqual(result.slots.map((slot) => slot.startAt), ["2026-07-06T02:00:00.000Z", "2026-07-06T02:30:00.000Z", "2026-07-06T03:00:00.000Z"]);
   assert.deepEqual(result.slots[0].items.map((item) => [item.serviceSlug, item.startAt, item.endAt]), [
     ["consultation", "2026-07-06T02:00:00.000Z", "2026-07-06T03:00:00.000Z"],
     ["vip-court", "2026-07-06T02:00:00.000Z", "2026-07-06T03:00:00.000Z"]
   ]);
+  occupied = true;
+  const limited = await bookingService.evaluateComposedBookingSlots(request);
+  assert.deepEqual(limited.unavailableReasons, ["capacity_full", "outside_availability"]);
+  assert.deepEqual(limited.slots.map(slot => slot.startAt), ["2026-07-06T02:30:00.000Z", "2026-07-06T03:00:00.000Z"]);
 });
 
 test("composed slots resolve sequential salon-service intervals in the requested order", async () => {

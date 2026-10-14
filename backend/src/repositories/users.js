@@ -319,7 +319,7 @@ async function createUser(data, options = {}) {
 
 async function updateUser(userId, changes, options = {}) {
   const queryClient = buildQueryClient(options.client);
-  const values = [Number(userId)];
+  const values = [String(userId)];
   const updates = [];
 
   const setters = {
@@ -407,7 +407,7 @@ async function addTenantMembership(userId, tenantId, role = "staff", options = {
         role = EXCLUDED.role,
         is_active = EXCLUDED.is_active
     `,
-    [Number(userId), Number(tenantId), role, true]
+    [String(userId), String(tenantId), role, true]
   );
 
   return findUserById(userId, { client: queryClient });
@@ -448,7 +448,7 @@ async function updateTenantMembershipRole(userId, tenantId, role, options = {}) 
       SET role = $3
       WHERE user_id = $1 AND tenant_id = $2
     `,
-    [Number(userId), Number(tenantId), role]
+    [String(userId), String(tenantId), role]
   );
 
   return findUserById(userId, { client: queryClient });
@@ -462,7 +462,7 @@ async function updateTenantMembershipStatus(userId, tenantId, isActive, options 
       SET is_active = $3
       WHERE user_id = $1 AND tenant_id = $2
     `,
-    [Number(userId), Number(tenantId), Boolean(isActive)]
+    [String(userId), String(tenantId), Boolean(isActive)]
   );
 
   return findUserById(userId, { client: queryClient });

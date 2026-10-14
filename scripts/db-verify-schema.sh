@@ -189,6 +189,8 @@ BEGIN
   FROM (VALUES
     ('ai_inference_policy'),
     ('ai_inference_policy_operations'),
+    ('platform_maintenance'),
+    ('platform_maintenance_operations'),
     ('queue_ticket_barcodes'),
     ('resource_ledger_scopes'),
     ('resource_ledger_reservations'),

@@ -9,7 +9,7 @@ function buildOperationIdentity(req, scope) {
   return { operation: scope, tenantId: String(tenantId), target: String(target) };
 }
 
-function requireIdempotency(scope) {
+function requireIdempotency(scope, options = {}) {
   return async function idempotencyMiddleware(req, res, next) {
     try {
       const identity = buildOperationIdentity(req, scope);
@@ -26,6 +26,12 @@ function requireIdempotency(scope) {
       req.idempotency = result.record;
       const originalJson = res.json.bind(res);
       res.json = (body) => {
+        if (res.statusCode === 409 && options.retryableErrorCodes?.includes(body?.code)) {
+          // Emit only after release; the route has already rolled its transaction back.
+          res.json = originalJson;
+          repository.releasePending(result.record.id).then(() => originalJson(body)).catch(next);
+          return res;
+        }
         repository.complete(result.record.id, res.statusCode, body).catch(next);
         return originalJson(body);
       };

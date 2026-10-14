@@ -263,13 +263,21 @@ function createQueueNotificationOutboxDispatcher(options = {}) {
 
   const nowMs = options.nowMs || Date.now;
   const maxRuntimeMs = Math.max(1,Math.min(30_000,Number(options.maxRuntimeMs)||15_000));
+  let firstSlotPrefersReminder = true;
   async function runBatch(limit = 50) {
     const startedAt = nowMs();
     let processed = 0;
+    let firstWasReminder = false;
     while (processed < Math.max(1,Math.min(200,Number(limit)||50)) && nowMs()-startedAt < maxRuntimeMs) {
       // Never consume leases for jobs waiting behind a slow network delivery.
-      const [intent] = await outboxRepository.claimBatch(workerId, 1);
+      // Reserve the first and every fifth slot for due reminders. The first
+      // slot stays reachable even when a slow queue delivery exhausts a run.
+      // Other slots prefer queue traffic; either class fills an unused slot.
+      const [intent] = await outboxRepository.claimBatch(workerId, 1, {
+        preferBookingReminders: processed % 5 === 0 && (processed > 0 || firstSlotPrefersReminder)
+      });
       if (!intent) break;
+      if (processed === 0) firstWasReminder = Boolean(intent.booking_id);
       processed += 1;
       try {
         await dispatchIntent(intent, { workerId, timeoutMs:Math.max(1,maxRuntimeMs-(nowMs()-startedAt)) });
@@ -291,6 +299,9 @@ function createQueueNotificationOutboxDispatcher(options = {}) {
         await outboxRepository.markRetry(intent.id, workerId, error.message);
       }
     }
+    // If a run can process only its reserved reminder, give queue traffic the
+    // next first slot instead of starving it behind repeated one-job runs.
+    firstSlotPrefersReminder = !(processed === 1 && firstWasReminder);
     return processed;
   }
 

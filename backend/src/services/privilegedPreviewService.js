@@ -1,5 +1,6 @@
 const db = require("../config/db");
 const { buildPayloadDigest } = require("./privilegedTransactionService");
+const suspensionRepository = require("../repositories/subscriptionSuspension");
 
 async function queryRows(client, statement, params = []) {
   const result = await client.query(statement, params);
@@ -17,8 +18,10 @@ async function queryState(action, target, options = {}) {
     case "subscription.transition":
     case "subscription.transition.request":
       return queryRows(client, `SELECT id,plan_slug,status,current_period_start,current_period_end,updated_at FROM tenant_subscriptions WHERE tenant_id=$1 AND status IN ('active','past_due','unpaid','suspended') ORDER BY updated_at${lock}`, [target]);
-    case "subscription.suspend":
-      return (await client.query(`SELECT id,tenant_id,plan_slug,status,updated_at FROM tenant_subscriptions WHERE id=$1${lock}`, [target])).rows;
+    case "subscription.suspend": {
+      const row = await suspensionRepository.readSubscription(client, target, Boolean(options.lock));
+      return row ? [{ id: row.id, tenant_id: row.tenant_id, plan_slug: row.plan_slug, status: row.status, updated_at: row.updated_at }] : [];
+    }
 
     case "moderation.rating_dispute.resolve":
       return (await client.query(`SELECT id,rating_type,rating_id,dispute_status,resolved_at FROM rating_disputes WHERE id=$1${lock}`, [target])).rows;

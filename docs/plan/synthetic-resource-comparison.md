@@ -78,3 +78,64 @@ The next integration boundary and read-only plan inventory are documented in [Re
 - Supported tickets plus the method fallback counts equal scored tickets. Aggregate counts sum the per-run counts; percentages use pooled tickets rather than averaging seed percentages.
 
 The output version changed because the report now carries an explicit selection/coverage contract. Existing files remain untouched; use a new output filename, for example `/root/wait-time-resource-comparison-coverage.json`. No database records, model thresholds, source dataset, production hooks or rollout policy change. Automated CLI regressions verify count partitions, pooled aggregation, fixed default scores, sparse holdouts, private file permissions and exclusive output creation.
+
+## Changed-assumption sensitivity profiles
+
+The comparison CLI accepts `--scenario-profile baseline|dense-arrivals|variable-durations`. Default `baseline` preserves the original reference dataset bytes and hashes. The two opt-in profiles use `synthetic-queue-sensitivity-v1`, record the profile in dataset/report metadata, and bind scope and ticket identity to that profile so unlike experiments are not pooled as the same scope. They require explicit synthetic reader mode and are not accepted as operational datasets. The ordinary simulator CLI and its default dataset stay unchanged.
+
+| Profile | Arrival process | Actual duration distribution | Known duration used by predictors |
+| --- | --- | --- | --- |
+| baseline | Existing scenario gap | 0.6–1.4 times configured duration, rounded | Existing configured duration |
+| dense-arrivals | Scenario gap halved, rounded, minimum one minute | Baseline distribution | Existing configured duration |
+| variable-durations | Baseline arrivals | 0.25–1.75 times configured duration, rounded | Existing configured duration |
+
+Only the named assumptions change. Capacity, resource requirements, FIFO/eligibility rules, cancellations, interruptions and pause schedule retain existing semantics. The same random streams are reused for reproducible paired sensitivity comparisons; they are not independent experiments. Variable durations change simulated future outcomes, never the known plans passed to the reference predictor. Calls still coincide with actual starts in this simulator; these scores cannot validate separate real-world targets.
+
+Run each profile to a separate private output, preserving the frozen seeds/window:
+
+```sh
+node scripts/wait-time-synthetic-compare.mjs \
+  --scenario-profile dense-arrivals \
+  --output /root/wait-time-dense-arrivals.json
+node scripts/wait-time-synthetic-compare.mjs \
+  --scenario-profile variable-durations \
+  --output /root/wait-time-variable-durations.json
+```
+
+Default-window observations from seeds 42, 314, 2718, 120 tickets per scenario:
+
+| Profile/scenario | Scored called tickets | Baseline MAE | Resource with fallback MAE |
+| --- | ---: | ---: | ---: |
+| Dense arrivals / sequential | 55 | 8.53 | 8.65 |
+| Dense arrivals / parallel | 0 | unavailable | unavailable |
+| Dense arrivals / competing | 46 | 450.72 | 11.37 |
+| Dense arrivals / disrupted | 0 | unavailable | unavailable |
+| Variable durations / sequential | 165 | 10.43 | 9.70 |
+| Variable durations / parallel | 127 | 82.90 | 6.07 |
+| Variable durations / competing | 194 | 112.94 | 10.78 |
+| Variable durations / disrupted | 75 | 166.79 | 54.67 |
+
+Denser arrivals can issue all work before the frozen training cutoff. Empty holdouts are retained with null metrics/support, not repaired by moving the window. Inspect selection and training coverage before interpreting differences, and do not compare supported-only metrics as equal-population estimates. Predeclare a different experiment if a different window or ticket count is needed; do not tune it after seeing the winner. Within each profile, training remains historical and seed-local; this is neither cross-profile nor cross-seed model-transfer validation.
+
+Seven focused automated regressions cover exact baseline hashes, repeatability, changed assumptions, profile-bound provenance/scopes, rejection in operational mode, invalid profile output protection, known-plan isolation from future duration outcomes and the preceding coverage/boundary contracts. No database, live capture, confidence calibration, resource activation or customer rollout is introduced.
+
+## Cross-seed model-transfer evaluation
+
+An opt-in `--training-seed` selects `wait-time-synthetic-transfer-v1`. The command generates one declared training dataset, fits its historical outcomes strictly before the fixed cutoff once, and reuses that model for all evaluation seeds. Evaluation-seed history and outcomes never enter fitting. The original command without this option keeps within-seed fitting, v2 reporting and existing scores.
+
+```sh
+node scripts/wait-time-synthetic-compare.mjs \
+  --training-seed 9001 \
+  --seeds 42,314,2718 \
+  --output /root/wait-time-cross-seed-9001.json
+```
+
+Declare the training seed, evaluation seeds, profile, ticket count and windows before inspecting scores. The training seed is not an evaluation seed. Its closed simulation window must cover the training cutoff, but does not need to extend through the evaluation holdout end; each evaluation dataset must cover the full scoring window. At most four evaluation seeds plus one training seed are allowed; every four-scenario seed block must be disjoint modulo 2^32, including wraparound. Equal or partially overlapping blocks fail before output creation. The same scenario profile is used for training and evaluation. This is transfer to different random streams under shared assumptions, not changed-profile transfer, independent vendor validation or production accuracy.
+
+The report records `trainingMode`, separate `transferTraining` evidence (seed, full dataset hash/window, fitted model hash, trained scope count and training coverage), and each run's actual `trainingSeed` and `modelSha256`. All hashes use compact UTF-8 JSON without whitespace. Dataset hashes include the full simulation; model hashes describe only the fitted result, not a deployable artifact or rollout authorization. Every evaluation run in transfer mode uses the same model hash and the same training coverage. Per-run `excludedOverlappingTickets` and selection counts still describe evaluation tickets excluded by the temporal window, while training coverage separately describes the training seed's exclusions.
+
+A model with insufficient historical coverage retains the existing candidate fallback. Baseline and resource-reference predictions, scored ticket populations, exclusive/private output, selection diagnostics and no-rollout flags are unchanged. Sparse or empty evaluation holdouts remain visible; no window is moved to improve results.
+
+For the declared baseline-profile training seed 9001, evaluation seeds 42/314/2718 and original default window, candidate-with-fallback MAE is 7.68 minutes (sequential), 6.00 (parallel), 19.52 (competing) and 161.99 (disrupted). Disrupted coverage remains fallback-only. The unchanged baseline MAEs are 6.40, 78.55, 107.73 and 161.99 respectively. These observations are one reproducible experiment, not grounds to select the training seed after seeing results or claim deployment performance.
+
+Automated regressions compare CLI predictions with a model fitted exclusively from the declared training seed, verify shared model/coverage lineage, unchanged baseline/resource populations, invalid and modulo-wrap seed rejection, and sensitivity-profile sparse-history fallback. Resource authority, privacy/capture approvals, service-start evidence and live rollout remain separate gates.

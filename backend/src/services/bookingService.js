@@ -1,3 +1,4 @@
+const maintenance = require('./platformMaintenanceService');
 const ticketServicePlanService = require("./ticketServicePlanService");
 const bookingRepository = require("../repositories/bookings");
 const db = require("../config/db");
@@ -928,7 +929,11 @@ async function evaluateComposedBookingSlots({
   }
   return {
     slots: [...slotsByStart.values()].sort((left, right) => left.startAt.localeCompare(right.startAt)),
-    unavailableReasons: [...unavailableReasons].sort()
+    unavailableReasons: [...unavailableReasons].sort((left, right) => {
+      if (left < right) return -1;
+      if (left > right) return 1;
+      return 0;
+    })
   };
 }
 
@@ -1073,6 +1078,10 @@ async function listVendorBookingRescheduleSlots({ tenant, bookingId, date }) {
 }
 
 async function createCustomerBooking({ user, body }) {
+  // A stored paid booking-alert checkout may predate maintenance. A supplied
+  // ID alone grants nothing: verify its OTP binding and paid state below and
+  // re-read it under lock in the booking transaction.
+  if (!String(body.smsAlertFeePaymentId || '').trim()) await maintenance.assertNewIntake();
   const tenantSlug = String(body.tenantSlug || "").trim().toLowerCase();
   const locationSlug = String(body.locationSlug || "").trim().toLowerCase();
   const serviceSlug = vendorServiceRepository.normalizeServiceSlug(body.serviceSlug);
@@ -1179,15 +1188,17 @@ async function createCustomerBooking({ user, body }) {
   const bookingBundleItems = snapshotBookingBundleItems(composedPlan);
 
   const smsFee = await bookingSmsAlertPaymentService.getBookingSmsFeeForTenant(tenant._id);
-  let smsAlertFeePaymentId = null;
-  if (bookingSmsAlertPaymentService.shouldChargeBookingSmsFee(smsFee, { notifyBySms })) {
-    smsAlertFeePaymentId = String(body.smsAlertFeePaymentId || "").trim();
-    await bookingSmsAlertPaymentService.assertPaidBookingSmsPayment({
+  let paidAdmission = false;
+  const smsAlertFeePaymentId = String(body.smsAlertFeePaymentId || '').trim() || null;
+  if (smsAlertFeePaymentId || bookingSmsAlertPaymentService.shouldChargeBookingSmsFee(smsFee, { notifyBySms })) {
+    const payment = await bookingSmsAlertPaymentService.assertPaidBookingSmsPayment({
       tenant,
       paymentId: smsAlertFeePaymentId,
       bookingOtpId: verifiedBooking.otpId
     });
+    paidAdmission = payment?.status === 'paid';
   }
+  if (!paidAdmission) await maintenance.assertNewIntake();
 
   let lockedTenant;
   let lockedLocation;
@@ -1232,6 +1243,12 @@ async function createCustomerBooking({ user, body }) {
         : lockedDecision.message || "The selected time is outside the vendor's availability.");
       error.statusCode = 409;
       throw error;
+    }
+    if (paidAdmission) {
+      await bookingSmsAlertPaymentService.assertPaidBookingSmsPayment({ tenant, paymentId: smsAlertFeePaymentId,
+        bookingOtpId: verifiedBooking.otpId }, { client, forShare: true });
+    } else {
+      await maintenance.assertNewIntake({ client });
     }
     const createdBooking = await bookingRepository.createBooking({
       tenantId: tenant._id,
@@ -1863,7 +1880,7 @@ async function checkInBooking({ tenant, location, bookingId, user, overrideWindo
         windowState.isLate ? `Late override: ${String(overrideReason || "vendor override").trim()}` : ""
       ].filter(Boolean).join(" "),
       servicePriorityBand: "checked_in_booking"
-    });
+    }, { existingWork: true });
 
     await ticketServicePlanService.captureBookingPlan(client, {
       tenant, location, ticket, booking, actorUserId: user?._id

@@ -184,6 +184,7 @@ async function findCheckoutSessionByProviderId(providerCheckoutSessionId, option
 }
 
 async function findCheckoutSessionById(checkoutId, options = {}) {
+  if (options.forUpdate && !options.client) throw new Error("Locked checkout reads require a transaction client.");
   const queryClient = buildQueryClient(options.client);
   const result = await queryClient.query(
     `
@@ -191,8 +192,9 @@ async function findCheckoutSessionById(checkoutId, options = {}) {
       FROM billing_checkout_sessions
       WHERE id = $1
       LIMIT 1
+      ${options.forUpdate ? "FOR UPDATE" : ""}
     `,
-    [Number(checkoutId)]
+    [String(checkoutId)]
   );
 
   return mapCheckoutSession(result.rows[0]);
@@ -207,7 +209,7 @@ async function markCheckoutSessionPaid(checkoutId, options = {}) {
       WHERE id = $1
       RETURNING *
     `,
-    [Number(checkoutId)]
+    [String(checkoutId)]
   );
 
   return mapCheckoutSession(result.rows[0]);
@@ -236,7 +238,7 @@ async function recordBillingEvent(data, options = {}) {
       data.eventType,
       data.providerCheckoutSessionId || null,
       data.providerPaymentId || null,
-      data.tenantId ? Number(data.tenantId) : null,
+      data.tenantId ? String(data.tenantId) : null,
       JSON.stringify(data.payload || {})
     ]
   );
@@ -244,12 +246,27 @@ async function recordBillingEvent(data, options = {}) {
   return result.rows[0] || null;
 }
 
+async function lockActivationSubscriptions(tenantId, options) {
+  if (options.forUpdateNowait && !options.client) throw new Error("Fail-fast activation requires a transaction client.");
+  const queryClient = buildQueryClient(options.client);
+  try {
+    return await queryClient.query(
+      `SELECT * FROM tenant_subscriptions WHERE tenant_id = $1 AND status IN ('active','past_due','unpaid','suspended') ORDER BY updated_at DESC FOR UPDATE${options.forUpdateNowait ? " NOWAIT" : ""}`,
+      [String(tenantId)]
+    );
+  } catch (error) {
+    if (options.forUpdateNowait && error.code === "55P03") {
+      throw Object.assign(new Error("Subscription is being updated. Retry payment synchronization after that change completes."), {
+        statusCode: 409, code: "SUBSCRIPTION_BUSY"
+      });
+    }
+    throw error;
+  }
+}
+
 async function activateTenantSubscription(data, options = {}) {
   const queryClient = buildQueryClient(options.client);
-  const currentResult = await queryClient.query(
-    `SELECT * FROM tenant_subscriptions WHERE tenant_id = $1 AND status IN ('active','past_due','unpaid','suspended') ORDER BY updated_at DESC FOR UPDATE`,
-    [Number(data.tenantId)]
-  );
+  const currentResult = await lockActivationSubscriptions(data.tenantId, options);
   if (currentResult.rows.length > 1) throw Object.assign(new Error("Multiple current subscription records require reconciliation."), { statusCode: 409, code: "SUBSCRIPTION_AMBIGUOUS" });
   const current = currentResult.rows[0] || null;
   if (current && ["past_due", "unpaid", "suspended"].includes(current.status)) throw Object.assign(new Error("Restricted subscriptions require provider recovery before a plan change."), { statusCode: 409, code: "SUBSCRIPTION_RESTRICTED" });
@@ -263,7 +280,7 @@ async function activateTenantSubscription(data, options = {}) {
       SET status = 'expired'
       WHERE tenant_id = $1 AND status IN ('active', 'past_due', 'unpaid')
     `,
-    [Number(data.tenantId)]
+    [String(data.tenantId)]
   );
 
   const result = await queryClient.query(
@@ -284,7 +301,7 @@ async function activateTenantSubscription(data, options = {}) {
       RETURNING *
     `,
     [
-      Number(data.tenantId),
+      String(data.tenantId),
       data.planSlug,
       data.provider,
       data.providerCheckoutSessionId || null,
@@ -300,7 +317,7 @@ async function activateTenantSubscription(data, options = {}) {
     `INSERT INTO subscription_transitions
        (tenant_id, from_subscription_id, from_plan_slug, to_plan_slug, transition_type, status, reason, effective_at, completed_at, metadata)
      VALUES ($1,$2,$3,$4,$5,'effective','Provider-confirmed paid upgrade',NOW(),NOW(),$6::jsonb)`,
-    [Number(data.tenantId), current?.id || null, current?.plan_slug || null, data.planSlug,
+    [String(data.tenantId), current?.id || null, current?.plan_slug || null, data.planSlug,
       current ? "upgrade" : "admin_resolution", JSON.stringify({ toSubscriptionId: String(result.rows[0].id), provider: data.provider, providerCheckoutSessionId: data.providerCheckoutSessionId || null })]
   );
 
@@ -332,6 +349,9 @@ async function listSubscriptions(options = {}) {
 }
 
 async function createTenantSubscription(data, options = {}) {
+  if (typeof data.tenantId === "number" && !Number.isSafeInteger(data.tenantId)) {
+    throw Object.assign(new Error("Tenant identifier must be an exact integer."), { statusCode: 400, code: "INVALID_TENANT_ID" });
+  }
   const queryClient = buildQueryClient(options.client);
   const timestamps = parseSubscriptionTimestamps(data);
   const result = await queryClient.query(
@@ -355,7 +375,7 @@ async function createTenantSubscription(data, options = {}) {
       RETURNING *
     `,
     [
-      Number(data.tenantId),
+      String(data.tenantId),
       data.planSlug,
       data.status || "unpaid",
       data.provider || "manual",

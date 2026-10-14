@@ -6,6 +6,11 @@ import type {
   AiStatus
 } from "../../src/lib/ai-inference-contracts"
 const params = new URLSearchParams(location.search)
+if (
+  !import.meta.env.DEV ||
+  !["localhost", "127.0.0.1"].includes(location.hostname)
+)
+  throw new Error("Local-only test harness")
 if (params.has("dark")) document.documentElement.classList.add("dark")
 let status: AiStatus = {
   policy: {
@@ -47,6 +52,26 @@ let status: AiStatus = {
   pilots: []
 }
 let saveCalls = 0
+if (params.has("savedpilot")) {
+  const pilot = {
+    tenantId: "1",
+    locationId: "10",
+    requestedMode: "off" as const
+  }
+  status.policy.pilots = [pilot]
+  status.pilots = [
+    {
+      ...pilot,
+      tenantName: "Test vendor",
+      locationName: "Main location",
+      effectiveMode: "off",
+      blockers: ["global_disabled", "scope_disabled", "caller_not_integrated"]
+    }
+  ]
+}
+if (params.has("unknown"))
+  status.readiness.blockers.push("unrecognized_future_gate")
+let staleOnce = params.has("stale")
 let lastKey = ""
 function expire(operation: string) {
   if (params.get("expire") === operation)
@@ -77,11 +102,15 @@ const api: AiInferenceApi = {
                   : "Main location"
               }
             ],
-      limited: false
+      limited: params.has("limited")
     }
   },
   preview: async (policy) => {
     expire("preview")
+    if (staleOnce) {
+      staleOnce = false
+      status.policy.revision = "2"
+    }
     return {
       policy: structuredClone(policy),
       revision: status.policy.revision,

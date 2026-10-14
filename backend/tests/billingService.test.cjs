@@ -30,7 +30,7 @@ function requireWithMocks(targetPath, mocks) {
 function buildService(overrides = {}) {
   return requireWithMocks("../src/services/billingService.js", {
     "../config/db": {
-      withTransaction: async (fn) => fn({})
+      withTransaction: async (fn) => fn({ query: async () => ({ rows: [{ id: "tenant-1" }] }) })
     },
     "../config/env": {
       clientUrl: "https://client.example.test",

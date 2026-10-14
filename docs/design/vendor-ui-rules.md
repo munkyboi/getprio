@@ -204,3 +204,7 @@ Queue Email Journey allowances are retired across all plans: omit usage/plan/cre
 ## Workspace access states
 
 Loading, missing-workspace and subscription-required states use the same scoped vendor theme and native primitives as the reworked screens. Preserve existing subscription/RBAC conditions, View plans callback, recovery link destinations and logout handler. Recovery links remain real links with visible contrast, focus indication and at least44px targets; actions stack on narrow screens. Decorative illustrations retain their aspect ratio and empty alt text. These states do not grant access or certify backend readiness.
+
+### Configuration review corrections
+
+Checkbox help text must have its own ID referenced by the input's `aria-describedby`, retaining any existing external descriptions. Counter staff assignment supports name/email search and multiple selections; filtering retains selections and does not itself create unsaved business edits. Missing assigned IDs are retained until deliberately removed through supported actions. Do not change permissions, plan limits or scoped assignment writes to restore search.
