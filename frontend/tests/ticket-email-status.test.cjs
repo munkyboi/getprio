@@ -1,3 +1,4 @@
+require("tsx/cjs");
 const test=require('node:test');
 const assert=require('node:assert/strict');
 const {getBookingEmailStatus,needsEmailDeliveryFallback}=require('../src/utils/ticketEmailStatus.ts');

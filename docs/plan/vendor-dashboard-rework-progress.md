@@ -260,3 +260,5 @@ Latest retirement mirror validation: 209 frontend tests, TypeScript, affected-so
 VD12 retirement continued: exact neura-sidebar consumer search found zero non-stylesheet callers. Removed seven dedicated base/content/account/card/logout/hover/mobile rules without touching grouped/shared shell, drawer or navigation styles. Customer/public and logout-surviving receipt presentations remain retained.
 
 Dedicated sidebar-style retirement verification: zero remaining neura-sidebar selectors/callers, diff whitespace check and production build pass. This removes unreachable CSS only; it does not retire shared legacy presentation or close final authenticated/device/deployed acceptance.
+
+PR#433 follow-up test compatibility: fresh Codex found the standalone TypeScript-helper test lacked its own loader on Node20. Published fix6f3e8c8a registers tsx/cjs before import; both focused tests pass under Node20 and the full193-test isolated frontend suite passes. Mirrored locally; production behavior is unchanged. Fresh hosted review/gates restarted; no readiness/merge/deployment claim.
