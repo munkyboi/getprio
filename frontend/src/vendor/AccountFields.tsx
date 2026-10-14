@@ -79,7 +79,7 @@ export function Group(props: ComponentProps<typeof Mantine.Group>) {
 export function SimpleGrid(props: ComponentProps<typeof Mantine.SimpleGrid>) {
   const vendor = useVendorAccount();
   return vendor ? (
-    <div className="ops-grid-2">{props.children}</div>
+    <div className={props.cols === 1 ? "queue-stack" : "ops-grid-2"}>{props.children}</div>
   ) : (
     <Mantine.SimpleGrid {...props} />
   );
