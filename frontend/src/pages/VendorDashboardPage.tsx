@@ -1,3 +1,4 @@
+import { OperationalAlerts } from "../vendor/OperationalAlerts";
 import { servedTicketIntervals } from "../vendor/reportState";
 import { AccountPresentation, discardAccountTask } from "../vendor/AccountPresentation";
 import { Card as AccountCard, Stack as AccountStack, Group as AccountGroup, SimpleGrid as AccountGrid, Text as AccountText, Title as AccountTitle, Alert as AccountAlert, Badge as AccountBadge, Button as AccountButton, TextInput as AccountInput, PasswordInput as AccountPassword } from "../vendor/AccountFields";
@@ -62,9 +63,7 @@ import {
   Group,
   Modal,
   NumberInput,
-  Notification,
   Paper,
-  Portal,
   Select,
   SimpleGrid,
   Slider,
@@ -10428,9 +10427,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         body: (
           <>
             {ticket.customerName} joined the queue as{" "}
-            <Text component="span" fw={900}>
-              #{ticket.ticketNumber}
-            </Text>
+            <strong>#{ticket.ticketNumber}</strong>
           </>
         ),
         id: ticket.id,
@@ -10442,9 +10439,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         body: (
           <>
             {booking.customerName} sent a new booking{" "}
-            <Text component="span" fw={900}>
-              {booking.reference}
-            </Text>
+            <strong>{booking.reference}</strong>
           </>
         ),
         id: booking.id,
@@ -10486,67 +10481,20 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     };
 
     return (
-      <Portal>
+      <>
         {overlayAlerts.length && !bookingDetailOpen && !rescheduleDialogOpen && !rescheduleBlockModalOpen && !locationDialogOpen && !counterDialogOpen && !resourceConfigurationDialogOpen && !serviceDialogOpen && !availabilityBlockDialogOpen && !availabilityExceptionDialogOpen && !staffDialogOpen && !confirmAction ? (
-          <Box
-            className="dashboard-notification-stack"
-            style={{
-              bottom: 24,
-              left: "50%",
-              maxWidth: "min(692px, calc(100vw - 32px))",
-              position: "fixed",
-              transform: "translateX(-50%)",
-              width: "calc(100vw - 64px)",
-              pointerEvents: "none",
-              zIndex: 1200
-            }}
-          >
-            <Stack gap="sm" style={{ pointerEvents: "none" }}>
-              {overlayAlerts.map((alert) => (
-                <Notification
-                  color="blue"
-                  icon={<IconBellRinging size={20} />}
-                  key={alert.id}
-                  onClose={() => {
-                    if (alert.kind === "queue") {
-                      clearQueueAlert(alert.id);
-                      return;
-                    }
-                    clearBookingAlert(alert.id);
-                  }}
-                  radius="md"
-                  style={{
-                    boxShadow: "0 12px 32px rgba(15, 23, 42, 0.16)",
-                    pointerEvents: "auto"
-                  }}
-                  withBorder
-                >
-                  <Group className="dashboard-notification" justify="space-between" align="center" gap="md">
-                    <Stack gap={2} style={{ flex: 1, minWidth: 0 }}>
-                      <Text fw={800}>{alert.title}</Text>
-                      <Text style={{ overflowWrap: "anywhere" }}>{alert.body}</Text>
-                    </Stack>
-                    <Button
-                      color="dark"
-                      radius="xl"
-                      onClick={() => {
-                        if (alert.kind === "queue") {
-                          clearQueueAlert(alert.id);
-                          navigate("/dashboard/queue");
-                          return;
-                        }
-                        openBookingDetail(alert.id);
-                        clearBookingAlert(alert.id);
-                      }}
-                      style={{ flex: "0 0 auto" }}
-                    >
-                      {alert.actionLabel}
-                    </Button>
-                  </Group>
-                </Notification>
-              ))}
-            </Stack>
-          </Box>
+          <OperationalAlerts alerts={overlayAlerts} onDismiss={(alert) => {
+            if (alert.kind === "queue") clearQueueAlert(alert.id);
+            else clearBookingAlert(alert.id);
+          }} onOpen={(alert) => {
+            if (alert.kind === "queue") {
+              clearQueueAlert(alert.id);
+              navigate("/dashboard/queue");
+              return;
+            }
+            openBookingDetail(alert.id);
+            clearBookingAlert(alert.id);
+          }} />
         ) : null}
 
         <TaskDialog
@@ -11005,7 +10953,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
           }}
         />
 
-      </Portal>
+      </>
     );
   }
 

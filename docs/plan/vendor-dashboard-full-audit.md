@@ -142,3 +142,5 @@ Vendor registration and authenticated/provider workspace completion retain all e
 VD-10 Login follow-through: vendor-context sign-in/reset/MFA is locally migrated with shared identity/customer fallback and preserved return/challenge contracts. Reset-request failure visibility was corrected during review. Callback/notification inventory and external provider/device acceptance remain open; see progress evidence.
 
 VD-10 shared callback presentation is locally migrated and tested for retry context, loading/failure/success and stale callback responses. Shared notifications and external provider/device acceptance remain open.
+
+VD-10 operational queue/booking overlay cards are locally migrated with preserved detection/dismissal/action behavior and integrated vendor-root verification. Global transient toasts and external notification delivery acceptance remain open.
