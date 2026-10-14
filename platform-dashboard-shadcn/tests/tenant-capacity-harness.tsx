@@ -1,4 +1,5 @@
 import { createRoot } from "react-dom/client"
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetTrigger } from "../src/components/ui/sheet"
 import { TenantAllowancePosture } from "../src/components/tenant-allowance-posture"
 import type { PlatformTenantInspection } from "../src/lib/platform-contracts"
 import "../src/index.css"
@@ -14,4 +15,4 @@ const capacity: PlatformTenantInspection["capacity"] = {
   observedAt: "2026-10-14T03:00:00Z", usageAvailable: !unavailable,
   resources: { queueTickets: resource, serviceBookings: { ...resource, limit: 1000 }, ...(legacy ? { queueEmailJourneys: { ...resource, enforcementEnabled: true } } : {}) },
 }
-createRoot(document.getElementById("root")!).render(<main className="mx-auto max-w-3xl p-4"><TenantAllowancePosture capacity={capacity} /></main>)
+createRoot(document.getElementById("root")!).render(<main className="mx-auto max-w-3xl p-4">{location.search.includes("sheet=1") ? <Sheet><SheetTrigger>Inspect tenant</SheetTrigger><SheetContent className="gap-0 p-0"><SheetHeader className="sticky top-0 z-10 border-b bg-popover pr-12"><SheetTitle>Tenant capacity details</SheetTitle><SheetDescription>Scrollable subscription evidence.</SheetDescription></SheetHeader><div className="p-4"><TenantAllowancePosture capacity={capacity} />{Array.from({ length: 40 }, (_, index) => <p key={index}>Retained evidence row {index + 1}</p>)}</div></SheetContent></Sheet> : <TenantAllowancePosture capacity={capacity} />}</main>)

@@ -18,5 +18,17 @@ export default async function verifyTenantCapacity(page) {
       if (await page.locator("main").evaluate((el) => el.scrollWidth > el.clientWidth)) throw new Error("Capacity content overflows horizontally");
     }
   }
+  for (const width of [390, 768, 1280]) {
+    await page.setViewportSize({ width, height: 844 });
+    await page.goto(`${origin}/tests/tenant-capacity-harness.html?sheet=1`);
+    const trigger = page.getByRole("button", { name: "Inspect tenant", exact: true });
+    await trigger.click();
+    const dialog = page.getByRole("dialog");
+    await dialog.getByRole("heading", { name: "Allowance posture" }).waitFor();
+    await dialog.locator("[data-slot=scroll-area-viewport]").evaluate((el) => { el.scrollTop = el.scrollHeight; });
+    await dialog.getByRole("button", { name: "Close", exact: true }).click({ timeout: 2000 });
+    await dialog.waitFor({ state: "hidden" });
+    if (!await trigger.evaluate((el) => el === document.activeElement)) throw new Error("Sheet close did not restore trigger focus");
+  }
   console.log("Tenant capacity null, partial and responsive checks passed");
 }
