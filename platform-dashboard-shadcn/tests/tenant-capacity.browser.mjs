@@ -12,8 +12,8 @@ export default async function verifyTenantCapacity(page) {
       if (legacy !== text.includes("Legacy server email quota")) throw new Error("Server-returned legacy quota visibility is incorrect");
       if (legacy && !text.includes("Quota enforcement: enabled")) throw new Error("Legacy enforcement is not visible");
       if (unavailable) {
-        if (!text.includes("Unavailable used") || text.includes("0 used") || !text.includes("Usage period unavailable")) throw new Error("Missing period must not fabricate zero usage");
-      } else if (!text.includes("7 used") || !text.includes("10 created") || !text.includes("3 base · 3 credit · 4 unaccounted") || !text.includes("Partial accounting") || !text.includes("end exclusive")) throw new Error("Reconciled/observed/ledger distinction missing");
+        if (!text.includes("Unavailable base allowance used") || text.includes("0 base allowance used") || !text.includes("Usage period unavailable")) throw new Error("Missing period must not fabricate zero usage");
+      } else if (!text.includes("7 base allowance used") || !text.includes("10 created") || !text.includes("3 base · 3 credit · 4 unaccounted") || !text.includes("Partial accounting") || !text.includes("end exclusive")) throw new Error("Reconciled/observed/ledger distinction missing");
       if (!text.includes("Quota enforcement: disabled")) throw new Error("Reporting must not imply enforcement activation");
       if (await page.locator("main").evaluate((el) => el.scrollWidth > el.clientWidth)) throw new Error("Capacity content overflows horizontally");
     }
