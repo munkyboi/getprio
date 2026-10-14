@@ -299,10 +299,12 @@ jobs:
           fi
           npm run db:migrate
           npm run db:verify
-          VITE_DEPLOY_SHA="${DEPLOY_SHA}" VITE_PLATFORM_DATA_SOURCE=live NODE_OPTIONS="--max-old-space-size=4096" npm run build
-          mkdir -p platform-dashboard/dist
-          cp -a platform-dashboard-shadcn/dist/. platform-dashboard/dist/
+          umask 022 # Static build artifacts are public; temporary staging remains private.
+          static_stage="$(mktemp -d "${TMPDIR:-/tmp}/getprio-static-${DEPLOY_SHA}.XXXXXX")"
+          trap 'rm -rf -- "${static_stage}"' EXIT
+          VITE_DEPLOY_SHA="${DEPLOY_SHA}" VITE_PLATFORM_DATA_SOURCE=live NODE_OPTIONS="--max-old-space-size=4096" node scripts/static-release.mjs build "${static_stage}"
           NODE_OPTIONS="--max-old-space-size=4096" npm run build:backend
+          node scripts/static-release.mjs publish "${static_stage}" "${DEPLOY_SHA}"
 
           pm2 restart getprio-api --update-env
           pm2 save
