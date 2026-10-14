@@ -144,8 +144,8 @@ test("subscription and Usage Credit lifecycle fail closed on stale or unpaid aut
   const creditService = fs.readFileSync(path.join(__dirname, "../src/services/usageCreditService.js"), "utf8");
   const creditRepository = fs.readFileSync(path.join(__dirname, "../src/repositories/usageCredits.js"), "utf8");
 
-  assert.match(lifecycleRepository, /WITH RECURSIVE periods/);
-  assert.match(lifecycleRepository, /WHERE period_end > NOW\(\)/);
+  assert.match(lifecycleRepository, /WITH RECURSIVE observed AS MATERIALIZED \(SELECT clock_timestamp\(\) AS at\), periods AS/);
+  assert.match(lifecycleRepository, /WHERE periods\.period_end > observed\.at/);
   assert.match(lifecycleRepository, /PAID_PROVIDER_EVIDENCE_REQUIRED/);
   assert.match(lifecycleService, /providerEvidence\?\.status !== "confirmed"/);
   assert.match(creditService, /CREDIT_CHECKOUT_SUBSCRIPTION_RESTRICTED/);
