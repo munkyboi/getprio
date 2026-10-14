@@ -86,18 +86,19 @@ async function recoverPending(deliver) {
       AND ((s.status='queued' AND (s.queued_at IS NULL OR s.queued_at < NOW()-interval '5 minutes'))
         OR (s.status='failed' AND s.failed_at < NOW()-interval '5 minutes'))
     ORDER BY COALESCE(s.failed_at,s.queued_at),s.id LIMIT 10`);
-  let recovered = 0;
-  for (const row of pending.rows) {
+  // The SQL limit bounds provider concurrency; each slot retains its own claim.
+  const outcomes = await Promise.all(pending.rows.map(async row => {
     try {
       const result = await withLifecycleSlot(row.ticket_id, row.slot_key, row.logical_message_key,
         context => deliver({ ...context.deliveryPayload, idempotencyKey: context.idempotencyKey }),
         row.delivery_payload, { recoveryOnly: true });
-      if (result) recovered++;
+      return result ? 1 : 0;
     } catch {
       console.warn("[queue-email-recovery-failed]");
+      return 0;
     }
-  }
-  return recovered;
+  }));
+  return outcomes.reduce((total, sent) => total + sent, 0);
 }
 
 module.exports = { EMAIL_QUOTA_POLICY, withLifecycleSlot, recoverPending };
