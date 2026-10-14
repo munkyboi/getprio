@@ -124,7 +124,7 @@ All three current Locations tabs and their list/card/edit flows now use scoped c
 
 ### Services and Availability implementation
 
-`/dashboard/services` retains its catalog/weekly/date-exception tabs. Its list and task editors reuse ConfigurationUi, FieldGroup/FieldSet, TaskDialog and scoped tabs; existing catalog client/handlers remain canonical. `serviceConfigurationState.ts` checks editable quantity feasibility and builds the explicit whole-day exception payload. No booking allocation, workflow, station or API/schema activation is introduced. Follow the [work tracker](vendor-dashboard-rework-ticket-tracker.md); Carlo's local approval gates the next screens.
+`/dashboard/services` retains its catalog/weekly/date-exception tabs. Its list and task editors reuse ConfigurationUi, FieldGroup/FieldSet, TaskDialog and scoped tabs; existing catalog client/handlers remain canonical. `serviceConfigurationState.ts` checks editable quantity feasibility and builds the explicit whole-day exception payload. No booking allocation, workflow, station or API/schema activation is introduced. Follow the [work tracker](vendor-dashboard-rework-ticket-tracker.md); Carlo authorized end-to-end continuation across screens; publication, deployment and runtime activation still require their respective authorization and evidence.
 
 ### VD-08 local Account migration
 
@@ -136,15 +136,15 @@ Reports now consumes scoped snapshot metrics and capability-gated period usage w
 
 ### VD-10 vendor registration/onboarding local migration
 
-`/register/vendor` now uses VendorAuthLayout, scoped native fields/actions, configured provider controls and ref-compatible form primitives. Both signup and authenticated completion remain on the same routes/endpoints/identity; shared `/login`, customer registration and callbacks are still pending/unchanged. useVendorTheme centralizes existing dashboard/auth preference behavior; VendorPortal prevents category dropdowns escaping auth theme scope. No provider or registration policy was forked.
+`/register/vendor` now uses VendorAuthLayout, scoped native fields/actions, configured provider controls and ref-compatible form primitives. Both signup and authenticated completion remain on the same routes/endpoints/identity; vendor-return Login and callbacks are now locally migrated as recorded below; customer registration remains unchanged. useVendorTheme centralizes existing dashboard/auth preference behavior; VendorPortal prevents category dropdowns escaping auth theme scope. No provider or registration policy was forked.
 
 ### VD-10 Login local migration
 
-Dashboard-return Login/reset/MFA now uses scoped vendor fields/actions and branded desktop composition. Plain/customer Login keeps Mantine/card/PIN defaults. Existing handler bodies and provider/identity policies remain shared; vendor reset retains the approved return target. Callback presentation and shared notification consumers remain pending inventory. Local-only verification is recorded in progress; no publication/deployment claim.
+Dashboard-return Login/reset/MFA now uses scoped vendor fields/actions and branded desktop composition. Plain/customer Login keeps Mantine/card/PIN defaults. Existing handler bodies and provider/identity policies remain shared; vendor reset retains the approved return target. Callback and shared notification migrations are recorded below. Local-only verification is recorded in progress; no publication/deployment claim.
 
-VD-10 callback now locally uses vendor composition for existing dashboard targets and retains customer fallback; existing refresh/session and success destinations stay shared. Provider-error retry retains vendor context. Hash/task change cancels stale UI/navigation completion. Global toast and operational alert presentation remains pending.
+VD-10 callback now locally uses vendor composition for existing dashboard targets and retains customer fallback; existing refresh/session and success destinations stay shared. Provider-error retry retains vendor context. Hash/task change cancels stale UI/navigation completion. Operational alert and transient toast migrations are recorded below.
 
-VD-10 operational queue/booking alerts are now native scoped panels with bounded scrolling and original callbacks/state. Removed only the redundant outer portal; each task dialog still owns its portal. Global transient toasts remain pending.
+VD-10 operational queue/booking alerts are now native scoped panels with bounded scrolling and original callbacks/state. Removed only the redundant outer portal; each task dialog still owns its portal. The transient toast migration is recorded below.
 
 VD-10 transient feedback is locally migrated to a scoped Base UI provider/viewport with a shared vendor queue; customer fallback remains unchanged. FIFO display/timing/duplicate behavior is preserved. Account deletion receipt remains a deliberate global lifetime exception because it survives session closure. Legacy presentation retirement must retain that receipt evidence until a replacement spans logout.
 
