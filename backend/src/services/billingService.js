@@ -157,13 +157,13 @@ async function getBillingOverview(tenantId) {
   };
 }
 
-async function getTenantEntitlements(tenantId) {
+async function getTenantEntitlements(tenantId, options = {}) {
   const subscription = tenantId
-    ? await billingRepository.getActiveSubscriptionByTenantId(tenantId)
+    ? await billingRepository.getActiveSubscriptionByTenantId(tenantId, options)
     : null;
 
   if (subscription?.status === "active") {
-    const plan = await findPlanBySlug(subscription.planSlug);
+    const plan = await findPlanBySlug(subscription.planSlug, options);
     return activeEntitlements({
       ...(plan?.entitlements || {}),
       ...(subscription.entitlements || {})
