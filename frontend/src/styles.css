@@ -6430,23 +6430,7 @@ h2 {
   color: #171b22;
 }
 
-.neura-sidebar {
-  position: sticky;
-  top: 0;
-  height: 100vh;
-  display: flex;
-  flex-direction: column;
-  gap: 1.25rem;
-  padding: 1.25rem;
-  background: #11151c;
-  color: #f7f8fb;
-}
 
-.neura-sidebar-content {
-  min-height: calc(100dvh - 84px);
-  padding: 0 1rem 1rem;
-  color: #f7f8fb;
-}
 
 .neura-mobile-header {
   display: none;
@@ -6548,27 +6532,9 @@ h2 {
   opacity: 0.45;
 }
 
-.neura-sidebar-card {
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  color: #fff;
-}
 
-.neura-sidebar-account-copy {
-  flex: 1 1 auto;
-  min-width: 0;
-}
 
-.neura-sidebar-logout {
-  flex: 0 0 auto;
-  background: #dc2626;
-  color: #fff;
-  box-shadow: 0 14px 28px rgba(220, 38, 38, 0.24);
-}
 
-.neura-sidebar-logout:hover {
-  background: #b91c1c;
-}
 
 .neura-main {
   min-width: 0;
@@ -7445,9 +7411,6 @@ h2 {
     grid-template-rows: auto 1fr;
   }
 
-  .neura-sidebar {
-    display: none;
-  }
 
   .neura-mobile-header {
     position: sticky;

@@ -153,7 +153,7 @@ VD-10 transient feedback is locally migrated to a scoped Base UI provider/viewpo
 | Consumer | Decision | Evidence / acceptance boundary |
 | --- | --- | --- |
 | Legacy dashboard-notification-stack/dashboard-notification styles | Removed four unused rules | No remaining frontend source callers after native operational alert migration; native alerts keep scoped styles. |
-| Old neura-sidebar selectors | Candidate only | Source search found no current frontend callers; grouped/shared selectors still need review before deletion. |
+| Old neura-sidebar selectors | Removed seven dedicated rules | Exact search found zero non-stylesheet frontend callers; dedicated base/hover/mobile blocks removed. Shared neura shell/drawer/navigation rules retained for separate consumer review. |
 | finazze-auth-card/customer auth defaults | Retain | Plain/customer Login, callback, registration and shared Account defaults still use this presentation. |
 | Global account-deletion receipt notification | Retain lifetime exception | Persistent request reference must survive logout; ordinary vendor toast provider unmounts with the dashboard. |
 | Secure/public queue-board presentation | Retain | Board intentionally keeps prior UI/UX and does not inherit the authenticated shell. |
