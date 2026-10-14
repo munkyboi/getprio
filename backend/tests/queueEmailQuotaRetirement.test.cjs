@@ -81,3 +81,17 @@ test('retrying a pre-retirement purchase uses its immutable ticket and monetary 
     assert.equal(purchase.journey_units, 100);
   } finally { global.fetch = original; }
 });
+
+test('archived catalog revisions retain historical Journey quantities without reopening new grants', async () => {
+  const service = loadModuleWithMocks(require.resolve('../src/services/usageCreditService'), {
+    '../repositories/usageCredits': { listPacks: async () => [
+      { id: '1', code: 'P100', state: 'archived', ticket_units: 100, journey_units: 100 },
+      { id: '2', code: 'P500', state: 'enabled', ticket_units: 500, journey_units: 0 },
+      { id: '3', code: 'OLD_EMAIL', state: 'archived', ticket_units: 0, journey_units: 50 }
+    ] }
+  });
+  const packs = await service.listCatalog();
+  assert.equal(packs.find(pack => pack.code === 'P100').journeyUnits, 100);
+  assert.equal(packs.find(pack => pack.code === 'P500').journeyUnits, 0);
+  assert.equal(packs.find(pack => pack.code === 'OLD_EMAIL').journeyUnits, 50);
+});

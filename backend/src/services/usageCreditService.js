@@ -23,7 +23,8 @@ function formatPack(row) {
   return {
     id: String(row.id), code: row.code, name: row.name, state: row.state,
     revision: Number(row.current_revision), ticketUnits: Number(row.ticket_units),
-    journeyUnits: 0, priceCents: Number(row.price_cents), currency: row.currency,
+    journeyUnits: row.state === "archived" ? Number(row.journey_units || 0) : 0,
+    priceCents: Number(row.price_cents), currency: row.currency,
     priceDisplay: `PHP ${(Number(row.price_cents) / 100).toLocaleString("en-PH")}`
   };
 }
@@ -35,7 +36,7 @@ function formatLot(row, commercial = true) {
   return commercial ? { ...base, sourceType: row.source_type, grantedUnits: Number(row.granted_units), consumedUnits: consumed, revokedUnits: Number(row.revoked_units), frozenUnits: Number(row.frozen_units), reason: row.reason, createdAt: row.created_at } : base;
 }
 
-async function listCatalog() { return (await repository.listPacks()).filter(pack => Number(pack.ticket_units) > 0).map(formatPack); }
+async function listCatalog() { return (await repository.listPacks()).filter(pack => pack.state === "archived" || Number(pack.ticket_units) > 0).map(formatPack); }
 
 async function publishPack(code, input, actorId, options = {}) {
   if (!releaseControls.usageCreditCatalog) throw Object.assign(new Error("Usage Credit catalog changes are temporarily unavailable."), { statusCode: 503, code: "CREDIT_CATALOG_DISABLED" });

@@ -4,6 +4,17 @@ BEGIN;
 CREATE INDEX IF NOT EXISTS tickets_tenant_created_at_idx ON tickets (tenant_id, created_at);
 CREATE INDEX IF NOT EXISTS bookings_tenant_created_at_idx ON bookings (tenant_id, created_at);
 
+-- Fence completion/retry writes when a worker recovers an abandoned claim.
+ALTER TABLE queue_email_slots ADD COLUMN IF NOT EXISTS claim_token UUID;
+ALTER TABLE queue_email_slots ADD COLUMN IF NOT EXISTS delivery_payload JSONB;
+ALTER TABLE queue_email_slots ADD COLUMN IF NOT EXISTS first_attempt_at TIMESTAMPTZ;
+ALTER TABLE queue_email_slots ADD COLUMN IF NOT EXISTS delivery_ambiguous BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE queue_email_slots ADD COLUMN IF NOT EXISTS had_ambiguous_attempt BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE queue_email_slots ADD COLUMN IF NOT EXISTS review_required_at TIMESTAMPTZ;
+CREATE INDEX IF NOT EXISTS queue_email_slots_recovery_idx
+  ON queue_email_slots ((COALESCE(failed_at,queued_at)),id)
+  WHERE delivery_payload IS NOT NULL AND status IN ('queued','failed');
+
 -- Preserve historical quota values, allocations, purchases and refunds. New
 -- journeys record delivery slots only; an old exhausted mode is not a quota.
 ALTER TABLE tickets DROP CONSTRAINT IF EXISTS tickets_email_journey_mode_check;

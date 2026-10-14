@@ -1,4 +1,5 @@
 const queueDayLifecycleService = require("./queueDayLifecycleService");
+const queueEmailJourneyService = require("./queueEmailJourneyService");
 const {
   createQueueNotificationOutboxDispatcher
 } = require("./queueNotificationOutboxDispatcher");
@@ -22,6 +23,7 @@ function createQueueLifecycleWorker(options = {}) {
   let running = false;
   let stopped = false;
   const bookingReminders = options.bookingReminders || require("./bookingReminderService");
+  const emailRecovery = options.emailRecovery || queueEmailJourneyService;
   const outboxDispatcher = options.outboxDispatcher || createQueueNotificationOutboxDispatcher();
   const publishLifecycleUpdate = options.publishLifecycleUpdate || createQueueLifecycleUpdatePublisher();
   const onTransition = async (scope) => {
@@ -45,7 +47,10 @@ function createQueueLifecycleWorker(options = {}) {
       try { bookingReminderCount = await bookingReminders.enqueueDue(); }
       catch (error) { console.error("Booking reminder scan failed", error.message); }
       const dispatchedCount = await outboxDispatcher.runBatch();
-      return { skipped: false, warningCount, reconciledCount, expiredCount, dispatchedCount, bookingReminderCount };
+      let recoveredEmailCount = 0;
+      try { recoveredEmailCount = await emailRecovery.recoverPending(payload => require("./notificationService").sendEmail(payload)); }
+      catch { console.error("[queue-email-recovery-scan-failed]"); }
+      return { skipped: false, warningCount, reconciledCount, expiredCount, dispatchedCount, bookingReminderCount, recoveredEmailCount };
     } finally {
       running = false;
     }

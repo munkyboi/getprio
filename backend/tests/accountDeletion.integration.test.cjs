@@ -166,6 +166,22 @@ test('account deletion against disposable PostgreSQL', { skip: !url }, async (t)
       assert.deepEqual(events.map(e=>e.from_status).sort(),['pending_carry_over','waiting']);
       assert.equal((await db.pool.query('SELECT status FROM tickets WHERE id=$1',[unrelated.id])).rows[0].status,'waiting');
     });
+    await t.test('deletion suppresses pending journey retries and erases captured payloads only for the requesting account', async () => {
+      const user = await fixture(), other = await fixture();
+      const ownTicket = await ticketFixture(user, 'called'), otherTicket = await ticketFixture(other, 'called');
+      for (const ticket of [ownTicket, otherTicket]) {
+        const journey = (await db.pool.query("INSERT INTO queue_email_journeys(tenant_id,ticket_id,mode) VALUES($1,$2,'unmetered') RETURNING id", [scope.tenant_id, ticket.id])).rows[0];
+        await db.pool.query("INSERT INTO queue_email_slots(journey_id,slot_key,status,delivery_payload,claim_token) VALUES($1,'called','queued',$2::jsonb,$3)", [journey.id, JSON.stringify({ to: 'private@example.invalid', text: 'private retry' }), require('node:crypto').randomUUID()]);
+      }
+      await service.requestDeletion({ userId: user._id, password: 'correct-password' });
+      const rows = (await db.pool.query('SELECT j.ticket_id,s.status,s.delivery_payload,s.claim_token FROM queue_email_slots s JOIN queue_email_journeys j ON j.id=s.journey_id WHERE j.ticket_id=ANY($1::bigint[]) ORDER BY j.ticket_id', [[ownTicket.id, otherTicket.id]])).rows;
+      assert.equal(rows[0].status, 'suppressed');
+      assert.equal(rows[0].delivery_payload, null);
+      assert.equal(rows[0].claim_token, null);
+      assert.equal(rows[1].status, 'queued');
+      assert.equal(rows[1].delivery_payload.to, 'private@example.invalid');
+      assert.ok(rows[1].claim_token);
+    });
     await t.test('a concurrent call-next preserves the called ticket', async () => {
       const user = await fixture();
       const ticket = await ticketFixture(user,'waiting');

@@ -12,6 +12,8 @@ async function getCycleUsage(tenantId, period, options = {}) {
       UNION ALL
       SELECT 'serviceBookings', 'service_booking', id::text
       FROM bookings WHERE tenant_id=$1 AND created_at >= $2 AND created_at < $3
+        AND group_funded_booking_id IS NULL
+        AND booking_payment_source IS DISTINCT FROM 'group_funded'
     )
     SELECT facts.resource_key, COUNT(*)::integer AS created,
       COUNT(*) FILTER (WHERE NOT EXISTS (

@@ -74,10 +74,12 @@ async function recordEmailDelivery({ to, subject, tenantId, ticketId, purpose, p
 async function requireSuccessfulResponse(response, providerName) {
   if (response.ok) return;
   const errorText = await response.text();
-  throw new Error(`${providerName} email delivery failed: ${errorText}`);
+  throw Object.assign(new Error(`${providerName} email delivery failed: ${errorText}`), {
+    deliveryAmbiguous: !(response.status >= 400 && response.status < 500 && ![408, 409].includes(response.status))
+  });
 }
 
-async function deliverWithResend({ to, subject, text, html, idempotencyKey, resendTemplate }) {
+async function deliverWithResend({ to, subject, text, html, idempotencyKey, resendTemplate, resendFrom }) {
   const response = await fetch(env.resendApiUrl, {
     method: "POST",
     ...(idempotencyKey ? { signal: AbortSignal.timeout(20_000) } : {}),
@@ -87,7 +89,7 @@ async function deliverWithResend({ to, subject, text, html, idempotencyKey, rese
       ...(idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {})
     },
     body: JSON.stringify({
-      from: formatSender(env.resendFromName, env.resendFromEmail),
+      from: resendFrom || formatSender(env.resendFromName, env.resendFromEmail),
       to,
       subject,
       ...(resendTemplate ? { template: resendTemplate } : { text, ...(html ? { html } : {}) })
@@ -110,21 +112,26 @@ async function deliverWithSendgrid({ to, subject, text, html }) {
   await requireSuccessfulResponse(response, "SendGrid");
 }
 
-async function deliverEmail({ provider, to, subject, text, html, idempotencyKey, resendTemplate }) {
-  if (provider === "resend") return deliverWithResend({ to, subject, text, html, idempotencyKey, resendTemplate });
+async function deliverEmail({ provider, to, subject, text, html, idempotencyKey, resendTemplate, resendFrom }) {
+  if (provider === "resend") return deliverWithResend({ to, subject, text, html, idempotencyKey, resendTemplate, resendFrom });
   if (provider === "sendgrid") return deliverWithSendgrid({ to, subject, text, html });
   if (provider === "smtp") {
-    return getTransport().sendMail({ from: env.smtpUser, to, subject, text, ...(html ? { html } : {}) });
+    try {
+      return await getTransport().sendMail({ from: env.smtpUser, to, subject, text, ...(html ? { html } : {}) });
+    } catch (error) {
+      if (error.responseCode >= 400 && error.responseCode < 600) error.deliveryAmbiguous = false;
+      throw error;
+    }
   }
   console.log("[email-fallback]", { to, subject, text, html });
 }
 
-async function sendEmail({ to, subject, text, html, emailTemplate, tenantId, ticketId, purpose = "general", metadata, outboxId, idempotencyKey, resendTemplate }) {
+async function sendEmail({ to, subject, text, html, emailTemplate, tenantId, ticketId, purpose = "general", metadata, outboxId, idempotencyKey, resendTemplate, resendFrom, deliveryProvider }) {
   if (!to) {
     return false;
   }
 
-  const provider = getEmailProvider();
+  const provider = deliveryProvider || getEmailProvider();
 
   try {
     // Resend-managed templates may carry a branded inline fallback for other configured providers.
@@ -133,7 +140,7 @@ async function sendEmail({ to, subject, text, html, emailTemplate, tenantId, tic
     }
     if (!resendTemplate) html = html || createBrandedEmail({ subject, message: text, ...emailTemplate }).html;
 
-    await deliverEmail({ provider, to, subject, text, html, idempotencyKey, resendTemplate });
+    await deliverEmail({ provider, to, subject, text, html, idempotencyKey, resendTemplate, resendFrom });
 
     await recordEmailDelivery({
       to,
@@ -199,19 +206,27 @@ async function sendSms({ to, body }) {
   return true;
 }
 
+function deliverLifecycleEmail(ticket, slot, logicalMessageKey, payload) {
+  const deliveryPayload = { ...payload, deliveryProvider: getEmailProvider(),
+    ...(getEmailProvider() === "resend" ? { resendFrom: formatSender(env.resendFromName, env.resendFromEmail) } : {}) };
+  return queueEmailJourneyService.withLifecycleSlot(ticket._id, slot, logicalMessageKey,
+    ({ idempotencyKey, deliveryPayload: savedPayload } = {}) => sendEmail({ ...(savedPayload || deliveryPayload), idempotencyKey }),
+    deliveryPayload);
+}
+
 async function notifyAlmostThere({ ticket, tenant, position }) {
   const message = `${tenant.name}: You're almost next. Ticket ${ticket.ticketNumber} is now ${position} in the queue.`;
 
   if (ticket.notifyByEmail && ticket.customerEmail) {
     try {
       const email = queueLifecycleEmail({ tenant, ticket, kind: "near_turn", position });
-      await queueEmailJourneyService.withLifecycleSlot(ticket._id, "near_turn", `ticket:${ticket._id}:near-turn`, () => sendEmail({
+      await deliverLifecycleEmail(ticket, "near_turn", `ticket:${ticket._id}:near-turn`, {
         to: ticket.customerEmail,
         ...email,
         tenantId: tenant._id,
         ticketId: ticket._id,
         purpose: "almost_there"
-      }));
+      });
     } catch (error) {
       console.warn("[email-notification-skipped]", error.message);
     }
@@ -231,13 +246,13 @@ async function notifyCalled({ ticket, tenant }) {
   if (ticket.notifyByEmail && ticket.customerEmail) {
     try {
       const email = queueLifecycleEmail({ tenant, ticket, kind: "called" });
-      await queueEmailJourneyService.withLifecycleSlot(ticket._id, "called", `ticket:${ticket._id}:called`, () => sendEmail({
+      await deliverLifecycleEmail(ticket, "called", `ticket:${ticket._id}:called`, {
         to: ticket.customerEmail,
         ...email,
         tenantId: tenant._id,
         ticketId: ticket._id,
         purpose: "called"
-      }));
+      });
     } catch (error) {
       console.warn("[email-notification-skipped]", error.message);
     }
@@ -257,10 +272,10 @@ async function notifyJourneyLifecycle({ ticket, tenant, slot, action }) {
   if (!ticket?.notifyByEmail || !ticket?.customerEmail || !JOURNEY_MESSAGE_KINDS.has(slot)) return false;
   const email = queueLifecycleEmail({ tenant, ticket, kind: slot, action });
   try {
-    return await queueEmailJourneyService.withLifecycleSlot(ticket._id, slot, `ticket:${ticket._id}:${slot}`, () => sendEmail({
+    return await deliverLifecycleEmail(ticket, slot, `ticket:${ticket._id}:${slot}`, {
       to: ticket.customerEmail, ...email,
       tenantId: tenant._id, ticketId: ticket._id, purpose: `queue_${slot}`
-    }));
+    });
   } catch (error) {
     // Provider response text is retained in delivery tracking, not emitted as
     // untrusted terminal output. Only controlled categories reach this log.

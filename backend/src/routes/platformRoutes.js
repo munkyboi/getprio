@@ -624,6 +624,7 @@ router.patch("/business-categories/:categoryId", requirePlatformPermission("plat
 router.get("/capabilities", requirePlatformPermission("platform.plan_policy.read"), (_req, res) => {
   res.json({
     planMatrix: true,
+    queueEmailQuotaRetired: true,
     planPolicyMutations: releaseControls.planPolicyMutations,
     usageCreditCatalog: releaseControls.usageCreditCatalog,
     usageCreditAdministration: releaseControls.usageCreditGrants,
