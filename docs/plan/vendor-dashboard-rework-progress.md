@@ -316,3 +316,6 @@ The remaining presentation package is synchronized locally with main41762a86, wi
 
 
 Local preview runtime restored during the deployment handoff: restarted Vite5179 and Docker's existing getprio-local-database on loopback6432, then API5001. Both HTTP checks return200 and a direct local SELECT1 passes; email transport remains disabled. No database retarget or schema migration was performed. Current-main queue-email recovery emits a sanitized scan-failed diagnostic; API owner was asked to confirm the local schema prerequisites before applying updates. Production and paired disposable database were untouched.
+
+
+Local schema follow-up completed: verified exact127.0.0.1:6432/prio_queue and disabled mail transport. Read-only schema inspection found both20261013_add_platform_maintenance.sql and20261014_retire_queue_email_quotas.sql unapplied and all six recovery columns absent, including the exact delivery_ambiguous column. With the local API stopped, standard db:migrate and db:verify both exited0; logs /tmp/vendor-local-schema-migrate.log and /tmp/vendor-local-schema-verify.log. Restarted API5001 without the prior startup scan warning; API and preview5179 return200. Existing local data retained, no production/paired database changes. This supersedes the preceding local schema warning gap.
