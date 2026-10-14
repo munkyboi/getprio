@@ -151,6 +151,27 @@ async function getTenantCapacity(tenantId, commercial = true) {
   });
 }
 
+async function getTenantUsage(tenantId) {
+  const capacity = await getTenantCapacity(tenantId, false);
+  const resources = Object.fromEntries(["queueTickets", "serviceBookings"].map(key => {
+    const resource = capacity.resources[key];
+    return [key, {
+      limit: resource.limit,
+      used: resource.used,
+      observedUsed: resource.observedUsed,
+      accountingStatus: resource.accountingStatus
+    }];
+  }));
+  return {
+    subscriptionId: capacity.subscriptionId,
+    planSlug: capacity.planSlug,
+    observedAt: capacity.observedAt,
+    period: capacity.period,
+    usageAvailable: capacity.usageAvailable,
+    resources
+  };
+}
+
 async function createCheckout({ tenant, user, packCode, purchaseKey, requestOrigin }) {
   if (!releaseControls.usageCreditCheckout) throw Object.assign(new Error("Usage Credit checkout is temporarily unavailable."), { statusCode: 503, code: "CREDIT_CHECKOUT_DISABLED" });
   if (!env.paymongoSecretKey) throw Object.assign(new Error("Payment checkout is temporarily unavailable."), { statusCode: 503 });
@@ -242,4 +263,4 @@ async function resolveDispute(providerDisputeId, outcome, options = {}) {
   return dispute;
 }
 
-module.exports = { createCheckout, getTenantCapacity, grant, handlePaidCheckout, listCatalog, openDispute, publishPack, requestRefund, resolveDispute, resolveRefund, revoke, syncCheckout };
+module.exports = { createCheckout, getTenantCapacity, getTenantUsage, grant, handlePaidCheckout, listCatalog, openDispute, publishPack, requestRefund, resolveDispute, resolveRefund, revoke, syncCheckout };
