@@ -1,16 +1,16 @@
 const db = require("../config/db");
 const repository = require("../repositories/subscriptionLifecycle");
-const planRepository = require("../repositories/subscriptionPlans");
 const suspensionRepository = require("../repositories/subscriptionSuspension");
 const suspensionContexts = new WeakMap();
+const transitionRequestContexts = new WeakMap();
 const { assertPermission } = require("./permissions");
 
 const PLAN_ORDER = { free: 0, economical: 1, pro: 2, enterprise: 3 };
 
-async function freeAssignmentLock(client, sql, values, code) {
+async function lifecycleLock(client, sql, values, code) {
   try { return await client.query(sql, values); }
   catch (error) {
-    if (error.code === "55P03") throw Object.assign(new Error("Free assignment state is being updated. Retry after that change completes."), { statusCode: 409, code });
+    if (error.code === "55P03") throw Object.assign(new Error("Subscription lifecycle state is being updated. Retry after that change completes."), { statusCode: 409, code });
     throw error;
   }
 }
@@ -36,13 +36,13 @@ async function assignFreeToApprovedTenant(tenantId, input = {}, options = {}) {
       return { assigned: false, reason: "vendor_not_approved" };
     }
 
-    const history = await freeAssignmentLock(client,
+    const history = await lifecycleLock(client,
       `SELECT id FROM tenant_subscriptions WHERE tenant_id = $1 ORDER BY created_at LIMIT 1 FOR UPDATE NOWAIT`,
       [String(tenantId)], "SUBSCRIPTION_BUSY"
     );
     if (history.rows[0]) return { assigned: false, reason: "subscription_history_exists" };
 
-    const plan = await freeAssignmentLock(client, "SELECT slug FROM subscription_plans WHERE slug = $1 FOR SHARE NOWAIT", ["free"], "SUBSCRIPTION_PLAN_BUSY");
+    const plan = await lifecycleLock(client, "SELECT slug FROM subscription_plans WHERE slug = $1 FOR SHARE NOWAIT", ["free"], "SUBSCRIPTION_PLAN_BUSY");
     if (!plan.rows.length) throw Object.assign(new Error("Free subscription plan not found."), { statusCode: 404 });
     const transition = await repository.createTransition({
       tenantId,
@@ -64,10 +64,40 @@ async function assignFreeToApprovedTenant(tenantId, input = {}, options = {}) {
   return db.withTransaction(assign);
 }
 
+function validateTransitionInput(input) {
+  if (!Object.hasOwn(PLAN_ORDER, input.toPlanSlug)) throw Object.assign(new Error("Subscription plan not found."), { statusCode: 404 });
+  if (typeof input.tenantId === "number" && !Number.isSafeInteger(input.tenantId)) throw Object.assign(new Error("Tenant identifier must be an exact integer."), { statusCode: 400, code: "INVALID_TENANT_ID" });
+  if (typeof input.actorId === "number" && !Number.isSafeInteger(input.actorId)) throw Object.assign(new Error("Actor identifier must be an exact integer."), { statusCode: 400, code: "INVALID_ACTOR_ID" });
+}
+
+async function prepareSubscriptionTransition(input, options = {}) {
+  const client = options.client;
+  if (!client) throw new Error("Subscription transition preparation requires a transaction client.");
+  validateTransitionInput(input);
+  const tenantId = String(input.tenantId);
+  const actorId = input.actorId == null ? null : String(input.actorId);
+  if (options.requirePlatformAuthority && actorId === null) throw Object.assign(new Error("User session is no longer valid."), { statusCode: 401 });
+  if (!(await client.query("SELECT id FROM tenants WHERE id = $1 FOR UPDATE", [tenantId])).rows.length) throw Object.assign(new Error("Vendor not found."), { statusCode: 404 });
+  await assertSubscriptionActor(client, actorId, options.requirePlatformAuthority);
+  const plan = await lifecycleLock(client, "SELECT slug FROM subscription_plans WHERE slug = $1 FOR SHARE NOWAIT", [input.toPlanSlug], "SUBSCRIPTION_PLAN_BUSY");
+  if (!plan.rows.length) throw Object.assign(new Error("Subscription plan not found."), { statusCode: 404 });
+  await repository.lockCurrent(tenantId, { client, nonblocking: true });
+  const context = Object.freeze({});
+  transitionRequestContexts.set(context, { client, tenantId, actorId, toPlanSlug: input.toPlanSlug, vendorRequested: Boolean(input.vendorRequested), requirePlatformAuthority: Boolean(options.requirePlatformAuthority) });
+  return context;
+}
+
 async function requestTransition(input, options = {}) {
-  if (!(input.toPlanSlug in PLAN_ORDER) || !(await planRepository.findPlanBySlug(input.toPlanSlug, { client: options.client }))) throw Object.assign(new Error("Subscription plan not found."), { statusCode: 404 });
+  validateTransitionInput(input);
   const transition = async (client) => {
-    const current = await repository.lockCurrent(input.tenantId, { client });
+    const context = Object.hasOwn(options, "transitionContext") ? options.transitionContext : await prepareSubscriptionTransition(input, { client });
+    const scope = transitionRequestContexts.get(context);
+    if (!scope || scope.client !== client || scope.tenantId !== String(input.tenantId) || scope.actorId !== (input.actorId == null ? null : String(input.actorId)) || scope.toPlanSlug !== input.toPlanSlug || scope.vendorRequested !== Boolean(input.vendorRequested)) {
+      throw Object.assign(new Error("Subscription transition requires its prepared transaction context."), { statusCode: 409, code: "SUBSCRIPTION_TRANSITION_CONTEXT_REQUIRED" });
+    }
+    transitionRequestContexts.delete(context);
+    await assertSubscriptionActor(client, scope.actorId, scope.requirePlatformAuthority);
+    const current = await repository.lockCurrent(scope.tenantId, { client, nonblocking: true });
     if (!current && input.toPlanSlug !== "free") throw Object.assign(new Error("A paid transition requires an existing subscription lifecycle."), { statusCode: 409 });
     if (current && ["past_due", "unpaid", "suspended"].includes(current.status)) throw Object.assign(new Error("Resolve the restricted subscription before changing plans."), { statusCode: 409, code: "RESTRICTED_PLAN_CHANGE_DENIED" });
     const fromOrder = PLAN_ORDER[current?.plan_slug] ?? -1;
@@ -83,7 +113,11 @@ async function requestTransition(input, options = {}) {
     const immediate = transitionType === "upgrade" || transitionType === "free_assignment" || transitionType === "admin_resolution";
     const effectiveAt = immediate ? new Date() : new Date(current.current_period_end);
     const transition = await repository.createTransition({ tenantId: input.tenantId, fromSubscriptionId: current?.id, fromPlanSlug: current?.plan_slug, toPlanSlug: input.toPlanSlug, transitionType, status: "scheduled", reason: input.reason, effectiveAt, actorId: input.actorId, metadata: input.metadata }, { client });
-    if (immediate) return repository.executeTransition(transition.id, { client });
+    if (immediate) {
+      const scheduledContext = await repository.prepareScheduledTransition(transition.id, { client });
+      if (!scheduledContext) throw Object.assign(new Error("Subscription transition disappeared."), { statusCode: 409 });
+      return repository.executeTransition(transition.id, { client, scheduledContext });
+    }
     return transition;
   };
   if (options.client) return transition(options.client);
@@ -171,4 +205,4 @@ async function suspendSubscription(subscriptionId, input = {}, options = {}) {
   });
 }
 
-module.exports = { prepareFreeAssignmentActor, assignFreeToApprovedTenant, executeDue, requestTransition, prepareSubscriptionSuspension, suspendSubscription };
+module.exports = { prepareSubscriptionTransition, prepareFreeAssignmentActor, assignFreeToApprovedTenant, executeDue, requestTransition, prepareSubscriptionSuspension, suspendSubscription };

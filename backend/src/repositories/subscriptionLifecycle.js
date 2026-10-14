@@ -32,10 +32,12 @@ function assertScheduledTenant(transition, tenantId) {
 }
 
 async function lockCurrent(tenantId, options = {}) {
-  const result = await client(options).query(
-    `SELECT * FROM tenant_subscriptions WHERE tenant_id = $1
-     ORDER BY updated_at DESC FOR UPDATE`, [tenantId]
-  );
+  const queryClient = client(options);
+  const sql = `SELECT * FROM tenant_subscriptions WHERE tenant_id = $1
+     ORDER BY updated_at DESC FOR UPDATE${options.nonblocking ? " NOWAIT" : ""}`;
+  const result = options.nonblocking
+    ? await scheduledLock(queryClient, sql, [String(tenantId)], "SUBSCRIPTION_BUSY")
+    : await queryClient.query(sql, [tenantId]);
   return currentSubscription(result.rows);
 }
 
