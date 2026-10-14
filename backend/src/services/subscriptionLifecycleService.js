@@ -7,24 +7,43 @@ const { assertPermission } = require("./permissions");
 
 const PLAN_ORDER = { free: 0, economical: 1, pro: 2, enterprise: 3 };
 
+async function freeAssignmentLock(client, sql, values, code) {
+  try { return await client.query(sql, values); }
+  catch (error) {
+    if (error.code === "55P03") throw Object.assign(new Error("Free assignment state is being updated. Retry after that change completes."), { statusCode: 409, code });
+    throw error;
+  }
+}
+
+async function prepareFreeAssignmentActor(actorId, options = {}) {
+  if (!options.client) throw new Error("Free assignment actor preparation requires a transaction client.");
+  if (actorId == null) throw Object.assign(new Error("User session is no longer valid."), { statusCode: 401 });
+  if (typeof actorId === "number" && !Number.isSafeInteger(actorId)) throw Object.assign(new Error("Actor identifier must be an exact integer."), { statusCode: 400, code: "INVALID_ACTOR_ID" });
+  return assertSubscriptionActor(options.client, String(actorId), false, { forActorUpdate: true });
+}
+
 async function assignFreeToApprovedTenant(tenantId, input = {}, options = {}) {
+  if (typeof tenantId === "number" && !Number.isSafeInteger(tenantId)) throw Object.assign(new Error("Tenant identifier must be an exact integer."), { statusCode: 400, code: "INVALID_TENANT_ID" });
   const assign = async (client) => {
     const tenantResult = await client.query(
       `SELECT id, vendor_approval_status FROM tenants WHERE id = $1 FOR UPDATE`,
-      [Number(tenantId)]
+      [String(tenantId)]
     );
     const tenant = tenantResult.rows[0];
     if (!tenant) throw Object.assign(new Error("Vendor not found."), { statusCode: 404 });
+    if (input.actorId != null) await prepareFreeAssignmentActor(input.actorId, { client });
     if (tenant.vendor_approval_status !== "approved") {
       return { assigned: false, reason: "vendor_not_approved" };
     }
 
-    const history = await client.query(
-      `SELECT id FROM tenant_subscriptions WHERE tenant_id = $1 ORDER BY created_at LIMIT 1 FOR UPDATE`,
-      [Number(tenantId)]
+    const history = await freeAssignmentLock(client,
+      `SELECT id FROM tenant_subscriptions WHERE tenant_id = $1 ORDER BY created_at LIMIT 1 FOR UPDATE NOWAIT`,
+      [String(tenantId)], "SUBSCRIPTION_BUSY"
     );
     if (history.rows[0]) return { assigned: false, reason: "subscription_history_exists" };
 
+    const plan = await freeAssignmentLock(client, "SELECT slug FROM subscription_plans WHERE slug = $1 FOR SHARE NOWAIT", ["free"], "SUBSCRIPTION_PLAN_BUSY");
+    if (!plan.rows.length) throw Object.assign(new Error("Free subscription plan not found."), { statusCode: 404 });
     const transition = await repository.createTransition({
       tenantId,
       toPlanSlug: "free",
@@ -35,7 +54,9 @@ async function assignFreeToApprovedTenant(tenantId, input = {}, options = {}) {
       actorId: input.actorId,
       metadata: input.metadata
     }, { client });
-    const completed = await repository.executeTransition(transition.id, { client });
+    const scheduledContext = await repository.prepareScheduledTransition(transition.id, { client });
+    if (!scheduledContext) throw Object.assign(new Error("Free assignment transition disappeared."), { statusCode: 409 });
+    const completed = await repository.executeTransition(transition.id, { client, scheduledContext });
     return { assigned: true, transition: completed };
   };
 
@@ -95,15 +116,15 @@ async function prepareSubscriptionSuspension(subscriptionId, options = {}) {
   if (options.requirePlatformAuthority && actorId === null) {
     throw Object.assign(new Error("User session is no longer valid."), { statusCode: 401 });
   }
-  await assertSuspensionActor(client, actorId, options.requirePlatformAuthority);
+  await assertSubscriptionActor(client, actorId, options.requirePlatformAuthority);
   const context = Object.freeze({});
   suspensionContexts.set(context, { client, subscriptionId: String(subscriptionId), tenantId, actorId, requirePlatformAuthority: options.requirePlatformAuthority });
   return context;
 }
 
-async function assertSuspensionActor(client, actorId, requirePlatformAuthority) {
+async function assertSubscriptionActor(client, actorId, requirePlatformAuthority, options = {}) {
   if (actorId === null) return;
-  const actor = await suspensionRepository.readActor(client, actorId);
+  const actor = await suspensionRepository.readActor(client, actorId, options);
   if (!actor || actor.deletion_requested_at) {
     throw Object.assign(new Error("User session is no longer valid."), { statusCode: 401 });
   }
@@ -113,6 +134,7 @@ async function assertSuspensionActor(client, actorId, requirePlatformAuthority) 
     });
   }
   if (requirePlatformAuthority) assertPermission(actor, "platform.subscription_lifecycle.manage");
+  return actor;
 }
 
 function assertSuspensionTenant(current, tenantId) {
@@ -132,7 +154,7 @@ async function suspendSubscription(subscriptionId, input = {}, options = {}) {
       });
     }
     suspensionContexts.delete(context);
-    await assertSuspensionActor(client, scope.actorId, scope.requirePlatformAuthority);
+    await assertSubscriptionActor(client, scope.actorId, scope.requirePlatformAuthority);
     const current = await suspensionRepository.readSubscription(client, subscriptionId, true);
     if (!current) return null;
     assertSuspensionTenant(current, scope.tenantId);
@@ -149,4 +171,4 @@ async function suspendSubscription(subscriptionId, input = {}, options = {}) {
   });
 }
 
-module.exports = { assignFreeToApprovedTenant, executeDue, requestTransition, prepareSubscriptionSuspension, suspendSubscription };
+module.exports = { prepareFreeAssignmentActor, assignFreeToApprovedTenant, executeDue, requestTransition, prepareSubscriptionSuspension, suspendSubscription };

@@ -1315,6 +1315,11 @@ test("vendor onboarding completion sends a workspace welcome", async () => {
     },
     "../repositories/authSessions": {},
     "../repositories/users": {
+      findUserById: async (id, options) => {
+        assert.equal(id, "user-1");
+        assert.ok(options.client);
+        return { _id: id, roles: ["customer"], phone: "09179876543", tenantMemberships: [] };
+      },
       findUserByEmail: async () => null,
       findUserByUsername: async () => null,
       createUser: async (data) => {
@@ -1355,6 +1360,10 @@ test("vendor onboarding completion sends a workspace welcome", async () => {
     "../services/passwordResetService": {},
     "../services/securityEventService": { logSecurityEvent: async () => {} },
     "../services/subscriptionLifecycleService": {
+      prepareFreeAssignmentActor: async (id, options) => {
+        assert.equal(id, "user-1");
+        assert.ok(options.client);
+      },
       assignFreeToApprovedTenant: async (tenantId, _input, options) => {
         assert.ok(options.client);
         assignedFreeTenantId = tenantId;
@@ -1395,6 +1404,7 @@ test("vendor onboarding completion sends a workspace welcome", async () => {
     assert.equal(body.refreshToken, "refresh-token");
     assert.equal(body.user.username, "vendor_one");
     assert.equal(createdTenant.slug, "demo-tenant");
+    assert.equal(createdTenant.contactPhone, "09179876543");
     assert.equal(createdTenant.businessCategoryId, "1");
     assert.equal(createdTenant.publicProfileCategory, "Sports and Recreation");
     assert.equal(welcomeCalls[0].user.email, "vendor@example.com");
