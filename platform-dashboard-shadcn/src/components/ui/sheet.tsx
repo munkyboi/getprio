@@ -60,7 +60,7 @@ function SheetContent({
         )}
         {...props}
       >
-        <ScrollArea className="min-h-0 flex-1">
+        <ScrollArea className="isolate min-h-0 flex-1">
           <div className="flex min-h-full flex-col gap-4">{children}</div>
         </ScrollArea>
         {showCloseButton && (

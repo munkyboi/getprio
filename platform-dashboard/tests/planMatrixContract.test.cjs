@@ -23,7 +23,8 @@ test("plan and tenant pages retain settled controls and auditable credit adminis
   const source = ["../src/pages/PlanMatrixPage.tsx", "../src/pages/TenantEntitlementsPage.tsx", "../src/pages/planControls.ts", "../src/main.tsx"].map((file) => fs.readFileSync(path.resolve(__dirname, file), "utf8")).join("\n");
   for (const feature of ["Queue system", "Public-facing branding", "Marketplace discovery", "Service booking"]) assert.match(source, new RegExp(feature));
   assert.doesNotMatch(source, /Group-funded campaigns/);
-  for (const allowance of ["Queue Tickets / month", "Queue Email Journeys / month", "Service Bookings / month"]) assert.match(source, new RegExp(allowance));
+  for (const allowance of ["Queue Tickets / month", "Service Bookings / month"]) assert.match(source, new RegExp(allowance));
+  assert.doesNotMatch(source, /Queue Email Journeys \/ month|label="Queue Email Journey credits"|label="Journey credits"/);
   assert.match(source, /Vendor entitlement administration/);
   for (const control of ["Active locations", "Service counters", "Vendor seats", "History retention", "Queue settings", "Analytics", "CSV export", "Single sign-on"]) assert.match(source, new RegExp(control));
   assert.match(source, /Grant credits/);
@@ -44,6 +45,20 @@ test("plan and tenant privileged tasks retain canonical modal anatomy and allowa
   assert.match(source, /warningThresholds/);
   assert.match(source, /notified/);
   assert.match(source, /pending/);
+});
+
+test("legacy capacity and credit writes tolerate retired email quota and unavailable usage", () => {
+  const tenant = fs.readFileSync(path.resolve(__dirname, "../src/pages/TenantEntitlementsPage.tsx"), "utf8");
+  const plan = fs.readFileSync(path.resolve(__dirname, "../src/pages/PlanMatrixPage.tsx"), "utf8");
+  assert.match(tenant, /capacityCount\(resource\.used, capacity\.usageAvailable !== false\)/);
+  assert.match(tenant, /visibleCapacityResources\(capacity\.resources\)/);
+  assert.match(tenant, /capacityEvidence\(resource, capacity\.usageAvailable !== false\)/);
+  assert.match(tenant, /item\.policy_key === "allowance\.queueEmailJourneys"/);
+  assert.match(tenant, /journeyUnits: 0/);
+  assert.doesNotMatch(tenant, /grant\.journeyUnits/);
+  assert.match(plan, /creditPackRevisionPayload\(editingPack\)/);
+  assert.match(plan, /creditPackContents\(pack\)/);
+  assert.match(plan, /body: \{ \.\.\.payload, reason/);
 });
 
 test("subscription administration retires direct editing and permanent deletion", () => {

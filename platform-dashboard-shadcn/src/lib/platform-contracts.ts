@@ -121,7 +121,10 @@ export interface PlatformTenantInspection {
     planSlug: string | null
     subscriptionId: string | null
     lifecycleState: string | null
-    resources: Record<string, { limit: number; used: number; creditRemaining: number; resetAt: string | null; source?: string; overrideId?: string | null }>
+    period?: { start: string; end: string } | null
+    observedAt?: string | null
+    usageAvailable?: boolean
+    resources: Record<string, { limit: number; used: number | null; observedUsed?: number | null; baseUsed?: number | null; creditUsed?: number | null; unaccountedUsed?: number | null; accountingStatus?: "complete" | "partial" | "unavailable"; enforcementEnabled?: boolean; creditRemaining: number; resetAt: string | null; source?: string; overrideId?: string | null }>
     lots: PlatformTenantCreditLot[]
   }
   overrides: Array<{ id: string; policyKey: string; value: unknown; expiresAt: string | null; revokedAt: string | null; reason: string | null }>
@@ -489,6 +492,7 @@ export interface PlatformPlanMatrix {
   queueFees: QueueFeeSetting[]
   activeSubscribersByPlan: Partial<Record<SubscriptionPlanSlug, number>>
   planPolicyMutations: boolean
+  queueEmailQuotaRetired?: boolean
 }
 
 export interface PlanPolicyPreview {
@@ -651,7 +655,7 @@ export interface PlatformApi {
   getBilling(): Promise<ReadModelModule<PlatformBillingReadModel> & { meta: ReadModelMeta }>
   getPlanMatrix(): Promise<PlatformPlanMatrix>
   previewPlanPolicy(action: "plan.defaults.publish" | "queue.fees.publish", target: string, payload: Record<string, unknown>, reason: string, previewRevision: string): Promise<PlanPolicyPreview>
-  publishPlan(plan: SubscriptionPlan, reason: string, preview: PlanPolicyPreview): Promise<SubscriptionPlan>
+  publishPlan(plan: import("../../../shared/planPolicyPayload").PlanPolicyPublication, reason: string, preview: PlanPolicyPreview): Promise<SubscriptionPlan>
   publishQueueFees(queueFees: Array<Pick<QueueFeeSetting, "planSlug" | "enabled" | "amountCents">>, reason: string, preview: PlanPolicyPreview): Promise<QueueFeeSetting[]>
   getModeration(): Promise<ReadModelModule<PlatformModerationReadModel> & { meta: ReadModelMeta }>
   getSettings(): Promise<ReadModelModule<PlatformSettingsReadModel> & { meta: ReadModelMeta }>

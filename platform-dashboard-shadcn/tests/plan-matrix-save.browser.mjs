@@ -1,9 +1,9 @@
 export default async function verifyPlanMatrixSave(page) {
   const origin = new URL(page.url()).origin;
   const expect = (condition, message) => { if (!condition) throw new Error(message); };
-  for (const fail of [false, true]) {
+  for (const { fail, legacy } of [{ fail: false, legacy: false }, { fail: true, legacy: false }, { fail: false, legacy: true }]) {
     await page.setViewportSize(fail ? { width: 390, height: 844 } : { width: 1280, height: 900 });
-    await page.goto(`${origin}/tests/plan-matrix-harness.html${fail ? "?fail=1" : ""}`);
+    await page.goto(`${origin}/tests/plan-matrix-harness.html${fail ? "?fail=1" : legacy ? "?legacy=1" : ""}`);
     expect(await page.title() === "Plan Matrix save regression", "Test page must have a descriptive title");
     expect(await page.locator("html").getAttribute("lang") === "en", "Test page must declare its language");
     await page.getByLabel("Plan name", { exact: true }).fill("Free revised");

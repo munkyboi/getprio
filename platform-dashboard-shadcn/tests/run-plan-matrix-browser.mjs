@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import { mkdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import verify from "./plan-matrix-save.browser.mjs";
+import verifyCapacity from "./tenant-capacity.browser.mjs";
 const cli = process.env.PLAYWRIGHT_CLI || "npx";
 const prefix = process.env.PLAYWRIGHT_CLI ? [] : ["--yes", "--package", "@playwright/cli", "playwright-cli"];
 const cwd = fileURLToPath(new URL("../../output/playwright/", import.meta.url));
@@ -17,4 +18,5 @@ try {
   run("open", `${url}/tests/plan-matrix-harness.html`);
   run("snapshot");
   run("run-code", `(${verify.toString()})`);
+  run("run-code", `(${verifyCapacity.toString()})`);
 } finally { run("close"); }
