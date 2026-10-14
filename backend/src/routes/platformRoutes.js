@@ -1647,7 +1647,7 @@ router.post(
   "/subscription-transitions/execute-due",
   requirePlatformPermission("platform.subscription_lifecycle.manage"),
   requireReleaseControl("subscriptionLifecycle"),
-  requireIdempotency("platform.subscription_transition.execute_due", { retryableErrorCodes: ["SUBSCRIPTION_TRANSITION_BUSY", "SUBSCRIPTION_PLAN_BUSY", "SUBSCRIPTION_BUSY"] }),
+  requireIdempotency("platform.subscription_transition.execute_due", { retryableErrorCodes: ["SUBSCRIPTION_TRANSITION_BUSY", "SUBSCRIPTION_PLAN_BUSY", "SUBSCRIPTION_BUSY", "SUBSCRIPTION_RENEWAL_SCOPE_CHANGED"] }),
   asyncHandler(async (_req, res) => res.json(await subscriptionLifecycleService.executeDue()))
 );
 
