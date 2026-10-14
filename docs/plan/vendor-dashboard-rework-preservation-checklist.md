@@ -78,3 +78,5 @@ Synthetic fixtures verified generated business-link/username fields, categoryId,
 ### VD-10 Login checkpoint
 
 Preserved shared identity, safe return handling, mandatory MFA destinations, leading-zero OTP/dedup behavior, original versus email challenge tokens, recovery payload and configured provider semantics. Synthetic checks prove request-error visibility/retry, registered input error focus, retained dashboard target through password reset, and customer six-cell/card fallback. Vendor context is presentation only, never a permission grant. Real provider/mail/device acceptance remains separate.
+
+Callback checkpoint: browser fixtures verified exact nested dashboard target on retry, customer fallback, loading/missing session, successful session handoff and stale completion suppression after hash change. No provider/session policy fork; real OAuth/cookie/provider acceptance remains external.

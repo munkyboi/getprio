@@ -141,3 +141,5 @@ Reports now consumes scoped snapshot metrics and capability-gated period usage w
 ### VD-10 Login local migration
 
 Dashboard-return Login/reset/MFA now uses scoped vendor fields/actions and branded desktop composition. Plain/customer Login keeps Mantine/card/PIN defaults. Existing handler bodies and provider/identity policies remain shared; vendor reset retains the approved return target. Callback presentation and shared notification consumers remain pending inventory. Local-only verification is recorded in progress; no publication/deployment claim.
+
+VD-10 callback now locally uses vendor composition for existing dashboard targets and retains customer fallback; existing refresh/session and success destinations stay shared. Provider-error retry retains vendor context. Hash/task change cancels stale UI/navigation completion. Global toast and operational alert presentation remains pending.

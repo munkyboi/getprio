@@ -192,3 +192,5 @@ Locations/Resources/Counters share the approved shell and scoped configuration f
 - Vendor auth portals use the actual auth root; category options remain inside the same themed scope. Auth and dashboard share explicit theme preferences and follow system changes when unset. Customer default social buttons and shared auth policies stay intact; vendor social controls use the configured existing providers and intent only.
 
 Vendor authentication context: use dashboard return state as a presentation hint only; retain shared identity, redirect validation and customer defaults. Sign-in, reset request/confirmation and verification each need an accurate task heading and visible validation/error/retry. Preserve the vendor return target through reset success and Back. Keep the form first on mobile and branded visual beside it on desktop.
+
+Shared OAuth callbacks inherit vendor auth composition only for an existing vendor target. Keep failure retry context, customer fallback and successful session handoff. Changing callback identity must prevent an earlier response from overriding or navigating past the newer task; auth-context rerenders must not restart a handoff.

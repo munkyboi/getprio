@@ -222,3 +222,9 @@ Verification: 201 frontend tests, TypeScript, affected-source lint and productio
 ### VD-10 next-consumer inventory
 
 API coordination confirmed no reserved auth/notification presentation overlap. Existing vendor notification preferences and browser-push subscription controls were already migrated in Settings; remaining shared presentation includes global Mantine success/error/info toasts and booking/queue operational alerts in VendorDashboardPage. Dismissal remains tenant/location-scoped session storage; no new persistence or inbox endpoint is implied by a visual migration. Shared OAuthCallbackPage still uses the original customer card/loading/error composition and needs explicit vendor-context mapping with customer fallback and return preservation. Coordinate any inbox consumer against authoritative totalCount/kind contracts and keep reminder provider acceptance separate from device receipt. These items remain pending implementation and verification.
+
+### VD-10 shared OAuth callback local milestone
+
+Dashboard-target callbacks now reuse scoped vendor auth loading/error composition and retry preserves the complete target including nested query/hash. Customer callback retains its original card/loader/link. Hash changes refresh the task; a late response cannot overwrite or navigate past a newer callback. A local ref keeps AuthContext function recreation from restarting the handoff without changing shared auth policy.
+
+202 frontend tests, TypeScript and affected-source lint pass. Synthetic browser checks covered both themes/four widths without overflow, provider error/retry target, customer fallback, pending and missing-session states, successful account handoff, and stale navigation suppression after a newer callback error. Both review axes are clear. Real provider cookies/OAuth/device acceptance remains separate; no PR or deployment performed. Shared notification presentation remains the next unblocked item.
