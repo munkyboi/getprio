@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 import { readFileSync } from "node:fs"
-import { capacityCount, capacityPeriod, visibleCapacityResources } from "../../shared/tenantCapacityDisplay.ts"
+import { capacityCount, capacityEvidence, capacityPeriod, visibleCapacityResources } from "../../shared/tenantCapacityDisplay.ts"
 
 test("unavailable usage is never formatted as zero", () => {
   assert.equal(capacityCount(null), "Unavailable")
@@ -13,6 +13,14 @@ test("unavailable usage is never formatted as zero", () => {
 
 test("only ticket and booking capacity remains operational", () => {
   assert.deepEqual(visibleCapacityResources({ queueTickets: {}, queueEmailJourneys: {}, serviceBookings: {} }).map(([key]) => key), ["queueTickets", "serviceBookings"])
+})
+
+test("shared evidence distinguishes partial accounting from enforcement", () => {
+  const lines = capacityEvidence({ observedUsed: 10, baseUsed: 3, creditUsed: 3, unaccountedUsed: 4, accountingStatus: "partial", enforcementEnabled: false })
+  assert.equal(lines[1].text, "Ledger: 3 base · 3 credit · 4 unaccounted")
+  assert.equal(lines[2].attention, true)
+  assert.equal(lines[3].text, "Quota enforcement: disabled")
+  assert.match(capacityEvidence({ observedUsed: 0 }, false)[0].text, /Unavailable/)
 })
 
 test("usage period exposes the exact server window and rejects invalid dates", () => {

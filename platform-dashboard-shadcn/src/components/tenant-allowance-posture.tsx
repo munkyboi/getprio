@@ -1,5 +1,5 @@
 import type { PlatformTenantInspection } from "@/lib/platform-contracts"
-import { capacityCount, capacityPeriod, visibleCapacityResources } from "../../../shared/tenantCapacityDisplay"
+import { capacityCount, capacityEvidence, capacityPeriod, visibleCapacityResources } from "../../../shared/tenantCapacityDisplay"
 
 export function TenantAllowancePosture({ capacity }: { capacity: PlatformTenantInspection["capacity"] }) {
   const resources = visibleCapacityResources(capacity.resources)
@@ -12,10 +12,7 @@ export function TenantAllowancePosture({ capacity }: { capacity: PlatformTenantI
       <span className="font-medium">{key === "queueTickets" ? "Queue tickets" : key === "serviceBookings" ? "Service bookings" : key.replaceAll(/([A-Z])/g, " $1")}</span>
       <span className="text-muted-foreground">{capacityCount(resource.used, usageAvailable)} used · {capacityCount(resource.limit)} limit</span>
       <span className="text-muted-foreground">{capacityCount(resource.creditRemaining)} credit remaining</span>
-      {resource.observedUsed !== undefined ? <span className="text-xs text-muted-foreground">{capacityCount(resource.observedUsed, usageAvailable)} created in this period</span> : null}
-      {resource.baseUsed !== undefined ? <span className="text-xs text-muted-foreground">Ledger: {capacityCount(resource.baseUsed, usageAvailable)} base · {capacityCount(resource.creditUsed, usageAvailable)} credit · {capacityCount(resource.unaccountedUsed, usageAvailable)} unaccounted</span> : null}
-      {resource.accountingStatus === "partial" ? <span className="text-xs text-amber-600 dark:text-amber-400">Partial accounting: includes records without ledger allocations. No ledger entries were repaired.</span> : null}
-      {resource.enforcementEnabled !== undefined ? <span className="text-xs text-muted-foreground">Quota enforcement: {resource.enforcementEnabled ? "enabled" : "disabled"}</span> : null}
+      {capacityEvidence(resource, usageAvailable).map((line) => <span key={line.key} className={line.attention ? "text-xs text-amber-600 dark:text-amber-400" : "text-xs text-muted-foreground"}>{line.text}</span>)}
     </div>)}</div> : <p className="rounded-md border p-3 text-sm text-muted-foreground">No allowance details are available.</p>}
     <p className="text-xs text-muted-foreground">Usage reporting does not modify balances or enforcement. Email journeys are not part of this allowance view.</p>
   </section>
