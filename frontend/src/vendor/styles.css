@@ -367,3 +367,11 @@
   .vendor-workspace .vendor-access-state { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); }
   .vendor-workspace .vendor-access-state .config-actions { flex-direction: row; align-items: center; }
 }
+
+.account-responsive-grid { display: grid; grid-template-columns: minmax(0,1fr); gap: 16px; }
+.account-responsive-grid > * { min-width: 0; }
+@media (min-width: 36em) { .account-responsive-grid { grid-template-columns: repeat(var(--account-cols-xs,1),minmax(0,1fr)); } }
+@media (min-width: 48em) { .account-responsive-grid { grid-template-columns: repeat(var(--account-cols-sm,var(--account-cols-xs,1)),minmax(0,1fr)); } }
+@media (min-width: 62em) { .account-responsive-grid { grid-template-columns: repeat(var(--account-cols-md,var(--account-cols-sm,var(--account-cols-xs,1))),minmax(0,1fr)); } }
+@media (min-width: 75em) { .account-responsive-grid { grid-template-columns: repeat(var(--account-cols-lg,var(--account-cols-md,var(--account-cols-sm,var(--account-cols-xs,1)))),minmax(0,1fr)); } }
+@media (min-width: 88em) { .account-responsive-grid { grid-template-columns: repeat(var(--account-cols-xl,var(--account-cols-lg,var(--account-cols-md,var(--account-cols-sm,var(--account-cols-xs,1))))),minmax(0,1fr)); } }

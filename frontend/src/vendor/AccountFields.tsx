@@ -2,9 +2,11 @@ import {
   useState,
   forwardRef,
   type ComponentProps,
+  type CSSProperties,
   type ComponentPropsWithoutRef,
 } from "react";
 import * as Mantine from "@mantine/core";
+import { accountGridColumns } from "./accountGridState";
 import { useVendorAccount } from "./AccountPresentation";
 import { ConfigurationInput } from "./ConfigurationUi";
 import {
@@ -79,7 +81,7 @@ export function Group(props: ComponentProps<typeof Mantine.Group>) {
 export function SimpleGrid(props: ComponentProps<typeof Mantine.SimpleGrid>) {
   const vendor = useVendorAccount();
   return vendor ? (
-    <div className={props.cols === 1 ? "queue-stack" : "ops-grid-2"}>{props.children}</div>
+    <div className="account-responsive-grid" style={accountGridColumns(props.cols) as CSSProperties}>{props.children}</div>
   ) : (
     <Mantine.SimpleGrid {...props} />
   );

@@ -215,3 +215,10 @@ Checkbox help text must have its own ID referenced by the input's `aria-describe
 - Reports and Account Subscription use the authorized minimal current-period usage endpoint, with actor/business/role cache scope and owner/admin visible-section/tab polling. Validate returned tenant identity; use canonical used/limit directly without reconstructing diagnostics or falling back to served-today/history/catalog defaults. Monthly usage covers all tenant locations; daily queue activity remains separately labeled for the selected location.
 - Loading is explicit and request errors offer native44px/mobile-width retry. Unavailable/null/invalid/expired periods stay unavailable rather than zero; preserve authoritative zero. The observed timestamp and current time must lie within the server-owned period.
 - A usage read does not enable capacity/credit checkout or resource/workflow/AI gates. Preserve stored subscription entitlement limits and accounting provenance; source merge, visible UI and tests do not certify complete writer reconciliation or provider/device acceptance.
+
+
+## Account draft and grid preservation
+
+- Vendor account layout adapters must render a real grid and preserve requested responsive two/three/four-column layouts, with single-column mobile defaults. Outside vendor presentation, retain existing customer/Mantine behavior.
+- Browser reload/close guards read current account challenge and MFA replacement/removal drafts. Pending enrollment and newly issued recovery codes require unload-only protection, while Security-specific navigation warnings remain separate from ordinary global dirty state.
+- Vendor password-reset requests may carry only a validated internal dashboard return hint. The API validates it again before including it in a reset email; absent/unsafe/customer targets retain defaults. Reset completion still requires normal login, MFA and authorization. Never store or transfer credentials in a return URL.

@@ -1,3 +1,4 @@
+import { vendorPasswordResetRequest } from "../vendor/authContext";
 import { LoginPresentation } from "../vendor/LoginPresentation";
 import { isVendorLoginContext } from "../vendor/authContext";
 import { useEffect, useState, type FormEvent } from "react";
@@ -182,7 +183,7 @@ export default function LoginPage() {
     setError("");
     setResetRequestMessage("");
     try {
-      const result = await requestPasswordReset(values);
+      const result = await requestPasswordReset(vendorPasswordResetRequest(values.email, nextPath));
       setResetRequestMessage(result.message);
     } catch (submitError) {
       setError(getErrorMessage(submitError));

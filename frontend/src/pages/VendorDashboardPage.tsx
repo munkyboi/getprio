@@ -1,3 +1,4 @@
+import { draftUnloadHandler } from "../vendor/draftUnloadGuard";
 import { ActivationPanel, WorkspaceLoading, WorkspaceUnavailable } from "../vendor/WorkspaceAccessState";
 import { VendorAuthLayout } from "../vendor/VendorAuthLayout";
 import { OperationalAlerts } from "../vendor/OperationalAlerts";
@@ -856,10 +857,12 @@ function VendorDashboardContent() {
   const [savingQueueQr, setSavingQueueQr] = useState(false);
   const queueQrRef = useRef<HTMLDivElement>(null);
   const unsavedForm = useRef(createDirtyForms());
+  const accountDraftRef = useRef(false);
+  const securityUnloadRef = useRef(false);
   const navigationGuard = useContext(VendorNavigationGuard);
   const activeTenants = useMemo(() => activeMemberships(user?.tenants || []), [user?.tenants]);
   useEffect(() => {
-    const warn = (event: BeforeUnloadEvent) => { if (unsavedForm.current.hasEdits()) { event.preventDefault(); event.returnValue = ""; } };
+    const warn = draftUnloadHandler(() => unsavedForm.current.hasEdits() || accountDraftRef.current || securityUnloadRef.current);
     window.addEventListener("beforeunload", warn);
     return () => window.removeEventListener("beforeunload", warn);
   }, []);
@@ -935,6 +938,8 @@ function VendorDashboardContent() {
   const [removalCode, setRemovalCode] = useState("");
   const [removalRecoveryCode, setRemovalRecoveryCode] = useState("");
   const [removalAcknowledged, setRemovalAcknowledged] = useState(false);
+  accountDraftRef.current = accountPanelDraft || Boolean(replacementPassword || replacementCode || removalPassword || removalCode || removalRecoveryCode || removalAcknowledged);
+  securityUnloadRef.current = Boolean(mfaSecret || mfaCode || mfaRecoveryCodes.length);
   const [vendorNotificationSettings, setVendorNotificationSettings] = useState<TenantNotificationSettings>(defaultNotificationSettings);
   const [browserPermission, setBrowserPermission] = useState<NotificationPermission>(
     typeof window !== "undefined" && typeof window.Notification !== "undefined"
@@ -10965,7 +10970,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
 
   const canLeaveFeature = () => {
     if (resourceConfigurationBusy || busyAction || boardScannerBusy || boardSettingsBusy || savingNotificationSettings || requestingBrowserPermission || accountProfileBusy || passwordBusy || mfaBusy || accountPanelBusy || ratingsBusy) return false;
-    const editing = unsavedForm.current.hasEdits() || themeDialogOpen || accountPanelDraft || Boolean(replacementPassword || replacementCode || removalPassword || removalCode || removalRecoveryCode);
+    const editing = unsavedForm.current.hasEdits() || themeDialogOpen || accountDraftRef.current;
     if (editing && !window.confirm("You have unsaved edits. Leave this view?")) return false;
     if (currentSection === "account" && accountTab === "security") {
       if (mfaRecoveryCodes.length && !window.confirm("Save your recovery codes before leaving Security. They remain visible only in this dashboard session. Leave Security?")) return false;

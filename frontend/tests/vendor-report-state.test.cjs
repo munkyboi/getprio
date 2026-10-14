@@ -1,3 +1,4 @@
+require("tsx/cjs");
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { servedTicketIntervals } = require('../src/vendor/reportState.ts');
