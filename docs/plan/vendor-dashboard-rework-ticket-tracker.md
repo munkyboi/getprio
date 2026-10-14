@@ -83,3 +83,5 @@ Live Reports and Account Subscription both display18/5,000 across all locations;
 ### Remaining presentation publication authorized
 
 Carlo authorized publication of the remaining native dashboard rework on15October2026. VD05–10 and local VD12 presentation work are included; VD11 remains required and blocked, not implemented or activated. Prepare a draft PR against currentmain98281ba7, preserving the already shipped monthly usage contract and excluding merged backend/shared changes. Connected API/Queue/AI/Platform/Mobile owners were notified. Required hosted checks/review/approval, merge, deployment and provider/device acceptance remain separate.
+
+Remaining presentation published as draft [#446](https://github.com/munkyboi/getprio/pull/446). VD05–10/localVD12 are under review; VD11 remains blocked and excluded from implementation claims. Continue current-head review/check triage without merging or deploying.

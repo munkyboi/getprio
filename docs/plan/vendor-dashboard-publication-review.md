@@ -1,6 +1,6 @@
 # Remaining vendor dashboard presentation: publication review
 
-Prepared 15 October 2026 for Carlo. Current unpublished branch: codex/vendor-services-availability, synchronized with main98281ba7. The local preview remains http://localhost:5179/dashboard/services. Carlo authorized publication on15October2026. Publish this package as a draft PR; merge, deployment and runtime activation require their separate gates.
+Prepared 15 October 2026 for Carlo. Current draft PR branch: codex/vendor-services-availability, synchronized with main98281ba7. The local preview remains http://localhost:5179/dashboard/services. Carlo authorized publication on15October2026. Publish this package as a draft PR; merge, deployment and runtime activation require their separate gates.
 
 Proposed PR title: Rework remaining vendor dashboard screens and access states
 
@@ -39,3 +39,5 @@ Validation:214 frontend tests, TypeScript and build pass on the branch synchroni
 Publish as draft for review. Do not merge, deploy or activate runtime gates as part of publication.
 
 The merged current-period usage fix#444/#445 is integrated into the native rework: Reports retains daily location activity and recorded intervals while monthly canonical usage is independent of bootstrap errors. Account Subscription uses the same metric with owner/admin visible-tab polling; exact shared TenantPeriodUsageResponse is imported from merged API contracts. Native retry/layout controls are retained. Already merged changes must be excluded from the eventual main-based review diff.
+
+Draft PR [#446](https://github.com/munkyboi/getprio/pull/446) published against main with code baselinec3da3cba. Fresh Codex review and hosted CI/CodeQL/Sonar are requested; no merge/deployment/runtime acceptance implied.
