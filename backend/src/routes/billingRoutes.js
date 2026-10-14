@@ -103,7 +103,7 @@ async function consumeCommercialConfirmation(req,tenant,action,payload){
 router.get(
   "/tenant/:tenantSlug/usage",
   authenticate,
-  authorizeTenant("tenant.reports.read"),
+  authorizeTenant("tenant.billing.read"),
   asyncHandler(async (req, res) => {
     const tenant = req.authorizedTenant;
     res.json({

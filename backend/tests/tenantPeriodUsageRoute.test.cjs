@@ -34,9 +34,9 @@ async function usageServer(t, options = {}) {
   return { calls, request: (slug, role, active = true, endpoint = 'usage') => fetch(`http://127.0.0.1:${server.address().port}/billing/tenant/${slug}/${endpoint}`, { headers: { ...(role ? { 'x-test-role': role } : {}), 'x-test-active': String(active) } }) };
 }
 
-test('monthly usage read remains available to existing report roles with the capacity experience disabled', async t => {
+test('monthly usage read remains available to existing billing roles with the capacity experience disabled', async t => {
   const { request, calls } = await usageServer(t);
-  for (const role of ['owner', 'admin', 'staff']) {
+  for (const role of ['owner', 'admin']) {
     const res = await request('PICKLE', role);
     assert.equal(res.status, 200);
     const body = await res.json();
@@ -44,13 +44,13 @@ test('monthly usage read remains available to existing report roles with the cap
     assert.equal(body.usage.resources.queueTickets.used, 18);
     assert.equal(body.usage.period.end, '2026-11-11T16:31:21.376Z');
   }
-  assert.deepEqual(calls, ['5', '5', '5']);
+  assert.deepEqual(calls, ['5', '5']);
   assert.equal((await request('pickle', 'owner', true, 'capacity')).status, 404);
 });
 
 test('usage rejects anonymous, inactive, cross-tenant and unpermitted readers before reading usage', async t => {
   const { request, calls } = await usageServer(t);
-  for (const [slug, role, active, status] of [['pickle', null, true, 401], ['pickle', 'owner', false, 403], ['other', 'owner', true, 403], ['pickle', 'customer', true, 403], ['missing', 'owner', true, 404]]) {
+  for (const [slug, role, active, status] of [['pickle', null, true, 401], ['pickle', 'owner', false, 403], ['other', 'owner', true, 403], ['pickle', 'staff', true, 403], ['pickle', 'customer', true, 403], ['missing', 'owner', true, 404]]) {
     assert.equal((await request(slug, role, active)).status, status);
   }
   assert.deepEqual(calls, []);
