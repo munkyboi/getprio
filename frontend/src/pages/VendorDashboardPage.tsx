@@ -173,6 +173,7 @@ import PhoneChangePanel from "../components/PhoneChangePanel";
 import {
   getAllowedHistoryExportRanges,
   getPeriodTicketMetric,
+  shouldLoadPeriodUsage,
   shouldEnableVendorDashboardBootstrap
 } from "../lib/vendorDashboardBootstrap";
 import { canAccessVendorSection } from "../lib/vendorDashboardNavigation";
@@ -1197,7 +1198,7 @@ export default function VendorDashboardPage() {
     queryFn: () => vendorDashboardBootstrap.getPeriodUsage(token!, selectedTenantSlug),
     enabled: Boolean(
       shouldEnableVendorDashboardBootstrap(token, selectedTenantSlug, requiresMfaEnrollment) &&
-      (currentSection === "reports" || currentSection === "account")
+      shouldLoadPeriodUsage({ isOwner, isAdmin, section: currentSection, accountTab })
     ),
     refetchInterval: 30_000
   });
@@ -4787,7 +4788,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         <MetricCard
           label="Served today"
           value={snapshot?.stats?.servedToday ?? 0}
-          detail="Across the selected tenant"
+          detail="At the selected location"
         />
       </SimpleGrid>
     );
@@ -9073,7 +9074,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
   function renderPeriodTicketUsage() {
     return <Stack gap="xs">
       <MetricCard label="Tickets" value={periodUsageQuery.isPending ? "Loading usage…" : periodTicketMetric.value} detail={periodTicketMetric.detail} />
-      {periodUsageQuery.isError ? <Button variant="light" onClick={() => void periodUsageQuery.refetch()} loading={periodUsageQuery.isFetching}>Retry usage</Button> : null}
+      {periodUsageQuery.isError ? <Button variant="light" mih={44} w={{ base: "100%", sm: "fit-content" }} onClick={() => void periodUsageQuery.refetch()} loading={periodUsageQuery.isFetching}>Retry usage</Button> : null}
     </Stack>;
   }
 

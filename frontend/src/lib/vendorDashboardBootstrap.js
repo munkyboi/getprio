@@ -25,3 +25,8 @@ export function getPeriodTicketMetric(usage, requestFailed = false, now = Date.n
   return { value: `${resource.used.toLocaleString()}/${resource.limit.toLocaleString()}`,
     detail: "Current billing period · Across all locations" };
 }
+
+export function shouldLoadPeriodUsage({ isOwner, isAdmin, section, accountTab }) {
+  return Boolean((isOwner || isAdmin) &&
+    (section === "reports" || (section === "account" && accountTab === "subscription")));
+}

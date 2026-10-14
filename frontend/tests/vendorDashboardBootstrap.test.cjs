@@ -63,3 +63,15 @@ test("authoritative zero usage is distinct from unavailable usage", () => {
 test("a cached valid observation cannot label an ended period as current", () => {
   assert.equal(readPeriodMetric(monthlyUsage, false, Date.parse(monthlyUsage.period.end)).value, "Usage unavailable");
 });
+
+const { shouldLoadPeriodUsage } = require("../src/lib/vendorDashboardBootstrap.js");
+test("period usage is requested only for visible owner/admin metrics", () => {
+  assert.equal(shouldLoadPeriodUsage({ isOwner: true, section: "reports" }), true);
+  assert.equal(shouldLoadPeriodUsage({ isAdmin: true, section: "account", accountTab: "subscription" }), true);
+  for (const context of [
+    { section: "reports" }, { section: "account", accountTab: "subscription" },
+    { isOwner: true, section: "account", accountTab: "profile" },
+    { isAdmin: true, section: "account", accountTab: "security" },
+    { isOwner: true, section: "queue" }
+  ]) assert.equal(shouldLoadPeriodUsage(context), false);
+});
