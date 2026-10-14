@@ -1852,14 +1852,15 @@ test("pricing highlights follow current entitlements instead of stale marketing 
     }
   };
   const highlights = getPlanHighlights(plan);
-  for (const text of ["2 staff seats", "1,000 Queue Tickets/mo", "1,000 Queue Email Journeys/mo", "100 service bookings/mo"]) {
+  for (const text of ["2 staff seats", "1,000 Queue Tickets/mo", "100 service bookings/mo"]) {
     assert.ok(highlights.includes(text), text);
   }
   for (const stale of plan.included) assert.ok(!highlights.includes(stale));
   assert.ok(highlights.indexOf("QR join page") < highlights.indexOf("GetPrio-branded public queue page"));
   const changed = getPlanHighlights({ ...plan, allowances: { queueTickets: 8000, queueEmailJourneys: 0, serviceBookings: 250 } });
   assert.ok(changed.includes("8,000 Queue Tickets/mo"));
-  assert.ok(changed.includes("0 Queue Email Journeys/mo"));
+  assert.ok(!highlights.some(text => /email journe|transactional email/i.test(text)));
+  assert.ok(!changed.some(text => /email journe|transactional email/i.test(text)));
   assert.ok(changed.includes("250 service bookings/mo"));
   const legacy = getPlanHighlights({ ...plan, features: { campaigns: true }, entitlements: { ...plan.entitlements, groupFundedCampaignAccess: true } });
   assert.ok(!legacy.includes("Group-funded campaigns"));
@@ -1891,15 +1892,15 @@ test("enterprise inquiries use protected intake and a bounded autosizing message
   assert.match(styles, /\.enterprise-message-counter \{[\s\S]*?position: absolute/);
 });
 
-test("vendor usage cards report queue email journeys instead of legacy deliveries", () => {
+test("retired email quotas stay out of vendor metrics while capacity loading remains", () => {
   const frontendRoot = path.resolve(__dirname, "..");
   const dashboard = fs.readFileSync(path.join(frontendRoot, "src", "pages", "VendorDashboardPage.tsx"), "utf8");
   const bootstrap = fs.readFileSync(path.join(frontendRoot, "src", "api", "vendorDashboardBootstrap.ts"), "utf8");
 
-  assert.match(dashboard, /resources\.queueEmailJourneys/);
-  assert.match(dashboard, /label="Email journeys"/);
-  assert.match(dashboard, /Journeys started this period/);
-  assert.match(dashboard, /Journey tracking pending rollout/);
+  assert.doesNotMatch(dashboard, /resources\.queueEmailJourneys/);
+  assert.doesNotMatch(dashboard, /label="Email journeys"/);
+  assert.doesNotMatch(dashboard, /Journeys started this period/);
+  assert.doesNotMatch(dashboard, /Journey tracking pending rollout/);
   assert.doesNotMatch(dashboard, /Legacy delivery count/);
   assert.doesNotMatch(dashboard, /label="Email deliveries"/);
   assert.match(bootstrap, /getCapacityExperience/);
@@ -1922,4 +1923,13 @@ test("image preflight rejects oversized files before POST and rechecks a changed
     await apiUpload("/vendor/upload", { body, contentType: "image/png" });
     assert.equal(uploads, 1);
   });
+});
+
+test("all public plan highlights omit retired email allowances while retaining delivery features",()=>{
+ const {getPlanHighlights}=require("../src/utils/subscriptionPlans.ts");
+ for(const slug of ["free","basic","pro","enterprise"]){
+  const highlights=getPlanHighlights({slug,entitlements:{monthlyTickets:500,emailAlerts:true,monthlyQueueEmailJourneys:5000,monthlyTransactionalEmails:5000,serviceBookingAccess:true,monthlyServiceBookings:100},allowances:{queueTickets:500,queueEmailJourneys:5000,serviceBookings:100}});
+  assert.ok(highlights.includes("500 Queue Tickets/mo"));assert.ok(highlights.includes("100 service bookings/mo"));assert.ok(highlights.includes("Email alerts"));
+  assert.ok(!highlights.some(text=>/journey|transactional email/i.test(text)));
+ }
 });

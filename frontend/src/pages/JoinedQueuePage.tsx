@@ -300,9 +300,7 @@ export default function JoinedQueuePage() {
   const locationDetailLabel = [snapshot?.location?.city, snapshot?.location?.province].filter(Boolean).join(", ") || snapshot?.location?.country || "Philippines";
   const linkedBookingReference = snapshot?.focusTicket?.linkedBookingReference;
   const isBookingTicket = Boolean(linkedBookingReference) || snapshot?.focusTicket?.servicePriorityBand === "checked_in_booking";
-  const bookingEmailStatus = snapshot?.focusTicket?.emailJourneyMode === "journey_exhausted"
-    ? "Paused — the vendor's email allowance has been reached."
-    : snapshot?.focusTicket?.notifyByEmail === true
+  const bookingEmailStatus = snapshot?.focusTicket?.notifyByEmail === true
       ? "Enabled — carried over from your booking."
       : snapshot?.focusTicket?.notifyByEmail === false
         ? "Not enabled for this ticket."
@@ -888,7 +886,7 @@ export default function JoinedQueuePage() {
             </Group>
           </div>
         </Modal>
-        {(shouldAwaitPaymentSync || paymentSyncing || snapshot?.focusTicket?.emailJourneyMode === "journey_exhausted" || (snapshot && queueState.label !== "Open")) ? (
+        {(shouldAwaitPaymentSync || paymentSyncing || (snapshot && queueState.label !== "Open")) ? (
           <Stack className="ticket-page-notifications" gap="sm">
             {shouldAwaitPaymentSync || paymentSyncing ? (
               <Alert className="ticket-page-status-alert" color="blue" title="Confirming payment">
@@ -905,11 +903,7 @@ export default function JoinedQueuePage() {
                 {queueState.message}
               </Alert>
             ) : null}
-            {snapshot?.focusTicket?.emailJourneyMode === "journey_exhausted" ? (
-              <Alert className="ticket-page-status-alert" color="blue" icon={<IconInfoCircle size={18} />} title="Follow updates here">
-                Your ticket is active. This vendor has reached its monthly email journey allowance, so email updates are paused. Keep this page open or enable browser notifications for live updates.
-              </Alert>
-            ) : null}
+
           </Stack>
         ) : null}
         <Paper className="vendor-hero-shell ticket-page-hero booking-detail-page-hero" p={{ base: "lg", md: "xl" }}>

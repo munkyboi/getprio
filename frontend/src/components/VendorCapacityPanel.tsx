@@ -20,7 +20,7 @@ import { apiRequest } from "../api/client";
 
 type Resource = {
   limit: number;
-  used: number;
+  used: number | null;
   creditRemaining: number;
   resetAt: string | null;
 };
@@ -41,12 +41,10 @@ type Pack = {
   code: string;
   name: string;
   ticketUnits: number;
-  journeyUnits: number;
   priceDisplay: string;
 };
 const labels: Record<string, string> = {
   queueTickets: "Queue Tickets",
-  queueEmailJourneys: "Queue Email Journeys",
   serviceBookings: "Service Bookings",
 };
 
@@ -229,7 +227,8 @@ export default function VendorCapacityPanel({
         </Alert>
       ) : null}
       <SimpleGrid cols={{ base: 1, sm: 3 }}>
-        {Object.entries(capacity.resources).map(([key, resource]) => {
+        {Object.entries(capacity.resources).filter(([key]) => key !== "queueEmailJourneys").map(([key, resource]) => {
+          if (resource.used === null) return <Card key={key} withBorder><Stack gap="xs"><Text fw={700}>{labels[key] || key}</Text><Title order={4}>Usage unavailable</Title><Text c="dimmed" size="sm">Current-period usage is unavailable. Refresh before relying on remaining capacity.</Text></Stack></Card>;
           const available =
             Math.max(0, resource.limit - resource.used) +
             resource.creditRemaining;
@@ -270,12 +269,11 @@ export default function VendorCapacityPanel({
           <div>
             <Title order={4}>Usage Credits</Title>
             <Text c="dimmed" size="sm">
-              Credits carry forward and bypass Ticket and Journey limits. They
-              never bypass Service Booking limits.
+              Ticket credits carry forward and add to your queue ticket allowance. They do not add to service booking allowances.
             </Text>
           </div>
           <SimpleGrid cols={{ base: 1, sm: 3 }}>
-            {packs.map((pack) => (
+            {packs.filter((pack) => pack.ticketUnits > 0).map((pack) => (
               <Card key={pack.code} withBorder>
                 <Stack>
                   <Group justify="space-between">
@@ -283,8 +281,7 @@ export default function VendorCapacityPanel({
                     <Badge>{pack.priceDisplay}</Badge>
                   </Group>
                   <Text size="sm">
-                    {pack.ticketUnits.toLocaleString()} Tickets +{" "}
-                    {pack.journeyUnits.toLocaleString()} Journeys
+                    {pack.ticketUnits.toLocaleString()} Tickets
                   </Text>
                   <Button
                     disabled={Boolean(busy)}

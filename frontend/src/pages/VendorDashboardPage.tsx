@@ -1177,17 +1177,6 @@ function VendorDashboardContent() {
     },
     enabled: shouldEnableVendorDashboardBootstrap(token, selectedTenantSlug, requiresMfaEnrollment)
   });
-  const capacityExperienceQuery = useQuery({
-    queryKey: ["vendor-dashboard-capacity-experience", token, selectedTenantSlug],
-    queryFn: async () => {
-      if (!token || !selectedTenantSlug) {
-        throw new Error("Missing capacity context.");
-      }
-
-      return vendorDashboardBootstrap.getCapacityExperience(token, selectedTenantSlug);
-    },
-    enabled: shouldEnableVendorDashboardBootstrap(token, selectedTenantSlug, requiresMfaEnrollment)
-  });
   const effectiveBilling = billingOverviewQuery.data || null;
   const activeSubscription =
     effectiveBilling?.subscription?.status === "active" ? effectiveBilling.subscription : null;
@@ -2394,23 +2383,6 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       ""
   };
   const ticketUsage = !dashboardBootstrapQuery.error && snapshot?.tenant.slug === selectedTenantSlug && snapshot?.location?.slug === selectedLocationSlug ? snapshot.stats.servedToday : "—";
-  const configuredEmailJourneyLimit = activeSubscription?.entitlements.emailAlerts
-    ? activeSubscription.entitlements.monthlyQueueEmailJourneys ??
-      activeSubscription.entitlements.monthlyTransactionalEmails ??
-      currentPlan?.entitlements.monthlyQueueEmailJourneys ??
-      currentPlan?.entitlements.monthlyTransactionalEmails
-    : 0;
-  const emailJourneyResource =
-    capacityExperienceQuery.data?.capacity?.resources.queueEmailJourneys;
-  const emailJourneyLimit = emailJourneyResource?.limit ?? configuredEmailJourneyLimit;
-  const emailJourneyUsage = emailJourneyResource?.used ?? 0;
-  const emailJourneyDetail = capacityExperienceQuery.isPending
-    ? "Loading journey usage"
-    : capacityExperienceQuery.error
-      ? "Journey usage unavailable"
-      : capacityExperienceQuery.data?.enabled
-        ? "Journeys started this period"
-        : "Journey tracking pending rollout";
   const historyTickets = useMemo(() => history?.tickets || snapshot?.history || [], [history, snapshot]);
   const recordedIntervals = useMemo(() => servedTicketIntervals(snapshot?.history || [], RECORDED_INTERVAL_TICKET_LIMIT), [snapshot?.history]);
   const averageRecordedInterval = recordedIntervals.length ? Math.round(recordedIntervals.reduce((total, bar)=>total+bar.minutes,0)/recordedIntervals.length*10)/10 : 0;
@@ -9171,7 +9143,6 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     const ready = !dashboardBootstrapQuery.error && snapshot?.tenant.slug === selectedTenantSlug && snapshot?.location?.slug === selectedLocationSlug;
     if (!ready) return <OperationQueryState loading={!dashboardBootstrapQuery.error} error={dashboardBootstrapQuery.error} onRetry={()=>void dashboardBootstrapQuery.refetch()} />;
     return <div className="config-page"><div className="ops-grid-2"><OperationMetric label="Waiting tickets" value={snapshot.stats.waitingCount} detail="At the selected location" /><OperationMetric label="Tickets served today" value={ticketUsage} detail="At the selected location" /><OperationMetric label="Estimated wait" value={`${snapshot.stats.estimatedWaitMinutes} min`} detail="Current queue estimate" /><OperationMetric label="Called ticket" value={selectedCalledTicket?.ticketNumber || "—"} detail={selectedCalledTicket?.customerName || "No called ticket for the selected counter"} /></div>
-      <OperationPanel><h2 className="account-panel-title">Email journey usage</h2><OperationQueryState loading={capacityExperienceQuery.isPending} error={capacityExperienceQuery.error} onRetry={()=>void capacityExperienceQuery.refetch()} />{!capacityExperienceQuery.isPending && !capacityExperienceQuery.error ? capacityExperienceQuery.data?.enabled && emailJourneyResource ? <OperationMetric label="Email journeys" value={`${emailJourneyResource.used}/${emailJourneyResource.limit}`} detail={emailJourneyDetail} /> : <p className="ops-muted">Period usage is unavailable for this workspace.</p> : null}</OperationPanel>
       {renderRecordedIntervals()}
     </div>;
   }
@@ -9482,7 +9453,6 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   </AccountGroup>
                   <AccountGrid cols={{ base: 1, sm: 2 }}>
                     <OperationMetric label="Tickets served today" value={ticketUsage} detail="At the selected location" />
-                    <OperationMetric label="Email journeys" value={`${emailJourneyUsage}/${emailJourneyLimit ?? "--"}`} detail={emailJourneyDetail} />
                   </AccountGrid>
                   {!activeSubscription ? <div>{renderPlanCards()}</div> : !isFreeSubscription ? (
                     <AccountButton onClick={() => openPlanDialog()} variant="light" w={{ base: "100%", sm: "fit-content" }}>
