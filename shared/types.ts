@@ -1493,6 +1493,8 @@ export interface UnfinishedServiceTiming {
 }
 
 export interface QueueSnapshot {
+  /** Confirms this response's backend does not gate queue email delivery on quota. */
+  emailQuotaPolicy?: "unmetered";
   calledTickets?: (QueueCurrentTicket & { serviceCounterId: string | null })[];
   readyWaitingCount?: number;
   counterDispatch?: { serviceCounterId: string | null; counterSlug: string | null; counterName: string; currentTicketId: string | null; canCallNext: boolean; blockReason: string | null }[];

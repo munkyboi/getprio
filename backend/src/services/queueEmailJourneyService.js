@@ -1,4 +1,5 @@
 const db = require("../config/db");
+const EMAIL_QUOTA_POLICY = "unmetered";
 
 async function withLifecycleSlot(ticketId, slotKey, logicalMessageKey, deliver) {
   const journey = await db.pool.query("SELECT id FROM queue_email_journeys WHERE ticket_id=$1", [ticketId]);
@@ -25,4 +26,4 @@ async function withLifecycleSlot(ticketId, slotKey, logicalMessageKey, deliver) 
   }
 }
 
-module.exports = { withLifecycleSlot };
+module.exports = { EMAIL_QUOTA_POLICY, withLifecycleSlot };
