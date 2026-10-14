@@ -1614,7 +1614,7 @@ router.post(
   asyncHandler(async (req, res) => {
     const payload = { subscriptionId: req.params.subscriptionId };
     const subscription = await db.withTransaction(async (client) => {
-      const suspensionContext = await subscriptionLifecycleService.prepareSubscriptionSuspension(req.params.subscriptionId, { client });
+      const suspensionContext = await subscriptionLifecycleService.prepareSubscriptionSuspension(req.params.subscriptionId, { client, actorId: req.user._id, requirePlatformAuthority: true });
       if (!suspensionContext) return null;
       const preview = await privilegedPreviewService.resolvePreview({ action: "subscription.suspend", target: req.params.subscriptionId, payload }, { client, lock: true });
       await privilegedTransactionService.consumeConfirmation({ token: req.get("x-transaction-confirmation"), actorId: req.user._id, session: req.auth.session, action: "subscription.suspend", target: req.params.subscriptionId, reason: req.body.reason, payload, previewRevision: req.body.previewRevision, currentPreviewRevision: preview.revision }, { client });

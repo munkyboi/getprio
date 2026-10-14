@@ -2503,7 +2503,7 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
           await observer.query('BEGIN');await assert.rejects(observer.query(sql),{code:'55P03'});await observer.query('ROLLBACK');
         }
         revocation=actualOverrides.revoke({overrideId:'1',tenantId:'1',actorId:'2'},{client:pool});revocation.catch(()=>{});
-        suspension=(async ()=>{const client=await pool.connect();try {await client.query('BEGIN');const suspensionContext=await actualLifecycle.prepareSubscriptionSuspension('1',{client});const result=await actualLifecycle.suspendSubscription('1',{reason:'Suspend policy',actorId:'2'},{client,suspensionContext});await client.query('COMMIT');return result;}catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}})();suspension.catch(()=>{});
+        suspension=(async ()=>{const client=await pool.connect();try {await client.query('BEGIN');const suspensionContext=await actualLifecycle.prepareSubscriptionSuspension('1',{client,actorId:'2'});const result=await actualLifecycle.suspendSubscription('1',{reason:'Suspend policy',actorId:'2'},{client,suspensionContext});await client.query('COMMIT');return result;}catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}})();suspension.catch(()=>{});
         const deadline=Date.now()+3000;let waiting=0;
         while(Date.now()<deadline) {
           waiting=Number((await pool.query("SELECT count(*) AS n FROM pg_stat_activity WHERE application_name=$1 AND wait_event_type='Lock' AND (query LIKE 'UPDATE tenant_entitlement_overrides%' OR query LIKE 'SELECT * FROM tenant_subscriptions%' OR query LIKE 'SELECT id FROM tenants%')",[schema])).rows[0].n);

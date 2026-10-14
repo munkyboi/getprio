@@ -3,6 +3,7 @@ const repository = require("../repositories/subscriptionLifecycle");
 const planRepository = require("../repositories/subscriptionPlans");
 const suspensionRepository = require("../repositories/subscriptionSuspension");
 const suspensionContexts = new WeakMap();
+const { assertPermission } = require("./permissions");
 
 const PLAN_ORDER = { free: 0, economical: 1, pro: 2, enterprise: 3 };
 
@@ -87,9 +88,28 @@ async function prepareSubscriptionSuspension(subscriptionId, options = {}) {
   const current = await suspensionRepository.readSubscription(client, subscriptionId, true);
   if (!current) return null;
   assertSuspensionTenant(current, tenantId);
+  const actorId = options.actorId == null ? null : String(options.actorId);
+  if (options.requirePlatformAuthority && actorId === null) {
+    throw Object.assign(new Error("User session is no longer valid."), { statusCode: 401 });
+  }
+  await assertSuspensionActor(client, actorId, options.requirePlatformAuthority);
   const context = Object.freeze({});
-  suspensionContexts.set(context, { client, subscriptionId: String(subscriptionId), tenantId });
+  suspensionContexts.set(context, { client, subscriptionId: String(subscriptionId), tenantId, actorId, requirePlatformAuthority: options.requirePlatformAuthority });
   return context;
+}
+
+async function assertSuspensionActor(client, actorId, requirePlatformAuthority) {
+  if (actorId === null) return;
+  const actor = await suspensionRepository.readActor(client, actorId);
+  if (!actor || actor.deletion_requested_at) {
+    throw Object.assign(new Error("User session is no longer valid."), { statusCode: 401 });
+  }
+  if (actor.platform_access_suspended_at) {
+    throw Object.assign(new Error("This account's access is suspended. Contact GetPrio support."), {
+      statusCode: 403, code: "ACCOUNT_ACCESS_SUSPENDED"
+    });
+  }
+  if (requirePlatformAuthority) assertPermission(actor, "platform.subscription_lifecycle.manage");
 }
 
 function assertSuspensionTenant(current, tenantId) {
@@ -103,12 +123,13 @@ function assertSuspensionTenant(current, tenantId) {
 async function suspendSubscription(subscriptionId, input = {}, options = {}) {
   const suspend = async (client, context) => {
     const scope = suspensionContexts.get(context);
-    if (!scope || scope.client !== client || scope.subscriptionId !== String(subscriptionId)) {
+    if (!scope || scope.client !== client || scope.subscriptionId !== String(subscriptionId) || scope.actorId !== (input.actorId == null ? null : String(input.actorId))) {
       throw Object.assign(new Error("Caller-owned suspension requires a prepared transaction context."), {
         statusCode: 409, code: "SUSPENSION_CONTEXT_REQUIRED"
       });
     }
     suspensionContexts.delete(context);
+    await assertSuspensionActor(client, scope.actorId, scope.requirePlatformAuthority);
     const current = await suspensionRepository.readSubscription(client, subscriptionId, true);
     if (!current) return null;
     assertSuspensionTenant(current, scope.tenantId);
@@ -120,7 +141,7 @@ async function suspendSubscription(subscriptionId, input = {}, options = {}) {
   };
   if (options.client) return suspend(options.client, options.suspensionContext);
   return db.withTransaction(async client => {
-    const context = await prepareSubscriptionSuspension(subscriptionId, { client });
+    const context = await prepareSubscriptionSuspension(subscriptionId, { client, actorId: input.actorId });
     return context ? suspend(client, context) : null;
   });
 }

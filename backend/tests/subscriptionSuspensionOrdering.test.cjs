@@ -13,18 +13,20 @@ test('unprepared caller-owned suspension rejects before any SQL', async () => {
   const service = loadModuleWithMocks(lifecyclePath, { '../config/db': {}, '../repositories/subscriptionLifecycle': {}, '../repositories/subscriptionPlans': {} });
   const client = { query: async () => assert.fail('unprepared client attempted a lock') };
   for (const suspensionContext of [undefined, {}]) {
-    await assert.rejects(service.suspendSubscription('1', {}, { client, suspensionContext }), { code: 'SUSPENSION_CONTEXT_REQUIRED' });
+    await assert.rejects(service.suspendSubscription('1', { actorId: '1' }, { client, suspensionContext }), { code: 'SUSPENSION_CONTEXT_REQUIRED' });
   }
   await assert.rejects(service.prepareSubscriptionSuspension('1'), /transaction client/);
 });
 
 test('suspension reader translates only its scoped NOWAIT conflict', async () => {
-  const { readSubscription } = require('../src/repositories/subscriptionSuspension');
+  const { readSubscription, readActor } = require('../src/repositories/subscriptionSuspension');
   const error = Object.assign(new Error('lock'), { code: '55P03' });
   const client = { query: async () => { throw error; } };
   await assert.rejects(readSubscription(client, '1', true), { code: 'SUBSCRIPTION_BUSY', statusCode: 409 });
   await assert.rejects(readSubscription(client, '1'), value => value === error);
+  await assert.rejects(readActor(client, '1'), { code: 'SUBSCRIPTION_ACTOR_BUSY', statusCode: 409 });
   error.code = '40P01';
+  await assert.rejects(readActor(client, '1'), value => value === error);
   await assert.rejects(readSubscription(client, '1', true), value => value === error);
 });
 
@@ -65,7 +67,7 @@ test('prepared suspension and Platform confirmations preserve PostgreSQL transac
     const client = { query: async (sql, args) => {
       if (fault && sql.includes("UPDATE tenant_subscriptions SET status = 'suspended'")) throw new Error('suspension fault');
       const result = await raw.query(sql, args);
-      if (barrier && sql === 'SELECT id FROM tenants WHERE id = $1 FOR UPDATE') { barrier.reached(); await barrier.release; }
+      if (barrier && sql === (barrier.sql || 'SELECT id FROM tenants WHERE id = $1 FOR UPDATE')) { barrier.reached(); await barrier.release; }
       return result;
     } };
     try { await raw.query('BEGIN'); const value = await callback(client); await raw.query('COMMIT'); return value; }
@@ -101,7 +103,7 @@ test('prepared suspension and Platform confirmations preserve PostgreSQL transac
   const reset = async () => {
     fault = false;
     await pool.query(`TRUNCATE tenants,users,auth_sessions,subscription_plans,tenant_subscriptions,subscription_transitions,privileged_transaction_confirmations,billing_checkout_sessions RESTART IDENTITY CASCADE;
-      INSERT INTO tenants VALUES(1),(2); INSERT INTO users VALUES(1); INSERT INTO auth_sessions VALUES(1);
+      INSERT INTO tenants VALUES(1),(2); INSERT INTO users(id,roles) VALUES(1,ARRAY['platform_admin']); INSERT INTO auth_sessions VALUES(1);
       INSERT INTO subscription_plans VALUES('free'); INSERT INTO tenant_subscriptions(id,tenant_id,plan_slug,status) VALUES(1,1,'free','active');`);
   };
   const wait = async fragment => {
@@ -117,7 +119,7 @@ test('prepared suspension and Platform confirmations preserve PostgreSQL transac
     finally { await client.query('ROLLBACK'); client.release(); }
   };
   try {
-    await pool.query(`CREATE SCHEMA ${schema}; CREATE TABLE tenants(id BIGINT PRIMARY KEY); CREATE TABLE users(id BIGINT PRIMARY KEY); CREATE TABLE auth_sessions(id BIGINT PRIMARY KEY); CREATE TABLE subscription_plans(slug TEXT PRIMARY KEY);`);
+    await pool.query(`CREATE SCHEMA ${schema}; CREATE TABLE tenants(id BIGINT PRIMARY KEY); CREATE TABLE users(id BIGINT PRIMARY KEY, roles TEXT[], deletion_requested_at TIMESTAMPTZ, platform_access_suspended_at TIMESTAMPTZ); CREATE TABLE queue_events(id BIGSERIAL PRIMARY KEY, tenant_id BIGINT NOT NULL REFERENCES tenants(id)); CREATE TABLE auth_sessions(id BIGINT PRIMARY KEY); CREATE TABLE subscription_plans(slug TEXT PRIMARY KEY);`);
     const sql = fs.readFileSync(path.resolve(__dirname, '../../database/init.sql'), 'utf8');
     for (const table of ['tenant_subscriptions', 'subscription_transitions', 'privileged_transaction_confirmations', 'billing_checkout_sessions']) {
       await pool.query(sql.match(new RegExp(`CREATE TABLE ${table} \\([\\s\\S]*?\\n\\);`))[0]);
@@ -219,14 +221,66 @@ test('prepared suspension and Platform confirmations preserve PostgreSQL transac
     await t.test('prepared context cannot cross client or target or be reused', async () => {
       await reset();
       await db.withTransaction(async client => {
-        const suspensionContext = await lifecycle.prepareSubscriptionSuspension('1', { client });
+        const suspensionContext = await lifecycle.prepareSubscriptionSuspension('1', { client, actorId: '1' });
         for (const [target, selected] of [['2', client], ['1', pool]]) {
-          await assert.rejects(lifecycle.suspendSubscription(target, {}, { client: selected, suspensionContext }), { code: 'SUSPENSION_CONTEXT_REQUIRED' });
+          await assert.rejects(lifecycle.suspendSubscription(target, { actorId: '1' }, { client: selected, suspensionContext }), { code: 'SUSPENSION_CONTEXT_REQUIRED' });
         }
+        await assert.rejects(lifecycle.suspendSubscription('1', { reason, actorId: '2' }, { client, suspensionContext }), { code: 'SUSPENSION_CONTEXT_REQUIRED' });
         await lifecycle.suspendSubscription('1', { reason, actorId: '1' }, { client, suspensionContext });
-        await assert.rejects(lifecycle.suspendSubscription('1', {}, { client, suspensionContext }), { code: 'SUSPENSION_CONTEXT_REQUIRED' });
+        await assert.rejects(lifecycle.suspendSubscription('1', { actorId: '1' }, { client, suspensionContext }), { code: 'SUSPENSION_CONTEXT_REQUIRED' });
       });
       assert.deepEqual(await state(), { status: 'suspended', transitions: 1, consumed: 0 });
+    });
+    for (const mode of ['Platform', 'standalone']) {
+      await t.test(`${mode} actor-first deletion contention rolls back then refuses deleted actor`, async () => {
+        await reset(); const confirmation = await issue();
+        const call = () => mode === 'Platform' ? invoke(confirmation) : lifecycle.suspendSubscription('1', { reason, actorId: '1' });
+        const deleting = await pool.connect(); let reached, release;
+        const entered = new Promise(resolve => { reached = resolve; });
+        barrier = { reached, release: new Promise(resolve => { release = resolve; }) };
+        try {
+          await deleting.query('BEGIN'); await deleting.query('SELECT id FROM users WHERE id=1 FOR UPDATE');
+          const pending = assert.rejects(call(), { code: 'SUBSCRIPTION_ACTOR_BUSY' });
+          await entered;
+          // Exact deletion lock edge: user UPDATE followed by queue event tenant FK.
+          const event = deleting.query('INSERT INTO queue_events(tenant_id) VALUES(1)');
+          try { await wait('INSERT INTO queue_events'); } finally { barrier = null; release(); }
+          await pending; await event;
+          await deleting.query('UPDATE users SET deletion_requested_at=NOW() WHERE id=1'); await deleting.query('COMMIT');
+          assert.deepEqual(await state(), { status: 'active', transitions: 0, consumed: 0 });
+          await assert.rejects(call(), { statusCode: 401 });
+          assert.deepEqual(await state(), { status: 'active', transitions: 0, consumed: 0 });
+        } finally { barrier = null; release(); await deleting.query('ROLLBACK'); deleting.release(); }
+      });
+      await t.test(`${mode} suspension-first holds actor through commit before deletion`, async () => {
+        await reset(); const confirmation = await issue(); const deleting = await pool.connect();
+        let reached, release;
+        const entered = new Promise(resolve => { reached = resolve; });
+        barrier = { sql: 'SELECT id, roles, deletion_requested_at, platform_access_suspended_at FROM users WHERE id = $1 FOR SHARE NOWAIT', reached, release: new Promise(resolve => { release = resolve; }) };
+        const suspension = mode === 'Platform' ? invoke(confirmation) : lifecycle.suspendSubscription('1', { reason, actorId: '1' });
+        suspension.catch(() => {});
+        try {
+          await entered; await deleting.query('BEGIN');
+          const deletion = deleting.query('UPDATE users SET deletion_requested_at=NOW() WHERE id=1');
+          deletion.catch(() => {});
+          try { await wait('UPDATE users SET deletion_requested_at'); } finally { barrier = null; release(); }
+          await suspension; await deletion;
+          await deleting.query('INSERT INTO queue_events(tenant_id) VALUES(1)'); await deleting.query('COMMIT');
+          assert.deepEqual(await state(), { status: 'suspended', transitions: 1, consumed: mode === 'Platform' ? 1 : 0 });
+        } finally { barrier = null; release(); await deleting.query('ROLLBACK'); deleting.release(); }
+      });
+    }
+    for (const field of ['deletion_requested_at', 'platform_access_suspended_at', 'roles']) {
+      await t.test(`Platform revalidates current actor ${field} before confirmation`, async () => {
+        await reset(); const confirmation = await issue();
+        await pool.query(field === 'roles' ? "UPDATE users SET roles='{}' WHERE id=1" : `UPDATE users SET ${field}=NOW() WHERE id=1`);
+        await assert.rejects(invoke(confirmation), { statusCode: field === 'deletion_requested_at' ? 401 : 403 });
+        assert.deepEqual(await state(), { status: 'active', transitions: 0, consumed: 0 });
+      });
+    }
+    await t.test('system actor remains supported without an actor foreign key', async () => {
+      await reset(); await lifecycle.suspendSubscription('1', { reason });
+      assert.equal((await pool.query('SELECT created_by_user_id FROM subscription_transitions')).rows[0].created_by_user_id, null);
     });
     await t.test('missing targets return null or 404 without confirmation consumption', async () => {
       await reset(); const confirmation = await issue('404');
