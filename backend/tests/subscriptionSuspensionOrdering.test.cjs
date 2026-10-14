@@ -170,26 +170,21 @@ test('prepared suspension and Platform confirmations preserve PostgreSQL transac
         } finally { barrier = null; release(); await legacy.query('ROLLBACK'); legacy.release(); }
       });
     }
-    await t.test('moved subscription after a tenant wait rejects without consuming confirmation', async () => {
-      await reset(); const confirmation = await issue();
-      await holdTenant(async holder => {
-        const pending = assert.rejects(invoke(confirmation), { code: 'SUBSCRIPTION_SCOPE_CHANGED' });
-        try { await wait('SELECT id FROM tenants'); await holder.query('UPDATE tenant_subscriptions SET tenant_id=2 WHERE id=1'); }
-        finally { await holder.query('COMMIT'); }
-        await pending;
+    for (const scenario of [
+      { name: 'moved subscription after a tenant wait rejects without consuming confirmation', sql: 'UPDATE tenant_subscriptions SET tenant_id=2 WHERE id=1', code: 'SUBSCRIPTION_SCOPE_CHANGED', status: 'active' },
+      { name: 'post-wait changed status keeps original preview stale and confirmation unused', sql: "UPDATE tenant_subscriptions SET status='past_due' WHERE id=1", code: 'TRANSACTION_PREVIEW_STALE', status: 'past_due' }
+    ]) {
+      await t.test(scenario.name, async () => {
+        await reset(); const confirmation = await issue();
+        await holdTenant(async holder => {
+          const pending = assert.rejects(invoke(confirmation), { code: scenario.code });
+          try { await wait('SELECT id FROM tenants'); await holder.query(scenario.sql); }
+          finally { await holder.query('COMMIT'); }
+          await pending;
+        });
+        assert.deepEqual(await state(), { status: scenario.status, transitions: 0, consumed: 0 });
       });
-      assert.deepEqual(await state(), { status: 'active', transitions: 0, consumed: 0 });
-    });
-    await t.test('post-wait changed status keeps original preview stale and confirmation unused', async () => {
-      await reset(); const confirmation = await issue();
-      await holdTenant(async holder => {
-        const pending = assert.rejects(invoke(confirmation), { code: 'TRANSACTION_PREVIEW_STALE' });
-        try { await wait('SELECT id FROM tenants'); await holder.query("UPDATE tenant_subscriptions SET status='past_due' WHERE id=1"); }
-        finally { await holder.query('COMMIT'); }
-        await pending;
-      });
-      assert.deepEqual(await state(), { status: 'past_due', transitions: 0, consumed: 0 });
-    });
+    }
     await t.test('provider activation waits for suspension and preserves its restricted outcome', async () => {
       await reset();
       const plans = { findPlanBySlug: async slug => ({ slug, entitlements: {} }), listPlans: async () => [], listAddOns: () => [] };
