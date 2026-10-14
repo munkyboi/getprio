@@ -207,7 +207,7 @@ router.post(
   authenticate,
   requireReleaseControl("subscriptionLifecycle"),
   authorizeTenant("tenant.billing.manage"),
-  requireIdempotency("tenant.subscription_transition.create", { retryableErrorCodes: ["SUBSCRIPTION_BUSY", "SUBSCRIPTION_ACTOR_BUSY", "SUBSCRIPTION_PLAN_BUSY", "SUBSCRIPTION_TRANSITION_BUSY"] }),
+  requireIdempotency("tenant.subscription_transition.create", { retryableErrorCodes: ["SUBSCRIPTION_BUSY", "SUBSCRIPTION_ACTOR_BUSY", "SUBSCRIPTION_PLAN_BUSY", "SUBSCRIPTION_TRANSITION_BUSY", "SUBSCRIPTION_MEMBERSHIP_BUSY"] }),
   asyncHandler(async (req, res) => {
     const tenant = req.authorizedTenant;
     const reason = String(req.body.reason || "").trim();
