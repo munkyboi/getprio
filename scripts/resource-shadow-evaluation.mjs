@@ -9,6 +9,8 @@ const REASONS = new Set(["shadow_disabled", "invalid_target_reference", "snapsho
   "target_not_waiting", "projection_inventory_limit", "called_service_start_unknown", "occupancy_completion_unknown",
   "overdue_occupancy", "no_start_within_horizon", "reservation_window_unusable", "forecast_capacity_conflict", "resource_projection_error"]);
 
+export function isResourceShadowFallbackReason(value) { return REASONS.has(value); }
+
 function invalid() { throw new Error("Invalid resource service-start evaluation dataset."); }
 function shape(value, keys) {
   if (!value || typeof value !== "object" || Array.isArray(value)
