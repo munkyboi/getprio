@@ -134,6 +134,9 @@ app.use("/api/vendor", vendorRoutes);
 if (localPoolDemoScopeModule.localPoolDemoConfiguration()) {
   const loadLocalRoute = createRequire(__filename);
   app.use("/api/vendor", loadLocalRoute("./routes/localResourceOperationsRoutes"));
+  if (process.env.LOCAL_IMAGE_STORAGE_ENABLED === "1") {
+    app.use("/api/local-image-assets", loadLocalRoute("./routes/localImageRoutes"));
+  }
 }
 app.use("/v1", developerApiRoutes);
 

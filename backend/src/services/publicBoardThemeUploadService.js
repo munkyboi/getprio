@@ -1,3 +1,4 @@
+const { storeLocalImage } = require("./localImageStorage");
 const { assertImageUploadSize } = require("./imageUploadPolicy");
 const crypto = require("crypto");
 const { PutObjectCommand, S3Client } = require("@aws-sdk/client-s3");
@@ -47,8 +48,9 @@ function assertB2Configured() {
     .map(([key]) => key);
 
   if (missing.length) {
-    const error = new Error(`Backblaze B2 uploads are not configured. Missing: ${missing.join(", ")}.`);
+    const error = new Error("Image storage is currently unavailable. Please try again later.");
     error.statusCode = 503;
+    error.code = "IMAGE_UPLOAD_UNAVAILABLE";
     throw error;
   }
 }
@@ -162,7 +164,6 @@ async function createUpload({ tenant, location, user, body }) {
 
 async function uploadBinary({ tenant, location, user, body, fileBuffer }) {
   const uploadBuffer = Buffer.isBuffer(fileBuffer) ? Buffer.from(fileBuffer) : null;
-  assertB2Configured();
 
   const assetType = body.assetType === "logo" ? "logo" : "background";
   const fileName = normalizeFileName(body.fileName);
@@ -177,21 +178,28 @@ async function uploadBinary({ tenant, location, user, body, fileBuffer }) {
 
   await assertImageUploadSize(uploadBuffer?.length || 0);
 
-  const objectKey = buildObjectKey({
+  let objectKey = buildObjectKey({
     tenantId: tenant._id,
     location,
     assetType,
     fileName,
     contentType
   });
-  const publicUrl = buildPublicUrl(objectKey);
+  let publicUrl;
+  const local = await storeLocalImage({tenant,location,contentType,body:uploadBuffer});
+  if (local) { objectKey=local.objectKey; publicUrl=local.publicUrl; }
+  else {
+    assertB2Configured();
+    publicUrl=buildPublicUrl(objectKey);
 
-  await getS3Client().send(new PutObjectCommand({
-    Bucket: env.b2BucketPublicBoard,
-    Key: objectKey,
-    ContentType: contentType,
-    Body: uploadBuffer
-  }));
+    await getS3Client().send(new PutObjectCommand({
+      Bucket: env.b2BucketPublicBoard,
+      Key: objectKey,
+      ContentType: contentType,
+      Body: uploadBuffer
+    }));
+
+  }
 
   const asset = await publicBoardThemeRepository.createAsset({
     tenantId: tenant._id,

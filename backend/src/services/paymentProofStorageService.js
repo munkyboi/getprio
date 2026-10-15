@@ -1,3 +1,4 @@
+const { storeLocalImage, localProofAccess } = require("./localImageStorage");
 const { assertImageUploadSize } = require("./imageUploadPolicy");
 const crypto = require("crypto");
 const { GetObjectCommand, PutObjectCommand, S3Client } = require("@aws-sdk/client-s3");
@@ -48,8 +49,9 @@ function assertPaymentProofStorageConfigured() {
     .map(([key]) => key);
 
   if (missing.length) {
-    const error = new Error(`Payment proof storage is not configured. Missing: ${missing.join(", ")}.`);
+    const error = new Error("Image storage is currently unavailable. Please try again later.");
     error.statusCode = 503;
+    error.code = "IMAGE_UPLOAD_UNAVAILABLE";
     throw error;
   }
 }
@@ -194,7 +196,6 @@ async function createUpload({ booking, body }) {
 }
 
 async function uploadBinary({ booking, body, fileBuffer }) {
-  assertPaymentProofStorageConfigured();
 
   if (!Buffer.isBuffer(fileBuffer)) {
     const error = new Error("Payment proof upload payload is invalid.");
@@ -210,12 +211,16 @@ async function uploadBinary({ booking, body, fileBuffer }) {
   await assertImageUploadSize(sizeBytes);
 
   const objectKey = buildObjectKey({ booking, fileName, contentType });
-  await getS3Client().send(new PutObjectCommand({
-    Bucket: env.b2BucketPaymentProof,
-    Key: objectKey,
-    ContentType: contentType,
-    Body: uploadBuffer
-  }));
+  const local=await storeLocalImage({booking,objectKey,contentType,body:uploadBuffer});
+  if (!local) {
+    assertPaymentProofStorageConfigured();
+    await getS3Client().send(new PutObjectCommand({
+      Bucket: env.b2BucketPaymentProof,
+      Key: objectKey,
+      ContentType: contentType,
+      Body: uploadBuffer
+    }));
+  }
 
   return {
     proof: {
@@ -262,7 +267,6 @@ async function uploadGroupFundedBinary({ campaign, user, body, fileBuffer }) {
 }
 
 async function createViewAccess({ booking }) {
-  assertPaymentProofStorageConfigured();
 
   if (!booking.paymentProofObjectKey) {
     const error = new Error("Payment proof has not been submitted for this booking.");
@@ -270,13 +274,17 @@ async function createViewAccess({ booking }) {
     throw error;
   }
 
-  const command = new GetObjectCommand({
-    Bucket: env.b2BucketPaymentProof,
-    Key: booking.paymentProofObjectKey
-  });
-  const url = await getSignedUrl(getS3Client(), command, {
-    expiresIn: VIEW_EXPIRES_SECONDS
-  });
+  let url = await localProofAccess(booking);
+  if (!url) {
+    assertPaymentProofStorageConfigured();
+    const command = new GetObjectCommand({
+      Bucket: env.b2BucketPaymentProof,
+      Key: booking.paymentProofObjectKey
+    });
+    url = await getSignedUrl(getS3Client(), command, {
+      expiresIn: VIEW_EXPIRES_SECONDS
+    });
+  }
 
   return {
     proof: {
