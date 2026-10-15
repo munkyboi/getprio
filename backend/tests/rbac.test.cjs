@@ -1065,9 +1065,9 @@ test("tenant owner can access billing management routes", async () => {
   }
 });
 
-test("tenant admin cannot add another admin through staff invite", async () => {
+test("staff invitation HTTP route propagates current-domain admin role denial", async () => {
   const vendorRouter = requireWithMocks("../src/routes/vendorRoutes.js", {
-    "../services/staffAccessEmailService": { change: async (_context, mutate) => mutate({ client: {} }) },
+    "../services/staffInvitationResourceService": { invite: async input => { assert.equal(input.role, "admin"); throw Object.assign(new Error("Tenant admins can only invite staff members."), { statusCode: 403 }); } },
     "../middleware/auth": buildAuthMock(),
     "../middleware/asyncHandler": buildAsyncHandlerMock(),
     "../repositories/tenants": {
@@ -1154,10 +1154,10 @@ test("tenant admin cannot add another admin through staff invite", async () => {
   }
 });
 
-test("tenant admin can invite a staff member", async () => {
-  let addMembershipCalled = false;
+test("staff invitation HTTP route delegates regular staff admission", async () => {
+  let invitationCalled = false;
   const vendorRouter = requireWithMocks("../src/routes/vendorRoutes.js", {
-    "../services/staffAccessEmailService": { change: async (_context, mutate) => mutate({ client: {} }) },
+    "../services/staffInvitationResourceService": { invite: async input => { assert.equal(input.userId, "invitee-1"); assert.equal(input.role, "staff"); invitationCalled = true; } },
     "../middleware/auth": buildAuthMock(),
     "../middleware/asyncHandler": buildAsyncHandlerMock(),
     "../repositories/tenants": {
@@ -1201,7 +1201,7 @@ test("tenant admin can invite a staff member", async () => {
         tenantMemberships: []
       }),
       addTenantMembership: async (_userId, _tenantId, role) => {
-        addMembershipCalled = role === "staff";
+        invitationCalled = role === "staff";
       }
     },
     "../services/billingService": {
@@ -1238,7 +1238,7 @@ test("tenant admin can invite a staff member", async () => {
       })
     });
     assert.equal(response.status, 201);
-    assert.equal(addMembershipCalled, true);
+    assert.equal(invitationCalled, true);
   } finally {
     await stopServer(server);
   }
@@ -1437,9 +1437,9 @@ test("tenant admin cannot remove another staff member", async () => {
   }
 });
 
-test("tenant owner cannot add a second owner through staff invite", async () => {
+test("staff invitation HTTP route propagates current-domain owner restriction", async () => {
   const vendorRouter = requireWithMocks("../src/routes/vendorRoutes.js", {
-    "../services/staffAccessEmailService": { change: async (_context, mutate) => mutate({ client: {} }) },
+    "../services/staffInvitationResourceService": { invite: async input => { assert.equal(input.role, "owner"); throw Object.assign(new Error("Only one tenant owner is allowed per vendor."), { statusCode: 400 }); } },
     "../middleware/auth": buildAuthMock(),
     "../middleware/asyncHandler": buildAsyncHandlerMock(),
     "../repositories/tenants": {

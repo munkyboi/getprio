@@ -3,36 +3,35 @@ const assert = require("node:assert/strict");
 const { handleInviteStaff } = require("../src/routes/vendorManagementHandlers");
 const { requireWithMocks } = require("./testSupport.cjs");
 const { createStaffWriterFixture } = require("./helpers/staffWriterFixture.cjs");
+const { createStaffInvitationResourceService } = require("../src/services/staffInvitationResourceService");
 const { createStaffAccessEmailService } = require("../src/services/staffAccessEmailService");
 
 function context({ members = [], targetId = "2", requesterRole = "owner", requestedRole = "staff", seats = 5 } = {}) {
-  const client = {};
   const writes = [];
-  let serialized = false;
+  const rawMembers = [{ id: "1", user_id: "1", role: requesterRole, is_active: true }, ...members.filter(row => row._id !== "1").map((row, index) => ({ id: String(index + 2), user_id: row._id, role: row.tenantMemberships[0].role, is_active: row.tenantMemberships[0].isActive !== false }))];
+  const client = { release() {}, query: async (sql, values) => {
+    if (sql.includes("FROM tenants")) return { rows: [{ id: "10" }] };
+    if (sql.includes("FROM store_locations")) return { rows: [] };
+    if (sql.includes("FROM tenant_memberships")) return { rows: rawMembers };
+    if (sql.includes("FROM users")) return { rows: [...new Set(["1", targetId, ...rawMembers.map(row => row.user_id)])].map(id => ({ id, roles: [], email: id === targetId ? "staff@example.test" : "owner@example.test", email_verified: true })) };
+    if (sql === "COMMIT") return { command: "COMMIT", rows: [] };
+    return { rows: [] };
+  } };
+  const userRepository = {
+    findUserByEmail: async email => { assert.equal(email, "staff@example.test"); return { _id: targetId, tenantMemberships: [] }; },
+    addTenantMembership: async (...args) => { assert.equal(args[3].client, client); writes.push(args); }
+  };
+  const staffInvitationResourceService = createStaffInvitationResourceService({ pool: { connect: async () => client }, userRepository,
+    entitlementReader: async (_id, options) => { assert.equal(options.client, client); return { staffSeats: seats }; },
+    emailService: { change: async (_input, mutate, options) => { assert.equal(options.client, client); await mutate(); writes.push("notice"); } }
+  });
   const res = { status(code) { this.code = code; return this; }, json(body) { this.body = body; } };
   return { writes, res, input: {
     req: { user: { _id: "1", tenantMemberships: [{ tenantId: "10", role: requesterRole, isActive: true }] },
       params: { tenantSlug: "studio" }, body: { email: " Staff@Example.test ", role: requestedRole } },
     res, getAuthorizedTenant: async () => ({ _id: "10" }),
-    assertTenantPermission: (_actor, tenantId, permission) => {
-      assert.equal(tenantId, "10"); assert.equal(permission, "tenant.staff.invite");
-    },
-    billingService: { getTenantEntitlements: async () => ({ staffSeats: seats }) },
-    userRepository: {
-      findUserByEmail: async email => {
-        assert.equal(email, "staff@example.test");
-        // Deliberately stale preflight membership data must not determine absence.
-        return { _id: targetId, tenantMemberships: [] };
-      },
-      listUsersByTenantId: async (tenantId, options) => {
-        assert.equal(serialized, true); assert.equal(options.client, client);
-        assert.equal(tenantId, "10"); return members;
-      },
-      addTenantMembership: async (...args) => { assert.equal(args[3].client, client); writes.push(args); }
-    },
-    staffAccessEmailService: { change: async (_input, mutate) => {
-      serialized = true; await mutate({ client }); writes.push("notice");
-    } }
+    assertTenantPermission: (_actor, tenantId, permission) => { assert.equal(tenantId, "10"); assert.equal(permission, "tenant.staff.invite"); },
+    userRepository, staffInvitationResourceService
   } };
 }
 
@@ -102,7 +101,7 @@ test("existing membership conflicts preserve access and notices under PostgreSQL
     // These regressions exercise the handler's current role rules, not real HTTP authorization.
     c.input.assertTenantPermission = () => {};
     c.input.userRepository = users;
-    c.input.staffAccessEmailService = emails;
+    c.input.staffInvitationResourceService = createStaffInvitationResourceService({ pool: fixture.wrappedPool, userRepository: users, emailService: emails });
     await handleInviteStaff(c.input);
     return c.res;
   };
@@ -112,7 +111,7 @@ test("existing membership conflicts preserve access and notices under PostgreSQL
       ALTER TABLE tenant_memberships ADD UNIQUE(user_id,tenant_id)`);
     await t.test("administrator invitation cannot overwrite an existing owner or reactivate them", async () => {
       for (const active of [true, false]) {
-        await fixture.reset();
+        await fixture.reset(); await pool.query(`UPDATE subscription_plans SET entitlements='{"staffSeats":5}'`);
         await pool.query("UPDATE tenant_memberships SET role='admin' WHERE id=1");
         await pool.query("UPDATE tenant_memberships SET role='owner',is_active=$1 WHERE id=2", [active]);
         const before = (await pool.query("SELECT role,is_active FROM tenant_memberships WHERE id=2")).rows;
@@ -123,11 +122,11 @@ test("existing membership conflicts preserve access and notices under PostgreSQL
       }
     });
     await t.test("concurrent additions create one membership and notice; subsequent attempts conflict", async () => {
-      await fixture.reset();
+      await fixture.reset(); await pool.query(`UPDATE subscription_plans SET entitlements='{"staffSeats":5}'`);
       await pool.query("INSERT INTO tenant_memberships(id,user_id,tenant_id,role,is_active) VALUES(4,3,2,'admin',FALSE)");
       await pool.query("SELECT setval(pg_get_serial_sequence('tenant_memberships','id'),4)");
       const results = await Promise.allSettled([invite("other@example.test"), invite("other@example.test"), invite("other@example.test")]);
-      assert.equal(results.filter(result => result.status === "fulfilled" && result.value.code === 201).length, 1);
+      assert.equal(results.filter(result => result.status === "fulfilled" && result.value.code === 201).length, 1, results.map(result => result.reason?.message).join("; "));
       assert.equal(results.filter(result => result.status === "rejected" && result.reason.statusCode === 409).length, 2);
       assert.equal((await pool.query("SELECT 1 FROM tenant_memberships WHERE user_id=3 AND tenant_id=1")).rowCount, 1);
       assert.equal((await pool.query("SELECT 1 FROM staff_access_email_outbox")).rowCount, 1);

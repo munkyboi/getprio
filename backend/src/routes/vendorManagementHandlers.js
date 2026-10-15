@@ -224,32 +224,14 @@ async function handleListStaff({ req, res, getAuthorizedTenant, assertTenantPerm
   res.json({ staffSeatLimit: entitlements.staffSeats || 0, staff: staff.map((user) => { const membership = user.tenantMemberships.find((item) => String(item.tenantId) === String(tenant._id)); return { id: user._id, name: user.name, email: user.email, phone: user.phone, role: membership?.role || "staff", isActive: membership?.isActive !== false, assignedCounterIds: assignedCountersByUserId.get(String(user._id)) || [], assignedLocationIds: assignedLocationsByUserId.get(String(user._id)) || [] }; }) });
 }
 
-function assertNewStaffMembership(staff, userId) {
-  if (!staff.some(member => String(member._id) === String(userId))) return;
-  throw Object.assign(new Error("This account is already a member of this vendor. Manage their access from the staff list."), { statusCode: 409 });
-}
-
-async function handleInviteStaff({ req, res, getAuthorizedTenant, assertTenantPermission, billingService, userRepository, staffAccessEmailService }) {
+async function handleInviteStaff({ req, res, getAuthorizedTenant, assertTenantPermission, userRepository, staffInvitationResourceService }) {
   const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
   assertTenantPermission(req.user, tenant._id, "tenant.staff.invite");
   const email = String(req.body.email || "").trim().toLowerCase();
   if (!email) { const error = new Error("email is required."); error.statusCode = 400; throw error; }
   const user = await userRepository.findUserByEmail(email);
   if (!user) { const error = new Error("Staff must already have a GetPrio account before being added."); error.statusCode = 404; throw error; }
-  await staffAccessEmailService.change({ tenant, userId: user._id, actorId: req.user._id }, async (options) => {
-    const entitlements = await billingService.getTenantEntitlements(tenant._id);
-    const staff = await userRepository.listUsersByTenantId(tenant._id, options);
-    assertNewStaffMembership(staff, user._id);
-    if (staff.length >= Number(entitlements.staffSeats || 0)) { const error = new Error("Staff seat limit exceeded for this subscription plan."); error.statusCode = 403; throw error; }
-    const nextRole = ["owner", "admin", "staff"].includes(req.body.role) ? req.body.role : "staff";
-    const requesterMembership = req.user.tenantMemberships?.find((item) => String(item.tenantId) === String(tenant._id) && item.isActive !== false);
-    const requesterRole = requesterMembership?.role || null;
-    const ownerCount = staff.filter((member) => member.tenantMemberships.some((item) => String(item.tenantId) === String(tenant._id) && item.role === "owner" && item.isActive !== false)).length;
-    if (requesterRole === "admin" && nextRole !== "staff") { const error = new Error("Tenant admins can only invite staff members."); error.statusCode = 403; throw error; }
-    if ((nextRole === "admin" || nextRole === "owner") && requesterRole !== "owner") { const error = new Error("Only tenant owners can assign admin or owner roles."); error.statusCode = 403; throw error; }
-    if (nextRole === "owner" && ownerCount >= 1) { const error = new Error("Only one tenant owner is allowed per vendor."); error.statusCode = 400; throw error; }
-    await userRepository.addTenantMembership(user._id, tenant._id, nextRole, options);
-  });
+  await staffInvitationResourceService.invite({ tenant, userId: user._id, actorId: req.user._id, email, role: req.body.role });
   res.status(201).json({ userId: user._id });
 }
 

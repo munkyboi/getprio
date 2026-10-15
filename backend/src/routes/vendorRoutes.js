@@ -2,9 +2,9 @@ const serviceDeactivationService = require("../services/serviceDeactivationServi
 const ticketServicePlanService = require("../services/ticketServicePlanService");
 const { projectOperationalBooking } = require("./vendorBookingReadModel");
 const permissions = require("../services/permissions");
-const staffAccessEmailService = require("../services/staffAccessEmailService");
 const staffRemovalResourceService = require("../services/staffRemovalResourceService");
 const staffAccessResourceService = require("../services/staffAccessResourceService");
+const staffInvitationResourceService = require("../services/staffInvitationResourceService");
 const express = require("express");
 const tenantRepository = require("../repositories/tenants");
 const storeLocationRepository = require("../repositories/storeLocations");
@@ -1431,7 +1431,7 @@ router.delete("/tenant/:tenantSlug/counters/:counterSlug", asyncHandler((req, re
 
 router.get("/tenant/:tenantSlug/staff", asyncHandler((req, res) => handleListStaff({ req, res, getAuthorizedTenant, assertTenantPermission, billingService, userRepository, serviceCounterRepository, tenantMembershipLocationRepository })));
 
-router.post("/tenant/:tenantSlug/staff", asyncHandler((req, res) => handleInviteStaff({ req, res, getAuthorizedTenant, assertTenantPermission, billingService, userRepository, staffAccessEmailService })));
+router.post("/tenant/:tenantSlug/staff", asyncHandler((req, res) => handleInviteStaff({ req, res, getAuthorizedTenant, assertTenantPermission, userRepository, staffInvitationResourceService })));
 
 router.patch(
   "/tenant/:tenantSlug/staff/:userId",
