@@ -40,7 +40,22 @@ async function readState(client, ticket) {
     // Missing/invalid service identity remains unknown in a tracked location;
     // it cannot silently bypass allocation as an ordinary selected service.
   }
-  return { allocation, required: !!allocation || enabled || flags.rows[0].bound };
+  let ticketReservationRequired = false;
+  let ticketReservationProtected = false;
+  if (!allocation && !flags.rows[0].bound && ticket.calledAt && enabled) {
+    const plan = await client.query(`SELECT source FROM ticket_service_plans
+      WHERE tenant_id=$1 AND location_id=$2 AND ticket_id=$3`, scope);
+    if (plan.rows[0]?.source === "staff_selection") {
+      ticketReservationRequired = true;
+      const binding = await client.query(`SELECT EXISTS (
+        SELECT 1 FROM resource_ledger_reservations
+        WHERE tenant_id=$1 AND location_id=$2 AND ticket_id=$3 AND state='protected'
+      ) AS protected`, scope);
+      ticketReservationProtected = binding.rows[0]?.protected === true;
+    }
+  }
+  return { allocation, required: !!allocation || enabled || flags.rows[0].bound,
+    ticketReservationRequired, ticketReservationProtected };
 }
 
 function assertStarted(state) {
@@ -50,6 +65,7 @@ function assertStarted(state) {
 async function allocate(ledger, ticket, state) {
   if (state.allocation) conflict();
   if (!state.required) return null;
+  if (state.ticketReservationRequired && !state.ticketReservationProtected) conflict();
   const result = await ledger.executeCommand({ operationKey: `ticket:${ticket._id}:service:start`,
     command: "allocate", payload: { ticketId: String(ticket._id) } });
   return result.allocationId;

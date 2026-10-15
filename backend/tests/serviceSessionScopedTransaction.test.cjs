@@ -34,6 +34,7 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
     return r && {_id:String(r.id),tenantId:String(r.tenant_id),locationId:String(r.location_id),
       status:r.status,joinChannel:r.join_channel,customerConfirmedAt:r.customer_confirmed_at,
       serviceStartedAt:r.service_started_at,serviceEndedAt:r.service_ended_at,serviceOutcome:r.service_outcome,
+      calledAt:r.called_at,
       userId:r.user_id && String(r.user_id),customerEmail:r.customer_email,customerPhone:r.customer_phone,
       ticketNumber:String(r.id),dateKey:r.date_key,lookupCode:r.lookup_code,updatedAt:r.updated_at};
   }
@@ -117,6 +118,7 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
         ADD COLUMN replacement_for_ticket_id BIGINT, ADD COLUMN email_journey_mode TEXT,
         ADD COLUMN created_at TIMESTAMPTZ DEFAULT clock_timestamp()`);
     await pool.query(fs.readFileSync(path.resolve(__dirname,'../../database/migrations/20261007_add_resource_ledger_foundation.sql'),'utf8'));
+    await pool.query(fs.readFileSync(path.resolve(__dirname,'../../database/migrations/20261015_add_ticket_queue_reservations.sql'),'utf8'));
     const mocks={
       '../config/db':{pool},
       '../repositories/tickets':{findTicketById:readTicket,findTicketByIdForUpdate:async (id,{client}) => {
@@ -993,9 +995,69 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
       assert.equal(results.filter(r=>r.status==='rejected' && r.reason.code==='COUNTER_OCCUPIED').length,1);
       assert.equal((await pool.query("SELECT count(*)::int AS n FROM tickets WHERE status='called'")).rows[0].n,1);
       assert.equal(await count('events'),1); assert.equal(await count('webhooks'),1); assert.equal(pushes,1);
-      assert.equal(await count('resource_allocations'),0); assert.equal(await count('resource_ledger_commands'),0);
+      assert.equal(await count('resource_allocations'),0); assert.equal(await count('resource_ledger_commands'),1);
+      assert.equal((await pool.query("SELECT count(*)::int AS n FROM resource_ledger_reservations WHERE ticket_id IS NOT NULL AND state='protected'")).rows[0].n,1);
       assert.equal((await pool.query('SELECT bool_and(service_started_at IS NULL) AS untouched FROM tickets')).rows[0].untouched,true);
-      assert.equal((await pool.query('SELECT revision::text FROM resource_ledger_scopes')).rows[0].revision,'2');
+      assert.equal((await pool.query('SELECT revision::text FROM resource_ledger_scopes')).rows[0].revision,'3');
+    });
+    await t.test('capacity-limited call rolls the claimed ticket back to waiting and returns its protected reservation',async () => {
+      await reset(1); await ticket('1'); await ticket('2');
+      await pool.query("UPDATE tickets SET status='waiting'; INSERT INTO service_counters VALUES(9001,1,10,TRUE)");
+      const first=await call();
+      assert.ok(first.reservation?.id);
+      assert.deepEqual({state:first.reservation.state,poolId:first.reservation.poolId,units:first.reservation.units},
+        {state:'protected',poolId:'100',units:1});
+      await assert.rejects(call({serviceCounter:{_id:'9001'}}),{code:'RESOURCE_CAPACITY_UNAVAILABLE'});
+      assert.equal((await readTicket('1')).status,'called'); assert.equal((await readTicket('2')).status,'waiting');
+      assert.equal((await pool.query("SELECT count(*)::int AS n FROM resource_ledger_reservations WHERE ticket_id IS NOT NULL AND state='protected'")).rows[0].n,1);
+      assert.equal(await count('events'),1); assert.equal(await count('resource_ledger_commands'),1);
+    });
+    await t.test('concurrent calls reserve capacity once and leave the other ticket waiting',async () => {
+      await reset(1); await ticket('1'); await ticket('2');
+      await pool.query("UPDATE tickets SET status='waiting'; INSERT INTO service_counters VALUES(9001,1,10,TRUE)");
+      const calls=await Promise.allSettled([call(),call({serviceCounter:{_id:'9001'}})]);
+      assert.equal(calls.filter(result=>result.status==='fulfilled').length,1);
+      assert.equal(calls.filter(result=>result.status==='rejected' && result.reason.code==='RESOURCE_CAPACITY_UNAVAILABLE').length,1);
+      assert.equal((await pool.query("SELECT count(*)::int AS n FROM tickets WHERE status='called'")).rows[0].n,1);
+      assert.equal((await pool.query("SELECT count(*)::int AS n FROM tickets WHERE status='waiting'")).rows[0].n,1);
+      assert.equal((await pool.query("SELECT count(*)::int AS n FROM resource_ledger_reservations WHERE ticket_id IS NOT NULL AND state='protected'")).rows[0].n,1);
+      assert.equal(await count('events'),1); assert.equal(await count('resource_ledger_commands'),1);
+    });
+    await t.test('queued Start rejects a missing or stale ticket reservation without allocating',async () => {
+      await reset(2); await ticket('1'); await pool.query("UPDATE tickets SET status='waiting'");
+      const called=await call();
+      await ledger.executeCommand({pool,tenantId:'1',locationId:'10',actorUserId:'1',operationKey:`ticket:1:reservation:${called.reservation.id}:test-cancel`,command:'cancelReservation',payload:{reservationId:called.reservation.id}});
+      await assert.rejects(record('1','start'),{statusCode:409});
+      assert.equal(await count('resource_allocations'),0); assert.equal((await readTicket('1')).serviceStartedAt,null);
+      await reset(2); await ticket('1'); await pool.query("UPDATE tickets SET status='waiting'");
+      const stale=await call(); assert.ok(stale.reservation);
+      await pool.query('UPDATE location_resource_pools SET revision=revision+1 WHERE id=100');
+      await assert.rejects(record('1','start'),{statusCode:409});
+      assert.equal(await count('resource_allocations'),0); assert.equal((await readTicket('1')).serviceStartedAt,null);
+    });
+    await t.test('skip and cancellation release a called ticket reservation; booking calls keep booking protection',async () => {
+      for(const status of ['skipped','cancelled']) {
+        await reset(2); await ticket('1'); await pool.query("UPDATE tickets SET status='waiting'");
+        const called=await call(); assert.equal(called.reservation.state,'protected');
+        await queueService.updateCurrentTicketStatus(tenant,status,{location,actorUserId:'1',queueDateKey:'20261008',ticketId:'1',serviceCounter:{_id:'9000'}});
+        assert.equal((await pool.query('SELECT state FROM resource_ledger_reservations WHERE id=$1',[called.reservation.id])).rows[0].state,'cancelled');
+      }
+      await reset(2); await ticket('1',{booking:true}); await pool.query("UPDATE tickets SET status='waiting'");
+      const booking=await call();
+      assert.equal(booking.reservation.state,'protected');
+      assert.equal((await pool.query('SELECT booking_id::text,ticket_id::text FROM resource_ledger_reservations')).rows[0].booking_id,'1');
+      assert.equal((await pool.query('SELECT ticket_id FROM resource_ledger_reservations')).rows[0].ticket_id,null);
+    });
+    await t.test('complete and interrupt retries release one queue allocation and preserve the converted reservation',async () => {
+      for(const [outcome,action,ledgerOutcome] of [['completed','complete','completed'],['interrupted','interrupt','terminated']]) {
+        await reset(1); await ticket('1'); await pool.query("UPDATE tickets SET status='waiting'");
+        const called=await call(); await record('1','start');
+        const first=await record('1',action); const repeated=await record('1',action);
+        assert.equal(repeated.ticket.serviceOutcome,outcome);
+        assert.equal((await pool.query('SELECT count(*)::int AS n FROM resource_allocations WHERE released_at IS NOT NULL AND outcome=$1',[ledgerOutcome])).rows[0].n,1);
+        assert.equal((await pool.query('SELECT state FROM resource_ledger_reservations WHERE id=$1',[called.reservation.id])).rows[0].state,'converted');
+        assert.ok(first.ticket.serviceEndedAt);
+      }
     });
     await t.test('confirmation checks scanned identity and deduplicates concurrent retries without service start',async () => {
       await reset(); await ticket('1',{channel:'online'});
