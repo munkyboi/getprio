@@ -40,11 +40,11 @@ if (deviceIngress) {
   const deviceServer = http.createServer(deviceIngressHandler(app, deviceIngress));
   servers.push(deviceServer);
   deviceServer.once('error', error => {
-    console.error(`Wired local device ingress failed: ${error.code || 'listen_error'}`);
+    console.error(`Local device ingress failed: ${error.code || 'listen_error'}`);
     process.exitCode = 1;
     server.close(() => pool.end());
   });
-  deviceServer.listen(5007, deviceIngress.host, () => console.log(`Wired local device ingress listening at http://${deviceIngress.host}:5007 (one explicit peer; normal application auth required)`));
+  deviceServer.listen(5007, deviceIngress.host, () => console.log(`Local device ingress listening at http://${deviceIngress.host}:5007 (one explicit peer; normal application auth required)`));
 }
 for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, async () => {
   await Promise.all(servers.map(listener => new Promise(resolve => listener.close(resolve))));

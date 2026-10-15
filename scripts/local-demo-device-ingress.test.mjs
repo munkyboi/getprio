@@ -20,3 +20,11 @@ test('only the explicit peer reaches the unchanged application handler', () => {
   }
   assert.equal(calls, 2);
 });
+test('LAN fallback requires an actual private interface and exact same-network peer', () => {
+  const lan = { en0: [{ address: '192.168.1.5', family: 'IPv4', internal: false, netmask: '255.255.255.0' }] };
+  const options = ['--local-device-host=192.168.1.5', '--local-device-peer=192.168.1.90'];
+  assert.deepEqual(localDeviceIngress(options, lan, {}), { host: '192.168.1.5', peer: '192.168.1.90' });
+  for (const peer of ['192.168.2.90', '8.8.8.8', '192.168.1.5', '169.254.1.90']) assert.throws(() => localDeviceIngress([options[0], `--local-device-peer=${peer}`], lan, {}));
+  assert.throws(() => localDeviceIngress(options, {}, {}));
+  assert.throws(() => localDeviceIngress(options, { en0: [{ ...lan.en0[0], netmask: undefined }] }, {}));
+});
