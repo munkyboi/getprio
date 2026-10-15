@@ -503,7 +503,7 @@ async function listPendingCarryOverTickets(tenantId, options = {}) {
 async function listHistoryTickets(tenantId, options = {}) {
   const queryClient = buildQueryClient(options.client);
   const limit = Number(options.limit || 10);
-  const values = [Number(tenantId), ["served", "skipped", "cancelled"], limit];
+  const values = [Number(tenantId), ["served", "skipped", "cancelled", "unserved", "expired"], limit];
   let dateFilter = "";
   let locationFilter = "";
 
