@@ -9,7 +9,7 @@ This work is restricted to the disposable local demo and requires `--local-image
 | Location image | vendor location-media/uploads/direct | Real picker upload, location save, rendered image after reload | Pending |
 | Service image | vendor service-media/uploads/direct | Real picker upload, service save, rendered image after reload | Pending |
 | Board theme | vendor public-board-theme/uploads/direct | Real picker upload, theme save, rendered image after reload | Pending |
-| Payment QR | vendor location payment-qr direct routes | Real picker upload, payment settings save, rendered image after reload | Pending |
+| Payment QR | vendor location payment-qr direct routes | Real picker upload, payment settings save, rendered image after reload | Accepted locally: persisted GCash/Sample Test settings and asset rendered at 440x330 after clean reload; active allocations unchanged |
 | Payment proof | account booking payment-proof direct route | Real authorized booking upload/save; authenticated proof download; public asset read denied | Pending |
 
 The browser acceptance must also verify resizing under the live Platform byte policy and errors/toasts above open dialogs. Unsupported formats and oversized bytes remain rejected by the server. Generic configuration errors must not expose environment variable names or filesystem paths.
