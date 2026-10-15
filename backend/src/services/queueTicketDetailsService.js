@@ -6,7 +6,7 @@ const { assertPublicTextFieldsAllowed } = require('./contentModeration');
 const { getDateKey } = require('./queueHelpers');
 
 function fail(message,statusCode,code) { throw Object.assign(new Error(message),{statusCode,code}); }
-function validId(id) { return typeof id === 'string' && /^[1-9]\d{0,18}$/u.test(id) && BigInt(id)<=9223372036854775807n; }
+function validId(id) { return typeof id === 'string' && /^[1-9]\d{0,18}$/u.test(id) && Number.isSafeInteger(Number(id)); }
 function version(row) {
   return createHash('sha256').update(JSON.stringify([row.tenant_id,row.location_id,row.id,row.exact_updated_at])).digest('hex');
 }

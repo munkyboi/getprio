@@ -15,6 +15,12 @@ test('ticket details whitelist rejects destination, plan, state and malformed fi
  }
 });
 
+test('details reject unsafe audit identifiers before any database access',async()=>{
+ const service=createQueueTicketDetailsService({pool:{connect(){assert.fail('unsafe IDs must not connect');}}});
+ await assert.rejects(service.get({_id:'1'},{_id:'10'},'1','9007199254740993'),{statusCode:400});
+ await assert.rejects(service.get({_id:'9007199254740993'},{_id:'10'},'1','1'),{statusCode:400});
+});
+
 test('actual PostgreSQL atomic ticket-detail editing', {skip:!databaseUrl},async t=>{
  const url=new URL(databaseUrl);assert.equal(url.hostname,'127.0.0.1');assert.equal(url.pathname,'/getprio_test');
  const schema=`details_${randomUUID().replaceAll('-','')}`;
