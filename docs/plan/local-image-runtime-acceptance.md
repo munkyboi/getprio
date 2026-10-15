@@ -5,7 +5,7 @@ This work is restricted to the disposable local demo and requires `--local-image
 | Image flow | Existing backend path | Required evidence | Status |
 | --- | --- | --- | --- |
 | Avatar | account profile/avatar | Real picker upload, persisted profile, rendered image after reload | Pending |
-| Business image | Identify actual vendor UI save/upload path | Real picker upload, entity save, rendered image after reload | Pending |
+| Business image | vendor public-board-theme direct route without location; theme PATCH without location | Upload logo/background to asset.url; save businessProfileTheme; rendered image after reload | Pending |
 | Location image | vendor location-media/uploads/direct | Real picker upload, location save, rendered image after reload | Pending |
 | Service image | vendor service-media/uploads/direct | Real picker upload, service save, rendered image after reload | Pending |
 | Board theme | vendor public-board-theme/uploads/direct | Real picker upload, theme save, rendered image after reload | Pending |
