@@ -1,3 +1,5 @@
+const { createQueueTicketDetailsService } = require("../services/queueTicketDetailsService");
+const queueTicketDetailsService = createQueueTicketDetailsService({ pool: require("../config/db").pool });
 const serviceDeactivationService = require("../services/serviceDeactivationService");
 const ticketServicePlanService = require("../services/ticketServicePlanService");
 const { projectOperationalBooking } = require("./vendorBookingReadModel");
@@ -1246,6 +1248,17 @@ router.post(
     sendQueueTicketMutation(res, result);
   })
 );
+
+for (const method of ["get", "patch"]) {
+  router[method]("/tenant/:tenantSlug/queue/tickets/:ticketId/details", asyncHandler(async (req, res) => {
+    const { tenant, location } = await getQueueTicketOperationContext(req);
+    const ticketId = String(req.params.ticketId);
+    const result = method === "get"
+      ? await queueTicketDetailsService.get(tenant, location, req.user._id, ticketId)
+      : await queueTicketDetailsService.patch(tenant, location, req.user._id, ticketId, req.body);
+    res.set("Cache-Control", "no-store").json(result);
+  }));
+}
 
 router.get("/tenant/:tenantSlug/queue/waiting-tickets", asyncHandler(async (req, res) => {
   const { tenant, location } = await getQueueTicketOperationContext(req);
