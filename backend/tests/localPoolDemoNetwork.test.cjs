@@ -23,10 +23,10 @@ test('local launcher blocks external fetch and socket destinations before connec
 test('local launcher rejects effective and inherited SMS and storage credentials', async () => {
  const { assertLocalDemoProvidersEmpty } = await import('../../scripts/helpers/localDemoProviderConfiguration.mjs');
  assert.doesNotThrow(() => assertLocalDemoProvidersEmpty({}, {}));
- for (const key of ['smsAccountSid', 'smsAuthToken', 'b2KeyId', 'b2ApplicationKey']) {
+ for (const key of ['smsAccountSid', 'smsAuthToken', 'b2KeyId', 'b2ApplicationKey', 'b2S3Endpoint', 'b2BucketPublicBoard', 'b2BucketPaymentProof', 'b2PublicBaseUrl']) {
   assert.throws(() => assertLocalDemoProvidersEmpty({ [key]: 'populated' }, {}), /Provider credentials must be empty/);
  }
- for (const key of ['TWILIO_ACCOUNT_SID', 'TWILIO_AUTH_TOKEN', 'B2_KEY_ID', 'B2_APPLICATION_KEY']) {
+ for (const key of ['TWILIO_ACCOUNT_SID', 'TWILIO_AUTH_TOKEN', 'B2_KEY_ID', 'B2_APPLICATION_KEY', 'B2_S3_ENDPOINT', 'B2_BUCKET_PUBLIC_BOARD', 'B2_BUCKET_PAYMENT_PROOF', 'B2_PUBLIC_BASE_URL']) {
   assert.throws(() => assertLocalDemoProvidersEmpty({}, { [key]: 'populated' }), /Provider credentials must be empty/);
  }
 });
