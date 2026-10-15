@@ -91,6 +91,8 @@ const COLLECTIONS = {
       to_jsonb(r)->>'ticket_id' AS binding_ticket_id,
       (a.started_at IS NOT DISTINCT FROM r.starts_at) AS ticket_reservation_start_matches,
       r.requirement_revision::text,r.starts_at,r.ends_at,
+      CASE WHEN isfinite(r.starts_at) AND isfinite(r.ends_at)
+        THEN (EXTRACT(EPOCH FROM (r.ends_at-date_trunc('milliseconds',r.starts_at)))*1000000)::bigint::text END AS binding_duration_us,
       (r.starts_at=i.scheduled_start_at AND r.ends_at=i.scheduled_end_at) AS booking_interval_matches,
       b.status AS booking_status,t.id::text AS work_id,t.service_started_at,
       (t.service_started_at IS NOT DISTINCT FROM a.started_at) AS ticket_start_matches,
@@ -105,6 +107,8 @@ const COLLECTIONS = {
     pool_id::text,pool_revision::text,requirement_revision::text,units,starts_at,ends_at,state,
     CASE WHEN isfinite(starts_at) THEN (EXTRACT(EPOCH FROM starts_at)*1000000)::bigint::text END AS starts_at_us,
     CASE WHEN isfinite(ends_at) THEN (EXTRACT(EPOCH FROM ends_at)*1000000)::bigint::text END AS ends_at_us,
+    CASE WHEN isfinite(starts_at) AND isfinite(ends_at)
+      THEN (EXTRACT(EPOCH FROM (ends_at-date_trunc('milliseconds',starts_at)))*1000000)::bigint::text END AS duration_us,
     (starts_at<$4::timestamptz AND ends_at>$3::timestamptz) AS overlaps_window,
     (SELECT r.starts_at=i.scheduled_start_at AND r.ends_at=i.scheduled_end_at FROM relevant_items i WHERE i.id=r.booking_item_id) AS booking_interval_matches
     FROM relevant_bindings r ORDER BY id` },

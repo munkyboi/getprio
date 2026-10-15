@@ -33,6 +33,13 @@ function bindingSource(binding) {
   if (id(binding?.ticket_id) && binding?.booking_id == null && binding?.booking_item_id == null) return 'ticket';
   return 'unknown';
 }
+function ticketDurationMatches(binding, item) {
+  // Queue writers derive Date ends from the millisecond start. Keep that
+  // precision contract explicit while comparing PostgreSQL microseconds.
+  if (!integer(item?.durationMinutes,5,480) || typeof binding?.duration_us !== 'string'
+    || !/^-?\d{1,20}$/.test(binding.duration_us)) return null;
+  return BigInt(binding.duration_us) === BigInt(item.durationMinutes) * 60000000n;
+}
 function classifyBooking(expired,active,supported,mapping,bindings) {
   if (expired) return 'expired_pending';
   if (!active) return 'not_eligible';
@@ -176,6 +183,9 @@ function buildResourceInventoryReport({ reportVersion, scope, window, observedAt
         finding('allocation_ticket_conversion_lineage_mismatch',recordType,allocationRef);
       if (row.ticket_reservation_start_matches !== true) finding('ticket_conversion_interval_mismatch',recordType,allocationRef);
       if (!integer(capturedItems[0]?.durationMinutes,5,480)) finding('captured_ticket_duration_unknown',recordType,allocationRef,'evidence_gap');
+      const durationMatches = ticketDurationMatches(binding,capturedItems[0]);
+      if (durationMatches === null) finding('ticket_conversion_duration_unknown',recordType,allocationRef,'evidence_gap');
+      else if (!durationMatches) finding('ticket_conversion_duration_mismatch',recordType,allocationRef);
       if (!id(capturedResource?.requirementRevision) || id(capturedResource.requirementRevision) !== binding.requirement_revision)
         finding('conversion_captured_binding_mismatch',recordType,allocationRef);
     }
@@ -209,7 +219,7 @@ function buildResourceInventoryReport({ reportVersion, scope, window, observedAt
     const work = row.work_id ? { items:row.plan_items,plan_source:row.plan_source,booking_id:row.plan_booking_id } : null;
     const binding = { state:choice(row.binding_state,['protected','converted','cancelled']),pool_id:row.binding_pool_id,pool_revision:row.binding_pool_revision,units:row.binding_units,
       booking_id:row.binding_booking_id,booking_item_id:row.binding_item_id,ticket_id:row.binding_ticket_id,
-      requirement_revision:row.requirement_revision,starts_at:row.starts_at,ends_at:row.ends_at };
+      requirement_revision:row.requirement_revision,starts_at:row.starts_at,ends_at:row.ends_at,duration_us:row.binding_duration_us };
     inventory.historicalConversions.push({ allocationRef,workRef:reference('ticket',row.ticket_id),
       reservationRef:reference('reservation',row.reservation_id),poolRef:reference('pool',row.pool_id),
       frozenPoolRevision:id(row.pool_revision),units:integer(row.units),startedAt:time(row.started_at),
@@ -235,6 +245,8 @@ function buildResourceInventoryReport({ reportVersion, scope, window, observedAt
     if (row.state === 'protected' && bindingSource(row) === 'ticket') {
       const work = workById.get(row.ticket_id), item = work?.items?.length === 1 ? work.items[0] : null;
       if (!work) finding('ticket_binding_work_missing','binding',entry.reservationRef);
+      else if (work.status !== 'called' || work.service_started_at || work.service_ended_at)
+        finding('ticket_binding_lifecycle_mismatch','binding',entry.reservationRef);
       else if (work.plan_source !== 'staff_selection' || work.booking_id || item?.bookingItemId || !integer(item?.durationMinutes,5,480))
         finding('ticket_binding_plan_unknown','binding',entry.reservationRef,'evidence_gap');
       if (!item?.resource?.known || id(item.resource.poolId) !== row.pool_id || item.resource.unitsRequired !== row.units
@@ -242,6 +254,9 @@ function buildResourceInventoryReport({ reportVersion, scope, window, observedAt
         finding('ticket_binding_captured_demand_mismatch','binding',entry.reservationRef);
       if (!entry.startsAt || !entry.endsAt || Date.parse(entry.endsAt) <= Date.parse(entry.startsAt))
         finding('ticket_binding_interval_invalid','binding',entry.reservationRef);
+      const durationMatches = ticketDurationMatches(row,item);
+      if (durationMatches === null) finding('ticket_binding_duration_unknown','binding',entry.reservationRef,'evidence_gap');
+      else if (!durationMatches) finding('ticket_binding_duration_mismatch','binding',entry.reservationRef);
     }
   }
   function inspectBookingEligibility(expired,active,supported,mapping,bindings,bookingItemRef) {

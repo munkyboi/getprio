@@ -23,14 +23,14 @@ function ticketConversionFixture(historical = false) {
   input.data.work = [{ id:'1',status:'called',join_channel:'vendor',service_started_at:input.observedAt,
     items,plan_source:'staff_selection',plan_captured_at:input.observedAt,execution_mode:'parallel' }];
   const binding = { id:'9',ticket_id:'1',booking_id:null,booking_item_id:null,state:'converted',
-    pool_id:'100',pool_revision:'1',requirement_revision:'1',units:1,starts_at:input.observedAt,ends_at:'2026-10-12T01:30:00Z' };
+    pool_id:'100',pool_revision:'1',requirement_revision:'1',units:1,starts_at:input.observedAt,ends_at:'2026-10-12T01:30:00Z',duration_us:'1800000000' };
   const allocation = { id:'2',ticket_id:'1',reservation_id:'9',pool_id:'100',pool_revision:'1',units:1,
     started_at:input.observedAt,expected_end_at:binding.ends_at,reservation_end_matches:true,
     reservation_start_valid:true,ticket_reservation_start_matches:true,ticket_start_matches:true };
   if (historical) input.data.historicalConversions = [{ ...allocation,released_at:binding.ends_at,
     binding_ticket_id:binding.ticket_id,binding_booking_id:null,binding_item_id:null,binding_state:'converted',
     binding_pool_id:'100',binding_pool_revision:'1',binding_units:1,requirement_revision:'1',
-    starts_at:binding.starts_at,ends_at:binding.ends_at,booking_interval_matches:null,
+    starts_at:binding.starts_at,ends_at:binding.ends_at,binding_duration_us:binding.duration_us,booking_interval_matches:null,
     work_id:'1',service_started_at:input.observedAt,plan_source:'staff_selection',plan_booking_id:null,plan_items:items }];
   else input.data.allocations = [allocation];
   input.data.bindings = [binding];
@@ -57,6 +57,12 @@ for (const historical of [false,true]) {
     if (historical) allocation.requirement_revision = '2';
     else input.data.bindings[0].requirement_revision = '2';
     assert.ok(has(buildResourceInventoryReport(input),'conversion_captured_binding_mismatch'));
+    if (historical) allocation.binding_duration_us = '3600000000';
+    else input.data.bindings[0].duration_us = '3600000000';
+    assert.ok(has(buildResourceInventoryReport(input),'ticket_conversion_duration_mismatch'));
+    if (historical) allocation.binding_duration_us = null;
+    else input.data.bindings[0].duration_us = null;
+    assert.ok(has(buildResourceInventoryReport(input),'ticket_conversion_duration_unknown'));
   });
 }
 test('ambiguous conversion sources remain findings and booking plans cannot adopt ticket bindings',()=>{
@@ -75,6 +81,16 @@ test('ticket protections validate captured demand and never join a null booking 
   assert.ok(!report.findings.counts.some(finding=>finding.classification==='integrity_difference'));
   input.data.bindings[0].units=2;
   assert.ok(has(buildResourceInventoryReport(input),'ticket_binding_captured_demand_mismatch'));
+  input.data.bindings[0].duration_us='3600000000';
+  assert.ok(has(buildResourceInventoryReport(input),'ticket_binding_duration_mismatch'));
+  for (const status of ['waiting','skipped','pending_carry_over']) {
+    input.data.work[0].status=status;
+    assert.ok(has(buildResourceInventoryReport(input),'ticket_binding_lifecycle_mismatch'));
+  }
+  input.data.work[0].status='called'; input.data.work[0].service_started_at=input.observedAt;
+  assert.ok(has(buildResourceInventoryReport(input),'ticket_binding_lifecycle_mismatch'));
+  input.data.work[0].service_started_at=null; input.data.work[0].service_ended_at=input.observedAt;
+  assert.ok(has(buildResourceInventoryReport(input),'ticket_binding_lifecycle_mismatch'));
   input.data.bindings[0].ticket_id='3';
   assert.ok(has(buildResourceInventoryReport(input),'ticket_binding_work_missing'));
 });

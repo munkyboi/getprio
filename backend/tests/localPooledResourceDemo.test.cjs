@@ -238,11 +238,13 @@ test('full disposable local four-court fixture exercises real PostgreSQL ledger/
   await t.test('report reads ticket-owned protections and released conversions with the additive queue schema', async () => {
     // Model the pending Queue source contract only in this freshly owned test
     // database. These SQL facts test the reader, not future dispatch admission.
-    await pool.query(`ALTER TABLE resource_ledger_reservations
-      ALTER COLUMN booking_id DROP NOT NULL, ALTER COLUMN booking_item_id DROP NOT NULL,
-      ADD COLUMN ticket_id BIGINT REFERENCES tickets(id),
-      ADD CHECK ((booking_id IS NOT NULL AND booking_item_id IS NOT NULL AND ticket_id IS NULL)
-        OR (booking_id IS NULL AND booking_item_id IS NULL AND ticket_id IS NOT NULL))`);
+    const hasTicketOwner = (await pool.query(`SELECT EXISTS(SELECT 1 FROM information_schema.columns
+      WHERE table_schema='public' AND table_name='resource_ledger_reservations' AND column_name='ticket_id') AS present`)).rows[0].present;
+    if (!hasTicketOwner) await pool.query(`ALTER TABLE resource_ledger_reservations
+        ALTER COLUMN booking_id DROP NOT NULL, ALTER COLUMN booking_item_id DROP NOT NULL,
+        ADD COLUMN ticket_id BIGINT REFERENCES tickets(id),
+        ADD CHECK ((booking_id IS NOT NULL AND booking_item_id IS NOT NULL AND ticket_id IS NULL)
+          OR (booking_id IS NULL AND booking_item_id IS NULL AND ticket_id IS NOT NULL))`);
     const ticketId = f.ticketIds[7];
     const reservationId = (await pool.query(`INSERT INTO resource_ledger_reservations
       (tenant_id,location_id,ticket_id,pool_id,pool_revision,requirement_revision,units,starts_at,ends_at)
@@ -251,6 +253,8 @@ test('full disposable local four-court fixture exercises real PostgreSQL ledger/
     const outsideWindow = await report();
     assert.ok(outsideWindow.inventory.linkedBindings.some(binding => binding.reservationRef.endsWith(`:${reservationId}`)));
     assert.equal(outsideWindow.inventory.protectedBindings.length,0);
+    await pool.query(`UPDATE resource_ledger_reservations SET starts_at=clock_timestamp()-interval '1 minute',
+      ends_at=clock_timestamp()+interval '29 minutes' WHERE id=$1`, [reservationId]);
     const allocation = await start(ticketId);
     const client = await pool.connect();
     try {
