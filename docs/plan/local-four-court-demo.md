@@ -39,6 +39,10 @@ The operational read contract and tests are documented in [local resource operat
 
 The launcher rejects populated email, SMS, push, payment, and object-storage credentials and blocks external fetch/socket destinations before importing the application. It starts no background workers. To authenticate and read current state without queue mutations, add `--observe-only` to the smoke command; authentication still creates normal session/security records. Do not rerun the full smoke against an in-use fixture.
 
+## Starting tickets without a service plan
+
+In a tracked resource pool, Start requires the ticket to carry the frozen single-item known executable service plan captured at issuance. A generic walk-in with no selected service must be rejected before allocation; the server must not choose a default service or mutate the ticket plan. The operations UI should inspect the read model's `plan` and disable Start when the item count, service identity, duration, pool identity, or known-resource flag is not executable, with an inline explanation to issue a replacement ticket with a service selected. The supported recovery is to resolve the original through the normal queue action, then issue a replacement walk-in with an active service; the original remains in history. Capacity, ledger revision, and existing allocations must remain unchanged on the rejected Start.
+
 ## Editing waiting and called ticket details
 
 The first edit operation changes the ticket's `customerName` and `notes` only. Email and phone remain read-only because they are notification/verification destinations; changing them requires an existing verified contact-change contract. Service selection captures a frozen resource plan at issuance, so service, quantity, duration, resource demand and booking/payment data remain read-only.
