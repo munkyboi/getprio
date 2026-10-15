@@ -8,6 +8,7 @@ const { tmpdir } = require('node:os');
 const path = require('node:path');
 const { execFile } = require('node:child_process');
 const { promisify } = require('node:util');
+const { createHash } = require('node:crypto');
 const exec = promisify(execFile);
 
 test('local fixture rejects non-loopback, existing app names and connection overrides before connecting', async () => {
@@ -45,12 +46,24 @@ test('full local fixture CLI writes exclusive private credentials without leakin
   assert.equal(artifact.locationSlug, 'demo-courts');
   assert.equal(artifact.counterSlug, 'court-dispatch');
   assert.equal(artifact.fixture.ticketIds.length, 8);
+  // Use the actual configuration and notification implementation in a fresh
+  // process; EMAIL_PROVIDER is not an application transport selector.
+  const { disabledProviderKeys } = await import('../../scripts/local-four-court-demo.mjs');
+  const verifyConsole = `const assert=require('node:assert/strict');
+    const env=require('./backend/src/config/env');
+    for(const key of ['resendApiKey','sendgridApiKey','smtpHost','smtpUser','smtpPass','smsAccountSid','smsAuthToken','fcmProjectId','fcmSandboxProjectId','paymongoSecretKey']) assert.ok(!env[key]);
+    global.fetch=()=>{throw new Error('External network forbidden');};
+    let fallback=0; console.log=(tag)=>{if(tag==='[email-fallback]')fallback++;};
+    require('./backend/src/services/notificationService').sendEmail({to:'local@example.test',subject:'Local fixture',text:'Fixture transport check'})
+      .then(ok=>{assert.equal(ok,true);assert.equal(fallback,1);}).catch(()=>{process.exitCode=1;});`;
+  await exec(process.execPath, ['-e', verifyConsole], { cwd: path.resolve(__dirname, '../..'),
+    env: { ...process.env, ...Object.fromEntries(disabledProviderKeys.map(key => [key, 'inherited-provider-must-not-survive'])), ...artifact.env } });
   for (const secret of [artifact.databaseUrl, artifact.admin.email, artifact.admin.password, artifact.admin.totpSecret, artifact.env.JWT_SECRET]) {
     assert.ok(!result.stdout.includes(secret));
     assert.ok(!result.stderr.includes(secret));
   }
   await assert.rejects(exec(process.execPath, args, { env }));
-  assert.deepEqual(await readFile(output), bytes);
+  assert.equal(createHash('sha256').update(await readFile(output)).digest('hex'), createHash('sha256').update(bytes).digest('hex'));
 });
 
 test('full disposable local four-court fixture exercises real PostgreSQL ledger/session capacity', { skip: !adminUrl, timeout: 90000 }, async t => {

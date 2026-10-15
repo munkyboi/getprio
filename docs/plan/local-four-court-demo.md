@@ -21,6 +21,8 @@ Output is an exclusive new mode-0600 private JSON file. It includes `databaseUrl
 
 The generated configuration intends API `http://127.0.0.1:5007/api` and frontend `http://127.0.0.1:5187`, with `LOCAL_POOL_DEMO_ENABLED=1` and development mode. The API owner must verify effective process configuration, actual loopback database identity and exact marker before starting guarded commands; a credential file is not proof of a running backend. Worktree `.env.local` overrides and other shell settings must not redirect the process. No original account or normal localhost session is modified by fixture creation.
 
+The artifact explicitly blanks actual Resend/SendGrid/SMTP, Twilio, FCM and PayMongo credential settings rather than relying on an unused `EMAIL_PROVIDER` variable. A fresh-process test loads the actual application configuration with inherited sentinel credentials, applies the artifact settings, and verifies actual console email fallback while external fetches are prohibited. This test does not waive the API owner's effective startup check for worktree overrides.
+
 ## Automated acceptance
 
 ```sh

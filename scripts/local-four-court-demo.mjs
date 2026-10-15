@@ -12,6 +12,11 @@ const bcrypt = require('bcryptjs');
 const mfa = require('../backend/src/services/mfaService');
 const root = new URL('../', import.meta.url);
 const prefix = 'getprio_local_pool_demo_';
+export const disabledProviderKeys = Object.freeze(['RESEND_API_KEY', 'RESEND_FROM_EMAIL', 'SENDGRID_API_KEY', 'SENDGRID_FROM_EMAIL',
+  'SMTP_HOST', 'SMTP_USER', 'SMTP_PASS', 'TWILIO_ACCOUNT_SID', 'TWILIO_AUTH_TOKEN', 'TWILIO_FROM_NUMBER',
+  'FCM_PROJECT_ID', 'FCM_CLIENT_EMAIL', 'FCM_PRIVATE_KEY', 'FCM_SANDBOX_PROJECT_ID', 'FCM_SANDBOX_CLIENT_EMAIL', 'FCM_SANDBOX_PRIVATE_KEY',
+  'PAYMONGO_SECRET_KEY', 'PAYMONGO_WEBHOOK_SECRET', 'PAYMONGO_SANDBOX_SECRET_KEY', 'PAYMONGO_SANDBOX_WEBHOOK_SECRET',
+  'PAYMONGO_LIVE_SECRET_KEY', 'PAYMONGO_LIVE_WEBHOOK_SECRET']);
 
 export function validateAdminUrl(value) {
   const url = new URL(value);
@@ -49,10 +54,10 @@ export async function createFourCourtDemo({ adminUrl }) {
       await pool.query('INSERT INTO schema_migrations(filename) VALUES($1)', [filename]);
     }
     await assertDatabase(pool, databaseName);
-    const env = { NODE_ENV: 'development', LOCAL_POOL_DEMO_ENABLED: '1', DATABASE_URL: target.href,
+    const env = { ...Object.fromEntries(disabledProviderKeys.map(key => [key, ''])), NODE_ENV: 'development', LOCAL_POOL_DEMO_ENABLED: '1', DATABASE_URL: target.href,
       PORT: '5007', FRONTEND_PORT: '5187', SERVER_URL: 'http://127.0.0.1:5007',
       CLIENT_URL: 'http://127.0.0.1:5187', APP_BASE_URL: 'http://127.0.0.1:5187',
-      EMAIL_PROVIDER: 'console', API_ENVIRONMENT: 'sandbox', JWT_SECRET: randomBytes(32).toString('hex'),
+      PAYMONGO_MODE: 'sandbox', API_ENVIRONMENT: 'sandbox', JWT_SECRET: randomBytes(32).toString('hex'),
       MFA_ENCRYPTION_SECRET: randomBytes(32).toString('hex'), CSRF_SECRET: randomBytes(32).toString('hex') };
     const credentials = { email: 'court-admin@example.test', password: randomBytes(24).toString('base64url'), totpSecret: mfa.createTotpSecret() };
     const encrypted = mfa.encryptSecret(credentials.totpSecret, env.MFA_ENCRYPTION_SECRET);
