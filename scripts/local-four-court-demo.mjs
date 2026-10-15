@@ -3,7 +3,7 @@
 import process from 'node:process';
 import console from 'node:console';
 import { randomUUID, randomBytes } from 'node:crypto';
-import { readFile, readdir, open } from 'node:fs/promises';
+import { readFile, readdir, open, unlink } from 'node:fs/promises';
 import { URL, pathToFileURL } from 'node:url';
 import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
@@ -54,9 +54,10 @@ export async function createFourCourtDemo({ adminUrl }) {
       await pool.query('INSERT INTO schema_migrations(filename) VALUES($1)', [filename]);
     }
     await assertDatabase(pool, databaseName);
-    const env = { ...Object.fromEntries(disabledProviderKeys.map(key => [key, ''])), NODE_ENV: 'development', LOCAL_POOL_DEMO_ENABLED: '1', DATABASE_URL: target.href,
+    const env = { ...Object.fromEntries(disabledProviderKeys.map(key => [key, ''])), NODE_ENV: 'development', LOCAL_POOL_DEMO_ENABLED: '1', DATABASE_URL: target.href, DATABASE_SSL: 'false',
       PORT: '5007', FRONTEND_PORT: '5187', SERVER_URL: 'http://127.0.0.1:5007',
       CLIENT_URL: 'http://127.0.0.1:5187', APP_BASE_URL: 'http://127.0.0.1:5187',
+      VITE_API_URL: 'http://127.0.0.1:5007/api',
       PAYMONGO_MODE: 'sandbox', API_ENVIRONMENT: 'sandbox', JWT_SECRET: randomBytes(32).toString('hex'),
       MFA_ENCRYPTION_SECRET: randomBytes(32).toString('hex'), CSRF_SECRET: randomBytes(32).toString('hex') };
     const credentials = { email: 'court-admin@example.test', password: randomBytes(24).toString('base64url'), totpSecret: mfa.createTotpSecret() };
@@ -115,9 +116,14 @@ export async function createFourCourtDemo({ adminUrl }) {
         queueDayId: day.id, dateKey: day.date_key, ticketIds, tenantSlug: 'vd-sports-club', locationSlug: 'demo-courts' };
       await client.query('COMMIT');
     } catch (error) { await client.query('ROLLBACK'); throw error; } finally { client.release(); }
-    return { databaseName, databaseUrl: target.href, env, credentials, fixture, pool,
-      cleanup: async () => { await pool.end(); await admin.query(`DROP DATABASE "${databaseName}"`); await admin.end(); },
-      close: async () => { await pool.end(); await admin.end(); } };
+    let closing;
+    const close = () => { closing ||= Promise.all([pool.end(), admin.end()]); return closing; };
+    return { databaseName, databaseUrl: target.href, env, credentials, fixture, pool, close,
+      cleanup: async () => {
+        await close();
+        const cleaner = new Pool({ connectionString: url.href, max: 1 });
+        try { await cleaner.query(`DROP DATABASE "${databaseName}"`); } finally { await cleaner.end(); }
+      } };
   } catch (error) {
     if (pool) await pool.end();
     if (created) await admin.query(`DROP DATABASE "${databaseName}"`);
@@ -131,15 +137,20 @@ async function run() {
   if (!output || process.argv.length !== 3 || !process.env.LOCAL_POOL_DEMO_ADMIN_URL) throw new Error('Private new artifact path and explicit local admin URL required.');
   const handle = await open(output, 'wx', 0o600);
   let demo;
+  let succeeded = false;
   try {
     demo = await createFourCourtDemo({ adminUrl: process.env.LOCAL_POOL_DEMO_ADMIN_URL });
     await handle.writeFile(JSON.stringify({ databaseName: demo.databaseName, databaseUrl: demo.databaseUrl,
       tenantSlug: demo.fixture.tenantSlug, locationSlug: demo.fixture.locationSlug, counterSlug: 'court-dispatch',
       admin: demo.credentials, env: demo.env, credentials: demo.credentials, fixture: demo.fixture }, null, 2));
+    await handle.close();
     await demo.close();
     console.log(JSON.stringify({ output, databaseName: demo.databaseName, capacity: 4, waitingTickets: 8, localOnly: true,
       writerCoverageComplete: false, inferenceReady: false, customerEstimateChanged: false }));
-  } catch (error) { if (demo) await demo.cleanup(); throw error; } finally { await handle.close(); }
+    succeeded = true;
+  } catch (error) { if (demo) await demo.cleanup(); throw error; } finally {
+    try { await handle.close(); } finally { if (!succeeded) await unlink(output); }
+  }
 }
 if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) {
   run().catch(() => { console.error('Local four-court fixture failed; existing databases were not bootstrapped.'); process.exitCode = 1; });

@@ -19,9 +19,13 @@ The kept-alive fixture has VD Sports Club (`vd-sports-club`), Demo Courts (`demo
 
 Output is an exclusive new mode-0600 private JSON file. It includes `databaseUrl`, `tenantSlug`, `locationSlug`, `counterSlug`, `admin` credentials/TOTP, `env` secrets and exact `fixture` IDs. Do not print the file into chat or public logs. Stdout includes only the artifact path, generated database name, counts and false readiness flags. Existing files are never overwritten. Keep the generated database alive while the coordinated API/UI acceptance runs; credentials and database disposal belong to that local demo lifecycle.
 
+Creation failures close and remove only the new artifact owned by that invocation, so a retry is not blocked by an empty/partial credential file. An already existing output path is preserved. Connection closing is reused during failure cleanup rather than closing a pool twice.
+
 The generated configuration intends API `http://127.0.0.1:5007/api` and frontend `http://127.0.0.1:5187`, with `LOCAL_POOL_DEMO_ENABLED=1` and development mode. The API owner must verify effective process configuration, actual loopback database identity and exact marker before starting guarded commands; a credential file is not proof of a running backend. Worktree `.env.local` overrides and other shell settings must not redirect the process. No original account or normal localhost session is modified by fixture creation.
 
 The artifact explicitly blanks actual Resend/SendGrid/SMTP, Twilio, FCM and PayMongo credential settings rather than relying on an unused `EMAIL_PROVIDER` variable. A fresh-process test loads the actual application configuration with inherited sentinel credentials, applies the artifact settings, and verifies actual console email fallback while external fetches are prohibited. This test does not waive the API owner's effective startup check for worktree overrides.
+
+`VITE_API_URL` explicitly points the frontend at the generated API port and `DATABASE_SSL=false` prevents unrelated hosted TLS settings from being inherited for loopback. The configuration regression poisons inherited TLS and provider settings before applying the artifact.
 
 ## Automated acceptance
 

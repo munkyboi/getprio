@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const ledger = require('../src/repositories/resourceLedger');
 const sessions = require('../src/services/serviceResourceSessionService');
 const timing = require('../src/repositories/serviceTiming');
-const { mkdtemp, readFile, stat, rm } = require('node:fs/promises');
+const { mkdtemp, readFile, stat, rm, access } = require('node:fs/promises');
 const { tmpdir } = require('node:os');
 const path = require('node:path');
 const { execFile } = require('node:child_process');
@@ -52,12 +52,15 @@ test('full local fixture CLI writes exclusive private credentials without leakin
   assert.equal(artifact.tenantSlug, 'vd-sports-club');
   assert.equal(artifact.locationSlug, 'demo-courts');
   assert.equal(artifact.counterSlug, 'court-dispatch');
+  assert.equal(artifact.env.VITE_API_URL, 'http://127.0.0.1:5007/api');
+  assert.equal(artifact.env.DATABASE_SSL, 'false');
   assert.equal(artifact.fixture.ticketIds.length, 8);
   // Use the actual configuration and notification implementation in a fresh
   // process; EMAIL_PROVIDER is not an application transport selector.
   const { disabledProviderKeys } = await import('../../scripts/local-four-court-demo.mjs');
   const verifyConsole = `const assert=require('node:assert/strict');
     const env=require('./backend/src/config/env');
+    assert.equal(env.databaseSsl,false);
     for(const key of ['resendApiKey','sendgridApiKey','smtpHost','smtpUser','smtpPass','smsAccountSid','smsAuthToken','fcmProjectId','fcmSandboxProjectId','paymongoSecretKey']) assert.ok(!env[key]);
     global.fetch=()=>{throw new Error('External network forbidden');};
     let fallback=0; console.log=(tag)=>{if(tag==='[email-fallback]')fallback++;};
@@ -67,13 +70,18 @@ test('full local fixture CLI writes exclusive private credentials without leakin
     notifications.sendEmail({to:'local@example.test',subject:'Local fixture',text:'Fixture transport check'})
       .then(ok=>{assert.equal(ok,true);assert.equal(fallback,1);}).catch(()=>{process.exitCode=1;});`;
   await exec(process.execPath, ['-e', verifyConsole], { cwd: path.resolve(__dirname, '../..'),
-    env: { ...process.env, ...Object.fromEntries(disabledProviderKeys.map(key => [key, 'inherited-provider-must-not-survive'])), ...artifact.env } });
+    env: { ...process.env, DATABASE_SSL: 'true', ...Object.fromEntries(disabledProviderKeys.map(key => [key, 'inherited-provider-must-not-survive'])), ...artifact.env } });
   for (const secret of [artifact.databaseUrl, artifact.admin.email, artifact.admin.password, artifact.admin.totpSecret, artifact.env.JWT_SECRET]) {
     assert.ok(!result.stdout.includes(secret));
     assert.ok(!result.stderr.includes(secret));
   }
   await assert.rejects(exec(process.execPath, args, { env }));
   assert.equal(createHash('sha256').update(await readFile(output)).digest('hex'), createHash('sha256').update(bytes).digest('hex'));
+  const failedOutput = path.join(directory, 'failed.json');
+  for (let attempt = 0; attempt < 2; attempt++) {
+    await assert.rejects(exec(process.execPath, [args[0], failedOutput], { env: { ...env, LOCAL_POOL_DEMO_ADMIN_URL: 'postgresql://postgres@192.0.2.1/getprio_test' } }));
+    await assert.rejects(access(failedOutput), error => error.code === 'ENOENT');
+  }
 });
 
 test('full disposable local four-court fixture exercises real PostgreSQL ledger/session capacity', { skip: !adminUrl, timeout: 90000 }, async t => {
