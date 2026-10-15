@@ -769,6 +769,7 @@ test("provider-only customer can disable Email OTP after recent provider authent
 
 test("password reset request creates a reset token and sends email", async () => {
   let issuedResetToken = null;
+  let issuedArgs = null;
   let sentEmail = null;
   const router = requireWithMocks("../src/routes/authRoutes.js", {
     "../config/db": {
@@ -816,7 +817,8 @@ test("password reset request creates a reset token and sends email", async () =>
       }
     },
     "../services/passwordResetService": {
-      issuePasswordResetToken: async () => {
+      issuePasswordResetToken: async (args) => {
+        issuedArgs = args;
         issuedResetToken = {
           resetUrl: "https://app.example/login?resetToken=reset-token",
           token: "reset-token",
@@ -843,6 +845,16 @@ test("password reset request creates a reset token and sends email", async () =>
     assert.ok(body.message.includes("If an account exists"));
     assert.equal(issuedResetToken.token, "reset-token");
     assert.equal(sentEmail.to, "customer@example.com");
+    assert.equal(issuedArgs.next, undefined);
+    const next = '/dashboard/queue?boardPairing=' + 'a'.repeat(32);
+    const vendorRequest = await fetch(`${baseUrl}/password-reset/request`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: 'customer@example.com', next })
+    });
+    assert.equal(vendorRequest.status, 200);
+    assert.equal(issuedArgs.next, next);
+    assert.equal(sentEmail.emailTemplate.actionUrl, issuedResetToken.resetUrl);
+    assert.deepEqual(await vendorRequest.json(), body);
   } finally {
     await stopServer(server);
   }

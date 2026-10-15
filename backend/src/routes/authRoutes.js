@@ -1290,7 +1290,8 @@ router.post(
         return passwordResetService.issuePasswordResetToken({
           user,
           req,
-          client
+          client,
+          next: req.body.next
         });
       });
 
