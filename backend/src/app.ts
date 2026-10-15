@@ -71,7 +71,6 @@ const apiRateLimiter = rateLimit({
 });
 
 app.use(createRequestContextMiddleware({ rolloutCohort: env.rolloutCohort }));
-app.use("/api", apiRateLimiter);
 
 app.use(
   cors({
@@ -83,9 +82,13 @@ app.use(
 
       callback(new Error("Origin not allowed by CORS."));
     },
-    credentials: true
+    credentials: true,
+    exposedHeaders: ["Retry-After", "RateLimit-Limit", "RateLimit-Remaining", "RateLimit-Reset"]
   })
 );
+// Allowed browser clients must be able to read throttling responses and honor
+// Retry-After. CORS also completes preflights without consuming API quota.
+app.use("/api", apiRateLimiter);
 app.use("/api/billing/webhooks", paymongoWebhookRoutes);
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
