@@ -12,7 +12,7 @@ function id(value) {
   return value;
 }
 function normalizedCommand(command, payload) {
-  const fields = { reserve: ["bookingItemId"], cancelReservation: ["reservationId"],
+  const fields = { reserve: ["bookingItemId"], reserveTicket: ["ticketId"], cancelReservation: ["reservationId"],
     allocate: ["ticketId"], release: ["allocationId", "outcome", "reason"] };
   if (!Object.hasOwn(fields, command) || !payload || typeof payload !== "object"
     || Array.isArray(payload) || Object.keys(payload).some(key => !fields[command].includes(key))) {
@@ -85,11 +85,53 @@ async function reserve(client, scope, payload) {
     pool.requirement_revision, pool.units_required, row.scheduled_start_at, row.scheduled_end_at]);
   return { reservationId: result.rows[0].id };
 }
+async function reserveTicket(client, scope, payload) {
+  const ticket = await client.query(`SELECT t.status,t.join_channel,p.items,
+      clock_timestamp() AS observed_at
+    FROM tickets t LEFT JOIN ticket_service_plans p
+      ON (p.ticket_id,p.tenant_id,p.location_id)=(t.id,t.tenant_id,t.location_id)
+    WHERE t.tenant_id=$1 AND t.location_id=$2 AND t.id=$3 FOR UPDATE OF t`, [...scope, payload.ticketId]);
+  const row = ticket.rows[0];
+  if (!row) fail("Ticket not found.", 404);
+  if (row.status !== "called") fail("Call the ticket before protecting its service interval.");
+  const item = row.items?.[0];
+  if (row.items?.length !== 1 || !item?.resource?.known
+    || !Number.isInteger(item.durationMinutes) || item.durationMinutes < 5 || item.durationMinutes > 480) {
+    fail("A single-item known executable service plan is required before calling this ticket.", 409, "SERVICE_PLAN_REQUIRED");
+  }
+  const pool = await poolMapping(client, scope, id(item.serviceId));
+  if (pool.id !== item.resource.poolId || pool.pool_revision !== item.resource.poolRevision
+    || pool.requirement_revision !== item.resource.requirementRevision || pool.units_required !== item.resource.unitsRequired) {
+    fail("Service plan resource configuration is stale.", 409, "SERVICE_PLAN_STALE");
+  }
+  const existing = await client.query(`SELECT id::text,state FROM resource_ledger_reservations
+    WHERE tenant_id=$1 AND location_id=$2 AND ticket_id=$3 AND state IN ('protected','converted')
+    FOR UPDATE`, [...scope, payload.ticketId]);
+  if (existing.rows[0]) return { reservationId: existing.rows[0].id };
+  const startsAt = row.observed_at;
+  const endsAt = new Date(startsAt.getTime() + item.durationMinutes * 60000);
+  await assertCapacity(client, scope, pool, startsAt, endsAt);
+  const result = await client.query(`INSERT INTO resource_ledger_reservations
+    (tenant_id,location_id,ticket_id,pool_id,pool_revision,requirement_revision,units,starts_at,ends_at)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT DO NOTHING RETURNING id::text AS id`,
+  [...scope.slice(0, 2), payload.ticketId, pool.id, pool.pool_revision,
+    pool.requirement_revision, pool.units_required, startsAt, endsAt]);
+  if (!result.rows[0]) {
+    const concurrent = await client.query(`SELECT id::text FROM resource_ledger_reservations
+      WHERE tenant_id=$1 AND location_id=$2 AND ticket_id=$3 AND state IN ('protected','converted') FOR UPDATE`, [...scope, payload.ticketId]);
+    if (concurrent.rows[0]) return { reservationId: concurrent.rows[0].id };
+    fail("Ticket resource reservation could not be created.", 409, "TICKET_RESERVATION_CONFLICT");
+  }
+  return { reservationId: result.rows[0].id };
+}
 async function cancelReservation(client, scope, payload) {
   const result = await client.query(`UPDATE resource_ledger_reservations SET state='cancelled'
     WHERE tenant_id=$1 AND location_id=$2 AND id=$3 AND state='protected' RETURNING id::text`, [...scope, payload.reservationId]);
-  if (!result.rows.length) fail("Only a protected reservation can be cancelled.");
-  return { reservationId: result.rows[0].id };
+  if (result.rows.length) return { reservationId: result.rows[0].id };
+  const existing = await client.query(`SELECT id::text,state FROM resource_ledger_reservations
+    WHERE tenant_id=$1 AND location_id=$2 AND id=$3`, [...scope, payload.reservationId]);
+  if (existing.rows[0]?.state === "cancelled") return { reservationId: existing.rows[0].id };
+  fail("Only a protected reservation can be cancelled.");
 }
 async function allocationPlan(client, scope, ticketId) {
   const ticket = await client.query(`SELECT t.status,t.join_channel,t.customer_confirmed_at,p.source,p.booking_id,p.items,
@@ -138,6 +180,28 @@ async function allocate(client, scope, payload) {
     // Late bookings retain their protected end; extensions require a separately
     // authorized command that checks subsequent reservations.
     endsAt = r.ends_at;
+  } else {
+    const schema = await client.query(`SELECT EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema=current_schema() AND table_name='resource_ledger_reservations' AND column_name='ticket_id'
+    ) AS available`);
+    if (schema.rows[0]?.available) {
+      const binding = await client.query(`SELECT * FROM resource_ledger_reservations
+        WHERE tenant_id=$1 AND location_id=$2 AND ticket_id=$3 AND state='protected' FOR UPDATE`, [...scope, payload.ticketId]);
+      const r = binding.rows[0];
+      if (r && (String(r.pool_id) !== pool.id || r.units !== pool.units_required
+        || r.pool_revision !== pool.pool_revision || r.requirement_revision !== pool.requirement_revision
+        || r.starts_at > row.observed_at || r.ends_at <= row.observed_at)) {
+        fail("Ticket resource reservation is unavailable or stale.", 409, "TICKET_RESERVATION_STALE");
+      }
+      if (r) {
+        reservationId = String(r.id);
+        endsAt = new Date(row.observed_at.getTime() + item.durationMinutes * 60000);
+        await client.query(`UPDATE resource_ledger_reservations SET starts_at=$4,ends_at=$5
+          WHERE tenant_id=$1 AND location_id=$2 AND id=$3 AND state='protected'`,
+        [...scope, reservationId, row.observed_at, endsAt]);
+      }
+    }
   }
   await assertCapacity(client, scope, pool, row.observed_at, endsAt, reservationId);
   const result = await client.query(`INSERT INTO resource_allocations
@@ -152,10 +216,30 @@ async function release(client, scope, payload) {
   const result = await client.query(`UPDATE resource_allocations SET released_at=clock_timestamp(),outcome=$4,reason=$5
     WHERE tenant_id=$1 AND location_id=$2 AND id=$3 AND released_at IS NULL RETURNING id::text`,
   [...scope, payload.allocationId, payload.outcome, payload.reason]);
-  if (!result.rows.length) fail("Allocation already resolved or not found.");
+  if (!result.rows.length) {
+    const existing = await client.query(`SELECT id::text,outcome FROM resource_allocations
+      WHERE tenant_id=$1 AND location_id=$2 AND id=$3`, [...scope, payload.allocationId]);
+    if (existing.rows[0]?.outcome === payload.outcome) return { allocationId: existing.rows[0].id, outcome: existing.rows[0].outcome };
+    fail("Allocation already resolved or not found.");
+  }
   return { allocationId: result.rows[0].id, outcome: payload.outcome };
 }
-const handlers = { reserve, cancelReservation, allocate, release };
+
+async function requiresTicketReservation(client, ticket) {
+  const result = await client.query(`SELECT EXISTS (
+      SELECT 1 FROM location_resource_pools p
+      JOIN ticket_service_plans plan ON plan.ticket_id=$3 AND plan.tenant_id=$1 AND plan.location_id=$2
+      CROSS JOIN LATERAL jsonb_array_elements(plan.items) item
+      WHERE p.tenant_id=$1 AND p.location_id=$2 AND p.tracking_enabled=TRUE AND plan.source='staff_selection'
+        AND (item->'resource'->>'known')::boolean=TRUE
+        AND (item->'resource'->>'poolId')::bigint=p.id
+    ) AND EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema=current_schema() AND table_name='resource_ledger_reservations' AND column_name='ticket_id'
+    ) AS required`, [ticket.tenantId, ticket.locationId, ticket._id]);
+  return result.rows[0]?.required === true;
+}
+const handlers = { reserve, reserveTicket, cancelReservation, allocate, release };
 
 // Only this entry point acquires the connection and starts the transaction.
 // Domain adapters must enter here before taking booking/ticket/pool locks.
@@ -416,4 +500,4 @@ async function executeCommand(options) {
   return withScopeTransaction({ ...options, authorize: async () => true },
     async (_client, ledger) => ledger.executeCommand(options));
 }
-module.exports = { withTenantCatalogTransaction, advanceBranchRevisions, executeCommand, withScopeTransaction, withTicketIssuanceTransaction, withSystemExpiryTransaction, withCustomerTicketCancellationTransaction, withCarryOverExpiryTransaction, withQueueDayReconciliationTransaction };
+module.exports = { withTenantCatalogTransaction, advanceBranchRevisions, executeCommand, withScopeTransaction, withTicketIssuanceTransaction, withSystemExpiryTransaction, withCustomerTicketCancellationTransaction, withCarryOverExpiryTransaction, withQueueDayReconciliationTransaction, requiresTicketReservation };

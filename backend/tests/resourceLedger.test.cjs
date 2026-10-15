@@ -51,6 +51,7 @@ test('PostgreSQL resource ledger interface', { skip: !databaseUrl }, async (t) =
       CREATE TABLE ticket_service_plans(ticket_id BIGINT PRIMARY KEY, tenant_id BIGINT, location_id BIGINT,
         booking_id BIGINT, source TEXT, items JSONB);`);
     await setup.query(fs.readFileSync(path.resolve(__dirname, '../../database/migrations/20261007_add_resource_ledger_foundation.sql'), 'utf8'));
+    await setup.query(fs.readFileSync(path.resolve(__dirname, '../../database/migrations/20261015_add_ticket_queue_reservations.sql'), 'utf8'));
   } finally { setup.release(); }
   async function reset(capacity = 4) {
     await pool.query(`TRUNCATE resource_ledger_commands,resource_allocations,resource_ledger_reservations,
@@ -92,6 +93,16 @@ test('PostgreSQL resource ledger interface', { skip: !databaseUrl }, async (t) =
       assert.deepEqual(await command('allocate', { ticketId: '1' }, 'start-1'), original);
       await assert.rejects(command('allocate', { ticketId: '2' }, 'start-1'), /reused/);
       assert.equal((await pool.query('SELECT revision::text FROM resource_ledger_scopes')).rows[0].revision, '2');
+    });
+    await t.test('ticket call protects a single service interval and converts it on start', async () => {
+      await reset(1); await ticket('1');
+      const held = await command('reserveTicket', { ticketId: '1' }, 'ticket-1-call');
+      assert.equal((await pool.query("SELECT ticket_id::text,state FROM resource_ledger_reservations")).rows[0].ticket_id, '1');
+      await assert.rejects((async () => { await ticket('2'); await command('reserveTicket', { ticketId: '2' }, 'ticket-2-call'); })(), /capacity/);
+      const started = await command('allocate', { ticketId: '1' }, 'ticket-1-start');
+      assert.equal(started.reservationId, held.reservationId);
+      assert.equal((await pool.query('SELECT state FROM resource_ledger_reservations')).rows[0].state, 'converted');
+      assert.deepEqual(await command('reserveTicket', { ticketId: '1' }, 'ticket-1-call'), held);
     });
     await t.test('reservation/start contention and conversion count units once', async () => {
       await reset(1);

@@ -7,6 +7,7 @@ const { withVendorQueueTransaction, readAuthorizedVendorQueueActor } = require("
 const { withCustomerTicketCancellation } = require("./customerTicketCancellationService");
 const { withCustomerQueueIssuance } = require("./customerQueueIssuanceService");
 const ticketResourceOutcomeService = require("./ticketResourceOutcomeService");
+const resourceLedger = require("../repositories/resourceLedger");
 const db = require("../config/db");
 const env = require("../config/env");
 const billingRepository = require("../repositories/billing");
@@ -597,11 +598,11 @@ async function reconcileOverdueVendorQueue(client, tenant, location, queueDateKe
   }
 }
 
-async function executeOpenVendorQueueAction(client, tenant, scope, callback) {
+async function executeOpenVendorQueueAction(client, tenant, scope, callback, ledger) {
   await client.query("SAVEPOINT vendor_queue_action");
   let outcome;
   try {
-    outcome = await callback(client, scope);
+    outcome = await callback(client, scope, ledger);
   } catch (error) {
     if (error.code !== "QUEUE_DAY_OVERDUE") throw error;
     // Discard the requested action before committing lifecycle reconciliation.
@@ -617,7 +618,7 @@ async function executeOpenVendorQueueAction(client, tenant, scope, callback) {
 
 async function withOpenVendorQueueTransaction(tenant, location, options, permission, callback) {
   let overdueError;
-  const result = await withVendorQueueTransaction({ pool: db.pool, tenant, location, actorUserId: options.actorUserId, permission, lockTenantActivity: true }, async (client) => {
+  const result = await withVendorQueueTransaction({ pool: db.pool, tenant, location, actorUserId: options.actorUserId, permission, lockTenantActivity: true }, async (client, ledger) => {
     const branch = (await client.query(`SELECT l.is_active,l.queue_lifecycle_mode,l.timezone,t.is_active AS tenant_active
       FROM store_locations l JOIN tenants t ON t.id=l.tenant_id WHERE l.id=$1 AND l.tenant_id=$2`, [location._id, tenant._id])).rows[0];
     if (!branch?.is_active || !branch.tenant_active) {
@@ -636,7 +637,7 @@ async function withOpenVendorQueueTransaction(tenant, location, options, permiss
     }
     const dateKey = options.queueDateKey || (queueDay?.businessDate
       ? String(queueDay.businessDate).replaceAll("-", "") : requestedDateKey);
-    const action = await executeOpenVendorQueueAction(client, tenant, { location: currentLocation, dateKey, queueDay, requestedDateKey }, callback);
+    const action = await executeOpenVendorQueueAction(client, tenant, { location: currentLocation, dateKey, queueDay, requestedDateKey }, callback, ledger);
     if (action.overdueError) {
       overdueError = action.overdueError;
       return null;
@@ -683,13 +684,20 @@ async function withOpenCustomerQueueIssuance(tenant, location, userId, callback)
 async function callNextTicket(tenant, options = {}) {
   let location = await resolveLocation(tenant, options);
   let dateKey;
-  const result = await withOpenVendorQueueTransaction(tenant, location, options, "tenant.queue.operate", async (client, scope) => {
+  const result = await withOpenVendorQueueTransaction(tenant, location, options, "tenant.queue.operate", async (client, scope, ledger) => {
     location = scope.location;
     dateKey = scope.dateKey;
     const nextTicket = await counterDispatchService.claimNext(client, {
       tenantId: tenant._id, locationId: location._id, dateKey
     }, options);
     if (!nextTicket) return null;
+    if (await resourceLedger.requiresTicketReservation(client, nextTicket)) {
+      await ledger.executeCommand({
+        operationKey: `ticket:${nextTicket._id}:call:${new Date(nextTicket.calledAt).toISOString()}`,
+        command: "reserveTicket",
+        payload: { ticketId: String(nextTicket._id) }
+      });
+    }
     queueLifecycle.assertValidTransition("waiting", "called");
 
     const actor = buildQueueEventActor({
@@ -795,6 +803,8 @@ async function updateCurrentTicketStatus(tenant, status, options = {}) {
       await ticketResourceOutcomeService.cancelUnusedProtection(client, ledger, updatedTicket, {
         operation: `queue-${status}`, cancelBooking: status === "cancelled", actor: authorizedActor
       });
+    } else if (status === "skipped") {
+      await ticketResourceOutcomeService.cancelTicketReservations(client, ledger, updatedTicket, "queue-skipped");
     }
 
     if (status === "served") {
