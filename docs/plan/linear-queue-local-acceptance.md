@@ -37,3 +37,22 @@ The initial capacity attempt coincided with global IP rate-limit exhaustion and 
 - Scoped PostgreSQL suite: 209/209 passed; resource-ledger and vendor-route checks: 33/33 passed in an isolated temporary test database.
 - This fixture recorded no allowance operation for acceptance tickets. Served facts and resource release are verified; billing allowance consumption is not accepted by this run.
 - These results establish local preview behavior only. Preview approval, PR review, deployment, and production verification remain separate gates.
+
+## Customer and Mobile acceptance setup
+
+Customer read contract `75673a98` was integrated with preservation checks. Actual credential-scoped public responses returned waiting, called, in_service, and terminal projections with `resourceWait: null`. This alone did not establish populated customer-owned Mobile reads: all original 23 tickets were unowned.
+
+With explicit authorization, a NEW customer account 3 was registered and logged in through normal customer authentication. Both original accounts and all original 23 tickets compared unchanged. Public customer join correctly rejected the fee-gated queue with HTTP 409; no fee/provider settings were changed. Therefore NEW customer-owned acceptance tickets were issued through the explicitly authorized existing domain fixture path, assigning owner 3 at creation with normal vendor permission/transaction gates. This setup does not accept customer join or payment behavior.
+
+| New disposable ticket | Fixture state |
+| --- | --- |
+| 24 | terminal/completed |
+| 25 | in_service; holds new allocation 21 on the fourth court |
+| 26 | called; untracked equipment service |
+| 27 | waiting |
+
+Normal customer authentication verified populated Mobile active/history lists and all four owned detail responses, plus account overview/history lifecycle projections. Private read evidence: `/tmp/getprio-462-mobile-read-evidence.json`. Credentials remain only in a mode-0600 local handoff file and are not recorded here.
+
+Explicit local launcher ingress `4e68e794` retains the default loopback listener and adds a wired link-local listener only when both host/peer flags are supplied. Current host is `169.254.97.192:5007`, permitting only Zero32 peer `169.254.233.243`. Normal application authentication, CSRF/CORS, rate limits, provider-empty configuration, and outbound guard remain active. Database port 55494 stays loopback-only; no Wi-Fi listener or public tunnel was added. A Mac request from the wrong USB peer returned 403. Two focused ingress tests passed.
+
+Mobile owns the actual Zero32 authenticated endpoint/rendering check. Queue-side API checks and build/install/launch do not establish physical visual or gesture acceptance. Preserve these new fixtures until Mobile finishes; original allocations 13/14/17 remain unchanged.
