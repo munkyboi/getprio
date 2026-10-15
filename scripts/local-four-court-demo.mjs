@@ -14,6 +14,7 @@ const root = new URL('../', import.meta.url);
 const prefix = 'getprio_local_pool_demo_';
 export const disabledProviderKeys = Object.freeze(['RESEND_API_KEY', 'RESEND_FROM_EMAIL', 'SENDGRID_API_KEY', 'SENDGRID_FROM_EMAIL',
   'SMTP_HOST', 'SMTP_USER', 'SMTP_PASS', 'TWILIO_ACCOUNT_SID', 'TWILIO_AUTH_TOKEN', 'TWILIO_FROM_NUMBER',
+  'VAPID_PUBLIC_KEY', 'VAPID_PRIVATE_KEY',
   'FCM_PROJECT_ID', 'FCM_CLIENT_EMAIL', 'FCM_PRIVATE_KEY', 'FCM_SANDBOX_PROJECT_ID', 'FCM_SANDBOX_CLIENT_EMAIL', 'FCM_SANDBOX_PRIVATE_KEY',
   'PAYMONGO_SECRET_KEY', 'PAYMONGO_WEBHOOK_SECRET', 'PAYMONGO_SANDBOX_SECRET_KEY', 'PAYMONGO_SANDBOX_WEBHOOK_SECRET',
   'PAYMONGO_LIVE_SECRET_KEY', 'PAYMONGO_LIVE_WEBHOOK_SECRET']);
@@ -54,7 +55,7 @@ export async function createFourCourtDemo({ adminUrl }) {
       await pool.query('INSERT INTO schema_migrations(filename) VALUES($1)', [filename]);
     }
     await assertDatabase(pool, databaseName);
-    const env = { ...Object.fromEntries(disabledProviderKeys.map(key => [key, ''])), NODE_ENV: 'development', LOCAL_POOL_DEMO_ENABLED: '1', DATABASE_URL: target.href, DATABASE_SSL: 'false',
+    const env = { ...Object.fromEntries(disabledProviderKeys.map(key => [key, ''])), NODE_ENV: 'development', LOCAL_POOL_DEMO_ENABLED: '1', DATABASE_URL: target.href, DATABASE_SSL: 'false', AUTH_COOKIE_SECURE: 'false',
       PORT: '5007', FRONTEND_PORT: '5187', SERVER_URL: 'http://127.0.0.1:5007',
       CLIENT_URL: 'http://127.0.0.1:5187', APP_BASE_URL: 'http://127.0.0.1:5187',
       VITE_API_URL: 'http://127.0.0.1:5007/api',

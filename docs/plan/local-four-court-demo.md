@@ -25,7 +25,7 @@ The generated configuration intends API `http://127.0.0.1:5007/api` and frontend
 
 The artifact explicitly blanks actual Resend/SendGrid/SMTP, Twilio, FCM and PayMongo credential settings rather than relying on an unused `EMAIL_PROVIDER` variable. A fresh-process test loads the actual application configuration with inherited sentinel credentials, applies the artifact settings, and verifies actual console email fallback while external fetches are prohibited. This test does not waive the API owner's effective startup check for worktree overrides.
 
-`VITE_API_URL` explicitly points the frontend at the generated API port and `DATABASE_SSL=false` prevents unrelated hosted TLS settings from being inherited for loopback. The configuration regression poisons inherited TLS and provider settings before applying the artifact.
+`VITE_API_URL` explicitly points the frontend at the generated API port, `DATABASE_SSL=false` prevents unrelated hosted database TLS settings from being inherited, and `AUTH_COOKIE_SECURE=false` permits sessions on this isolated HTTP loopback demo. VAPID credentials are also cleared. The configuration regression poisons inherited TLS, cookie and provider settings before applying the artifact. These local settings do not change production authentication policy.
 
 ## Automated acceptance
 

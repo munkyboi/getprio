@@ -54,6 +54,7 @@ test('full local fixture CLI writes exclusive private credentials without leakin
   assert.equal(artifact.counterSlug, 'court-dispatch');
   assert.equal(artifact.env.VITE_API_URL, 'http://127.0.0.1:5007/api');
   assert.equal(artifact.env.DATABASE_SSL, 'false');
+  assert.equal(artifact.env.AUTH_COOKIE_SECURE, 'false');
   assert.equal(artifact.fixture.ticketIds.length, 8);
   // Use the actual configuration and notification implementation in a fresh
   // process; EMAIL_PROVIDER is not an application transport selector.
@@ -61,6 +62,7 @@ test('full local fixture CLI writes exclusive private credentials without leakin
   const verifyConsole = `const assert=require('node:assert/strict');
     const env=require('./backend/src/config/env');
     assert.equal(env.databaseSsl,false);
+    assert.equal(env.authCookieSecure,false);
     for(const key of ['resendApiKey','sendgridApiKey','smtpHost','smtpUser','smtpPass','smsAccountSid','smsAuthToken','fcmProjectId','fcmSandboxProjectId','paymongoSecretKey']) assert.ok(!env[key]);
     global.fetch=()=>{throw new Error('External network forbidden');};
     let fallback=0; console.log=(tag)=>{if(tag==='[email-fallback]')fallback++;};
@@ -70,7 +72,7 @@ test('full local fixture CLI writes exclusive private credentials without leakin
     notifications.sendEmail({to:'local@example.test',subject:'Local fixture',text:'Fixture transport check'})
       .then(ok=>{assert.equal(ok,true);assert.equal(fallback,1);}).catch(()=>{process.exitCode=1;});`;
   await exec(process.execPath, ['-e', verifyConsole], { cwd: path.resolve(__dirname, '../..'),
-    env: { ...process.env, DATABASE_SSL: 'true', ...Object.fromEntries(disabledProviderKeys.map(key => [key, 'inherited-provider-must-not-survive'])), ...artifact.env } });
+    env: { ...process.env, DATABASE_SSL: 'true', AUTH_COOKIE_SECURE: 'true', ...Object.fromEntries(disabledProviderKeys.map(key => [key, 'inherited-provider-must-not-survive'])), ...artifact.env } });
   for (const secret of [artifact.databaseUrl, artifact.admin.email, artifact.admin.password, artifact.admin.totpSecret, artifact.env.JWT_SECRET]) {
     assert.ok(!result.stdout.includes(secret));
     assert.ok(!result.stderr.includes(secret));
@@ -148,10 +150,11 @@ test('full disposable local four-court fixture exercises real PostgreSQL ledger/
   await finish(accepted[1].ticketId, 'interrupted');
   const sixth = await start(f.ticketIds[5]);
   assert.deepEqual(await held(), { sessions: 4, units: 4 });
-  const outcomes = (await pool.query('SELECT outcome,reason FROM resource_allocations WHERE released_at IS NOT NULL ORDER BY id')).rows;
-  assert.equal(outcomes[0].outcome, 'completed');
-  assert.equal(outcomes[1].outcome, 'terminated');
-  assert.ok(outcomes[1].reason.length > 0);
+  const outcomes = new Map((await pool.query('SELECT id::text,outcome,reason FROM resource_allocations WHERE released_at IS NOT NULL')).rows.map(row => [row.id, row]));
+  assert.equal(outcomes.size, 2);
+  assert.equal(outcomes.get(accepted[0].allocationId).outcome, 'completed');
+  assert.equal(outcomes.get(accepted[1].allocationId).outcome, 'terminated');
+  assert.ok(outcomes.get(accepted[1].allocationId).reason.length > 0);
   for (const id of [accepted[2].ticketId, accepted[3].ticketId, replacement.ticketId, sixth.ticketId]) await finish(id, 'completed');
   assert.deepEqual(await held(), { sessions: 0, units: 0 });
 
