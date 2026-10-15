@@ -174,6 +174,16 @@ test('PostgreSQL resource ledger interface', { skip: !databaseUrl }, async (t) =
       await assert.rejects(command('allocate', { ticketId: '1' }), /single-item/);
       assert.equal((await pool.query('SELECT COUNT(*)::int AS count FROM resource_allocations')).rows[0].count, 0);
     });
+    await t.test('missing service plan exposes an actionable code without allocating or advancing the ledger', async () => {
+      await reset(); await ticket('1');
+      await pool.query("UPDATE ticket_service_plans SET items='[]' WHERE ticket_id='1'");
+      const before = (await pool.query('SELECT COUNT(*)::int AS count FROM resource_ledger_scopes')).rows[0].count;
+      await assert.rejects(command('allocate', { ticketId: '1' }), error =>
+        error.statusCode === 409 && error.code === 'SERVICE_PLAN_REQUIRED'
+        && error.message === 'A single-item known executable service plan is required. Select one executable service before starting this ticket.');
+      assert.equal((await pool.query('SELECT COUNT(*)::int AS count FROM resource_allocations')).rows[0].count, 0);
+      assert.equal((await pool.query('SELECT COUNT(*)::int AS count FROM resource_ledger_scopes')).rows[0].count, before);
+    });
     await t.test('cancelled booking cannot convert, cancellation binding frees protection', async () => {
       await reset(1); const interval = await bookingItem('1');
       await ticket('1', { source: 'booking', itemId: '1', interval }); await ticket('2');

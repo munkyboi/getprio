@@ -1,8 +1,9 @@
 const { createHash } = require("node:crypto");
 
-function fail(message, statusCode = 409) {
+function fail(message, statusCode = 409, code = null) {
   const error = new Error(message);
   error.statusCode = statusCode;
+  if (code) error.code = code;
   throw error;
 }
 function id(value) {
@@ -103,7 +104,7 @@ async function allocationPlan(client, scope, ticketId) {
   const item = row.items?.[0];
   if (row.items?.length !== 1 || !item?.resource?.known
     || !Number.isInteger(item.durationMinutes) || item.durationMinutes < 5 || item.durationMinutes > 480) {
-    fail("A single-item known executable service plan is required.");
+    fail("A single-item known executable service plan is required. Select one executable service before starting this ticket.", 409, "SERVICE_PLAN_REQUIRED");
   }
   if (item.scheduledStartAt && new Date(item.scheduledStartAt) > row.observed_at) fail("Booked service is not ready yet.");
   const pool = await poolMapping(client, scope, id(item.serviceId));
