@@ -1,4 +1,5 @@
 import express from "express";
+import { createRequire } from "node:module";
 import cors from "cors";
 import morgan from "morgan";
 import { ipKeyGenerator, rateLimit } from "express-rate-limit";
@@ -18,7 +19,7 @@ import mobileSandboxAuthRoutes from "./routes/mobileSandboxAuthRoutes";
 import mobileTicketLinkRoutes from "./routes/mobileTicketLinkRoutes";
 import mobileTicketRoutes from "./routes/mobileTicketRoutes";
 import vendorRoutes from "./routes/vendorRoutes";
-import localResourceOperationsRoutes from "./routes/localResourceOperationsRoutes";
+import localPoolDemoScopeModule from "./services/localPoolDemoScope";
 import developerApiRoutes from "./routes/developerApiRoutes";
 import developerAuthRoutes from "./routes/developerAuthRoutes";
 import developerProjectRoutes from "./routes/developerProjectRoutes";
@@ -130,7 +131,10 @@ app.use("/api/mobile", mobileQueueJoinRoutes);
 app.use("/api/queue-board", queueBoardRoutes.publicRouter);
 app.use("/api/vendor", queueBoardRoutes.vendorRouter);
 app.use("/api/vendor", vendorRoutes);
-app.use("/api/vendor", localResourceOperationsRoutes);
+if (localPoolDemoScopeModule.localPoolDemoConfiguration()) {
+  const loadLocalRoute = createRequire(__filename);
+  app.use("/api/vendor", loadLocalRoute("./routes/localResourceOperationsRoutes"));
+}
 app.use("/v1", developerApiRoutes);
 
 // Keep the legacy namespace available while first-party clients migrate to v1.
