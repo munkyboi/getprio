@@ -78,6 +78,13 @@ test('ticket protections validate captured demand and never join a null booking 
   input.data.bindings[0].state='protected'; input.data.work[0].service_started_at=null;
   const report=buildResourceInventoryReport(input);
   assert.equal(report.inventory.protectedBindings.length,1);
+  assert.equal(report.inventory.protectedBindings[0].source,'ticket');
+  assert.equal(report.inventory.protectedBindings[0].workRef,'ticket:1:10:1');
+  assert.equal(report.inventory.protectedBindings[0].bookingItemRef,null);
+  input.data.bindings[0].overlaps_window=false;
+  const outsideWindow=buildResourceInventoryReport(input);
+  assert.equal(outsideWindow.inventory.linkedBindings[0].source,'ticket');
+  assert.equal(outsideWindow.inventory.linkedBindings[0].workRef,'ticket:1:10:1');
   assert.ok(!report.findings.counts.some(finding=>finding.classification==='integrity_difference'));
   input.data.bindings[0].units=2;
   assert.ok(has(buildResourceInventoryReport(input),'ticket_binding_captured_demand_mismatch'));

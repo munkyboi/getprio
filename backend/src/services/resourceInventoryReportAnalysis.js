@@ -235,7 +235,8 @@ function buildResourceInventoryReport({ reportVersion, scope, window, observedAt
     }
   }
   function inspectBinding(row) {
-    const entry = { reservationRef: reference('reservation',row.id), bookingItemRef: reference('booking_item',row.booking_item_id), poolRef: reference('pool',row.pool_id),
+    const entry = { reservationRef: reference('reservation',row.id), source: bindingSource(row), workRef: reference('ticket',row.ticket_id),
+      bookingItemRef: reference('booking_item',row.booking_item_id), poolRef: reference('pool',row.pool_id),
       frozenPoolRevision: id(row.pool_revision), frozenRequirementRevision: id(row.requirement_revision), units: integer(row.units), startsAt: time(row.starts_at), endsAt: time(row.ends_at),
       state: choice(row.state,['protected','converted','cancelled']), overlapsWindow: overlaps(row), linkedSessionRef: reference('allocation',allocationByBinding.get(row.id)?.id) };
     if (row.state === 'protected' && entry.overlapsWindow !== false) inventory.protectedBindings.push(entry);

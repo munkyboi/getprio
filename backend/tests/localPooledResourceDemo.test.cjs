@@ -251,10 +251,16 @@ test('full disposable local four-court fixture exercises real PostgreSQL ledger/
       VALUES($1,$2,$3,$4,1,1,1,clock_timestamp()+interval '4 hours',clock_timestamp()+interval '270 minutes')
       RETURNING id::text`, [f.tenantId,f.locationId,ticketId,f.poolId])).rows[0].id;
     const outsideWindow = await report();
-    assert.ok(outsideWindow.inventory.linkedBindings.some(binding => binding.reservationRef.endsWith(`:${reservationId}`)));
+    const linked = outsideWindow.inventory.linkedBindings.find(binding => binding.reservationRef.endsWith(`:${reservationId}`));
+    assert.equal(linked.source,'ticket');
+    assert.equal(linked.workRef,`ticket:${f.tenantId}:${f.locationId}:${ticketId}`);
+    assert.equal(linked.bookingItemRef,null);
     assert.equal(outsideWindow.inventory.protectedBindings.length,0);
     await pool.query(`UPDATE resource_ledger_reservations SET starts_at=clock_timestamp()-interval '1 minute',
       ends_at=clock_timestamp()+interval '29 minutes' WHERE id=$1`, [reservationId]);
+    const protectedTicket = await report();
+    assert.equal(protectedTicket.inventory.protectedBindings[0].source,'ticket');
+    assert.equal(protectedTicket.inventory.protectedBindings[0].workRef,linked.workRef);
     const allocation = await start(ticketId);
     const client = await pool.connect();
     try {
