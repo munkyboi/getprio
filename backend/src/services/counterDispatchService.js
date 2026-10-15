@@ -1,4 +1,5 @@
 const tickets = require("../repositories/tickets");
+const { readLocalPoolDemoScope } = require("./localPoolDemoScope");
 
 function fail(message, code, statusCode = 409) {
   throw Object.assign(new Error(message), { statusCode, code });
@@ -28,8 +29,12 @@ async function claimNext(client, scope, options) {
   const serviceCounterId = counterId(options);
   if (serviceCounterId === null) fail("Select an active counter before calling a customer.", "COUNTER_REQUIRED", 400);
   await assertCounter(client, scope, serviceCounterId);
-  // An unresolved call occupies its counter across Queue Day boundaries.
-  const lane = { client, locationId: scope.locationId, serviceCounterId };
+  // Ordinary unresolved calls occupy their counter across Queue Days. Only the
+  // isolated fixture may reuse a call lane after actual resource allocation;
+  // started timing without held capacity never proves that a lane is free.
+  const pooledDemo = await readLocalPoolDemoScope(client, scope);
+  const lane = { client, locationId: scope.locationId, serviceCounterId,
+    ...(pooledDemo ? { excludeAllocatedService: true } : {}) };
   if (await tickets.findCurrentCalledTicket(scope.tenantId, { ...lane, forUpdate: true })) {
     fail("Serve or skip this counter's called ticket before calling the next one.", "COUNTER_OCCUPIED");
   }

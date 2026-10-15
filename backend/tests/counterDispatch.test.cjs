@@ -58,7 +58,7 @@ test('PostgreSQL counter dispatch uses vendor authorization and branch resource 
       CREATE TABLE store_locations(id BIGINT PRIMARY KEY,tenant_id BIGINT);
       CREATE TABLE service_counters(id BIGINT PRIMARY KEY,tenant_id BIGINT,location_id BIGINT,is_active BOOLEAN);
       CREATE TABLE resource_ledger_scopes(tenant_id BIGINT,location_id BIGINT,revision BIGINT DEFAULT 1,PRIMARY KEY(tenant_id,location_id));
-      CREATE TABLE resource_allocations(id BIGINT PRIMARY KEY);
+      CREATE TABLE resource_allocations(id BIGINT PRIMARY KEY,ticket_id BIGINT,tenant_id BIGINT,location_id BIGINT,released_at TIMESTAMPTZ);
       CREATE TABLE queue_days(tenant_id BIGINT,location_id BIGINT,business_date DATE,state TEXT,current_closes_at TIMESTAMPTZ);
       CREATE TABLE bookings(id BIGINT PRIMARY KEY,queue_ticket_id BIGINT,tenant_id BIGINT,location_id BIGINT,reference TEXT,scheduled_start_at TIMESTAMPTZ,scheduled_end_at TIMESTAMPTZ,execution_mode TEXT);
       CREATE TABLE booking_bundle_items(id BIGINT,booking_id BIGINT,tenant_id BIGINT,location_id BIGINT,scheduled_start_at TIMESTAMPTZ,scheduled_end_at TIMESTAMPTZ,sort_order INT);
@@ -76,7 +76,7 @@ test('PostgreSQL counter dispatch uses vendor authorization and branch resource 
     const claim = id => transact(client => dispatch.claimNext(client, scope, lane(id)));
     const current = (id, ticketId) => transact(client => dispatch.lockCurrent(client, scope, { ...lane(id), ticketId }));
     const reset = async count => {
-      await pool.query('TRUNCATE tickets,bookings,resource_ledger_scopes RESTART IDENTITY');
+      await pool.query('TRUNCATE tickets,bookings,resource_ledger_scopes,resource_allocations RESTART IDENTITY');
       for (let i = 1; i <= count; i++) await pool.query(`INSERT INTO tickets(id,tenant_id,location_id,ticket_number,sequence,date_key,lookup_code,customer_name,join_channel,created_at)
         VALUES($1::bigint,1,10,$2,$1::int,'20261012',$3,'Customer','vendor',clock_timestamp()+$1::bigint*interval '1 millisecond')`, [i, `Q${i}`, String(i).padStart(8, '0')]);
     };
@@ -168,6 +168,28 @@ test('PostgreSQL counter dispatch uses vendor authorization and branch resource 
       assert.equal(await days.isOpenForDispatch('1', '10', scope.dateKey, query), false);
       await pool.query("UPDATE queue_days SET state='closed',current_closes_at=clock_timestamp()+interval '1 hour'");
       assert.equal(await days.isOpenForDispatch('1', '10', scope.dateKey, query), false);
+    });
+    await t.test('pooled lane excludes only actual scoped unreleased service allocations', async () => {
+      await reset(5);
+      await pool.query(`UPDATE tickets SET status='called',service_counter_id=1,
+        service_started_at=clock_timestamp(),called_at=clock_timestamp() WHERE id<=4;
+        INSERT INTO resource_allocations(id,ticket_id,tenant_id,location_id) VALUES
+          (1,1,1,10),(2,2,1,10),(3,3,1,10),(4,4,1,10)`);
+      const query = { client: pool, locationId:'10',serviceCounterId:'1' };
+      assert.equal((await tickets.findCurrentCalledTicket('1',query))._id,'1');
+      assert.equal(await tickets.findCurrentCalledTicket('1',{...query,excludeAllocatedService:true}),null);
+      // Ordinary dispatch retains the legacy lane contract even with allocations.
+      await assert.rejects(claim(1),{code:'COUNTER_OCCUPIED'});
+      // Timing alone, another scope's allocation, or a released allocation cannot free a lane.
+      await pool.query('DELETE FROM resource_allocations WHERE ticket_id=1');
+      assert.equal((await tickets.findCurrentCalledTicket('1',{...query,excludeAllocatedService:true}))._id,'1');
+      await pool.query('INSERT INTO resource_allocations VALUES(1,1,2,20,NULL)');
+      assert.equal((await tickets.findCurrentCalledTicket('1',{...query,excludeAllocatedService:true}))._id,'1');
+      await pool.query('UPDATE resource_allocations SET tenant_id=1,location_id=10,released_at=clock_timestamp() WHERE id=1');
+      assert.equal((await tickets.findCurrentCalledTicket('1',{...query,excludeAllocatedService:true}))._id,'1');
+      await pool.query("UPDATE resource_allocations SET released_at=NULL WHERE id=1; UPDATE tickets SET service_ended_at=clock_timestamp(),service_outcome='completed' WHERE id=1");
+      assert.equal((await tickets.findCurrentCalledTicket('1',{...query,excludeAllocatedService:true}))._id,'1');
+      assert.equal((await pool.query("SELECT status FROM tickets WHERE id=5")).rows[0].status,'waiting');
     });
     await t.test('revoked vendor access rejects before dispatch', async () => {
       await reset(1);

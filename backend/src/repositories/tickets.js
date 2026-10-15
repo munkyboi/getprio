@@ -791,6 +791,12 @@ async function listCalledTickets(tenantId, options = {}) {
     values.push(options.serviceCounterId ?? null);
     filters.push(`service_counter_id IS NOT DISTINCT FROM $${values.length}::bigint`);
   }
+  if (options.excludeAllocatedService === true) {
+    filters.push(`NOT (tickets.service_started_at IS NOT NULL AND tickets.service_ended_at IS NULL
+      AND EXISTS (SELECT 1 FROM resource_allocations allocation
+        WHERE allocation.ticket_id=tickets.id AND allocation.tenant_id=tickets.tenant_id
+          AND allocation.location_id=tickets.location_id AND allocation.released_at IS NULL))`);
+  }
   const result = await buildQueryClient(options.client).query(`
     SELECT ${withLinkedBookingReferenceSelect()} FROM tickets
     WHERE ${filters.join(" AND ")}
