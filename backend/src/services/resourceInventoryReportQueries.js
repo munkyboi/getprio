@@ -41,6 +41,7 @@ const CONTEXT = `WITH scope_tickets AS MATERIALIZED (
     ((r.state='protected' AND ((r.starts_at<$4::timestamptz AND r.ends_at>$3::timestamptz)
       OR r.starts_at IS NULL OR r.ends_at IS NULL OR NOT isfinite(r.starts_at) OR NOT isfinite(r.ends_at)))
       OR r.booking_item_id IN (SELECT id FROM relevant_items)
+      OR to_jsonb(r)->>'ticket_id' IN (SELECT id::text FROM work_scope)
       OR r.id IN (SELECT reservation_id FROM held_allocations))
 ), relevant_days AS MATERIALIZED (
   SELECT q.* FROM queue_days q WHERE q.tenant_id=$1 AND q.location_id=$2 AND
@@ -76,6 +77,7 @@ const COLLECTIONS = {
     pool_revision::text,units,reservation_id::text,started_at,expected_end_at,
     (SELECT a.expected_end_at IS NOT DISTINCT FROM r.ends_at FROM relevant_bindings r WHERE r.id=a.reservation_id) AS reservation_end_matches,
     (SELECT a.started_at>=r.starts_at AND a.started_at<r.ends_at FROM relevant_bindings r WHERE r.id=a.reservation_id) AS reservation_start_valid,
+    (SELECT a.started_at IS NOT DISTINCT FROM r.starts_at FROM relevant_bindings r WHERE r.id=a.reservation_id) AS ticket_reservation_start_matches,
     (SELECT a.started_at IS NOT DISTINCT FROM w.service_started_at FROM work_scope w WHERE w.id=a.ticket_id) AS ticket_start_matches
     FROM held_allocations a ORDER BY id` },
   historicalConversions: { maximum: 10000, count: `SELECT COUNT(*) ${HISTORICAL_CONVERSIONS}`,
@@ -86,6 +88,8 @@ const COLLECTIONS = {
       r.pool_id::text AS binding_pool_id,r.pool_revision::text AS binding_pool_revision,r.units AS binding_units,
       r.state AS binding_state,
       r.booking_id::text AS binding_booking_id,r.booking_item_id::text AS binding_item_id,
+      to_jsonb(r)->>'ticket_id' AS binding_ticket_id,
+      (a.started_at IS NOT DISTINCT FROM r.starts_at) AS ticket_reservation_start_matches,
       r.requirement_revision::text,r.starts_at,r.ends_at,
       (r.starts_at=i.scheduled_start_at AND r.ends_at=i.scheduled_end_at) AS booking_interval_matches,
       b.status AS booking_status,t.id::text AS work_id,t.service_started_at,
@@ -97,6 +101,7 @@ const COLLECTIONS = {
     pending_expired,interval_not_elapsed,duration_minutes
     FROM relevant_items ORDER BY id` },
   bindings: { maximum: 20000, count: 'SELECT COUNT(*) FROM relevant_bindings', rows: `SELECT id::text,booking_id::text,booking_item_id::text,
+    to_jsonb(r)->>'ticket_id' AS ticket_id,
     pool_id::text,pool_revision::text,requirement_revision::text,units,starts_at,ends_at,state,
     CASE WHEN isfinite(starts_at) THEN (EXTRACT(EPOCH FROM starts_at)*1000000)::bigint::text END AS starts_at_us,
     CASE WHEN isfinite(ends_at) THEN (EXTRACT(EPOCH FROM ends_at)*1000000)::bigint::text END AS ends_at_us,

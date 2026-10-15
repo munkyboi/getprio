@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const ledger = require('../src/repositories/resourceLedger');
 const sessions = require('../src/services/serviceResourceSessionService');
 const timing = require('../src/repositories/serviceTiming');
+const { createResourceInventoryReconciliationReport } = require('../src/services/resourceInventoryReconciliationReport');
 const { mkdtemp, readFile, stat, rm, access } = require('node:fs/promises');
 const { tmpdir } = require('node:os');
 const path = require('node:path');
@@ -95,6 +96,32 @@ test('full disposable local four-court fixture exercises real PostgreSQL ledger/
   const demo = await createFourCourtDemo({ adminUrl: await testAdminUrl() });
   t.after(() => demo.cleanup());
   const { pool, fixture: f } = demo;
+  const observe = createResourceInventoryReconciliationReport({ pool, sourceBinding: 'full-schema-demo-reconciliation-test',
+    authorize: async (client, current) => {
+      assert.equal((await client.query("SELECT current_setting('transaction_read_only') AS value")).rows[0].value, 'on');
+      return (await client.query(`SELECT 1 FROM public.local_pool_demo_scopes
+        WHERE tenant_id=$1 AND location_id=$2 AND fixture_key='four-court-v1' AND current_database()=$3`,
+      [current.tenantId, current.locationId, demo.databaseName])).rowCount === 1;
+    } });
+  async function report() {
+    const revision = (await pool.query('SELECT revision::text FROM resource_ledger_scopes')).rows[0].revision;
+    const result = await observe({ tenantId: f.tenantId, locationId: f.locationId,
+      windowFrom: new Date(Date.now() - 3600000).toISOString(), windowTo: new Date(Date.now() + 7200000).toISOString() });
+    assert.equal(result.scanStatus, 'complete');
+    assert.equal(result.countsStatus, 'exact');
+    assert.equal(result.readiness, 'not_ready');
+    assert.equal(result.customerEstimateChanged, false);
+    assert.equal(result.historicalRepairPerformed, false);
+    assert.equal(result.authoritativeInventoryComplete, false);
+    assert.equal(result.revisionEvidence.writerCoverageComplete, false);
+    assert.equal(result.revisionEvidence.ledgerRevision, revision);
+    assert.equal((await pool.query('SELECT revision::text FROM resource_ledger_scopes')).rows[0].revision, revision);
+    const serialized = JSON.stringify(result);
+    for (const privateValue of [demo.credentials.email, demo.credentials.password, demo.credentials.totpSecret, 'Local Player 1', 'Local booking fixture']) {
+      assert.ok(!serialized.includes(privateValue));
+    }
+    return result;
+  }
   const scope = { pool, tenantId: f.tenantId, locationId: f.locationId, actorUserId: f.actorUserId,
     // Explicit fixture authorization only; not authenticated HTTP/RBAC acceptance.
     authorize: async (client, current) => (await client.query(`SELECT 1 FROM public.local_pool_demo_scopes
@@ -130,6 +157,11 @@ test('full disposable local four-court fixture exercises real PostgreSQL ledger/
   const marker = (await pool.query('SELECT * FROM public.local_pool_demo_scopes')).rows[0];
   assert.equal(marker.fixture_key, 'four-court-v1');
   assert.equal((await pool.query('SELECT writer_coverage_complete FROM resource_ledger_scopes')).rows[0].writer_coverage_complete, false);
+  const initial = await report();
+  assert.equal(initial.counts.work, '8');
+  assert.equal(initial.counts.allocations, '0');
+  assert.equal(initial.counts.historicalConversions, '0');
+  assert.ok(!initial.findings.counts.some(finding => finding.classification === 'integrity_difference'));
   await assert.rejects(pool.query('UPDATE resource_ledger_scopes SET writer_coverage_complete=TRUE'), error => error.code === '23514');
   // Fixture preconditions only. Queue owns real claim/confirmation dispatch acceptance.
   await pool.query("UPDATE tickets SET status='called',called_at=clock_timestamp(),service_counter_id=$1", [f.counterId]);
@@ -141,12 +173,18 @@ test('full disposable local four-court fixture exercises real PostgreSQL ledger/
   assert.equal(rejected[0].result.reason.statusCode, 409);
   assert.match(rejected[0].result.reason.message, /capacity/);
   assert.deepEqual(await held(), { sessions: 4, units: 4 });
+  const occupied = await report();
+  assert.equal(occupied.counts.allocations, '4');
+  assert.equal(occupied.inventory.allocations.reduce((sum, allocation) => sum + allocation.units, 0), 4);
   assert.equal((await pool.query('SELECT COUNT(*)::int AS count FROM tickets WHERE service_started_at IS NOT NULL AND service_ended_at IS NULL')).rows[0].count, 4);
   assert.equal((await pool.query('SELECT COUNT(*)::int AS count FROM resource_ledger_commands')).rows[0].count, 4);
   // Expired expected ends never implicitly free actual occupancy.
   await pool.query("UPDATE resource_allocations SET started_at=clock_timestamp()-interval '2 hours',expected_end_at=clock_timestamp()-interval '1 hour' WHERE released_at IS NULL");
   await assert.rejects(start(rejected[0].id), /capacity/);
   assert.deepEqual(await held(), { sessions: 4, units: 4 });
+  const overdue = await report();
+  assert.equal(overdue.counts.allocations, '4');
+  assert.equal(overdue.findings.counts.find(finding => finding.code === 'allocation_expected_end_overdue').count, '4');
   await finish(accepted[0].ticketId, 'completed');
   assert.deepEqual(await held(), { sessions: 3, units: 3 });
   const replacement = await start(rejected[0].id);
@@ -176,13 +214,62 @@ test('full disposable local four-court fixture exercises real PostgreSQL ledger/
       resource: { known: true, poolId: f.poolId, poolRevision: 1, requirementRevision: 1, unitsRequired: 1 } }];
     await pool.query("UPDATE ticket_service_plans SET source='booking',booking_id=$1,items=$2 WHERE ticket_id=$3", [booking.id, JSON.stringify(frozen), f.ticketIds[6]]);
     const reserved = await ledger.withScopeTransaction(scope, (_client, domain) => domain.executeCommand({ operationKey: 'local:protect', command: 'reserve', payload: { bookingItemId: item.id } }));
+    const protectedReport = await report();
+    assert.equal(protectedReport.counts.allocations, '0');
+    assert.equal(protectedReport.inventory.protectedBindings.length, 1);
     assert.equal((await pool.query("SELECT COUNT(*)::int AS count FROM resource_ledger_reservations WHERE state='protected'")).rows[0].count, 1);
     const active = await start(f.ticketIds[6]);
     assert.deepEqual(await held(), { sessions: 1, units: 1 });
     assert.equal((await pool.query('SELECT reservation_id::text FROM resource_allocations WHERE id=$1', [active.allocationId])).rows[0].reservation_id, reserved.reservationId);
     assert.equal((await pool.query('SELECT state FROM resource_ledger_reservations WHERE id=$1', [reserved.reservationId])).rows[0].state, 'converted');
     assert.equal((await pool.query("SELECT COUNT(*)::int AS count FROM resource_ledger_reservations WHERE state='protected'")).rows[0].count, 0);
+    const convertedReport = await report();
+    assert.equal(convertedReport.counts.allocations, '1');
+    assert.equal(convertedReport.inventory.protectedBindings.length, 0);
+    assert.ok(!convertedReport.findings.counts.some(finding => finding.classification === 'integrity_difference'));
     await finish(f.ticketIds[6], 'completed');
     assert.deepEqual(await held(), { sessions: 0, units: 0 });
+    const releasedReport = await report();
+    assert.equal(releasedReport.counts.allocations, '0');
+    assert.equal(releasedReport.counts.historicalConversions, '1');
+    assert.equal(releasedReport.inventory.historicalConversions[0].occupancyState, 'released');
+    assert.ok(!releasedReport.findings.counts.some(finding => finding.classification === 'integrity_difference'));
+  });
+  await t.test('report reads ticket-owned protections and released conversions with the additive queue schema', async () => {
+    // Model the pending Queue source contract only in this freshly owned test
+    // database. These SQL facts test the reader, not future dispatch admission.
+    await pool.query(`ALTER TABLE resource_ledger_reservations
+      ALTER COLUMN booking_id DROP NOT NULL, ALTER COLUMN booking_item_id DROP NOT NULL,
+      ADD COLUMN ticket_id BIGINT REFERENCES tickets(id),
+      ADD CHECK ((booking_id IS NOT NULL AND booking_item_id IS NOT NULL AND ticket_id IS NULL)
+        OR (booking_id IS NULL AND booking_item_id IS NULL AND ticket_id IS NOT NULL))`);
+    const ticketId = f.ticketIds[7];
+    const reservationId = (await pool.query(`INSERT INTO resource_ledger_reservations
+      (tenant_id,location_id,ticket_id,pool_id,pool_revision,requirement_revision,units,starts_at,ends_at)
+      VALUES($1,$2,$3,$4,1,1,1,clock_timestamp()+interval '4 hours',clock_timestamp()+interval '270 minutes')
+      RETURNING id::text`, [f.tenantId,f.locationId,ticketId,f.poolId])).rows[0].id;
+    const outsideWindow = await report();
+    assert.ok(outsideWindow.inventory.linkedBindings.some(binding => binding.reservationRef.endsWith(`:${reservationId}`)));
+    assert.equal(outsideWindow.inventory.protectedBindings.length,0);
+    const allocation = await start(ticketId);
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query('UPDATE resource_allocations SET reservation_id=$1 WHERE id=$2', [reservationId,allocation.allocationId]);
+      await client.query(`UPDATE resource_ledger_reservations r SET state='converted',starts_at=a.started_at,ends_at=a.expected_end_at
+        FROM resource_allocations a WHERE r.id=$1 AND a.id=$2`, [reservationId,allocation.allocationId]);
+      await client.query('COMMIT');
+    } catch (error) { await client.query('ROLLBACK'); throw error; } finally { client.release(); }
+    const heldTicket = await report();
+    assert.equal(heldTicket.counts.allocations,'1');
+    assert.ok(!heldTicket.findings.counts.some(finding => finding.classification === 'integrity_difference'));
+    await finish(ticketId,'interrupted');
+    const releasedTicket = await report();
+    assert.equal(releasedTicket.counts.allocations,'0');
+    assert.equal(releasedTicket.counts.historicalConversions,'2');
+    assert.ok(!releasedTicket.findings.counts.some(finding => finding.classification === 'integrity_difference'));
+    await pool.query('UPDATE resource_ledger_reservations SET ticket_id=$1 WHERE id=$2', [f.ticketIds[6],reservationId]);
+    const mismatched = await report();
+    assert.equal(mismatched.findings.counts.find(finding => finding.code === 'allocation_ticket_conversion_lineage_mismatch').count,'1');
   });
 });
