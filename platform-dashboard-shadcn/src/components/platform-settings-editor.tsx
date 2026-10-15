@@ -102,7 +102,7 @@ export function PlatformSettingsEditor({
           <Field data-invalid={invalidUploadLimit || undefined}>
             <FieldLabel htmlFor="platform-max-image-upload">Maximum image upload (KB)</FieldLabel>
             <Input id="platform-max-image-upload" className="min-h-11" type="number" min={1} max={8192} step={1} value={draft.maxImageUploadKb} disabled={!editable || busy} aria-invalid={invalidUploadLimit} onChange={(event) => update("maxImageUploadKb", Number(event.target.value))} />
-            <FieldDescription>Whole-number limit between 1 KB and 8,192 KB.</FieldDescription>
+            <FieldDescription>Applies to all new image uploads. Default: 200 KB. 1 KB = 1,024 bytes. Choose a whole-number limit between 1 KB and 8,192 KB. Existing images and PDF limits are unchanged.</FieldDescription>
           </Field>
           <Field data-invalid={invalidHosts || undefined}>
             <FieldLabel htmlFor="platform-mobile-hosts">Mobile approved hosts</FieldLabel>
