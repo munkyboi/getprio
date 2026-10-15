@@ -30,3 +30,13 @@ test('local launcher rejects effective and inherited SMS and storage credentials
   assert.throws(() => assertLocalDemoProvidersEmpty({}, { [key]: 'populated' }), /Provider credentials must be empty/);
  }
 });
+
+test('local launcher rejects inherited OAuth configuration', async () => {
+ const { assertLocalDemoProvidersEmpty } = await import('../../scripts/helpers/localDemoProviderConfiguration.mjs');
+ for (const key of ['googleClientId','googleClientSecret','facebookAppId','facebookAppSecret','appleClientId','appleTeamId','appleKeyId','applePrivateKey']) {
+  assert.throws(() => assertLocalDemoProvidersEmpty({[key]:'populated'}, {}), /Provider credentials must be empty/);
+ }
+ for (const key of ['GOOGLE_CLIENT_ID','GOOGLE_CLIENT_SECRET','FACEBOOK_APP_ID','FACEBOOK_APP_SECRET','APPLE_CLIENT_ID','APPLE_TEAM_ID','APPLE_KEY_ID','APPLE_PRIVATE_KEY']) {
+  assert.throws(() => assertLocalDemoProvidersEmpty({}, {[key]:'populated'}), /Provider credentials must be empty/);
+ }
+});
