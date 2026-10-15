@@ -1,3 +1,4 @@
+const { getPublicImageUploadPolicy } = require("../services/imageUploadPolicy");
 const { isValidContactEmail } = require("../utils/email");
 const businessCategories = require("../repositories/businessCategories");
 const platformHelpCenter = require("../repositories/platformHelpCenter");
@@ -41,8 +42,8 @@ router.get('/maintenance', asyncHandler(async (_req, res) => {
   return res.json(await require('../services/platformMaintenanceService').publicStatus());
 }));
 router.get("/upload-policy", asyncHandler(async (_req, res) => {
-  const maxImageUploadKb = await platformRepository.getImageUploadLimitKb();
-  res.set("Cache-Control", "no-store").json({ maxImageUploadKb, maxImageUploadBytes: maxImageUploadKb * 1024 });
+  res.set("Cache-Control", "no-store");
+  res.json(await getPublicImageUploadPolicy());
 }));
 router.get("/business-categories", asyncHandler(async (_req, res) => res.json({ items: await businessCategories.list() })));
 router.get("/help-center", asyncHandler(async (_req, res) => {
