@@ -32,6 +32,8 @@ RESOURCE_LEDGER_TEST_DATABASE_URL=postgresql://postgres@127.0.0.1:55494/getprio_
 
 Tests create separate fresh full-schema databases and remove them after connections close. The interactive fixture is not consumed by these tests. They exercise real resource ledger scope transactions, resource-session helpers and timing repository writes:
 
+If CI's client-loopback URL reaches a PostgreSQL service container whose actual server address is a bridge address, the test helper starts a fresh native loopback PostgreSQL instance using installed `initdb`/`pg_ctl`. It stops only that owned instance after database disposal. The fixture's actual-loopback guard is unchanged; outside CI, a non-loopback server is rejected. Missing native binaries fail the tests rather than skipping them or allowing bridge/production targets.
+
 - Five simultaneous starts admit exactly four sessions/units and reject the fifth with capacity 409, without committing a failed command/timing start.
 - Overdue expected ends retain occupancy. Explicit completion and interruption release capacity, then waiting replacement starts fit; interruption retains its reason.
 - Protected booking reservation converts into one allocation rather than being counted twice.

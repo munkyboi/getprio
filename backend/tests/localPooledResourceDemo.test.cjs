@@ -20,23 +20,30 @@ test('local fixture rejects non-loopback, existing app names and connection over
 });
 
 const adminUrl = process.env.RESOURCE_LEDGER_TEST_DATABASE_URL;
+let localAdmin;
+async function testAdminUrl() {
+  localAdmin ||= require('./helpers/localPoolTestAdmin.cjs').createLocalPoolTestAdmin(adminUrl);
+  return (await localAdmin).url;
+}
+test.after(async () => { if (localAdmin) await (await localAdmin).close(); });
 test('full local fixture CLI writes exclusive private credentials without leaking them to stdout', { skip: !adminUrl, timeout: 90000 }, async t => {
   const { validateAdminUrl } = await import('../../scripts/local-four-court-demo.mjs');
-  validateAdminUrl(adminUrl);
+  const localUrl = await testAdminUrl();
+  validateAdminUrl(localUrl);
   const directory = await mkdtemp(path.join(tmpdir(), 'four-court-cli-'));
   let databaseName;
   t.after(async () => {
     if (databaseName) {
       assert.match(databaseName, /^getprio_local_pool_demo_[a-f0-9]{32}$/u);
       const { Pool } = require('pg');
-      const root = new Pool({ connectionString: adminUrl });
+      const root = new Pool({ connectionString: localUrl });
       try { await root.query(`DROP DATABASE "${databaseName}"`); } finally { await root.end(); }
     }
     await rm(directory, { recursive: true, force: true });
   });
   const output = path.join(directory, 'private.json');
   const args = [path.resolve(__dirname, '../../scripts/local-four-court-demo.mjs'), output];
-  const env = { ...process.env, LOCAL_POOL_DEMO_ADMIN_URL: adminUrl };
+  const env = { ...process.env, LOCAL_POOL_DEMO_ADMIN_URL: localUrl };
   const result = await exec(process.execPath, args, { env });
   const bytes = await readFile(output);
   const artifact = JSON.parse(bytes);
@@ -54,7 +61,10 @@ test('full local fixture CLI writes exclusive private credentials without leakin
     for(const key of ['resendApiKey','sendgridApiKey','smtpHost','smtpUser','smtpPass','smsAccountSid','smsAuthToken','fcmProjectId','fcmSandboxProjectId','paymongoSecretKey']) assert.ok(!env[key]);
     global.fetch=()=>{throw new Error('External network forbidden');};
     let fallback=0; console.log=(tag)=>{if(tag==='[email-fallback]')fallback++;};
-    require('./backend/src/services/notificationService').sendEmail({to:'local@example.test',subject:'Local fixture',text:'Fixture transport check'})
+    const {loadModuleWithMocks}=require('./backend/tests/helpers/loadModuleWithMocks.cjs');
+    const notifications=loadModuleWithMocks(require.resolve('./backend/src/services/notificationService'),{
+      '../config/env':env,'../repositories/notificationDeliveries':{},'./queueEmailJourneyService':{}});
+    notifications.sendEmail({to:'local@example.test',subject:'Local fixture',text:'Fixture transport check'})
       .then(ok=>{assert.equal(ok,true);assert.equal(fallback,1);}).catch(()=>{process.exitCode=1;});`;
   await exec(process.execPath, ['-e', verifyConsole], { cwd: path.resolve(__dirname, '../..'),
     env: { ...process.env, ...Object.fromEntries(disabledProviderKeys.map(key => [key, 'inherited-provider-must-not-survive'])), ...artifact.env } });
@@ -68,7 +78,7 @@ test('full local fixture CLI writes exclusive private credentials without leakin
 
 test('full disposable local four-court fixture exercises real PostgreSQL ledger/session capacity', { skip: !adminUrl, timeout: 90000 }, async t => {
   const { createFourCourtDemo } = await import('../../scripts/local-four-court-demo.mjs');
-  const demo = await createFourCourtDemo({ adminUrl });
+  const demo = await createFourCourtDemo({ adminUrl: await testAdminUrl() });
   t.after(() => demo.cleanup());
   const { pool, fixture: f } = demo;
   const scope = { pool, tenantId: f.tenantId, locationId: f.locationId, actorUserId: f.actorUserId,
