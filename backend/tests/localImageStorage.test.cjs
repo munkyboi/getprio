@@ -286,6 +286,11 @@ test(
             );
             assert.equal(response.status, 200);
             assert.equal(response.headers.get("cache-control"), "no-store");
+            assert.equal(
+              response.headers.get("cross-origin-resource-policy"),
+              "cross-origin",
+            );
+            assert.equal(response.headers.get("content-security-policy"), null);
             assert.deepEqual(Buffer.from(await response.arrayBuffer()), png);
             const booking = {
               _id: "7",

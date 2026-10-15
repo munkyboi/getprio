@@ -23,8 +23,12 @@ function createLocalImageRouter({ read = readLocalImage } = {}) {
       .set({
         "Cache-Control": "no-store",
         "X-Content-Type-Options": "nosniff",
-        "Content-Security-Policy": "default-src 'none'; sandbox",
-        "Cross-Origin-Resource-Policy": "same-site",
+        // This endpoint serves image bytes only; a document sandbox policy is
+        // not useful for an image response and can confuse local previews.
+        // The guarded local UI may be served from localhost while the API is
+        // reached through 127.0.0.1. Keep the socket loopback gate above; the
+        // response must be embeddable across those local development origins.
+        "Cross-Origin-Resource-Policy": "cross-origin",
         "Content-Type": image.contentType,
         "Content-Disposition": `inline; filename="image.${image.extension}"`,
       })
