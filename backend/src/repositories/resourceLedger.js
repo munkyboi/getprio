@@ -239,6 +239,34 @@ async function requiresTicketReservation(client, ticket) {
     ) AS required`, [ticket.tenantId, ticket.locationId, ticket._id]);
   return result.rows[0]?.required === true;
 }
+
+async function readTicketReservation(client, ticket) {
+  const plan = await client.query(`SELECT source,items FROM ticket_service_plans
+    WHERE ticket_id=$1 AND tenant_id=$2 AND location_id=$3`, [ticket._id, ticket.tenantId, ticket.locationId]);
+  const row = plan.rows[0];
+  if (!row || row.items?.length !== 1) return null;
+  const item = row.items[0];
+  if (row.source === "booking" && item.bookingItemId) {
+    const result = await client.query(`SELECT id::text,state,pool_id::text,units,starts_at,ends_at
+      FROM resource_ledger_reservations WHERE tenant_id=$1 AND location_id=$2 AND booking_item_id=$3
+      ORDER BY id DESC LIMIT 1`, [ticket.tenantId, ticket.locationId, item.bookingItemId]);
+    return mapReservation(result.rows[0]);
+  }
+  const schema = await client.query(`SELECT EXISTS (
+    SELECT 1 FROM information_schema.columns WHERE table_schema=current_schema()
+      AND table_name='resource_ledger_reservations' AND column_name='ticket_id'
+  ) AS available`);
+  if (!schema.rows[0]?.available) return null;
+  const result = await client.query(`SELECT id::text,state,pool_id::text,units,starts_at,ends_at
+    FROM resource_ledger_reservations WHERE tenant_id=$1 AND location_id=$2 AND ticket_id=$3
+    ORDER BY id DESC LIMIT 1`, [ticket.tenantId, ticket.locationId, ticket._id]);
+  return mapReservation(result.rows[0]);
+}
+
+function mapReservation(row) {
+  return row ? { id: row.id, state: row.state, poolId: row.pool_id, units: row.units,
+    startsAt: row.starts_at, endsAt: row.ends_at } : null;
+}
 const handlers = { reserve, reserveTicket, cancelReservation, allocate, release };
 
 // Only this entry point acquires the connection and starts the transaction.
@@ -500,4 +528,4 @@ async function executeCommand(options) {
   return withScopeTransaction({ ...options, authorize: async () => true },
     async (_client, ledger) => ledger.executeCommand(options));
 }
-module.exports = { withTenantCatalogTransaction, advanceBranchRevisions, executeCommand, withScopeTransaction, withTicketIssuanceTransaction, withSystemExpiryTransaction, withCustomerTicketCancellationTransaction, withCarryOverExpiryTransaction, withQueueDayReconciliationTransaction, requiresTicketReservation };
+module.exports = { withTenantCatalogTransaction, advanceBranchRevisions, executeCommand, withScopeTransaction, withTicketIssuanceTransaction, withSystemExpiryTransaction, withCustomerTicketCancellationTransaction, withCarryOverExpiryTransaction, withQueueDayReconciliationTransaction, requiresTicketReservation, readTicketReservation };

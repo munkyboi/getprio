@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { randomUUID } = require('node:crypto');
-const { executeCommand, withScopeTransaction, withCustomerTicketCancellationTransaction } = require('../src/repositories/resourceLedger');
+const { executeCommand, withScopeTransaction, withCustomerTicketCancellationTransaction, readTicketReservation } = require('../src/repositories/resourceLedger');
 
 const databaseUrl = process.env.RESOURCE_LEDGER_TEST_DATABASE_URL;
 const fixtureSchema = `ledger_test_${randomUUID().replaceAll('-', '')}`;
@@ -98,11 +98,26 @@ test('PostgreSQL resource ledger interface', { skip: !databaseUrl }, async (t) =
       await reset(1); await ticket('1');
       const held = await command('reserveTicket', { ticketId: '1' }, 'ticket-1-call');
       assert.equal((await pool.query("SELECT ticket_id::text,state FROM resource_ledger_reservations")).rows[0].ticket_id, '1');
+      assert.deepEqual(await readTicketReservation(pool, { _id: '1', tenantId: '1', locationId: '10' }), {
+        id: held.reservationId, state: 'protected', poolId: '100', units: 1,
+        startsAt: (await pool.query('SELECT starts_at FROM resource_ledger_reservations')).rows[0].starts_at,
+        endsAt: (await pool.query('SELECT ends_at FROM resource_ledger_reservations')).rows[0].ends_at
+      });
       await assert.rejects((async () => { await ticket('2'); await command('reserveTicket', { ticketId: '2' }, 'ticket-2-call'); })(), /capacity/);
       const started = await command('allocate', { ticketId: '1' }, 'ticket-1-start');
       assert.equal(started.reservationId, held.reservationId);
       assert.equal((await pool.query('SELECT state FROM resource_ledger_reservations')).rows[0].state, 'converted');
       assert.deepEqual(await command('reserveTicket', { ticketId: '1' }, 'ticket-1-call'), held);
+    });
+    await t.test('ticket reservation read returns the existing booking binding', async () => {
+      await reset();
+      const interval = await bookingItem('1');
+      await ticket('1', { source: 'booking', itemId: '1', interval });
+      const held = await command('reserve', { bookingItemId: '1' });
+      const reservation = await readTicketReservation(pool, { _id: '1', tenantId: '1', locationId: '10' });
+      assert.equal(reservation.id, held.reservationId);
+      assert.equal(reservation.state, 'protected');
+      assert.equal(reservation.poolId, '100');
     });
     await t.test('reservation/start contention and conversion count units once', async () => {
       await reset(1);

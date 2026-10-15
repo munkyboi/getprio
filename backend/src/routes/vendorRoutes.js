@@ -1164,7 +1164,8 @@ router.post(
       ticket: {
         id: String(result.ticket._id),
         ticketNumber: result.ticket.ticketNumber,
-        status: result.ticket.status
+        status: result.ticket.status,
+        serviceReservation: result.reservation
       },
       snapshot: result.snapshot
     });

@@ -73,11 +73,21 @@ async function getTicketPlan(scope, ticketId) {
   if (!result.rows[0]) fail('Ticket not found.', 404);
   const row = result.rows[0];
   let reservation = null;
+  if (row.source === 'booking' && row.items?.length === 1 && row.items[0].bookingItemId) {
+    const binding = await db.pool.query(`SELECT id::text,state,pool_id::text,units,starts_at,ends_at
+      FROM resource_ledger_reservations WHERE tenant_id=$1 AND location_id=$2 AND booking_item_id=$3
+      ORDER BY id DESC LIMIT 1`, [scope.tenantId, scope.locationId, row.items[0].bookingItemId]);
+    if (binding.rows[0]) {
+      const item = binding.rows[0];
+      reservation = { id: item.id, state: item.state, poolId: item.pool_id, units: item.units,
+        startsAt: item.starts_at, endsAt: item.ends_at };
+    }
+  }
   const reservationColumn = await db.pool.query(`SELECT EXISTS (
     SELECT 1 FROM information_schema.columns WHERE table_schema=current_schema()
       AND table_name='resource_ledger_reservations' AND column_name='ticket_id'
   ) AS available`);
-  if (reservationColumn.rows[0]?.available) {
+  if (!reservation && row.source === 'staff_selection' && reservationColumn.rows[0]?.available) {
     const binding = await db.pool.query(`SELECT id::text,state,pool_id::text,units,starts_at,ends_at
       FROM resource_ledger_reservations
       WHERE tenant_id=$1 AND location_id=$2 AND ticket_id=$3

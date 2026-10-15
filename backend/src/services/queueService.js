@@ -698,6 +698,7 @@ async function callNextTicket(tenant, options = {}) {
         payload: { ticketId: String(nextTicket._id) }
       });
     }
+    const reservation = await resourceLedger.readTicketReservation(client, nextTicket);
     queueLifecycle.assertValidTransition("waiting", "called");
 
     const actor = buildQueueEventActor({
@@ -723,7 +724,7 @@ async function callNextTicket(tenant, options = {}) {
       });
     }
 
-    return { ticket: nextTicket, changed: true };
+    return { ticket: nextTicket, reservation, changed: true };
   });
   const ticket = result?.ticket;
   if (!ticket) {
@@ -745,7 +746,7 @@ async function callNextTicket(tenant, options = {}) {
     console.warn("[web-push-customer-queue-called-skipped]", error.message);
   });
 
-  return { ticket, snapshot };
+  return { ticket, reservation: result.reservation || null, snapshot };
 }
 
 async function updateCurrentTicketStatus(tenant, status, options = {}) {
