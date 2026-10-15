@@ -64,15 +64,36 @@ async function captureStaffPlan(client, { tenant, location, ticket, serviceId, a
 }
 async function getTicketPlan(scope, ticketId) {
   if (!validId(ticketId)) fail('Ticket not found.', 404);
-  const result = await db.pool.query(`SELECT plans.source, plans.booking_id::text, plans.execution_mode,
+  const result = await db.pool.query(`SELECT tickets.status, tickets.service_started_at, tickets.service_ended_at,
+    tickets.service_outcome, plans.source, plans.booking_id::text, plans.execution_mode,
     plans.items, plans.created_at FROM tickets LEFT JOIN ticket_service_plans AS plans ON plans.ticket_id = tickets.id
       AND plans.tenant_id = tickets.tenant_id AND plans.location_id = tickets.location_id
     WHERE tickets.tenant_id = $1 AND tickets.location_id = $2 AND tickets.id = $3`,
   [scope.tenantId, scope.locationId, ticketId]);
   if (!result.rows[0]) fail('Ticket not found.', 404);
   const row = result.rows[0];
+  let reservation = null;
+  const reservationColumn = await db.pool.query(`SELECT EXISTS (
+    SELECT 1 FROM information_schema.columns WHERE table_schema=current_schema()
+      AND table_name='resource_ledger_reservations' AND column_name='ticket_id'
+  ) AS available`);
+  if (reservationColumn.rows[0]?.available) {
+    const binding = await db.pool.query(`SELECT id::text,state,pool_id::text,units,starts_at,ends_at
+      FROM resource_ledger_reservations
+      WHERE tenant_id=$1 AND location_id=$2 AND ticket_id=$3
+      ORDER BY id DESC LIMIT 1`, [scope.tenantId, scope.locationId, ticketId]);
+    if (binding.rows[0]) {
+      const item = binding.rows[0];
+      reservation = { id: item.id, state: item.state, poolId: item.pool_id, units: item.units,
+        startsAt: item.starts_at, endsAt: item.ends_at };
+    }
+  }
+  const terminal = new Set(['served', 'skipped', 'cancelled', 'unserved', 'expired']).has(row.status);
+  const lifecycleState = row.service_started_at && !row.service_ended_at ? 'in_service'
+    : terminal ? 'terminal' : row.status === 'called' ? 'called' : row.status === 'waiting' ? 'waiting' : 'published';
   return { version: 1, source: row.source || 'unknown', executionMode: row.execution_mode || null,
-    items: row.items || [], capturedAt: row.created_at || null, allocationEnabled: false, customerEstimateChanged: false };
+    items: row.items || [], capturedAt: row.created_at || null, allocationEnabled: false, customerEstimateChanged: false,
+    lifecycle: { state: lifecycleState, planState: row.source ? 'published' : 'unpublished', terminal }, reservation };
 }
 async function listServiceOptions(scope) {
   const result = await db.pool.query(`SELECT services.id::text, services.name, services.duration_minutes

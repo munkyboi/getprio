@@ -59,7 +59,7 @@ async function assertCapacity(client, scope, pool, startsAt, endsAt, excludedRes
   let used = active.rows[0].units;
   for (const [, delta] of events) {
     used += delta;
-    if (used > pool.capacity) fail("Protected resource capacity is unavailable.");
+    if (used > pool.capacity) fail("Protected resource capacity is unavailable.", 409, "RESOURCE_CAPACITY_UNAVAILABLE");
   }
 }
 async function reserve(client, scope, payload) {
