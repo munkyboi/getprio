@@ -1,3 +1,4 @@
+/* global process, console, fetch */
 // HTTP acceptance against a fresh disposable fixture, never a public deployment.
 import fs from 'node:fs';
 import assert from 'node:assert/strict';
@@ -39,6 +40,11 @@ const prefix = `/vendor/tenant/${tenant}`;
 const read = () => request(`${prefix}/locations/${location}/resource-operations`);
 const command = (id,action,expected=200) => request(`${prefix}/queue/tickets/${id}/service/${action}?location=${location}`,{},expected);
 const call = async () => (await request(`${prefix}/queue/call-next?location=${location}`,{counterSlug:fixture.counterSlug || 'reception'})).ticket.id;
+if (process.argv.includes('--observe-only')) {
+  const snapshot=await read();
+  console.log(JSON.stringify({authenticated:true,localDemo:snapshot.localDemo,revision:snapshot.ledgerRevision,activeSessions:snapshot.activeSessions.length,pools:snapshot.pools,reconciliation:snapshot.reconciliation}));
+  process.exit(0);
+}
 const evidence=[];
 function capture(label,snapshot) {
   assert.equal(snapshot.localDemo,true);
