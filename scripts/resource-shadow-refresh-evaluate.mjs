@@ -1,3 +1,7 @@
+#!/usr/bin/env node
+import process from "node:process";
+import console from "node:console";
+import { TextDecoder } from "node:util";
 import { createHash } from "node:crypto";
 import { writeFile } from "node:fs/promises";
 import { readBoundedJson } from "./wait-time-dataset-contract.mjs";
