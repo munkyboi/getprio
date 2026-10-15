@@ -67,7 +67,7 @@ test('full local fixture CLI writes exclusive private credentials without leakin
     const env=require('./backend/src/config/env');
     assert.equal(env.databaseSsl,false);
     assert.equal(env.authCookieSecure,false);
-    for(const key of ['resendApiKey','sendgridApiKey','smtpHost','smtpUser','smtpPass','smsAccountSid','smsAuthToken','fcmProjectId','fcmSandboxProjectId','paymongoSecretKey','b2S3Endpoint','b2BucketPublicBoard','b2BucketPaymentProof','b2KeyId','b2ApplicationKey','b2PublicBaseUrl']) assert.ok(!env[key]);
+    for(const key of ['resendApiKey','sendgridApiKey','smtpHost','smtpUser','smtpPass','smsAccountSid','smsAuthToken','fcmProjectId','fcmSandboxProjectId','paymongoSecretKey','b2S3Endpoint','b2BucketPublicBoard','b2BucketPaymentProof','b2KeyId','b2ApplicationKey','b2PublicBaseUrl','googleClientId','googleClientSecret','facebookAppId','facebookAppSecret','appleClientId','appleTeamId','appleKeyId','applePrivateKey']) assert.ok(!env[key]);
     global.fetch=()=>{throw new Error('External network forbidden');};
     let fallback=0; console.log=(tag)=>{if(tag==='[email-fallback]')fallback++;};
     const {loadModuleWithMocks}=require('./backend/tests/helpers/loadModuleWithMocks.cjs');

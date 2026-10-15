@@ -25,7 +25,7 @@ Each generated fixture uses its own `four-court-<uuid>.localhost` hostname for b
 
 The artifact explicitly blanks actual Resend/SendGrid/SMTP, Twilio, FCM, PayMongo and B2 object-storage endpoint, bucket, key and public-base settings rather than relying on an unused `EMAIL_PROVIDER` variable. A fresh-process test loads the actual application configuration with inherited sentinel credentials, applies the artifact settings, and verifies actual console email fallback while external fetches are prohibited. This test does not waive the API owner's effective startup check for worktree overrides.
 
-`VITE_API_URL` explicitly points the frontend at the generated API port, `DATABASE_SSL=false` prevents unrelated hosted database TLS settings from being inherited, and `AUTH_COOKIE_SECURE=false` permits sessions on this isolated HTTP loopback demo. VAPID credentials are also cleared. The configuration regression poisons inherited TLS, cookie and provider settings before applying the artifact. These local settings do not change production authentication policy.
+`VITE_API_URL` explicitly points the frontend at the generated API port, `DATABASE_SSL=false` prevents unrelated hosted database TLS settings from being inherited, and `AUTH_COOKIE_SECURE=false` permits sessions on this isolated HTTP loopback demo. VAPID credentials are also cleared. The configuration regression poisons inherited TLS, cookie and provider settings before applying the artifact. Google, Facebook and Apple OAuth credentials are cleared as well, keeping the fixture on its normal password/TOTP flow and preventing inherited providers from advertising callbacks on the Node-only loopback hostname. These local settings do not change production authentication policy.
 
 ## Automated acceptance
 
