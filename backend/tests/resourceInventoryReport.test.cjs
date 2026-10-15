@@ -15,6 +15,92 @@ function fixture() {
     data:Object.fromEntries(names.map(key=>[key,[]])),exceeded:[],bounds:Object.fromEntries(names.map(key=>[key,COLLECTIONS[key].maximum])) };
 }
 const has = (report,code) => report.findings.counts.some(item=>item.code===code);
+function ticketConversionFixture(historical = false) {
+  const input = fixture();
+  const items = [{ serviceId:'1000',durationMinutes:30,resource:{ known:true,poolId:'100',unitsRequired:1,poolRevision:'1',requirementRevision:'1' } }];
+  input.data.pools = [{ id:'100',capacity:4,revision:'1',tracking_enabled:true }];
+  input.data.requirements = [{ service_id:'1000',pool_id:'100',units_required:1,revision:'1' }];
+  input.data.work = [{ id:'1',status:'called',join_channel:'vendor',service_started_at:input.observedAt,
+    items,plan_source:'staff_selection',plan_captured_at:input.observedAt,execution_mode:'parallel' }];
+  const binding = { id:'9',ticket_id:'1',booking_id:null,booking_item_id:null,state:'converted',
+    pool_id:'100',pool_revision:'1',requirement_revision:'1',units:1,starts_at:input.observedAt,ends_at:'2026-10-12T01:30:00Z',duration_us:'1800000000' };
+  const allocation = { id:'2',ticket_id:'1',reservation_id:'9',pool_id:'100',pool_revision:'1',units:1,
+    started_at:input.observedAt,expected_end_at:binding.ends_at,reservation_end_matches:true,
+    reservation_start_valid:true,ticket_reservation_start_matches:true,ticket_start_matches:true };
+  if (historical) input.data.historicalConversions = [{ ...allocation,released_at:binding.ends_at,
+    binding_ticket_id:binding.ticket_id,binding_booking_id:null,binding_item_id:null,binding_state:'converted',
+    binding_pool_id:'100',binding_pool_revision:'1',binding_units:1,requirement_revision:'1',
+    starts_at:binding.starts_at,ends_at:binding.ends_at,binding_duration_us:binding.duration_us,booking_interval_matches:null,
+    work_id:'1',service_started_at:input.observedAt,plan_source:'staff_selection',plan_booking_id:null,plan_items:items }];
+  else input.data.allocations = [allocation];
+  input.data.bindings = [binding];
+  return input;
+}
+for (const historical of [false,true]) {
+  test(`ticket-owned ${historical ? 'released' : 'held'} conversions retain source lineage without booking false positives`,()=>{
+    const input = ticketConversionFixture(historical);
+    const report = buildResourceInventoryReport(input);
+    assert.ok(!report.findings.counts.some(finding=>finding.classification==='integrity_difference'));
+    assert.equal(report.inventory.protectedBindings.length,0);
+    assert.equal(report.readiness,'not_ready');
+    assert.equal(report.authoritativeInventoryComplete,false);
+    assert.equal(report.customerEstimateChanged,false);
+    const allocation = historical ? input.data.historicalConversions[0] : input.data.allocations[0];
+    if (historical) allocation.binding_ticket_id = '3';
+    else input.data.bindings[0].ticket_id = '3';
+    assert.ok(has(buildResourceInventoryReport(input),'allocation_ticket_conversion_lineage_mismatch'));
+    if (historical) allocation.binding_ticket_id = '1';
+    else input.data.bindings[0].ticket_id = '1';
+    allocation.ticket_reservation_start_matches = false;
+    assert.ok(has(buildResourceInventoryReport(input),'ticket_conversion_interval_mismatch'));
+    allocation.ticket_reservation_start_matches = true;
+    if (historical) allocation.requirement_revision = '2';
+    else input.data.bindings[0].requirement_revision = '2';
+    assert.ok(has(buildResourceInventoryReport(input),'conversion_captured_binding_mismatch'));
+    if (historical) allocation.binding_duration_us = '3600000000';
+    else input.data.bindings[0].duration_us = '3600000000';
+    assert.ok(has(buildResourceInventoryReport(input),'ticket_conversion_duration_mismatch'));
+    if (historical) allocation.binding_duration_us = null;
+    else input.data.bindings[0].duration_us = null;
+    assert.ok(has(buildResourceInventoryReport(input),'ticket_conversion_duration_unknown'));
+  });
+}
+test('ambiguous conversion sources remain findings and booking plans cannot adopt ticket bindings',()=>{
+  const input=ticketConversionFixture();
+  input.data.bindings[0].booking_id='5';
+  assert.ok(has(buildResourceInventoryReport(input),'reservation_source_lineage_unknown'));
+  input.data.bindings[0].booking_id=null;
+  input.data.work[0].plan_source='booking'; input.data.work[0].booking_id='5';
+  assert.ok(has(buildResourceInventoryReport(input),'allocation_booking_conversion_lineage_mismatch'));
+});
+test('ticket protections validate captured demand and never join a null booking item group',()=>{
+  const input=ticketConversionFixture(); input.data.allocations=[];
+  input.data.bindings[0].state='protected'; input.data.work[0].service_started_at=null;
+  const report=buildResourceInventoryReport(input);
+  assert.equal(report.inventory.protectedBindings.length,1);
+  assert.equal(report.inventory.protectedBindings[0].source,'ticket');
+  assert.equal(report.inventory.protectedBindings[0].workRef,'ticket:1:10:1');
+  assert.equal(report.inventory.protectedBindings[0].bookingItemRef,null);
+  input.data.bindings[0].overlaps_window=false;
+  const outsideWindow=buildResourceInventoryReport(input);
+  assert.equal(outsideWindow.inventory.linkedBindings[0].source,'ticket');
+  assert.equal(outsideWindow.inventory.linkedBindings[0].workRef,'ticket:1:10:1');
+  assert.ok(!report.findings.counts.some(finding=>finding.classification==='integrity_difference'));
+  input.data.bindings[0].units=2;
+  assert.ok(has(buildResourceInventoryReport(input),'ticket_binding_captured_demand_mismatch'));
+  input.data.bindings[0].duration_us='3600000000';
+  assert.ok(has(buildResourceInventoryReport(input),'ticket_binding_duration_mismatch'));
+  for (const status of ['waiting','skipped','pending_carry_over']) {
+    input.data.work[0].status=status;
+    assert.ok(has(buildResourceInventoryReport(input),'ticket_binding_lifecycle_mismatch'));
+  }
+  input.data.work[0].status='called'; input.data.work[0].service_started_at=input.observedAt;
+  assert.ok(has(buildResourceInventoryReport(input),'ticket_binding_lifecycle_mismatch'));
+  input.data.work[0].service_started_at=null; input.data.work[0].service_ended_at=input.observedAt;
+  assert.ok(has(buildResourceInventoryReport(input),'ticket_binding_lifecycle_mismatch'));
+  input.data.bindings[0].ticket_id='3';
+  assert.ok(has(buildResourceInventoryReport(input),'ticket_binding_work_missing'));
+});
 test('unsupported and legacy work is retained, sanitized, and never produces readiness',()=>{
   const input=fixture();
   input.data.work=[{id:'1',status:'waiting',join_channel:'vendor',items:[null,{name:'PRIVATE',serviceId:'2',resource:{known:false}}],plan_source:'staff_selection',execution_mode:'parallel',plan_captured_at:input.observedAt,customer_email:'PRIVATE'},
