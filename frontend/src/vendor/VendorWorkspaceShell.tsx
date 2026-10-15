@@ -1,12 +1,13 @@
 import { VendorPortal } from "./portal";
-import { useEffect, useRef, useState, type ReactNode, type ElementType } from "react";
+import { useRef, useState, type ReactNode, type ElementType } from "react";
 import { NavLink } from "react-router-dom";
 import { IconMenu2, IconSun, IconMoon, IconLogout, IconExternalLink } from "@tabler/icons-react";
 import { Button } from "./components/ui/button";
 import { ToggleGroup, ToggleGroupItem } from "./components/ui/toggle-group";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "./components/ui/sheet";
 import { Separator } from "./components/ui/separator";
-import { readPreference, savePreference, workspacePath } from "./workspace";
+import { workspacePath } from "./workspace";
+import { useVendorTheme } from "./useVendorTheme";
 import "./styles.css";
 
 type Workspace = "operations" | "administration";
@@ -22,17 +23,7 @@ type Props = {
 export function VendorWorkspaceShell(props: Props) {
   const root = useRef<HTMLDivElement>(null);
   const [opened, setOpened] = useState(false);
-  const [theme, setTheme] = useState(() => {
-    const saved = readPreference("getprio.vendor.theme");
-    return saved === "dark" || saved === "light" ? saved :
-      window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
-  });
-  useEffect(() => {
-    const query = window.matchMedia("(prefers-color-scheme: dark)");
-    const change = () => { if (!readPreference("getprio.vendor.theme")) setTheme(query.matches ? "dark" : "light"); };
-    query.addEventListener("change", change);
-    return () => query.removeEventListener("change", change);
-  }, []);
+  const {theme,setTheme} = useVendorTheme();
   const workspaceLabel = props.workspace === "operations" ? "Operations" : "Administration";
   const initials = props.name.trim().split(/\s+/).slice(0, 2).map(part => part[0]).join("").toUpperCase();
   function guardNavigation(event: React.MouseEvent<HTMLAnchorElement>) {
@@ -90,7 +81,7 @@ export function VendorWorkspaceShell(props: Props) {
         </ToggleGroup> : <span className="vendor-workspace-label">{workspaceLabel}</span>}
         <div className="vendor-header-tools">
           <Button variant="ghost" size="icon" aria-label={`Use ${theme === "light" ? "dark" : "light"} theme`} onClick={() => {
-            const next = theme === "light" ? "dark" : "light"; savePreference("getprio.vendor.theme", next); setTheme(next);
+            const next = theme === "light" ? "dark" : "light"; setTheme(next);
           }}>{theme === "light" ? <IconMoon /> : <IconSun />}</Button>
           <NavLink className="vendor-avatar vendor-header-account" aria-label={`Account for ${props.name}`} to={workspacePath("account", props.workspace, props.search, props.hash)} onClick={guardNavigation}>{initials}</NavLink>
         </div>

@@ -44,12 +44,14 @@ type CampaignDescriptionEditorProps = {
   maxCharacters?: number;
   onChange: (value: string) => void;
   value: string;
+  label?: string;
 };
 
-export default function CampaignDescriptionEditor({ disabled = false, maxCharacters = DEFAULT_MAX_CHARACTERS, onChange, value }: CampaignDescriptionEditorProps) {
+export default function CampaignDescriptionEditor({ disabled = false, maxCharacters = DEFAULT_MAX_CHARACTERS, onChange, value, label = "Description" }: CampaignDescriptionEditorProps) {
   const editor = useEditor({
     content: toEditorHtml(value),
     editable: !disabled,
+    editorProps: { attributes: { role: "textbox", "aria-label": label, "aria-multiline": "true" } },
     extensions: [StarterKit],
     onUpdate: ({ editor: updatedEditor }) => {
       const nextValue = updatedEditor.getHTML();
@@ -67,7 +69,7 @@ export default function CampaignDescriptionEditor({ disabled = false, maxCharact
       return;
     }
 
-    editor.setEditable(!disabled);
+    editor.setEditable(!disabled, false);
   }, [disabled, editor]);
 
   useEffect(() => {

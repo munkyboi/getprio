@@ -121,3 +121,45 @@ The Bookings/Clients/History slice reuses existing dashboard handlers and scoped
 ### Locations/Resources/Counters local review checkpoint (13 October 2026)
 
 All three current Locations tabs and their list/card/edit flows now use scoped configuration fields, Base UI tabs/combobox and the shared TaskDialog. Retain `/dashboard/tenants`, the existing API and role/limit rules; no workflow/station/resource activation or duplicate resource editor. Keep the shared legacy theme editor until its Settings/Board migration. Location profile/hours writes retain the first server-created target for safe hours retry. Counter/resource conflicts retain edited inputs; resource version/capacity are configuration, not runtime availability. See progress notes for 188-test and synthetic browser evidence; local visual, authenticated mutation, upload/device and deployment acceptance remain separate.
+
+### Services and Availability implementation
+
+`/dashboard/services` retains its catalog/weekly/date-exception tabs. Its list and task editors reuse ConfigurationUi, FieldGroup/FieldSet, TaskDialog and scoped tabs; existing catalog client/handlers remain canonical. `serviceConfigurationState.ts` checks editable quantity feasibility and builds the explicit whole-day exception payload. No booking allocation, workflow, station or API/schema activation is introduced. Follow the [work tracker](vendor-dashboard-rework-ticket-tracker.md); Carlo authorized end-to-end continuation across screens; publication, deployment and runtime activation still require their respective authorization and evidence.
+
+### VD-08 local Account migration
+
+Existing Account routes and membership gates are retained. Profile/Security/Subscription/Billing now use scoped configuration tabs and forms; shared contact, Email OTP and deletion handlers adopt vendor controls through `AccountPresentation`/`AccountFields`, retaining customer fallback. Plan selection and capacity/paid-exit dialogs retain API bodies, confirmation tokens/revisions and checkout behavior. Server billing failures are blocked read states with retry; capability-disabled capacity remains hidden. Legacy customer presentations remain intentional consumers. Phone removal is unsupported by the current API and is an explicit acceptance gap rather than a fabricated UI control.
+
+### VD-09 local Reports/Ratings migration
+
+Reports now consumes scoped snapshot metrics and capability-gated period usage with loading/error/retry/unknown states. `vendor/reportState.ts` owns the actual recorded interval transformation. Unused legacy MetricCard/stat/chart presentation retired after its consumers migrated. Ratings uses scoped vendor primitives, actor/business/page query identity and guarded exact visibility writes. Existing backend endpoints, moderation/aggregate policy and staff navigation remain unchanged.
+
+### VD-10 vendor registration/onboarding local migration
+
+`/register/vendor` now uses VendorAuthLayout, scoped native fields/actions, configured provider controls and ref-compatible form primitives. Both signup and authenticated completion remain on the same routes/endpoints/identity; vendor-return Login and callbacks are now locally migrated as recorded below; customer registration remains unchanged. useVendorTheme centralizes existing dashboard/auth preference behavior; VendorPortal prevents category dropdowns escaping auth theme scope. No provider or registration policy was forked.
+
+### VD-10 Login local migration
+
+Dashboard-return Login/reset/MFA now uses scoped vendor fields/actions and branded desktop composition. Plain/customer Login keeps Mantine/card/PIN defaults. Existing handler bodies and provider/identity policies remain shared; vendor reset retains the approved return target. Callback and shared notification migrations are recorded below. Local-only verification is recorded in progress; no publication/deployment claim.
+
+VD-10 callback now locally uses vendor composition for existing dashboard targets and retains customer fallback; existing refresh/session and success destinations stay shared. Provider-error retry retains vendor context. Hash/task change cancels stale UI/navigation completion. Operational alert and transient toast migrations are recorded below.
+
+VD-10 operational queue/booking alerts are now native scoped panels with bounded scrolling and original callbacks/state. Removed only the redundant outer portal; each task dialog still owns its portal. The transient toast migration is recorded below.
+
+VD-10 transient feedback is locally migrated to a scoped Base UI provider/viewport with a shared vendor queue; customer fallback remains unchanged. FIFO display/timing/duplicate behavior is preserved. Account deletion receipt remains a deliberate global lifetime exception because it survives session closure. Legacy presentation retirement must retain that receipt evidence until a replacement spans logout.
+
+### VD-12 first retirement inventory (14 October)
+
+| Consumer | Decision | Evidence / acceptance boundary |
+| --- | --- | --- |
+| Legacy dashboard-notification-stack/dashboard-notification styles | Removed four unused rules | No remaining frontend source callers after native operational alert migration; native alerts keep scoped styles. |
+| Old neura-sidebar selectors | Removed seven dedicated rules | Exact search found zero non-stylesheet frontend callers; dedicated base/hover/mobile blocks removed. Remaining shell/drawer/navigation rules were subsequently inventoried separately below. |
+| finazze-auth-card/customer auth defaults | Retain | Plain/customer Login, callback, registration and shared Account defaults still use this presentation. |
+| Global account-deletion receipt notification | Retain lifetime exception | Persistent request reference must survive logout; ordinary vendor toast provider unmounts with the dashboard. |
+| Secure/public queue-board presentation | Retain | Board intentionally keeps prior UI/UX and does not inherit the authenticated shell. |
+
+Retirement and local fixtures do not close authenticated/provider/device, deployed or simultaneous-resource acceptance. VD11 remains fail-closed pending authoritative contracts/readiness/pilot evidence.
+
+VD12 shell retirement follow-up: removed32 dedicated legacy neura shell/mobile-header/brand/logo/drawer/navigation/main/header/tenant-selector rules after exact zero-caller inspection across frontend source. Grouped drawer selectors contain only retired targets. Account/activation cards, plan buttons, live scanner, public board and customer styles remain because they still have consumers. No behavior, route or runtime gate changes.
+
+VD12 access-state migration: WorkspaceAccessState now owns native loading, subscription activation and missing-workspace presentation. VendorAuthLayout supplies theme scope before the normal workspace shell is available. Existing guard order, subscription decision, View plans callback, recovery destinations and logout remain canonical. Four obsolete activation/no-tenant/badge style rules were retired after their last callers migrated; remaining active legacy card/button consumers are retained.

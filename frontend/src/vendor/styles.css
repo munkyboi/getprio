@@ -273,3 +273,105 @@
  .config-tabs-list { width: fit-content; min-width: 360px; }
  .config-summary { flex-direction: row; align-items: center; justify-content: space-between; }
 }
+
+/* Services and booking availability use the shared configuration anatomy. */
+.ops-list-heading { display: flex; flex-direction: column; align-items: stretch; gap: 12px; min-width: 0; }
+.ops-list-heading h2 { margin: 0; font: inherit; font-size: 18px; font-weight: 600; }
+.config-catalog-list, .config-catalog-content { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.config-catalog-list { margin-top: 16px; }
+.config-catalog-summary { display: grid; grid-template-columns: minmax(0,1fr); gap: 16px; margin: 0; }
+.config-catalog-summary dt { font-size: 12px; color: var(--muted-foreground); }
+.config-catalog-summary dd { margin: 4px 0 0; overflow-wrap: anywhere; }
+.config-catalog-actions { display: flex; flex-direction: column; gap: 12px; }
+.config-branch-assignment { padding-block: 16px; border-block-start: 1px solid var(--border); }
+@media (min-width: 48.0625em) {
+  .ops-list-heading { flex-direction: row; align-items: center; justify-content: space-between; }
+  .config-catalog-summary { grid-template-columns: repeat(3,minmax(0,1fr)); }
+  .config-catalog-actions { flex-direction: row; align-items: center; flex-wrap: wrap; }
+  .config-related-fields { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); align-items: start; }
+  .config-quantity-fields { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); align-items: start; }
+}
+.config-page { display: flex; flex-direction: column; gap: 24px; }
+.config-page .ops-panel-content { display: flex; flex-direction: column; gap: 16px; }
+
+@media (min-width: 48.0625em) {
+  .config-catalog-actions .config-check { width: auto; }
+  .config-page .config-tabs-list { width: fit-content; }
+  .config-page .config-tabs-list [data-slot=tabs-trigger] { flex: none; white-space: nowrap; padding-inline: 16px; }
+}
+
+/* Settings preserve formatted public descriptions inside the scoped theme. */
+.vendor-operations .campaign-description-editor { background: var(--card); color: var(--foreground); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.vendor-operations .campaign-description-editor .mantine-RichTextEditor-toolbar { background: var(--secondary); border-color: var(--border); flex-wrap: wrap; }
+.vendor-operations .campaign-description-editor .mantine-RichTextEditor-content { background: var(--card); color: var(--foreground); }
+.vendor-operations .campaign-description-editor .mantine-RichTextEditor-control { background: var(--card); color: var(--foreground); border-color: var(--border); min-width: 44px; min-height: 44px; }
+.vendor-operations .campaign-description-editor .mantine-RichTextEditor-control[data-active] { background: var(--primary); color: var(--primary-foreground); }
+.vendor-operations .campaign-description-editor .tiptap { min-height: 120px; overflow-wrap: anywhere; }
+.vendor-operations .vendor-profile-settings-preview { padding: 16px; }
+@media (max-width: 48em) { .config-tabs-list:has([data-slot=tabs-trigger]:nth-child(4)) { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); height: auto; } }
+.vendor-operations .config-actions > a { min-height: 44px; white-space: normal; text-align: center; }
+
+/* Vendor Account keeps shared verification handlers in the scoped presentation. */
+.vendor-workspace .account-panel-title { font-size: 1.125rem; font-weight: 600; margin: 0; }
+.vendor-workspace .account-centered { align-items: center; text-align: center; }
+.vendor-workspace .account-secret { font-family: monospace; overflow-wrap: anywhere; }
+.vendor-workspace .account-capacity-progress { width: 100%; accent-color: var(--primary); }
+
+.vendor-workspace .report-intervals { display: flex; flex-direction: column; gap: 12px; }
+.vendor-workspace .report-intervals progress { width: 100%; accent-color: var(--primary); }
+
+.vendor-workspace .rating-comment { white-space: pre-wrap; overflow-wrap: anywhere; }
+
+.vendor-workspace.vendor-auth { display: block; min-height: 0; border-radius: 16px; padding: 20px; }
+.vendor-auth-layout { display: flex; flex-direction: column; gap: 24px; }
+.vendor-auth h1 { font-size: 1.75rem; line-height: 1.2; margin-block: 12px; }
+.vendor-auth-guide img { width: 100%; height: auto; max-height: 240px; object-fit: contain; }
+.vendor-auth-actions { margin-top: 20px; }
+@media (min-width: 48.0625em) {
+ .vendor-auth-layout { display: grid; grid-template-columns: minmax(0,2fr) minmax(0,1fr); align-items: start; }
+ .vendor-workspace.vendor-auth { padding: 32px; }
+}
+
+.vendor-workspace .vendor-auth-link { color: var(--foreground); text-decoration: underline; text-underline-offset: 3px; }
+
+.vendor-login-container { max-width: 76rem; margin-inline: auto; }
+
+.vendor-login-guide { display: none; }
+@media (min-width: 48.0625em) { .vendor-login-layout { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } .vendor-login-guide { display: flex; flex-direction: column; gap: 16px; } }
+
+.vendor-workspace .vendor-operational-alerts { position: fixed; bottom: max(16px, env(safe-area-inset-bottom)); left: 16px; right: 16px; z-index: 1200; display: flex; flex-direction: column; gap: 12px; max-height: min(45dvh, 28rem); overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; padding: 4px; }
+.vendor-operational-alerts p, .vendor-operational-alerts strong { overflow-wrap: anywhere; min-width: 0; }
+@media (min-width: 48.0625em) { .vendor-workspace .vendor-operational-alerts { left: 50%; right: auto; width: min(692px, calc(100vw - 64px)); transform: translateX(-50%); } }
+
+.vendor-operational-alerts > [data-slot="card"] { flex-shrink: 0; }
+
+/* Transient feedback stays in the vendor root; provider owns timing and keyboard behavior. */
+.vendor-workspace .vendor-toast-viewport { top: 80px; bottom: auto; right: 16px; left: 16px; width: auto; max-width: none; max-height: min(50dvh, 32rem); overflow-y: auto; display: flex; flex-direction: column; gap: 12px; padding: 4px; }
+.vendor-workspace .vendor-toast { position: relative; inset: auto; transform: none; height: auto; flex-shrink: 0; transition: none; }
+.vendor-workspace .vendor-toast[data-limited], .vendor-workspace .vendor-toast[data-ending-style] { display: none; }
+.vendor-workspace .vendor-toast-content { opacity: 1; align-items: flex-start; overflow: visible; }
+.vendor-toast-message { display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1; overflow-wrap: anywhere; }
+@media (min-width: 48.0625em) { .vendor-workspace .vendor-toast-viewport { left: auto; width: min(384px, calc(100vw - 32px)); } }
+
+.vendor-workspace [data-slot="toast-title"] { font-family: inherit; font-size: .875rem; line-height: 1.4; margin: 0; }
+.vendor-workspace [data-slot="toast"][data-type="error"] { border-color: var(--destructive); }
+
+.vendor-workspace .vendor-access-state { display: grid; gap: 24px; align-items: center; }
+.vendor-workspace .vendor-access-state :is(h1, h2) { font-family: inherit; overflow-wrap: anywhere; }
+.vendor-workspace .vendor-access-state h2 { font-size: 1.5rem; line-height: 1.25; }
+.vendor-workspace .vendor-access-state img { width: 100%; max-height: 240px; object-fit: contain; }
+.vendor-workspace .vendor-access-state .config-actions { display: flex; gap: 12px; flex-direction: column; align-items: stretch; }
+.vendor-workspace .vendor-access-state .config-actions > a { min-height: 44px; white-space: normal; text-align: center; color: var(--foreground); border: 1px solid var(--border); text-decoration: none; }
+.vendor-workspace .vendor-access-state .config-actions > a[data-primary] { background: var(--primary); color: var(--primary-foreground); border-color: var(--primary); }
+@media (min-width: 48em) {
+  .vendor-workspace .vendor-access-state { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); }
+  .vendor-workspace .vendor-access-state .config-actions { flex-direction: row; align-items: center; }
+}
+
+.account-responsive-grid { display: grid; grid-template-columns: minmax(0,1fr); gap: 16px; }
+.account-responsive-grid > * { min-width: 0; }
+@media (min-width: 36em) { .account-responsive-grid { grid-template-columns: repeat(var(--account-cols-xs,1),minmax(0,1fr)); } }
+@media (min-width: 48em) { .account-responsive-grid { grid-template-columns: repeat(var(--account-cols-sm,var(--account-cols-xs,1)),minmax(0,1fr)); } }
+@media (min-width: 62em) { .account-responsive-grid { grid-template-columns: repeat(var(--account-cols-md,var(--account-cols-sm,var(--account-cols-xs,1))),minmax(0,1fr)); } }
+@media (min-width: 75em) { .account-responsive-grid { grid-template-columns: repeat(var(--account-cols-lg,var(--account-cols-md,var(--account-cols-sm,var(--account-cols-xs,1)))),minmax(0,1fr)); } }
+@media (min-width: 88em) { .account-responsive-grid { grid-template-columns: repeat(var(--account-cols-xl,var(--account-cols-lg,var(--account-cols-md,var(--account-cols-sm,var(--account-cols-xs,1))))),minmax(0,1fr)); } }

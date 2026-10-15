@@ -133,7 +133,7 @@ PR 401 preservation details: auto-close and reconciliation warnings remain stick
 
 ## Shell reference fidelity
 
-Use the agreed interactive prototype's neutral surfaces and shell hierarchy: full-height narrow sidebar, business/location context above workspace navigation, account context below it, compact top toolbar with the Operations/Administration switch and theme/account controls, and a separate content heading. Retain GetPrio branding and real supported links. Avoid reinstating the public-site toolbar above the vendor shell, oversized header forms, a tinted dashboard frame, or serif page headings. On mobile use the navigation sheet and stack the workspace switch while keeping controls reachable. The reference's simulated roles/plans, sample workflows and resource pilot actions do not authorize operational controls. Carlo's local review must precede migration of the next feature screens.
+Use the agreed interactive prototype's neutral surfaces and shell hierarchy: full-height narrow sidebar, business/location context above workspace navigation, account context below it, compact top toolbar with the Operations/Administration switch and theme/account controls, and a separate content heading. Retain GetPrio branding and real supported links. Avoid reinstating the public-site toolbar above the vendor shell, oversized header forms, a tinted dashboard frame, or serif page headings. On mobile use the navigation sheet and stack the workspace switch while keeping controls reachable. The reference's simulated roles/plans, sample workflows and resource pilot actions do not authorize operational controls. Carlo's 13 October end-to-end authorization permits continuing across feature screens while presenting local review milestones; PR publication, merge, deployment and runtime activation remain separately authorized.
 
 ## Operations list and booking detail rules
 
@@ -148,6 +148,84 @@ Custom select callbacks that do not bubble a native change must explicitly regis
 
 Locations/Resources/Counters share the approved shell and scoped configuration fields. Use the shared bounded task dialog for branch, counter, resource pool and service requirement editing; retain searchable choices, native validation, error/draft recovery and explicit custom-select draft registration. Disable workspace transitions during resource writes and clear only the saved/discarded form. Distinguish configured pool capacity from live availability and unavailable inventory from zero. Keep existing Locations tabs during this review slice; move the one resource editor only when the future Queue setup slice is authorized. Counter lanes are not resource units or future workflow stations. Restricted staff-management access must show a clear explanation and retain stored assignments instead of displaying a permanently pending disabled query. Always honor actual primitive data attributes and scope overlay portals to vendor theme tokens.
 
+## Services and Availability migration
+
+- Keep the Service catalog, Weekly availability and Date exceptions tabs under the existing Services route. Summaries show actual service/branch settings and current branch timezone, with loading/error/empty states distinguished; unavailable records cannot authorize stale edits.
+- Quantity settings use **Allow quantity input**, **Quantity unit label**, **Minimum quantity** and **Maximum quantity**. Configured bounds are whole numbers 1–24; the minimum must fit the 24-hour booking ceiling. Keep unit duration/price, branch overrides and mobile bundle semantics unchanged. A blank branch price uses the default; zero is an explicit price.
+- Weekly rules retain branch/service scope, overnight intervals and business-hour defaults; disabled-rule fallback must be visible. Date exceptions retain local calendar dates and optional time/capacity values. A whole-day block explicitly blocks all services and disables conflicting partial-day controls.
+- Searchable configuration selectors explicitly track drafts. Escape preserves their chosen value and propagates to the guarded task dialog. Use the installed Base UI orientation attributes for tabs and their active indicator. Service/availability task errors stay in the scrollable body; persistent actions remain reachable in both themes.
+
+## Staff management migration
+
+- Staff is a business-wide membership list; counter names use the selected location. Unresolved assigned IDs must remain visibly assigned with unavailable/outside-location guidance, rather than disappearing into a false unassigned state.
+- Preserve existing-account onboarding and actual membership seat counting, including disabled memberships. No account creation or owner transfer is introduced. Owners alone change other non-owner roles and remove memberships; self/owner controls remain protected. Owners/admins retain eligible enable/disable controls.
+- Confirm role/access/removal changes with the exact member and consequence. Pending writes lock controls and navigation; errors retain the confirmation or add-member draft for retry. Removing business access does not delete the person's GetPrio account.
+- Use responsive labeled table rows, distinguish loading/error/empty records, and prevent stale roster actions after query failure. Add staff uses the shared bounded task dialog, guarded drafts, role-specific choices, native email validation and persistent footer.
+
+## Settings and Queue Board migration
+
+- Retain Business profile, Queue settings, Notifications and Queue Board under the existing Settings route. Guard edited tab changes and restore saved values after accepted discard; do not silently carry untracked edits into another form.
+- Queue-only saves send all existing queue/intake fields and omit owner-only profile/category fields. Profile and default-media saves remain owner-only. Preserve formatted descriptions, category identity/inactive fallback, logo/background fit, inherited location overrides and upload/save distinction. A failed default-theme read blocks media/profile saving until retry rather than publishing blank defaults.
+- Rich-text editability and selector initialization/search events do not create drafts. Actual rich-text changes and custom selections explicitly mark their form. Keep readable toolbar states, keyboard labels and 44px controls within the scoped theme.
+- Distinguish notification permission, actual push subscription, event preferences and email fallback. Event toggles save immediately with rollback on failure; pending saves/subscription requests block context transitions. Do not request production browser permissions during synthetic QA.
+- Board access is location scoped. Confirm public exposure/private transitions, URL rotation, renewal and revocation with their exact targets and consequences. Preserve expiry/last-seen/revoked state, UUID path, browser-bound grants and existing APIs. Pending writes block navigation; failures retain the confirmation for retry. A failed board read offers retry, without treating loading/error as an empty display list.
+
+## Account, security and billing migration
+
+- Account remains shared across Operations and Administration. Staff retain Profile/Security; owner/admin subscription/billing permissions and mandatory-MFA enrollment gates remain authoritative. Preserve the merged header geometry.
+- Shared account handlers use the vendor presentation context only inside the vendor dashboard; customer controls retain their existing presentation. Verification methods have visible selected states and accessible pressed states. Pending account writes block context/navigation changes and competing controls. Successful verification clears vendor credential drafts; failures retain them for retry.
+- Treat enrollment and recovery-code displays as preserved security tasks, with specific session/pending-setup warnings when leaving Security. Do not mislabel retained security state as discarded edits or keep unrelated screens perpetually dirty. Ordinary account drafts use intentional discard.
+- Use bounded task dialogs with persistent, explicit actions for Email OTP removal, permanent deletion, plan selection and paid-plan exit. Keep exact challenge IDs, OTP deduplication, required-MFA protections, branded authenticator QR, recovery consequences, deletion receipts/retention warnings/logout and preview-token/revision billing confirmation contracts.
+- Failed/loading billing reads are never an absent subscription; provide retry and keep Profile/Security reachable. Capacity reads are capability gated and scoped; ignore cancelled responses and offer retry. Credits never bypass Service Booking limits. Label ticket statistics by their actual day/location and show unknown source data as unavailable rather than zero.
+- Current vendor phone replacement requires a valid Philippine number. No self-account removal endpoint exists; do not invent nullable-phone writes or count that audit item as delivered.
+
+## Reports and Ratings migration
+
+- Reports uses the matching location snapshot and authoritative capacity resource reads. Distinguish loading/failure/unknown from zero, label the day/location/period, and retry failed reads. Preserve the current staff Reports restriction until permission/navigation reconciliation is explicit.
+- Queue history currently supplies update timestamps, not authoritative service durations. Label displayed intervals as recorded ticket activity, sort valid served records, retain simultaneous zero intervals and require two actual timestamps. Never fill a missing point with configured service averages or describe these intervals as service time, pool occupancy or workflow performance.
+- Ratings remains vendor-only, paid-plan and server-permission gated. Scope cached reads by actor, business and page; hide stale actions after read failure. Visibility changes target the exact review, remain disabled for moderated records, and do not remove hidden active ratings from the aggregate. Pending changes lock pagination, context and navigation; failures retain the original state for retry. Preserve long comments, accessible star labels, empty/error/retry states and responsive actions.
+
+## Vendor onboarding presentation
+
+- `/register/vendor` uses a scoped vendor auth layout for both new signup and authenticated/provider onboarding. Keep category IDs, generated/manual business links/usernames, availability debounce/cancellation, optional Philippine phone normalization, signup-only password and Account/MFA continuation. A signed-in account adds a workspace through the existing completion contract without submitting a password.
+- Native fields must forward their actual input refs through the shared wrapper so form registration, programmatic prefill, normalization and error focus keep working. Use explicit labels and inline help; Business link is the presentation label for the existing tenantSlug contract.
+- Vendor auth portals use the actual auth root; category options remain inside the same themed scope. Auth and dashboard share explicit theme preferences and follow system changes when unset. Customer default social buttons and shared auth policies stay intact; vendor social controls use the configured existing providers and intent only.
+
+Vendor authentication context: use dashboard return state as a presentation hint only; retain shared identity, redirect validation and customer defaults. Sign-in, reset request/confirmation and verification each need an accurate task heading and visible validation/error/retry. Preserve the vendor return target through reset success and Back. Keep the form first on mobile and branded visual beside it on desktop.
+
+Shared OAuth callbacks inherit vendor auth composition only for an existing vendor target. Keep failure retry context, customer fallback and successful session handoff. Changing callback identity must prevent an earlier response from overriding or navigating past the newer task; auth-context rerenders must not restart a handoff.
+
+Queue/booking operational alerts use scoped native cards with labeled dismiss and primary open actions. Bound long stacks with vertical scrolling, prevent flex card compression and wrap identifiers. Keep alerts in the actual vendor theme root and verify integrated DOM placement; retain existing delivery/detection/dismissal contracts.
+
+Vendor transient notifications use the project Base UI toast primitives inside the vendor root, a single queue shared by vendor consumers, wrapped text, labeled dismissal and keyboard access. Retain original display duration and FIFO overflow semantics; queued feedback must not expire unseen and duplicate IDs must not restart a timer. Preserve customer defaults. A deletion receipt needs a lifetime beyond the authenticated vendor provider and remains global until an equivalent session-closing receipt is verified.
+
+Queue Email Journey allowances are retired across all plans: omit usage/plan/credit metrics and quota-pause copy. Retain ticket/booking quotas, actual email preference/delivery features and historical purchase evidence. Display unavailable period usage as unknown, never zero; UI removal is not evidence of backend enforcement retirement.
+
+## Workspace access states
+
+Loading, missing-workspace and subscription-required states use the same scoped vendor theme and native primitives as the reworked screens. Preserve existing subscription/RBAC conditions, View plans callback, recovery link destinations and logout handler. Recovery links remain real links with visible contrast, focus indication and at least44px targets; actions stack on narrow screens. Decorative illustrations retain their aspect ratio and empty alt text. These states do not grant access or certify backend readiness.
+
 ### Configuration review corrections
 
 Checkbox help text must have its own ID referenced by the input's `aria-describedby`, retaining any existing external descriptions. Counter staff assignment supports name/email search and multiple selections; filtering retains selections and does not itself create unsaved business edits. Missing assigned IDs are retained until deliberately removed through supported actions. Do not change permissions, plan limits or scoped assignment writes to restore search.
+
+
+## Current-period consumption readouts
+
+- Reports and Account Subscription use the authorized minimal current-period usage endpoint, with actor/business/role cache scope and owner/admin visible-section/tab polling. Validate returned tenant identity; use canonical used/limit directly without reconstructing diagnostics or falling back to served-today/history/catalog defaults. Monthly usage covers all tenant locations; daily queue activity remains separately labeled for the selected location.
+- Loading is explicit and request errors offer native44px/mobile-width retry. Unavailable/null/invalid/expired periods stay unavailable rather than zero; preserve authoritative zero. The observed timestamp and current time must lie within the server-owned period.
+- A usage read does not enable capacity/credit checkout or resource/workflow/AI gates. Preserve stored subscription entitlement limits and accounting provenance; source merge, visible UI and tests do not certify complete writer reconciliation or provider/device acceptance.
+
+
+## Account draft and grid preservation
+
+- Vendor account layout adapters must render a real grid and preserve requested responsive two/three/four-column layouts, with single-column mobile defaults. Outside vendor presentation, retain existing customer/Mantine behavior.
+- Browser reload/close guards read current account challenge and MFA replacement/removal drafts. Pending enrollment and newly issued recovery codes require unload-only protection, while Security-specific navigation warnings remain separate from ordinary global dirty state.
+- Vendor password-reset requests may carry only a validated internal dashboard return hint. The API validates it again before including it in a reset email; absent/unsafe/customer targets retain defaults. Reset completion still requires normal login, MFA and authorization. Never store or transfer credentials in a return URL.
+
+### Account context discard and native grid base
+
+- After all leave confirmations succeed, discard shared Account child drafts by remounting their presentation scope. Canceled navigation and pending tasks retain state; parent authenticator enrollment and recovery-code state stays independent.
+- Native responsive grid modifiers require the `ops-grid` base class, including Reports metrics and vendor social sign-in controls.
+
+- Queue Board copy actions must handle unavailable Clipboard API support and denied writes with visible manual-copy instructions; failure must not escape as an uncaught exception.

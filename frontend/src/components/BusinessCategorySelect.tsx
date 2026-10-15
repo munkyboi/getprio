@@ -2,10 +2,12 @@ import SignupFieldLabel from "./SignupFieldLabel";
 import { useEffect, useState } from "react";
 import { Button, Select, Stack } from "@mantine/core";
 import { apiRequest } from "../api/client";
+import { ConfigurationSelect } from "../vendor/ConfigurationUi";
+import { OperationButton } from "../vendor/OperationsUi";
 
 type Category = { id: string; name: string };
-export function BusinessCategorySelect({ value, currentLabel, onChange, disabled, error, required = false }: {
-  value: string | null; currentLabel?: string; onChange: (id: string, name: string) => void; disabled?: boolean; error?: string; required?: boolean;
+export function BusinessCategorySelect({ value, currentLabel, onChange, disabled, error, required = false, vendor = false }: {
+  value: string | null; currentLabel?: string; onChange: (id: string, name: string) => void; disabled?: boolean; error?: string; required?: boolean; vendor?: boolean;
 }) {
   const [items, setItems] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
@@ -18,6 +20,7 @@ export function BusinessCategorySelect({ value, currentLabel, onChange, disabled
   }, [retry]);
   const options = items.map((item) => ({ value: item.id, label: item.name, disabled: false }));
   if (value && !items.some((item) => item.id === value) && currentLabel) options.push({ value, label: `${currentLabel} (inactive)`, disabled: true });
+  if (vendor) return <div className="queue-stack"><ConfigurationSelect name="businessCategoryId" label="Business category" required={required} description="Choose from the categories maintained by GetPrio." placeholder={loading ? "Loading categories…" : "Choose a business category"} data={options} value={value} disabled={disabled || loading || !!loadError} error={loadError || error || (!loading && !items.length ? "No active categories are available. Contact GetPrio support." : undefined)} onChange={id=>{const item=items.find(entry=>entry.id===id);if(item)onChange(item.id,item.name);}} />{loadError ? <OperationButton variant="outline" onClick={()=>setRetry(count=>count+1)}>Retry categories</OperationButton> : null}</div>;
   return <Stack gap="xs"><Select aria-label="Business category" label={required ? <SignupFieldLabel label="Business category" required tooltip="Choose from the categories maintained by GetPrio." /> : "Business category"} withAsterisk={false} required={required} searchable={false} allowDeselect={false}
     description="Choose from the categories maintained by GetPrio."
     placeholder={loading ? "Loading categories…" : "Choose a business category"}

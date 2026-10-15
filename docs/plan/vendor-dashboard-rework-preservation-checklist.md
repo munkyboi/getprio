@@ -62,3 +62,27 @@ Source: `frontend/src/pages/VendorDashboardPage.tsx`, frontend/backend counter d
 ## Audit conclusion
 
 The original plan covers the overall design and architecture, but is **not sufficient by itself** as a complete current preservation contract. This supplement closes the identified planning gaps for auto-close, secure queue-board access, recent queue UX, service quantities and the Account header. Unfinished acceptance work remains explicit above; no behavior is considered accepted merely because it appears in this document.
+
+### VD-08 source preservation checkpoint
+
+Retain user-wide identity/contact changes, required MFA versus optional removal, enrollment cancellation/replacement, one-time recovery display, Email OTP prerequisites, deletion authorization/receipt/retained-record warnings/session close, owner/admin commercial access and preview-token/revision contracts. Source review found and corrected selected-method visibility, billing failure-as-empty behavior, hidden perpetual MFA draft warnings and mislabeled daily ticket statistics. Browser fixtures are synthetic and cannot certify real email delivery, physical authenticator scanning, deletion processing or payment settlement. Phone removal remains a contract gap confirmed by the API owner.
+
+### VD-09 preservation evidence
+
+Preserved current location/day metrics, resource usage periods, unknown versus zero and existing report role restrictions. Removed inferred service-time values while retaining actual recorded activity with accurate labels. Ratings fixtures exercised read error/retry, 409 retaining checked state then exact `{visible:false}` retry, moderation-disabled control, pagination/empty page and pending navigation lock. Paid-plan/server permission remains authoritative. Synthetic review data is not production moderation or provider acceptance.
+
+### VD-10 onboarding checkpoint
+
+Synthetic fixtures verified generated business-link/username fields, categoryId, optional normalized PH phone, 409 preserving signup inputs then exact retry payload, Account continuation, authenticated completion without password, prefilled E164-phone normalization, customer social/card fallback, both themes/four widths and system/explicit theme behavior with scoped category portals. Native ref forwarding preserves form-registration/prefill/error-focus capability. Real OAuth redirect/completion, email/MFA delivery and device keyboard acceptance remain separate. Shared Login/notifications/callback presentation remains unfinished.
+
+### VD-10 Login checkpoint
+
+Preserved shared identity, safe return handling, mandatory MFA destinations, leading-zero OTP/dedup behavior, original versus email challenge tokens, recovery payload and configured provider semantics. Synthetic checks prove request-error visibility/retry, registered input error focus, retained dashboard target through password reset, and customer six-cell/card fallback. Vendor context is presentation only, never a permission grant. Real provider/mail/device acceptance remains separate.
+
+Callback checkpoint: browser fixtures verified exact nested dashboard target on retry, customer fallback, loading/missing session, successful session handoff and stale completion suppression after hash change. No provider/session policy fork; real OAuth/cookie/provider acceptance remains external.
+
+Operational alerts checkpoint: preserve new waiting-ticket detection, booking intake queries, existing suppression while dialogs are open, tenant/location dismissal storage and exact open/dismiss callbacks. Native alerts must remain under the actual vendor root; component fixtures alone cannot prove integrated portal placement. Synthetic dashboard stream verified root scope/fixed layout/dismissal; provider push/device receipt remains separate.
+
+Transient feedback checkpoint: retain4000ms default, explicit7000ms errors, persistent messages, duplicate-ID no-op and five-slot FIFO overflow with timers beginning on display. Base UI renderer removal and React effect replay must finish before adding queued toasts. Verify mount-time expiry and late-unmount suppression, not only event-triggered messages. Preserve customer notification fallback and the global deletion receipt across logout. Browser fixtures do not certify delivery, screen-reader/device or provider acceptance.
+
+VD12 access-state checkpoint: source review and synthetic browser checks retain unchanged subscription/permission guards, View plans dialog callback, Back to site(/), My account(/account/dashboard) and POST logout followed by existing vendor-return Login. Delayed identity response shows scoped loading; both themes at375/768/1180/1440 avoid horizontal overflow, with44px activation/recovery actions and readable link contrast. No production writes or live access-change/session invalidation acceptance is implied.

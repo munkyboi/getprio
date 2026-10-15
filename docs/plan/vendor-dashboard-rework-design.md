@@ -89,3 +89,7 @@ The [vendor dashboard and AI coordination record](vendor-dashboard-ai-coordinati
 
 
 The current Administration review slice preserves the three Locations tabs. It migrates their presentation and task forms against existing contracts; the future Queue setup editor remains a single relocation, with workflow/station/resource capability activation separately gated. Local draft protection and configured-capacity labels must not imply operational allocations.
+
+### Services and Availability review slice
+
+After locally approved/merged Locations, Resources and Counters (#409), Services and Availability is the authorized Administration slice. Keep the established shell and three existing Services tabs, source-backed service summaries and focused dialog editors. Preserve branch overrides, quantity semantics and weekly/date availability policy; do not conflate scheduling limits with operational resource occupancy. The [work tracker](vendor-dashboard-rework-ticket-tracker.md) drives recurring continuation while preserving local review before subsequent screens.

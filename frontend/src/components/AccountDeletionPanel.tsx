@@ -1,5 +1,20 @@
+import {
+  useAccountTask,
+  useVendorAccount,
+  discardAccountTask,
+} from "../vendor/AccountPresentation";
 import { useState } from "react";
-import { Alert, Button, Card, Group, Modal, PasswordInput, Stack, Text, Title } from "@mantine/core";
+import {
+  Alert,
+  Button,
+  Card,
+  Group,
+  Modal,
+  PasswordInput,
+  Stack,
+  Text,
+  Title,
+} from "../vendor/AccountFields";
 import { notifications } from "@mantine/notifications";
 import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
@@ -14,7 +29,11 @@ function messageFor(error: unknown): string {
     : "We could not submit the deletion request. Please try again.";
 }
 
-export function AccountDeletionPanel({ accountType }: { accountType: AccountType }) {
+export function AccountDeletionPanel({
+  accountType,
+}: {
+  accountType: AccountType;
+}) {
   const { token, logout } = useAuth();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [passwordRequired, setPasswordRequired] = useState(true);
@@ -22,6 +41,16 @@ export function AccountDeletionPanel({ accountType }: { accountType: AccountType
   const [preparing, setPreparing] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+
+  const vendor = useVendorAccount();
+  useAccountTask(preparing || submitting, dialogOpen && Boolean(password));
+  const closeDeletion = () => {
+    if (!submitting && discardAccountTask(vendor, Boolean(password))) {
+      setDialogOpen(false);
+      setPassword("");
+      setError("");
+    }
+  };
 
   const isVendor = accountType === "vendor";
   const accountDescription = isVendor
@@ -36,7 +65,10 @@ export function AccountDeletionPanel({ accountType }: { accountType: AccountType
     setPreparing(true);
     setError("");
     try {
-      const options = await apiRequest<DeletionOptions>("/account/deletion-options", { token });
+      const options = await apiRequest<DeletionOptions>(
+        "/account/deletion-options",
+        { token },
+      );
       setPasswordRequired(options.passwordRequired);
       setPassword("");
       setDialogOpen(true);
@@ -52,17 +84,20 @@ export function AccountDeletionPanel({ accountType }: { accountType: AccountType
     setSubmitting(true);
     setError("");
     try {
-      const receipt = await apiRequest<DeletionReceipt, { password: string }>("/account/delete", {
-        method: "POST",
-        body: { password: passwordRequired ? password : "" },
-        token
-      });
+      const receipt = await apiRequest<DeletionReceipt, { password: string }>(
+        "/account/delete",
+        {
+          method: "POST",
+          body: { password: passwordRequired ? password : "" },
+          token,
+        },
+      );
       setDialogOpen(false);
       notifications.show({
         title: "Deletion request accepted",
         message: `Reference ${receipt.requestId}. Your session will close now; deletion is due by ${new Date(receipt.dueAt).toLocaleDateString()}.`,
         color: "orange",
-        autoClose: false
+        autoClose: false,
       });
       await logout();
     } catch (requestError) {
@@ -74,19 +109,43 @@ export function AccountDeletionPanel({ accountType }: { accountType: AccountType
 
   return (
     <>
-      <Card className={isVendor ? "neura-card vendor-security-card" : "finazze-auth-card customer-account-card"} padding="lg">
+      <Card
+        className={
+          isVendor
+            ? "neura-card vendor-security-card"
+            : "finazze-auth-card customer-account-card"
+        }
+        padding="lg"
+      >
         <Stack gap="md">
           <div>
-            <Text className={isVendor ? "neura-label" : "finazze-section-label"}>Danger zone</Text>
+            <Text
+              className={isVendor ? "neura-label" : "finazze-section-label"}
+            >
+              Danger zone
+            </Text>
             <Title order={3}>Delete your account</Title>
             <Text c="dimmed" mt="xs">
-              Request permanent deletion of your GetPrio account and personal data. {accountDescription}
+              Request permanent deletion of your GetPrio account and personal
+              data. {accountDescription}
             </Text>
           </div>
-          <Alert color="orange" title={isVendor ? "Business records may need review" : "Outstanding activity may need review"} variant="light">
+          <Alert
+            color="orange"
+            title={
+              isVendor
+                ? "Business records may need review"
+                : "Outstanding activity may need review"
+            }
+            variant="light"
+          >
             {activityWarning}
           </Alert>
-          {error ? <Alert color="red" title="Could not start deletion" variant="light">{error}</Alert> : null}
+          {error ? (
+            <Alert color="red" title="Could not start deletion" variant="light">
+              {error}
+            </Alert>
+          ) : null}
           <Button
             color="red"
             loading={preparing}
@@ -102,13 +161,35 @@ export function AccountDeletionPanel({ accountType }: { accountType: AccountType
         centered
         closeOnClickOutside={!submitting}
         closeOnEscape={!submitting}
-        onClose={() => { if (!submitting) { setDialogOpen(false); setError(""); } }}
+        onClose={closeDeletion}
         opened={dialogOpen}
         title="Request permanent deletion?"
+        busy={submitting}
+        eyebrow="ACCOUNT DELETION"
+        vendorFooter={
+          <>
+            <Button
+              disabled={submitting}
+              onClick={closeDeletion}
+              variant="default"
+            >
+              Keep my account
+            </Button>
+            <Button
+              color="red"
+              disabled={submitting || (passwordRequired && !password)}
+              loading={submitting}
+              onClick={() => void submitRequest()}
+            >
+              Request permanent deletion
+            </Button>
+          </>
+        }
       >
         <Stack gap="md">
           <Text size="sm">
-            Your access ends immediately after this request is accepted. {isVendor
+            Your access ends immediately after this request is accepted.{" "}
+            {isVendor
               ? "The request covers every vendor workspace connected to your account."
               : "Waiting queue tickets may be cancelled; bookings and payments are not automatically cancelled or refunded."}
           </Text>
@@ -122,21 +203,47 @@ export function AccountDeletionPanel({ accountType }: { accountType: AccountType
             />
           ) : (
             <Alert color="blue" variant="light">
-              This account uses provider sign-in. If this session is older than five minutes, sign in again with your original provider and retry.
+              This account uses provider sign-in. If this session is older than
+              five minutes, sign in again with your original provider and retry.
             </Alert>
           )}
           <Alert color="red" title="This cannot be undone" variant="light">
-            Only records with a documented legal or operational retention basis may remain. The Platform team reviews required cleanup before the worker completes erasure.
+            Only records with a documented legal or operational retention basis
+            may remain. The Platform team reviews required cleanup before the
+            worker completes erasure.
           </Alert>
-          {error ? <Alert color="red" title="Request not submitted" variant="light">{error}</Alert> : null}
-          <Group justify="flex-end" className="flex-col-reverse items-stretch sm:flex-row sm:items-center">
-            <Button className="w-full sm:w-auto" disabled={submitting} onClick={() => { setDialogOpen(false); setError(""); }} variant="default">
-              Keep my account
-            </Button>
-            <Button className="w-full sm:w-auto" color="red" disabled={submitting || (passwordRequired && !password)} loading={submitting} onClick={() => void submitRequest()}>
-              Request permanent deletion
-            </Button>
-          </Group>
+          {error ? (
+            <Alert color="red" title="Request not submitted" variant="light">
+              {error}
+            </Alert>
+          ) : null}
+          {!vendor ? (
+            <Group
+              justify="flex-end"
+              className="flex-col-reverse items-stretch sm:flex-row sm:items-center"
+            >
+              <Button
+                className="w-full sm:w-auto"
+                disabled={submitting}
+                onClick={() => {
+                  setDialogOpen(false);
+                  setError("");
+                }}
+                variant="default"
+              >
+                Keep my account
+              </Button>
+              <Button
+                className="w-full sm:w-auto"
+                color="red"
+                disabled={submitting || (passwordRequired && !password)}
+                loading={submitting}
+                onClick={() => void submitRequest()}
+              >
+                Request permanent deletion
+              </Button>
+            </Group>
+          ) : null}
         </Stack>
       </Modal>
     </>

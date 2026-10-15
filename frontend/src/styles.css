@@ -6300,16 +6300,6 @@ h2 {
     line-height: 1.05;
   }
 
-  .dashboard-notification-stack {
-    bottom: 12px !important;
-    width: calc(100vw - 24px) !important;
-  }
-
-  .dashboard-notification {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
   .dashboard-notification .mantine-Button-root {
     width: 100%;
   }
@@ -6432,183 +6422,6 @@ h2 {
   background: #eef1f5;
 }
 
-.neura-shell {
-  min-height: 100vh;
-  display: grid;
-  grid-template-columns: 280px minmax(0, 1fr);
-  background: #eef1f5;
-  color: #171b22;
-}
-
-.neura-sidebar {
-  position: sticky;
-  top: 0;
-  height: 100vh;
-  display: flex;
-  flex-direction: column;
-  gap: 1.25rem;
-  padding: 1.25rem;
-  background: #11151c;
-  color: #f7f8fb;
-}
-
-.neura-sidebar-content {
-  min-height: calc(100dvh - 84px);
-  padding: 0 1rem 1rem;
-  color: #f7f8fb;
-}
-
-.neura-mobile-header {
-  display: none;
-}
-
-.neura-mobile-brand {
-  min-width: 0;
-}
-
-.neura-mobile-logo {
-  width: 44px;
-  height: 34px;
-  display: block;
-  object-fit: contain;
-}
-
-.neura-drawer-content,
-.neura-drawer-header,
-.neura-drawer-body {
-  background: #11151c;
-  color: #f7f8fb;
-}
-
-.neura-drawer-content {
-  height: 100dvh;
-  overflow: hidden;
-}
-
-.neura-drawer-body {
-  height: calc(100dvh - 61px);
-  padding: 0;
-  overflow: hidden;
-}
-
-.neura-drawer-body .mantine-ScrollArea-scrollbar {
-  background: transparent;
-}
-
-.neura-drawer-body .mantine-ScrollArea-thumb {
-  background: rgba(226, 232, 240, 0.45);
-}
-
-.neura-drawer-body .mantine-ScrollArea-thumb:hover {
-  background: rgba(226, 232, 240, 0.68);
-}
-
-.neura-drawer-header {
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-}
-
-.neura-drawer-header .mantine-Drawer-title {
-  color: #f7f8fb;
-  font-weight: 800;
-}
-
-.neura-drawer-header .mantine-CloseButton-root {
-  color: #f7f8fb;
-}
-
-.neura-brand {
-  min-height: 52px;
-}
-
-.neura-logo {
-  width: 58px;
-  height: 45px;
-  display: block;
-  object-fit: contain;
-}
-
-.neura-nav-scroll {
-  flex: 1;
-}
-
-.neura-nav-link {
-  display: grid;
-  grid-template-columns: 22px 1fr 18px;
-  align-items: center;
-  gap: 0.7rem;
-  min-height: 46px;
-  padding: 0 0.85rem;
-  border-radius: 14px;
-  color: #8e99aa;
-  font-weight: 700;
-  transition: background 0.15s ease, color 0.15s ease;
-}
-
-.neura-nav-link:hover,
-.neura-nav-link.active {
-  color: #fff;
-  background: rgba(255, 255, 255, 0.08);
-}
-
-.neura-nav-link.active {
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
-}
-
-.neura-nav-chevron {
-  opacity: 0.45;
-}
-
-.neura-sidebar-card {
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  color: #fff;
-}
-
-.neura-sidebar-account-copy {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-
-.neura-sidebar-logout {
-  flex: 0 0 auto;
-  background: #dc2626;
-  color: #fff;
-  box-shadow: 0 14px 28px rgba(220, 38, 38, 0.24);
-}
-
-.neura-sidebar-logout:hover {
-  background: #b91c1c;
-}
-
-.neura-main {
-  min-width: 0;
-  padding: 1.4rem;
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-}
-
-.neura-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 1rem;
-  padding: 1.25rem 1.35rem;
-  border-radius: 24px;
-  background: #fbfcfe;
-  border: 1px solid #e4e8ef;
-}
-
-.neura-header h1 {
-  font-size: clamp(2rem, 4vw, 3.2rem);
-  line-height: 1;
-  letter-spacing: 0;
-}
-
-.neura-tenant-select {
-  min-width: 240px;
-}
-
 .neura-card {
   border: 1px solid #e5e9f0;
   border-radius: 24px;
@@ -6627,19 +6440,6 @@ h2 {
   color: #9aa6b8;
 }
 
-.neura-activation-card {
-  min-height: 320px;
-  justify-content: center;
-}
-
-.neura-activation-art,
-.neura-no-tenant-art {
-  width: 100%;
-  display: block;
-  border-radius: 24px;
-  mix-blend-mode: multiply;
-}
-
 .neura-empty-state {
   align-items: center;
   padding: 1rem 0.25rem 0.6rem;
@@ -6653,10 +6453,6 @@ h2 {
   mix-blend-mode: multiply;
 }
 
-.neura-no-tenant-card {
-  min-height: 320px;
-}
-
 .neura-label {
   color: #7a8596;
   font-size: 0.76rem;
@@ -6668,12 +6464,6 @@ h2 {
 .neura-muted {
   color: #7a8596;
   font-size: 0.92rem;
-}
-
-.neura-soft-badge {
-  width: fit-content;
-  background: #edf1f7;
-  color: #171b22;
 }
 
 .vendor-queue-action-layout {
@@ -7287,14 +7077,6 @@ h2 {
   background: rgba(248, 250, 252, 0.78);
 }
 
-.dashboard-notification-stack {
-  width: calc(100vw - 64px);
-}
-
-.dashboard-notification {
-  align-items: center;
-}
-
 .service-dialog__header {
   padding-bottom: 0.25rem;
 }
@@ -7457,56 +7239,7 @@ h2 {
   padding-inline: 1rem;
 }
 
-@media (max-width: 1180px) {
-  .neura-shell {
-    grid-template-columns: 1fr;
-    grid-template-rows: auto 1fr;
-  }
-
-  .neura-sidebar {
-    display: none;
-  }
-
-  .neura-mobile-header {
-    position: sticky;
-    top: 0;
-    z-index: 70;
-    display: flex;
-    align-items: center;
-    justify-content: flex-start;
-    min-height: calc(64px + env(safe-area-inset-top));
-    padding: calc(0.75rem + env(safe-area-inset-top)) calc(1rem + env(safe-area-inset-right)) 0.75rem calc(1rem + env(safe-area-inset-left));
-    background: rgba(255, 255, 255, 0.94);
-    border-bottom: 1px solid #dce3eb;
-    backdrop-filter: blur(16px);
-    box-shadow: 0 10px 24px rgba(17, 24, 39, 0.08);
-  }
-
-  .neura-nav-link {
-    grid-template-columns: 22px 1fr 18px;
-  }
-
-  .neura-header {
-    flex-wrap: wrap;
-  }
-
-  .neura-tenant-select {
-    min-width: min(240px, 100%);
-  }
-}
-
 @media (max-width: 760px) {
-  .neura-main {
-    padding: 0.85rem;
-  }
-
-  .neura-header {
-    flex-direction: column;
-  }
-
-  .neura-tenant-select {
-    width: 100%;
-  }
 
   .queue-lifecycle-tray {
     top: calc(64px + env(safe-area-inset-top) + 0.5rem);

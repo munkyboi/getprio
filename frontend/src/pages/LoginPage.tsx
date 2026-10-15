@@ -1,8 +1,9 @@
+import { isVendorLoginContext, vendorPasswordResetRequest } from "../vendor/authContext";
 import { useEffect, useState, type FormEvent } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
-import { Alert, Anchor, Button, Paper, PasswordInput, Stack, Text, TextInput, Title } from "@mantine/core";
+import { LoginPresentation, Alert, Anchor, Button, Paper, PasswordInput, Stack, Text, TextInput, Title } from "../vendor/LoginPresentation";
 import { Navigate, Link, useNavigate, useSearchParams } from "react-router-dom";
 import { OtpInputField } from "../components/OtpInputField";
 import SocialAuthButtons from "../components/SocialAuthButtons";
@@ -38,11 +39,12 @@ type ResetConfirmValues = z.infer<typeof resetConfirmSchema>;
 export default function LoginPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { login, loading, requestPasswordReset, confirmPasswordReset, verifyMfaChallenge, sendEmailMfaCode, user } = useAuth();
+  const { login, loading, oauthLoading, requestPasswordReset, confirmPasswordReset, verifyMfaChallenge, sendEmailMfaCode, user } = useAuth();
   const resetToken = searchParams.get("resetToken") || "";
   const passwordChanged = searchParams.get("passwordChanged") === "1";
   const passwordResetSuccess = searchParams.get("reset") === "success";
   const nextPath = getSafeRedirectPath(searchParams.get("next"));
+  const vendorLogin = isVendorLoginContext(nextPath);
   const mfaEnrollmentPath = nextPath ? `/dashboard/account?next=${encodeURIComponent(nextPath)}` : "/dashboard/account";
   const [showResetRequest, setShowResetRequest] = useState(false);
   const [error, setError] = useState("");
@@ -114,8 +116,10 @@ export default function LoginPage() {
     setError("");
   }
 
+  const vendorResetRequest = vendorLogin && showResetRequest && !mfaChallengeToken;
+
   if (loading) {
-    return <Paper className="finazze-auth-card" p="xl">Loading session...</Paper>;
+    return <LoginPresentation vendor={vendorLogin} busy={false}><Paper className="finazze-auth-card" p="xl">Loading session...</Paper></LoginPresentation>;
   }
 
   if (user && !user.tenants?.length) {
@@ -177,7 +181,7 @@ export default function LoginPage() {
     setError("");
     setResetRequestMessage("");
     try {
-      const result = await requestPasswordReset(values);
+      const result = await requestPasswordReset(vendorPasswordResetRequest(values.email, nextPath));
       setResetRequestMessage(result.message);
     } catch (submitError) {
       setError(getErrorMessage(submitError));
@@ -191,7 +195,7 @@ export default function LoginPage() {
       const result = await confirmPasswordReset(values);
       setResetConfirmMessage(result.message);
       signInForm.setValue("password", "");
-      setSearchParams({ reset: "success" });
+      setSearchParams(vendorLogin && nextPath ? { reset: "success", next: nextPath } : { reset: "success" });
       resetConfirmForm.reset({ token: "", newPassword: "" });
     } catch (submitError) {
       setError(getErrorMessage(submitError));
@@ -199,15 +203,16 @@ export default function LoginPage() {
   });
 
   return (
+    <LoginPresentation vendor={vendorLogin} busy={signInForm.formState.isSubmitting || resetRequestForm.formState.isSubmitting || resetConfirmForm.formState.isSubmitting || mfaSubmitting || emailMfaSending || oauthLoading}>
     <Paper className="finazze-auth-card" p={{ base: "xl", md: 44 }}>
       <Stack gap="lg">
         <div>
-          <Text className="finazze-section-label">{resetToken ? "Reset password" : "Sign in"}</Text>
-          <Title order={1}>{resetToken ? "Set a new password." : "Access your workspace."}</Title>
+          <Text className="finazze-section-label">{resetToken || vendorResetRequest ? "Reset password" : vendorLogin && mfaChallengeToken ? "Verification" : "Sign in"}</Text>
+          <Title order={1}>{resetToken ? "Set a new password." : vendorResetRequest ? "Get a reset link." : vendorLogin && mfaChallengeToken ? "Verify your sign-in." : "Access your workspace."}</Title>
           <Text c="dimmed" mt="sm">
             {resetToken
               ? "Choose a new password for your account, then sign back in with the updated credentials."
-              : "Continue to your vendor dashboard or customer account with your secure Prio session."}
+              : vendorResetRequest ? "Enter your account email to request password reset instructions." : vendorLogin && mfaChallengeToken ? "Choose an available method to confirm your sign-in." : vendorLogin ? "Sign in to manage your business." : "Continue to your vendor dashboard or customer account with your secure Prio session."}
           </Text>
         </div>
         {resetToken ? (
@@ -215,6 +220,7 @@ export default function LoginPage() {
             <Stack gap="md">
               <PasswordInput
                 label="New password"
+                autoComplete="new-password"
                 required
                 error={resetConfirmForm.formState.errors.newPassword?.message}
                 {...resetConfirmForm.register("newPassword")}
@@ -229,7 +235,8 @@ export default function LoginPage() {
                 size="sm"
                 type="button"
                 onClick={() => {
-                  setSearchParams({});
+                  setSearchParams(vendorLogin && nextPath ? { next: nextPath } : {});
+                  if (vendorLogin) resetConfirmForm.reset({token:"",newPassword:""});
                   setError("");
                   setResetConfirmMessage("");
                 }}
@@ -249,6 +256,7 @@ export default function LoginPage() {
                       : "For your security, confirm the code from your authenticator app. You can use one saved recovery code if your authenticator is unavailable."}
                   </Alert>
                   <OtpInputField
+                    vendor={vendorLogin}
                     key={emailMfaActive ? "email-code" : "authenticator-code"}
                     autoFocus
                     label={emailMfaActive ? "Email code" : "Authenticator code"}
@@ -297,7 +305,7 @@ export default function LoginPage() {
                   </Anchor>
                 </Stack>
               </form>
-            ) : <form onSubmit={handleSignIn}>
+            ) : !vendorResetRequest ? <form onSubmit={handleSignIn}>
               <Stack gap="md">
                 <TextInput
                   label="Email or username"
@@ -308,6 +316,7 @@ export default function LoginPage() {
                 />
                 <PasswordInput
                   label="Password"
+                  autoComplete="current-password"
                   required
                   error={signInForm.formState.errors.password?.message}
                   {...signInForm.register("password")}
@@ -333,10 +342,11 @@ export default function LoginPage() {
                   Sign in
                 </Button>
               </Stack>
-            </form>}
+            </form> : null}
             {showResetRequest ? (
               <form onSubmit={handlePasswordResetRequest}>
                 <Stack gap="md">
+                  {vendorResetRequest && error ? <Alert color="red">{error}</Alert> : null}
                   <TextInput
                     label="Reset email"
                     required
@@ -348,10 +358,11 @@ export default function LoginPage() {
                   <Button className="auth-primary-action" color="gray" loading={resetRequestForm.formState.isSubmitting} size="lg" type="submit" variant="light">
                     Send reset instructions
                   </Button>
+                  {vendorLogin ? <Anchor component="button" type="button" onClick={()=>{setShowResetRequest(false);setError("");setResetRequestMessage("");}}>Back to sign in</Anchor> : null}
                 </Stack>
               </form>
             ) : null}
-            <SocialAuthButtons iconOnly intent="login" returnPath={nextPath || undefined} />
+            {!vendorLogin || (!vendorResetRequest && !mfaChallengeToken) ? <SocialAuthButtons vendor={vendorLogin} disabled={vendorLogin && (signInForm.formState.isSubmitting || mfaSubmitting || emailMfaSending)} iconOnly intent="login" returnPath={nextPath || undefined} /> : null}
           </>
         )}
         <Text c="dimmed" size="sm">
@@ -361,5 +372,6 @@ export default function LoginPage() {
         </Text>
       </Stack>
     </Paper>
+    </LoginPresentation>
   );
 }

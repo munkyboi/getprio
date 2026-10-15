@@ -114,3 +114,35 @@ After local shell approval, the Bookings/Clients/History slice explicitly carrie
 ### Administration configuration presentation checkpoint (13 October 2026)
 
 The authorized local-review slice covers Locations/Resources/Counters and their editors, preserving current tabs and source contracts. Audited behavior retained: timezone-resolved today/grouped intervals, immutable links, profile/manual payment/QR media, arrival and timing opt-outs, counter assignments/limits/scoped 409 handling/reset, and resource server versions/draft-only capacity/service demand. Added explicit custom-select dirty registration, resource busy propagation, restricted-plan staff-query explanation and safe retry against an already-created location after hours failure. No operational allocation snapshot, workflow station conversion, new resource runtime field, or AI readiness claim. 188 frontend tests and synthetic responsive/mutation fixtures establish local source/UI behavior only; authenticated/device/provider and deployment checks remain outstanding. Shared theme settings are preserved for their later slice.
+
+## Services and Availability implementation checkpoint
+
+The authorized Services slice carries Services/Availability and G06 forward through scoped catalog summaries, native bounded editors, quantity bounds, branch pricing/capacity, weekly overnight/defaults and date exception controls. Server APIs, authorization and frozen bookings remain authoritative. Missing service metadata disables editing/toggling an existing schedule instead of silently broadening it to all services. Whole-day exceptions explicitly block all services; status requests explicitly retain quantity limits. See the progress record and [work tracker](vendor-dashboard-rework-ticket-tracker.md) for verification and review gates.
+
+## Staff implementation checkpoint
+
+Staff follow-through (13 October 2026): G08 presentation is migrated locally with preserved membership/seat/self/owner/admin and counter-assignment contracts, guarded existing-account onboarding, confirmation/retry states and responsive roster. Source regression and synthetic browser evidence are recorded in [progress](vendor-dashboard-rework-progress.md); this does not certify real access-change delivery, session revocation or device behavior. End-to-end authorization supersedes per-screen advancement stops; publishing, deployment and runtime activation retain their separate gates.
+
+## Settings and board implementation checkpoint
+
+Settings presentation carries G02/G05/G09 forward through the existing four tabs, owner-only profile/default media, complete queue intake settings, distinct notification permission/subscription/event states and location-scoped board access/display management. Queue-only PATCH requests now omit owner-only profile fields while retaining all intake booleans, as confirmed compatible by the #419 writer owner. Unavailable theme/board reads, native/custom draft edits, pending writes, failed notification rollback and exact-target confirmations remain explicit. Local source and synthetic browser evidence are in [progress](vendor-dashboard-rework-progress.md); no physical scan, push/email delivery, private display grant or production write acceptance is inferred.
+
+### Account contract verification during VD-08
+
+The API owner verified that vendor phone change supports only `phone-change/start` and `phone-change/verify-email`; normalization rejects empty/null values. Profile updates are limited to name/displayName. The phone-removal audit requirement remains unsupported and requires a separately agreed backend contract; account-deletion anonymization is not a substitute. No backend contract was changed for this presentation slice. Account billing failure/pending states, accurate daily ticket labels, shared challenge busy/draft guards and explicit MFA preservation prompts are included in the local migration. Live email delivery, authenticator/device interaction, permanent deletion/logout and payment/provider acceptance remain separate evidence gates.
+
+### VD-09 recorded activity correction
+
+The legacy Reports chart derived “service time” from adjacent ticket `updatedAt` values and inserted a configured average for its final point. These are not service durations. The migration preserves supplied activity through explicitly labeled intervals between actual served-ticket update records, omits inferred points and retains zero simultaneous intervals. True service-duration/resource reports remain dependent on authoritative runtime/session contracts. Ratings retains settings permission, paid-plan eligibility, moderation and aggregate semantics; no staff Reports access was added.
+
+### VD-10 onboarding preservation
+
+Vendor registration and authenticated/provider workspace completion retain all existing identity/auth and availability contracts under `/register/vendor`. The form now uses scoped vendor primitives, clearer Business link/optional Phone labels and shared theme behavior; category portals inherit the auth root. Existing E164 account phone is normalized to the form's PH convention before schema validation. Shared Login, customer fallback, callback/return policy and notification delivery contracts are not implicitly migrated or activated by this checkpoint.
+
+VD-10 Login follow-through: vendor-context sign-in/reset/MFA is locally migrated with shared identity/customer fallback and preserved return/challenge contracts. Reset-request failure visibility was corrected during review. Callback/notification inventory and external provider/device acceptance remain open; see progress evidence.
+
+VD-10 shared callback presentation is locally migrated and tested for retry context, loading/failure/success and stale callback responses. Shared notifications and external provider/device acceptance remain open.
+
+VD-10 operational queue/booking overlay cards are locally migrated with preserved detection/dismissal/action behavior and integrated vendor-root verification. Global transient toasts and external notification delivery acceptance remain open.
+
+VD-10 transient toast presentation is locally migrated and verified for responsive/theme/accessibility controls, FIFO overflow and effect replay/display timers. Customer behavior and the session-closing deletion receipt remain preserved. External provider/device acceptance remains open; VD12 legacy-consumer inventory is the next independently actionable item while VD11 awaits authoritative readiness.
