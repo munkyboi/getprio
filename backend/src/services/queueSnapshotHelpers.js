@@ -1,4 +1,5 @@
 const counterDispatchService = require("./counterDispatchService");
+const { customerQueueLifecycle } = require('./customerQueueLifecycle');
 const { EMAIL_QUOTA_POLICY } = require("./queueEmailJourneyService");
 const serviceCounterRepository = require("../repositories/serviceCounters");
 const queueDayRepository = require("../repositories/queueDays");
@@ -246,6 +247,7 @@ async function buildQueueSnapshot(tenant, options = {}, getTenantUsage) {
       customerName: lookupTicket.customerName,
       customerDisplayName: lookupTicket.customerDisplayName || null,
       status: lookupTicket.status,
+      queueLifecycle: customerQueueLifecycle(lookupTicket),
       customerConfirmedAt: lookupTicket.customerConfirmedAt || null,
       barcodeRotationRequired: Boolean(lookupTicket.barcodeRotationEnabled || (lookupTicket.userId && !lookupTicket.developerProjectId)),
       serviceStartedAt: lookupTicket.serviceStartedAt || null,
