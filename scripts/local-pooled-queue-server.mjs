@@ -14,6 +14,8 @@ const artifact = JSON.parse(fs.readFileSync(artifactPath, 'utf8'));
 Object.assign(process.env, artifact.env);
 const { localPoolDemoConfiguration, readLocalPoolDemoScope } = require('../backend/src/services/localPoolDemoScope.js');
 if (!localPoolDemoConfiguration()) throw new Error('Disposable local configuration required.');
+// Only this explicit launch option enables the fixture-only filesystem adapter.
+process.env.LOCAL_IMAGE_STORAGE_ENABLED = process.argv.includes('--local-image-storage') ? '1' : '';
 installLocalDemoNetworkGuard();
 const application = await import('../backend/src/app.ts');
 const app = application.default?.default || application.default;
