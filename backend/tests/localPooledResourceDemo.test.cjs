@@ -52,7 +52,11 @@ test('full local fixture CLI writes exclusive private credentials without leakin
   assert.equal(artifact.tenantSlug, 'vd-sports-club');
   assert.equal(artifact.locationSlug, 'demo-courts');
   assert.equal(artifact.counterSlug, 'court-dispatch');
-  assert.equal(artifact.env.VITE_API_URL, 'http://127.0.0.1:5007/api');
+  const browserHost = `four-court-${databaseName.slice('getprio_local_pool_demo_'.length)}.localhost`;
+  assert.equal(artifact.env.VITE_API_URL, `http://${browserHost}:5007/api`);
+  assert.equal(artifact.env.CLIENT_URL, `http://${browserHost}:5187`);
+  assert.equal(artifact.env.APP_BASE_URL, artifact.env.CLIENT_URL);
+  assert.equal(artifact.env.SERVER_URL, 'http://127.0.0.1:5007');
   assert.equal(artifact.env.DATABASE_SSL, 'false');
   assert.equal(artifact.env.AUTH_COOKIE_SECURE, 'false');
   assert.equal(artifact.fixture.ticketIds.length, 8);
@@ -63,7 +67,7 @@ test('full local fixture CLI writes exclusive private credentials without leakin
     const env=require('./backend/src/config/env');
     assert.equal(env.databaseSsl,false);
     assert.equal(env.authCookieSecure,false);
-    for(const key of ['resendApiKey','sendgridApiKey','smtpHost','smtpUser','smtpPass','smsAccountSid','smsAuthToken','fcmProjectId','fcmSandboxProjectId','paymongoSecretKey']) assert.ok(!env[key]);
+    for(const key of ['resendApiKey','sendgridApiKey','smtpHost','smtpUser','smtpPass','smsAccountSid','smsAuthToken','fcmProjectId','fcmSandboxProjectId','paymongoSecretKey','b2S3Endpoint','b2BucketPublicBoard','b2BucketPaymentProof','b2KeyId','b2ApplicationKey','b2PublicBaseUrl']) assert.ok(!env[key]);
     global.fetch=()=>{throw new Error('External network forbidden');};
     let fallback=0; console.log=(tag)=>{if(tag==='[email-fallback]')fallback++;};
     const {loadModuleWithMocks}=require('./backend/tests/helpers/loadModuleWithMocks.cjs');
