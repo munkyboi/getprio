@@ -2,9 +2,12 @@
 // Run with tsx. This launcher accepts only a private artifact for the disposable
 // fixture and binds the real application to loopback; it starts no provider jobs.
 import fs from 'node:fs';
+import os from 'node:os';
+import http from 'node:http';
 import { assertLocalDemoProvidersEmpty } from './helpers/localDemoProviderConfiguration.mjs';
 import { createRequire } from 'node:module';
 import { installLocalDemoNetworkGuard } from './helpers/localDemoNetworkGuard.mjs';
+import { localDeviceIngress, deviceIngressHandler } from './helpers/localDemoDeviceIngress.mjs';
 const require = createRequire(import.meta.url);
 const artifactPath = process.argv[2];
 if (!artifactPath || (fs.statSync(artifactPath).mode & 0o077) !== 0) {
@@ -14,6 +17,7 @@ const artifact = JSON.parse(fs.readFileSync(artifactPath, 'utf8'));
 Object.assign(process.env, artifact.env);
 const { localPoolDemoConfiguration, readLocalPoolDemoScope } = require('../backend/src/services/localPoolDemoScope.js');
 if (!localPoolDemoConfiguration()) throw new Error('Disposable local configuration required.');
+const deviceIngress = localDeviceIngress(process.argv.slice(3), os.networkInterfaces(), localPoolDemoConfiguration());
 // Only this explicit launch option enables the fixture-only filesystem adapter.
 process.env.LOCAL_IMAGE_STORAGE_ENABLED = process.argv.includes('--local-image-storage') ? '1' : '';
 installLocalDemoNetworkGuard();
@@ -31,4 +35,18 @@ try {
   if (!await readLocalPoolDemoScope(client, artifact.fixture)) throw new Error('Fixture scope verification failed.');
 } finally { client.release(); }
 const server = app.listen(5007, '127.0.0.1', () => console.log('Local pooled queue API listening at http://127.0.0.1:5007 (external network disabled; provider credentials empty)'));
-for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, () => server.close(() => pool.end()));
+const servers = [server];
+if (deviceIngress) {
+  const deviceServer = http.createServer(deviceIngressHandler(app, deviceIngress));
+  servers.push(deviceServer);
+  deviceServer.once('error', error => {
+    console.error(`Wired local device ingress failed: ${error.code || 'listen_error'}`);
+    process.exitCode = 1;
+    server.close(() => pool.end());
+  });
+  deviceServer.listen(5007, deviceIngress.host, () => console.log(`Wired local device ingress listening at http://${deviceIngress.host}:5007 (one explicit peer; normal application auth required)`));
+}
+for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, async () => {
+  await Promise.all(servers.map(listener => new Promise(resolve => listener.close(resolve))));
+  await pool.end();
+});
