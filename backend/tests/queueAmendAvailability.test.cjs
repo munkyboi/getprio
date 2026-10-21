@@ -72,3 +72,13 @@ test('affected pool locks are numeric ordered and terminal reservations are excl
  await assertAvailable(db,scope,'ticket',[],[a,b]);
  assert.deepEqual(db.calls.filter(call=>call.sql.includes('FROM location_resource_pools')).map(call=>call.args[2]),['2','10']);
 });
+test('two independent one-unit pools do not count each other\'s simultaneous additions',async()=>{
+ const db=client();
+ db.query=async function(sql,args){this.calls.push({sql,args});
+  if(sql.includes('FROM location_resource_pools'))return {rows:[{id:args[2],capacity:1,tracking_enabled:true}]};
+  if(sql==='SELECT clock_timestamp() AS at')return {rows:[{at:now}]};
+  assert.ok(['2','10'].includes(args[2]));return {rows:[]};
+ };
+ const court=row('court'),equipment=row('equipment');equipment.resource.poolId='2';
+ await assertAvailable(db,scope,'ticket',[],[court,equipment]);
+});

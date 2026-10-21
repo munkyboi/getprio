@@ -18,7 +18,7 @@ Evidence identifiers (raw QA artifacts and private fixtures are intentionally ex
 
 ## Setup and release limits
 
-The new same-day migration filenames are not lexically dependency-safe: member archival, named extras, skip/recall, child execution, and V4 configuration require reviewed dependency ordering. All schema dependencies are included, but this checkpoint is **not fresh-deployment-ready**. No migration is executed or renamed by this checkpoint.
+The same-day migration filenames remain unchanged. The shared `scripts/helpers/migration-order.cjs` dependency order is used by the SQL apply runner and disposable integration database preparation; it places member archival, named extras, skip/recall, child execution, and V4 configuration after their prerequisites. Ordering fails closed on missing dependencies or cycles, and existing migration filenames/markers are preserved. Historical SQL is not rewritten. Fresh and incremental isolated bootstrap validation is recorded with the migration-order fix; this does not establish full DEV integration or production deployment acceptance.
 
 The original local API runs through a guarded loopback-only, app-only launcher. QA used disposable isolated services and normal admin/staff authentication; original business data and services were not mutated by QA. Private environment files, fixture credentials, browser sessions, and raw QA logs are not part of this checkpoint. No push, PR, merge, or deployment is implied.
 
