@@ -8,14 +8,14 @@ test('selected request reads forward cancellation so obsolete refresh responses 
 });
 test('manual refresh invalidates the active request table and keeps details inline',()=>{
  const source=fs.readFileSync('src/vendor/NamedQueuePanel.tsx','utf8');
- assert.match(source,/<NamedQueueOperations headerActions=\{<OperationButton[^>]*onClick=\{refresh\}>[\s\S]*?Refresh requests<\/OperationButton>\}/);
+ assert.match(source,/<NamedQueueOperations\b[\s\S]*?headerActions=\{<OperationButton[^>]*onClick=\{refresh\}>[\s\S]*?Refresh requests<\/OperationButton>\}/);
  assert.match(fs.readFileSync('src/vendor/NamedQueueOperations.tsx','utf8'),/props\.headerActions\?<div className="request-card-actions">\{props\.headerActions\}/);
  assert.match(source,/function refresh\(\).*'named-queue-active'.*queryKey:\[key,token,tenant,location\]/);
  assert.match(source,/setInterval\(\(\)=>\{if\(!streamHealthyRef\.current\)onRefresh\(\);\},15000\)/);
  assert.match(source,/addEventListener\('focus',onRefresh\)/);
  assert.match(source,/addEventListener\('online',onRefresh\)/);
  assert.match(source,/addEventListener\('queue-plans-updated',onRefresh\)/);
- assert.match(source,/activeRefreshing\.current\?\.update\(\)/);
+ assert.match(source,/activeRefreshing\.current=queue/);
  assert.doesNotMatch(source,/Request review/);
  assert.doesNotMatch(fs.readFileSync('src/vendor/NamedQueueOperations.tsx','utf8'),/Open request review/);
 });

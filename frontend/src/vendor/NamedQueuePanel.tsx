@@ -9,7 +9,7 @@ import { getQueueSelectionOptionsV4 } from '../api/queueSelectionsV4';
 import { selectionInputV4 } from './QueueSelectionFieldsV4';
 import type { QueueSelectionDraftV4, QueueSelectionDraftInputV4, QueuePublishedSelectionPlanV4, QueueSelectionPlanV4 } from '../../../shared/queueSelectionPlanV4';
 import { namedPlanRevisions as revisions } from "./namedQueueCommands";
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { QueueSelectionDraftV3 as LegacyDraft, QueueSelectionDraftInputV3 as LegacyInput, QueuePublishedSelectionPlanV3 as LegacyPublished, QueueSelectionPlanV3 as LegacyPlan } from '../../../shared/queueSelectionPlanV3';
 import { getQueueSelectionOptions, listQueueSelections, readQueueSelection, saveQueueSelection, commandQueueSelection } from '../api/queueSelectionsV3';
@@ -110,6 +110,25 @@ export function NamedQueuePanel({token,tenant,location,counterSlug,staffMode=fal
  const [protection,setProtection]=useState<QueuePublishedSelectionPlanV3|null>(null),[protectionReason,setProtectionReason]=useState('');
  const pending=useRef<Pending|null>(null),busyRef=useRef(onBusy),idsRef=useRef(onTicketIds);busyRef.current=onBusy;idsRef.current=onTicketIds;
  useEffect(()=>{const confirmed=(event:Event)=>{if((event as CustomEvent<{key:string}>).detail.key!==pending.current?.key)return;pending.current=null;setUncertain(false);setError('');setEditor(null);setOutcome(null);setProtection(null);completionReview.current?.reset();onCloseForm();};window.addEventListener('queue-command-confirmed',confirmed);return()=>window.removeEventListener('queue-command-confirmed',confirmed);},[onCloseForm]);
+ const editorRead=useRef<AbortController|null>(null);
+ useEffect(()=>()=>{
+  if(editorRead.current){editorRead.current.abort();editorRead.current=null;setBusy(false);}
+ },[token,tenant,location]);
+ const open=useCallback(async(plan?:Pick<QueueSelectionPlanV3,'id'>)=>{
+  if(busy||uncertain||editorRead.current)return;
+  const controller=new AbortController();editorRead.current=controller;
+  setBusy(true);setError('');
+  try{
+   const current=plan?(await readQueueSelection(token,tenant,location,plan.id,controller.signal)).plan:undefined;
+   if(controller.signal.aborted||editorRead.current!==controller)return;
+   if(current&&((current.contractVersion!==3&&current.contractVersion!==4)||!(current.state==='draft'?current.allowedActions.includes('edit'):current.allowedActions.includes('amend'))))throw Error('This request cannot be edited. Refresh its current state.');
+   setEditor({plan:current,initial:namedQueueForm(current),mode:current&&current.state!=='draft'?'amend':'draft'});
+  }catch(error){
+   if(!controller.signal.aborted&&editorRead.current===controller)setError(error instanceof Error?error.message:'Request could not be loaded.');
+  }finally{
+   if(editorRead.current===controller){editorRead.current=null;setBusy(false);}
+  }
+ },[busy,uncertain,token,tenant,location]);
  const plans=(active.data?.pages.flatMap(page=>page.plans)||[]).filter((plan):plan is QueuePublishedSelectionPlanV3=>plan.state!=='draft');
  // Conflict highlighting must consider every waiting request, including requests
  // beyond the first server page. Continue loading the active queue in the
@@ -122,13 +141,11 @@ export function NamedQueuePanel({token,tenant,location,counterSlug,staffMode=fal
   const handleAmend=(event:Event)=>{
    const detail=(event as CustomEvent<{planId?:string;tenant?:string;location?:string}>).detail;
    if(!detail?.planId||detail.tenant!==tenant||detail.location!==location)return;
-   const plan=plans.find(item=>item.id===detail.planId);
-   if(plan){void open(plan);return;}
-   void readQueueSelection(token,tenant,location,detail.planId).then(result=>open(result.plan)).catch(error=>setError(error instanceof Error?error.message:'Request could not be loaded.'));
+   void open({id:detail.planId});
   };
   window.addEventListener('queue-request-amend',handleAmend);
   return()=>window.removeEventListener('queue-request-amend',handleAmend);
- },[location,plans,tenant]);
+ },[location,open,tenant]);
  const ids=plans.map(plan=>plan.ticketId).sort().join(',');
  useEffect(()=>{idsRef.current(ids?ids.split(','):[]);},[ids]);
  useEffect(()=>{busyRef.current(busy||uncertain);},[busy,uncertain]);
@@ -148,7 +165,7 @@ export function NamedQueuePanel({token,tenant,location,counterSlug,staffMode=fal
  async function send(command?:Pending){if(busy)return;if(!pending.current&&command)pending.current=command;if(!pending.current)return;setBusy(true);setError('');try{const c=pending.current;const response=c.kind==='save'?await saveQueueSelection(token,tenant,location,c.id,c.body,c.key):await commandQueueSelection(token,tenant,location,c.id,c.action,c.body,c.key);if(response.plan.contractVersion!==3&&response.plan.contractVersion!==4)throw Error('Unexpected response. Retry this command to reconcile it.');if(response.plan.state!=='draft')setLast(response.plan);if(c.kind==='command')setActionErrors(current=>{const next={...current};delete next[c.id];return next;});pending.current=null;setUncertain(false);setEditor(null);setOutcome(null);setProtection(null);completionReview.current?.reset();onCloseForm();refresh();onNotice(c.kind==='save'?'Request draft saved':'Request updated',c.kind==='save'?'No queue ticket, resource hold or allowance charge was created.':'The server confirmed the request action.');}catch(e){const c=pending.current;const message=e instanceof ApiError?(linearQueueRecovery(e.code,e.message)||e.message):(e instanceof Error?e.message:'Request action failed.');const unknown=!(e instanceof ApiError)||e.status>=500;if(c?.kind==='command'&&c.action==='call'&&c.id)setActionErrors(current=>({...current,[c.id]:{message,commandKey:c.key,unknown}}));else setError(message);setUncertain(unknown);if(!unknown){pending.current=null;void active.refetch();}}finally{setBusy(false);}}
  completionExecute.current=command=>send(command);
  async function confirmCompletion(){try{await completionReview.current?.confirm();}catch(e){setError(e instanceof Error?e.message:'Refresh this request.');}}
- async function open(plan?:QueueSelectionPlanV3){if(busy||uncertain)return;setBusy(true);setError('');try{const current=plan?(await readQueueSelection(token,tenant,location,plan.id)).plan:undefined;if(current&&((current.contractVersion!==3&&current.contractVersion!==4)||!(current.state==='draft'?current.allowedActions.includes('edit'):current.allowedActions.includes('amend'))))throw Error('This request cannot be edited. Refresh its current state.');setEditor({plan:current,initial:namedQueueForm(current),mode:current&&current.state!=='draft'?'amend':'draft'});}catch(e){setError(e instanceof Error?e.message:'Request could not be loaded.');}finally{setBusy(false);}}
+
  async function save(draft:NamedQueueFormDraft){if(!editor)return;await send({kind:'save',id:editor.plan?.id||null,body:{customer:{name:draft.customerName,email:draft.customerEmail,phone:draft.customerPhone},notes:draft.notes,catalogRevision:draft.catalogRevision,...(!editor.plan||editor.plan.contractVersion===4?{contractVersion:4 as const,serviceSelections:selectionInputV4(draft.selections)}:{serviceSelections:namedSelectionInput(draft.selections)}),...(editor.plan?{expectedPlanRevision:editor.plan.planRevision}:{})},key:crypto.randomUUID()});}
  async function publish(draft:NamedQueueFormDraft){if(!editor?.plan||editor.plan.state!=='draft')return;if(JSON.stringify(draft)!==JSON.stringify(editor.initial)){setError('Save the reviewed request first, then reopen it to publish.');return;}const currentOptions=editor.plan.contractVersion===4?v4Options.data:options.data;if(!currentOptions||draft.catalogRevision!==currentOptions.catalogRevision){setError('Review and save the current resource and extra policies before publication.');return;}await send({kind:'command',id:editor.plan.id,action:'publish',body:{expectedPlanRevision:editor.plan.planRevision,expectedCatalogRevision:currentOptions.catalogRevision},key:crypto.randomUUID()});}
  async function amend(draft:NamedQueueFormDraft,reason:string,agreement:boolean){if(!editor?.plan||editor.plan.state==='draft')return;const isV4=editor.plan.contractVersion===4;const currentOptions=isV4?v4Options.data:options.data;if(!currentOptions||draft.catalogRevision!==currentOptions.catalogRevision){setError('Review the current resource and extra policies first.');return;}await send({kind:'command',id:editor.plan.id,action:'amend',body:{...revisions(editor.plan),...(isV4?{contractVersion:4 as const}:{ }),serviceSelections:isV4?selectionInputV4(draft.selections):namedSelectionInput(draft.selections),expectedCatalogRevision:currentOptions.catalogRevision,reason,...(agreement?{customerAgreement:{confirmed:true}}:{})},key:crypto.randomUUID()});}
