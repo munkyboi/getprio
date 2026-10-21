@@ -112,6 +112,9 @@ const {
 } = require("../src/api/vendorDashboardBookings.ts");
 const { customerAccountApi } = require("../src/api/customerAccount.ts");
 
+const smallPng=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/l9sAAAAASUVORK5CYII=','base64');
+const smallWebp=Buffer.from('UklGRiIAAABXRUJQVlA4IBYAAAAwAQCdASoBAAEADsD+JaQAA3AAAAAA','base64');
+
 function mockResponse(status, body) {
   return {
     ok: status >= 200 && status < 300,
@@ -742,12 +745,13 @@ test("apiUpload uses cookie authentication without sending cookie-session as a b
   let requestOptions;
 
   await withFetch(async (_url, options) => {
+    if (String(_url).endsWith("/public/upload-policy")) return mockResponse(200, {maxImageUploadKb:200,maxImageUploadBytes:204800});
     requestOptions = options;
     return mockResponse(200, { uploaded: true });
   }, async () => {
     const result = await apiUpload("/vendor/upload", {
       token: "cookie-session",
-      body: new Blob(["image"]),
+      body: new Blob([smallPng], {type:"image/png"}),
       contentType: "image/png"
     });
 
@@ -760,7 +764,7 @@ test("apiUpload uses cookie authentication without sending cookie-session as a b
 
 test("vendor media uploads send image bytes only to the authenticated API", async () => {
   const calls = [];
-  const file = new Blob(["image"], { type: "image/png" });
+  const file = new Blob([smallPng], { type: "image/png" });
 
   await withFetch(async (url, options) => {
     if (String(url).endsWith("/public/upload-policy")) return mockResponse(200, { maxImageUploadKb: 200, maxImageUploadBytes: 204800 });
@@ -780,7 +784,7 @@ test("vendor media uploads send image bytes only to the authenticated API", asyn
 
 test("customer image and proof uploads use cookie authentication with binary bodies", async () => {
   const calls = [];
-  const file = Object.assign(new Blob(["image"], { type: "image/webp" }), {
+  const file = Object.assign(new Blob([smallWebp], { type: "image/webp" }), {
     name: "proof image.webp"
   });
 
@@ -1596,16 +1600,12 @@ test("location slugs become immutable and new locations inherit the platform tim
   assert.match(sharedTypes, /defaultTimezone: string/);
 });
 
-test("vendor location cards show only today's timezone-resolved schedule", () => {
-  const source = fs.readFileSync(
-    path.join(path.resolve(__dirname, ".."), "src", "pages", "VendorDashboardPage.tsx"),
-    "utf8"
-  );
-
-  assert.match(source, /Today\s*\{\s*item\.openStatus\.today/);
-  assert.match(source, /formatStoreHourRange\(item\.openStatus\.today\)/);
-  assert.match(source, /item\.isActive\s*&&\s*item\.openStatus\.isOpen\s*\?\s*['"]Open['"]\s*:\s*['"]Closed['"]/);
-  assert.doesNotMatch(source, />\{locationItem\.openStatus\.summary\}<\/Text>/);
+test("vendor location cards show today's timezone-resolved schedule", () => {
+ const source=fs.readFileSync(path.join(__dirname,"../src/vendor/LocationsGrid.tsx"),"utf8");
+ assert.match(source,/Today/);
+ assert.match(source,/formatHours\(item\.openStatus\.today\)/);
+ assert.match(source,/item\.isActive&&item\.openStatus\.isOpen/);
+ assert.doesNotMatch(source,/openStatus\.summary/);
 });
 
 test("vendor operating-hour intervals stay grouped by weekday", () => {
@@ -1629,19 +1629,12 @@ test("vendor operating-hour intervals stay grouped by weekday", () => {
   );
 });
 
-test("vendor location card URLs copy to the clipboard with confirmation", () => {
-  const source = fs.readFileSync(
-    path.join(path.resolve(__dirname, ".."), "src", "pages", "VendorDashboardPage.tsx"),
-    "utf8"
-  );
-
-  assert.match(source, /navigator\.clipboard\?\.writeText/);
-  assert.match(source, /await navigator\.clipboard\.writeText\(url\)/);
-  assert.match(source, /`The \$\{label\.toLowerCase\(\)\} has been copied to your clipboard\.`/);
-  assert.match(source, /copyLocationUrl\(\s*['"]Join URL['"],\s*item\.joinUrl\)/);
-  assert.match(source, /copyLocationUrl\(\s*['"]Queue board URL['"],\s*item\.monitorUrl,?\s*\)/);
-  assert.match(source, /<QueueCopyField\s+label="Join URL"/);
-  assert.match(source, /<QueueCopyField\s+label="Queue board URL"/);
+test("location cards omit public URLs while keeping named icon actions and a switch",()=>{
+ const source=fs.readFileSync(path.join(__dirname,"../src/vendor/LocationsGrid.tsx"),"utf8");
+ assert.doesNotMatch(source,/item\.(joinUrl|qrJoinUrl|monitorUrl)/);
+ assert.match(source,/<EntityCard /);assert.match(source,/<Switch /);
+ const actions=fs.readFileSync(path.join(__dirname,"../src/vendor/EntityCards.tsx"),"utf8");assert.match(actions,/aria-label=\{label\}/);assert.match(actions,/<TooltipContent>/);
+ assert.match(source,/Saving…/);assert.match(source,/role="alert"/);
 });
 
 test("vendor queue public links copy to the clipboard with confirmation", () => {
@@ -1718,7 +1711,7 @@ test("vendor account menu separates user security from role-restricted billing",
   const bootstrap = fs.readFileSync(path.join(frontendRoot, "src", "api", "vendorDashboardBootstrap.ts"), "utf8");
 
   assert.match(dashboard, /section: "account", label: "Account"/);
-  assert.match(dashboard, /const staffAllowedSections = new Set<DashboardSection>\(\["queue", "bookings", "clients", "history", "account"\]\)/);
+  assert.match(dashboard, /const staffAllowedSections = new Set<DashboardSection>\(\["overview", "queue", "bookings", "clients", "history", "account"\]\)/);
   assert.match(dashboard, /const canAccessBillingTabs = isOwner \|\| isAdmin/);
   assert.match(dashboard, /if \(!hasActiveSubscription && currentSection !== "settings" && currentSection !== "account"\)/);
   assert.doesNotMatch(dashboard, /if \(!activeSubscription && currentSection !== "settings" && currentSection !== "account"\)/);
@@ -1770,10 +1763,11 @@ test("vendor queue confirms called tickets through a QR code scan", () => {
   assert.match(queueApi, /\/queue\/current\/confirm\$\{locationQuery\}/);
 });
 
-test("vendor queue adds walk-in customers from the self-service card modal", () => {
+test("vendor queue adds walk-in customers from the grouped queue controls modal", () => {
   const source = fs.readFileSync(path.resolve(__dirname, "../src/pages/VendorDashboardPage.tsx"), "utf8");
 
-  assert.match(source, /Open board[\s\S]*?Add walk-in/);
+  assert.match(source, /aria-label="Queue controls actions"[\s\S]*?ButtonGroupSeparator[\s\S]*?Add walk-in/);
+  assert.equal((source.match(/Add walk-in/g) || []).length, 1);
   const walkIn = fs.readFileSync(path.resolve(__dirname, "../src/vendor/WalkInDialog.tsx"), "utf8");
   assert.match(source, /<WalkInDialog/);
   assert.match(source, /opened=\{walkInDialogOpen\}/);
@@ -1908,7 +1902,7 @@ test("retired email quotas stay out of vendor metrics while capacity loading rem
   assert.match(bootstrap, /\/billing\/tenant\/\$\{tenantSlug\}\/capacity/);
 });
 
-test("image preflight rejects oversized files before POST and rechecks a changed policy", async () => {
+test("image preflight rejects unreadable oversized files before POST and rechecks a changed policy", async () => {
   let limit = 200;
   let uploads = 0;
   await withFetch(async (url) => {
@@ -1917,10 +1911,11 @@ test("image preflight rejects oversized files before POST and rechecks a changed
     return mockResponse(201, { uploaded: true });
   }, async () => {
     const body = new Blob([new Uint8Array(204801)], { type: "image/png" });
-    await assert.rejects(apiUpload("/vendor/upload", { body, contentType: "image/png" }), /200 KB/);
+    await assert.rejects(apiUpload("/vendor/upload", { body, contentType: "image/png" }), /dimensions cannot be read/);
     assert.equal(uploads, 0);
     limit = 300;
-    await apiUpload("/vendor/upload", { body, contentType: "image/png" });
+    await assert.rejects(apiUpload("/vendor/upload", { body, contentType: "image/png" }), /dimensions cannot be read/);
+    await apiUpload("/vendor/upload", { body: new Blob([smallPng], {type:"image/png"}), contentType: "image/png" });
     assert.equal(uploads, 1);
   });
 });
@@ -1932,4 +1927,37 @@ test("all public plan highlights omit retired email allowances while retaining d
   assert.ok(highlights.includes("500 Queue Tickets/mo"));assert.ok(highlights.includes("100 service bookings/mo"));assert.ok(highlights.includes("Email alerts"));
   assert.ok(!highlights.some(text=>/journey|transactional email/i.test(text)));
  }
+});
+
+test('image upload POST receives only the prepared blob under the current policy',async()=>{
+ const priorBitmap=global.createImageBitmap,priorDocument=global.document;
+ let posted;
+ global.createImageBitmap=async()=>({width:64,height:32,close(){}});
+ global.document={cookie:"",createElement(){return{getContext(){return{drawImage(){}};},toBlob(done,type){done(new Blob([new Uint8Array(128)],{type}));}};}};
+ try{await withFetch(async(url,options)=>{
+   if(String(url).endsWith('/public/upload-policy'))return mockResponse(200,{maxImageUploadKb:1,maxImageUploadBytes:1024});
+   posted=options;return mockResponse(201,{uploaded:true});
+ },async()=>{const bytes=new Uint8Array(5000),view=new DataView(bytes.buffer);view.setUint32(0,0x89504e47);bytes.set(Buffer.from('IHDR'),12);view.setUint32(16,64);view.setUint32(20,32);const original=new Blob([bytes],{type:'image/png'});await apiUpload('/vendor/upload',{body:original,contentType:'image/png'});assert.notEqual(posted.body,original);assert.equal(posted.body.size,128);assert.equal(posted.body.type,posted.headers['Content-Type']);});}
+ finally{global.createImageBitmap=priorBitmap;global.document=priorDocument;}
+});
+
+test("service-plan command errors retain their machine code for inline recovery", async () => {
+  await withFetch(async () => mockResponse(409, {code:"SERVICE_PLAN_REQUIRED",message:"Backend plan diagnostic"}), async () => {
+    await assert.rejects(() => apiRequest("/service/start", {method:"POST"}), error => {
+      assert.ok(error instanceof ApiError);
+      assert.equal(error.code,"SERVICE_PLAN_REQUIRED");
+      assert.equal(error.status,409);
+      return true;
+    });
+  });
+});
+
+test('description editor initial configuration survives prop changes without recreating its editor state',()=>{
+ const fs=require('node:fs'),path=require('node:path'),vm=require('node:vm'),ts=require('typescript');
+ const text=fs.readFileSync(path.join(__dirname,'../src/components/CampaignDescriptionEditor.tsx'),'utf8');const tree=ts.createSourceFile('editor.tsx',text,ts.ScriptTarget.Latest,true,ts.ScriptKind.TSX);let initialization;
+ function visit(node){if(ts.isVariableDeclaration(node)&&node.name.getText(tree)==='[initialConfig]')initialization=node.initializer;ts.forEachChild(node,visit);}visit(tree);assert.ok(initialization);
+ let retained,parsed,appendCount=0;
+ const context={value:'First description',disabled:false,useState(create){retained??=create();return [retained];},HeadingNode:{},QuoteNode:{},ListNode:{},ListItemNode:{},DOMParser:class{parseFromString(html){parsed=html;return {}; }},toEditorHtml:value=>value,$getRoot:()=>({clear:()=>({append(){appendCount++;}})}),$generateNodesFromDOM:()=>[]};vm.createContext(context);
+ const executable=ts.transpileModule('globalThis.configuration=((value,disabled)=>'+initialization.getText(tree)+'[0])(value,disabled);',{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText;vm.runInContext(executable,context);const original=context.configuration;context.value='Later description';context.disabled=true;vm.runInContext(executable,context);assert.equal(context.configuration,original);assert.equal(original.editable,true);
+ original.editorState({update(fn){fn();}});assert.equal(parsed,'First description');assert.equal(appendCount,1);
 });

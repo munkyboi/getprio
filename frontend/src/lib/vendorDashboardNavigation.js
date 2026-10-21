@@ -24,6 +24,7 @@ export function canAccessVendorSection(section, entitlements, plan = null) {
       return false;
     case "staff":
       return Number(entitlements.staffSeats || 0) > 1;
+    case "overview":
     case "clients":
       return entitlements.basicDashboard === true;
     case "history":

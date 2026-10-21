@@ -125,7 +125,7 @@ export function Badge(
 ) {
   const vendor = useVendorAccount();
   return vendor ? (
-    <VendorBadge variant="secondary">{props.children}</VendorBadge>
+    <VendorBadge variant={props.color === "red" ? "destructive" : props.color === "green" || props.color === "teal" ? "success" : props.color === "orange" || props.color === "yellow" ? "warning" : props.color === "blue" ? "info" : "secondary"}>{props.children}</VendorBadge>
   ) : (
     <Mantine.Badge {...props} />
   );

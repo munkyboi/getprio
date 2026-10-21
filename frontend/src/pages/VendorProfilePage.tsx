@@ -27,10 +27,12 @@ import {
   IconEye,
   IconMail,
   IconMapPin,
+  IconMoon,
   IconPhone,
   IconPhoto,
   IconStar,
   IconTicket,
+  IconSun,
   IconUserPlus
 } from "@tabler/icons-react";
 import {  getDay } from "date-fns";
@@ -50,6 +52,7 @@ import { formatPhilippineMobileNumber } from "../utils/phones";
 import { formatRatingCount } from "../utils/ratings";
 import { getQueueStateSummary } from "../utils/queueStatus";
 import { resolveVendorProfileMedia } from "../utils/vendorTheme";
+import { useVendorTheme } from "../vendor/useVendorTheme";
 import RichCampaignDescription from "../components/RichCampaignDescription";
 
 const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -204,6 +207,7 @@ function LocationCardContent({
 }
 
 export default function VendorProfilePage() {
+  const { theme: publicTheme, setTheme: setPublicTheme } = useVendorTheme();
   const { tenantSlug = "" } = useParams<{ tenantSlug: string }>();
   const navigate = useNavigate();
   const location = useLocation();
@@ -539,18 +543,14 @@ export default function VendorProfilePage() {
   }
 
   return (
-    <Stack className="vendor-profile-page" gap="xl" style={themeStyle}>
+    <Stack className="vendor-profile-page" data-public-theme={publicTheme} gap="xl" style={themeStyle}>
       <Container size="xl" w="100%">
-        <Button
-          color="dark"
-          component={Link}
-          leftSection={<IconArrowLeft size={18} />}
-          mb="md"
-          to="/vendors"
-          variant="subtle"
-        >
-          Back to vendors
-        </Button>
+        <Group justify="space-between" align="center" mb="md">
+          <Button color="dark" component={Link} leftSection={<IconArrowLeft size={18} />} to="/vendors" variant="subtle">Back to vendors</Button>
+          <Button size="sm" variant="subtle" leftSection={publicTheme === "light" ? <IconMoon size={16} /> : <IconSun size={16} />} onClick={() => setPublicTheme(publicTheme === "light" ? "dark" : "light")}>
+            {publicTheme === "light" ? "Dark mode" : "Light mode"}
+          </Button>
+        </Group>
 
         {loading ? (
           <Paper className="vendor-empty-panel" p="xl">

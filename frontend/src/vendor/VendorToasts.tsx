@@ -1,7 +1,8 @@
 import { createVendorNotificationQueue } from "./notificationQueue";
-import { createContext, useContext, useEffect, useMemo, type ReactNode } from "react";
-import { Toast, ToastClose, ToastContent, ToastDescription, ToastProvider, ToastTitle, ToastViewport, useToastManager } from "./components/ui/toast";
+import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { Toast, ToastClose, ToastContent, ToastDescription, ToastProvider, ToastTitle, ToastViewport, ToastPortal, useToastManager } from "./components/ui/toast";
 import { notifications as customerNotifications } from "@mantine/notifications";
+import { VendorPortal } from "./portal";
 import { Button } from "./components/ui/button";
 
 const NotificationContext = createContext<ReturnType<typeof createVendorNotificationQueue> | null>(null);
@@ -29,7 +30,10 @@ export function useScopedNotifications() {
 
 export function VendorToastViewport() {
   const { toasts } = useToastManager<{ icon?: ReactNode }>();
-  return <ToastViewport className="vendor-toast-viewport" aria-label="Dashboard notifications">
+  const container = useContext(VendorPortal);
+  const [portalContainer, setPortalContainer] = useState<HTMLElement | null>(null);
+  useEffect(() => { setPortalContainer(container?.current || null); }, [container]);
+  return <ToastPortal container={portalContainer}><ToastViewport className="vendor-toast-viewport" aria-label="Dashboard notifications">
     {toasts.map(item => <Toast key={item.id} toast={item} className="vendor-toast">
       <ToastContent className="vendor-toast-content">
         {item.data?.icon ? <span aria-hidden>{item.data.icon}</span> : null}
@@ -37,5 +41,5 @@ export function VendorToastViewport() {
         <ToastClose aria-label="Dismiss notification" render={<Button variant="ghost" size="icon" />} />
       </ToastContent>
     </Toast>)}
-  </ToastViewport>;
+  </ToastViewport></ToastPortal>;
 }

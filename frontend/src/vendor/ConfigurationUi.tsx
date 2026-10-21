@@ -29,11 +29,12 @@ import {
   ComboboxItem,
   ComboboxEmpty,
 } from "./components/ui/combobox";
-import { OperationScope, OperationButton } from "./OperationsUi";
+import { OperationScope } from "./OperationsUi";
 import {
   formatPhilippineMobileNumber,
   normalizePhilippineMobileNumber,
 } from "../utils/phones";
+import { IconX } from "@tabler/icons-react";
 const Busy = createContext(false);
 const Draft = createContext<((form: HTMLFormElement) => void) | undefined>(
   undefined,
@@ -323,36 +324,41 @@ export function ConfigurationFile({
     <div ref={root}>
       <Field>
         <FieldLabel htmlFor={id}>{label}</FieldLabel>
-        <Input
-          id={id}
-          type="file"
-          accept={accept}
-          disabled={disabled || busy}
-          onChange={(event: ChangeEvent<HTMLInputElement>) => {
-            const file = event.currentTarget.files?.[0] || null;
-            setSelected(Boolean(file));
-            onChange(file);
-          }}
-        />
+        <div className="config-file-control">
+          <Input
+            id={id}
+            type="file"
+            accept={accept}
+            disabled={disabled || busy}
+            onChange={(event: ChangeEvent<HTMLInputElement>) => {
+              const file = event.currentTarget.files?.[0] || null;
+              setSelected(Boolean(file));
+              onChange(file);
+            }}
+          />
+          {selected || value ? (
+            <button
+              type="button"
+              className="config-file-clear"
+              aria-label="Clear selected file"
+              title="Clear selected file"
+              disabled={disabled || busy}
+              onClick={() => {
+                const input = root.current?.querySelector("input");
+                if (input) input.value = "";
+                setSelected(false);
+                const form = root.current?.closest("form");
+                if (form) mark?.(form);
+                onChange(null);
+              }}
+            >
+              <IconX size={16} aria-hidden="true" />
+            </button>
+          ) : null}
+        </div>
         <FieldDescription>
           {value?.name || placeholder || description}
         </FieldDescription>
-        {selected || value ? (
-          <OperationButton
-            variant="outline"
-            disabled={disabled || busy}
-            onClick={() => {
-              const input = root.current?.querySelector("input");
-              if (input) input.value = "";
-              setSelected(false);
-              const form = root.current?.closest("form");
-              if (form) mark?.(form);
-              onChange(null);
-            }}
-          >
-            Clear selected file
-          </OperationButton>
-        ) : null}
       </Field>
     </div>
   );

@@ -156,6 +156,6 @@ export function restoreSkippedTicket(
 }
 
 export function getServiceOptions(token: string, tenantSlug: string, locationQuery: string) {
-  return apiRequest<{ services: { id: string; name: string; durationMinutes: number }[] }>(
+  return apiRequest<{ services: { id: string; name: string; durationMinutes: number; quantityMin?: number; quantityMax?: number; durationEditable?: boolean; resourceReady?: boolean; resourceLabel?: string|null; unitsPerQuantity?: number|null }[]; catalogRevision?: string }>(
     `/vendor/tenant/${tenantSlug}/queue/service-options${locationQuery}`, { token });
 }

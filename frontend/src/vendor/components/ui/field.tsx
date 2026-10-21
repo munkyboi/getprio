@@ -1,23 +1,30 @@
-"use client"
+"use client";
 
-import { useMemo } from "react"
-import { cva, type VariantProps } from "class-variance-authority"
-import { cn } from "cn"
+import { useMemo } from "react";
+import { cva, type VariantProps } from "class-variance-authority";
+import { cn } from "cn";
 
-import { Label } from "@vendor/components/ui/label"
-import { Separator } from "@vendor/components/ui/separator"
+import { Label } from "@vendor/components/ui/label";
+import { Separator } from "@vendor/components/ui/separator";
 
-function FieldSet({ className, ...props }: React.ComponentProps<"fieldset">) {
+function FieldSet({
+  className,
+  variant = "plain",
+  ...props
+}: React.ComponentProps<"fieldset"> & { variant?: "plain" | "outlined" }) {
   return (
     <fieldset
       data-slot="field-set"
+      data-variant={variant}
       className={cn(
         "v:flex v:flex-col v:gap-4 v:has-[>[data-slot=checkbox-group]]:gap-3 v:has-[>[data-slot=radio-group]]:gap-3",
-        className
+        variant === "outlined" &&
+          "v:min-w-0 v:rounded-xl v:border v:border-border v:p-4 v:m-0 v:[&>legend]:w-auto v:[&>legend]:max-w-full v:[&>legend]:px-2 v:[&>legend]:whitespace-normal",
+        className,
       )}
       {...props}
     />
-  )
+  );
 }
 
 function FieldLegend({
@@ -31,11 +38,11 @@ function FieldLegend({
       data-variant={variant}
       className={cn(
         "v:mb-1.5 v:font-medium v:data-[variant=label]:text-sm v:data-[variant=legend]:text-base",
-        className
+        className,
       )}
       {...props}
     />
-  )
+  );
 }
 
 function FieldGroup({ className, ...props }: React.ComponentProps<"div">) {
@@ -44,11 +51,11 @@ function FieldGroup({ className, ...props }: React.ComponentProps<"div">) {
       data-slot="field-group"
       className={cn(
         "v:group/field-group v:@container/field-group v:flex v:w-full v:flex-col v:gap-5 v:data-[slot=checkbox-group]:gap-3 v:*:data-[slot=field-group]:gap-4",
-        className
+        className,
       )}
       {...props}
     />
-  )
+  );
 }
 
 const fieldVariants = cva(
@@ -66,8 +73,8 @@ const fieldVariants = cva(
     defaultVariants: {
       orientation: "vertical",
     },
-  }
-)
+  },
+);
 
 function Field({
   className,
@@ -82,7 +89,7 @@ function Field({
       className={cn(fieldVariants({ orientation }), className)}
       {...props}
     />
-  )
+  );
 }
 
 function FieldContent({ className, ...props }: React.ComponentProps<"div">) {
@@ -91,11 +98,11 @@ function FieldContent({ className, ...props }: React.ComponentProps<"div">) {
       data-slot="field-content"
       className={cn(
         "v:group/field-content v:flex v:flex-1 v:flex-col v:gap-0.5 v:leading-snug",
-        className
+        className,
       )}
       {...props}
     />
-  )
+  );
 }
 
 function FieldLabel({
@@ -108,11 +115,11 @@ function FieldLabel({
       className={cn(
         "v:group/field-label v:peer/field-label v:flex v:w-fit v:gap-2 v:leading-snug v:group-data-[disabled=true]/field:opacity-50 v:has-data-checked:border-primary/30 v:has-data-checked:bg-primary/5 v:has-[>[data-slot=field]]:rounded-lg v:has-[>[data-slot=field]]:border v:has-[>[data-slot=field]]:not-has-[:disabled,[data-disabled]]:hover:bg-muted/50 v:has-[>[data-slot=field]]:has-[:focus-visible]:border-ring v:has-[>[data-slot=field]]:has-[:focus-visible]:ring-3 v:has-[>[data-slot=field]]:has-[:focus-visible]:ring-ring/50 v:*:data-[slot=field]:p-2.5 v:dark:has-data-checked:border-primary/20 v:dark:has-data-checked:bg-primary/10",
         "v:has-[>[data-slot=field]]:w-full v:has-[>[data-slot=field]]:flex-col",
-        className
+        className,
       )}
       {...props}
     />
-  )
+  );
 }
 
 function FieldTitle({ className, ...props }: React.ComponentProps<"div">) {
@@ -121,11 +128,11 @@ function FieldTitle({ className, ...props }: React.ComponentProps<"div">) {
       data-slot="field-label"
       className={cn(
         "v:flex v:w-fit v:items-center v:gap-2 v:text-sm v:font-medium v:group-data-[disabled=true]/field:opacity-50",
-        className
+        className,
       )}
       {...props}
     />
-  )
+  );
 }
 
 function FieldDescription({ className, ...props }: React.ComponentProps<"p">) {
@@ -136,11 +143,11 @@ function FieldDescription({ className, ...props }: React.ComponentProps<"p">) {
         "v:text-left v:text-sm v:leading-normal v:font-normal v:text-muted-foreground v:group-has-data-horizontal/field:text-balance v:[[data-variant=legend]+&]:-mt-1.5",
         "v:last:mt-0 v:nth-last-2:-mt-1",
         "v:[&>a]:underline v:[&>a]:underline-offset-4 v:[&>a:hover]:text-primary",
-        className
+        className,
       )}
       {...props}
     />
-  )
+  );
 }
 
 function FieldSeparator({
@@ -148,7 +155,7 @@ function FieldSeparator({
   className,
   ...props
 }: React.ComponentProps<"div"> & {
-  children?: React.ReactNode
+  children?: React.ReactNode;
 }) {
   return (
     <div
@@ -156,7 +163,7 @@ function FieldSeparator({
       data-content={!!children}
       className={cn(
         "v:relative v:-my-2 v:h-5 v:text-sm v:group-data-[variant=outline]/field-group:-mb-2",
-        className
+        className,
       )}
       {...props}
     >
@@ -170,7 +177,7 @@ function FieldSeparator({
         </span>
       )}
     </div>
-  )
+  );
 }
 
 function FieldError({
@@ -179,37 +186,37 @@ function FieldError({
   errors,
   ...props
 }: React.ComponentProps<"div"> & {
-  errors?: Array<{ message?: string } | undefined>
+  errors?: Array<{ message?: string } | undefined>;
 }) {
   const content = useMemo(() => {
     if (children) {
-      return children
+      return children;
     }
 
     if (!errors?.length) {
-      return null
+      return null;
     }
 
     const uniqueErrors = [
       ...new Map(errors.map((error) => [error?.message, error])).values(),
-    ]
+    ];
 
     if (uniqueErrors?.length == 1) {
-      return uniqueErrors[0]?.message
+      return uniqueErrors[0]?.message;
     }
 
     return (
       <ul className="v:ml-4 v:flex v:list-disc v:flex-col v:gap-1">
         {uniqueErrors.map(
           (error, index) =>
-            error?.message && <li key={index}>{error.message}</li>
+            error?.message && <li key={index}>{error.message}</li>,
         )}
       </ul>
-    )
-  }, [children, errors])
+    );
+  }, [children, errors]);
 
   if (!content) {
-    return null
+    return null;
   }
 
   return (
@@ -221,7 +228,7 @@ function FieldError({
     >
       {content}
     </div>
-  )
+  );
 }
 
 export {
@@ -235,4 +242,4 @@ export {
   FieldSet,
   FieldContent,
   FieldTitle,
-}
+};

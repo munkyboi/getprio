@@ -5,6 +5,7 @@ import { IconMenu2, IconSun, IconMoon, IconLogout, IconExternalLink } from "@tab
 import { Button } from "./components/ui/button";
 import { ToggleGroup, ToggleGroupItem } from "./components/ui/toggle-group";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "./components/ui/sheet";
+import { VendorPageHeader } from "./VendorPageHeader";
 import { Separator } from "./components/ui/separator";
 import { workspacePath } from "./workspace";
 import { useVendorTheme } from "./useVendorTheme";
@@ -13,9 +14,10 @@ import "./styles.css";
 type Workspace = "operations" | "administration";
 type Item = { section: string; label: string; icon: ElementType };
 type Props = {
-  workspace: Workspace; canAdmin: boolean; items: Item[]; title: string; description: string;
+  workspace: Workspace; canAdmin: boolean; items: Item[]; title: string; eyebrow?: string; description: string;
   name: string; role: string; plan: string; context: ReactNode; children: ReactNode; dialogs: ReactNode;
   businessName: string; locationName: string; publicVendorUrl?: string;
+  breadcrumbs?: { label: string; href?: string }[]; headerAction?: ReactNode;
   onBeforeNavigate?: () => boolean; onEdit?: (form: HTMLFormElement) => void;
   onWorkspace: (workspace: Workspace) => void; onLogout: () => void; search: string; hash: string;
 };
@@ -64,7 +66,7 @@ export function VendorWorkspaceShell(props: Props) {
   }}>
     <aside className="vendor-sidebar">
       <NavLink className="vendor-brand" to="/dashboard" onClick={guardNavigation}>
-        <img src="/logo.svg" alt="" aria-hidden="true" />
+        <img src={theme === "dark" ? "/logo-dark.svg" : "/logo.svg"} alt="" aria-hidden="true" />
         <span><strong>GetPrio</strong><small>Vendor dashboard</small></span>
       </NavLink>
       {navigation()}
@@ -87,11 +89,9 @@ export function VendorWorkspaceShell(props: Props) {
         </div>
       </header>
       <main className="vendor-feature-content">
-        <div className="vendor-page-heading">
-          <p className="vendor-eyebrow">{workspaceLabel}<span aria-hidden="true"> / </span>{props.locationName || props.businessName}</p>
-          <h1>{props.title}</h1>
-          <p className="vendor-page-description">{props.description}</p>
-        </div>
+        <VendorPageHeader eyebrow={props.eyebrow} title={props.title} description={props.description} action={props.headerAction}
+          breadcrumbs={props.breadcrumbs || [{label: workspaceLabel, href: workspacePath(props.items.find(item => item.section !== "account")?.section || "account", props.workspace, props.search, props.hash)}, {label: props.title}]}
+          onNavigate={guardNavigation} />
         {props.children}
         <footer className="vendor-copyright">© 2026 MNK-Labs Software Development Services</footer>
       </main>

@@ -1,113 +1,52 @@
-import { RichTextEditor } from "@mantine/tiptap";
-import { useEditor } from "@tiptap/react";
-import StarterKit from "@tiptap/starter-kit";
-import { useEffect, useMemo } from "react";
+import { $generateHtmlFromNodes, $generateNodesFromDOM } from "@lexical/html";
+import { $getRoot, FORMAT_TEXT_COMMAND, REDO_COMMAND, UNDO_COMMAND, type LexicalCommand } from "lexical";
+import { HeadingNode, QuoteNode } from "@lexical/rich-text";
+import { ListItemNode, ListNode, INSERT_ORDERED_LIST_COMMAND, INSERT_UNORDERED_LIST_COMMAND } from "@lexical/list";
+import { LexicalComposer } from "@lexical/react/LexicalComposer";
+import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
+import { ContentEditable } from "@lexical/react/LexicalContentEditable";
+import { HistoryPlugin } from "@lexical/react/LexicalHistoryPlugin";
+import { ListPlugin } from "@lexical/react/LexicalListPlugin";
+import { OnChangePlugin } from "@lexical/react/LexicalOnChangePlugin";
+import { RichTextPlugin } from "@lexical/react/LexicalRichTextPlugin";
+import type { EditorState, LexicalEditor } from "lexical";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Stack, Text } from "@mantine/core";
+import { IconArrowBackUp, IconArrowForwardUp, IconBold, IconItalic, IconList, IconListNumbers, IconUnderline } from "@tabler/icons-react";
 
 const DEFAULT_MAX_CHARACTERS = 1000;
 
-function escapeHtml(value: string) {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
-}
-
+function escapeHtml(value: string) { return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;"); }
 function toEditorHtml(value: string) {
   const trimmedValue = value.trim();
-  if (!trimmedValue) {
-    return "";
-  }
-
-  if (/<\/?[a-z][\s\S]*>/i.test(trimmedValue)) {
-    return trimmedValue;
-  }
-
-  return trimmedValue
-    .split(/\n{2,}/)
-    .map((paragraph) => `<p>${escapeHtml(paragraph).replace(/\n/g, "<br>")}</p>`)
-    .join("");
+  if (!trimmedValue) return "<p></p>";
+  if (/<\/?[a-z][\s\S]*>/i.test(trimmedValue)) return trimmedValue;
+  return trimmedValue.split(/\n{2,}/).map((paragraph) => `<p>${escapeHtml(paragraph).replace(/\n/g, "<br>")}</p>`).join("");
 }
-
 function getPlainText(value: string) {
-  if (typeof window === "undefined") {
-    return value.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
-  }
-
+  if (typeof window === "undefined") return value.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
   return new DOMParser().parseFromString(value, "text/html").body.textContent?.replace(/\s+/g, " ").trim() || "";
 }
+function ToolbarButton({ label, icon, onClick, disabled }: { label: string; icon: ReactNode; onClick: () => void; disabled?: boolean }) {
+  return <button type="button" className="campaign-description-toolbar-button" aria-label={label} title={label} disabled={disabled} onMouseDown={(event) => event.preventDefault()} onClick={onClick}>{icon}</button>;
+}
+function EditorToolbar({ editor, disabled }: { editor: LexicalEditor; disabled: boolean }) {
+  const command = <T,>(type: LexicalCommand<T>, payload: T) => editor.dispatchCommand(type, payload);
+  return <div className="campaign-description-toolbar" role="toolbar" aria-label="Formatting options">
+    <div className="campaign-description-toolbar-group"><ToolbarButton label="Bold" icon={<IconBold size={18} />} disabled={disabled} onClick={() => command(FORMAT_TEXT_COMMAND, "bold")} /><ToolbarButton label="Italic" icon={<IconItalic size={18} />} disabled={disabled} onClick={() => command(FORMAT_TEXT_COMMAND, "italic")} /><ToolbarButton label="Underline" icon={<IconUnderline size={18} />} disabled={disabled} onClick={() => command(FORMAT_TEXT_COMMAND, "underline")} /></div>
+    <div className="campaign-description-toolbar-group"><ToolbarButton label="Bulleted list" icon={<IconList size={18} />} disabled={disabled} onClick={() => command(INSERT_UNORDERED_LIST_COMMAND, undefined)} /><ToolbarButton label="Numbered list" icon={<IconListNumbers size={18} />} disabled={disabled} onClick={() => command(INSERT_ORDERED_LIST_COMMAND, undefined)} /></div>
+    <div className="campaign-description-toolbar-group"><ToolbarButton label="Undo" icon={<IconArrowBackUp size={18} />} disabled={disabled} onClick={() => command(UNDO_COMMAND, undefined)} /><ToolbarButton label="Redo" icon={<IconArrowForwardUp size={18} />} disabled={disabled} onClick={() => command(REDO_COMMAND, undefined)} /></div>
+  </div>;
+}
 
-type CampaignDescriptionEditorProps = {
-  disabled?: boolean;
-  maxCharacters?: number;
-  onChange: (value: string) => void;
-  value: string;
-  label?: string;
-};
-
+type CampaignDescriptionEditorProps = { disabled?: boolean; maxCharacters?: number; onChange: (value: string) => void; value: string; label?: string };
 export default function CampaignDescriptionEditor({ disabled = false, maxCharacters = DEFAULT_MAX_CHARACTERS, onChange, value, label = "Description" }: CampaignDescriptionEditorProps) {
-  const editor = useEditor({
-    content: toEditorHtml(value),
-    editable: !disabled,
-    editorProps: { attributes: { role: "textbox", "aria-label": label, "aria-multiline": "true" } },
-    extensions: [StarterKit],
-    onUpdate: ({ editor: updatedEditor }) => {
-      const nextValue = updatedEditor.getHTML();
-      if (getPlainText(nextValue).length > maxCharacters) {
-        updatedEditor.commands.undo();
-        return;
-      }
-      onChange(nextValue);
-    }
-  });
+  const [initialConfig] = useState(() => ({ namespace: "CampaignDescriptionEditor", editable: !disabled, theme: { paragraph: "campaign-description-paragraph", quote: "campaign-description-quote", text: { bold: "campaign-description-bold", italic: "campaign-description-italic", underline: "campaign-description-underline" } }, nodes: [HeadingNode, QuoteNode, ListNode, ListItemNode], editorState: (editor: LexicalEditor) => editor.update(() => { const dom = new DOMParser().parseFromString(toEditorHtml(value), "text/html"); $getRoot().clear().append(...$generateNodesFromDOM(editor, dom)); }), onError: (error: Error) => { throw error; } }));
   const characterCount = useMemo(() => getPlainText(value).length, [value]);
-
-  useEffect(() => {
-    if (!editor) {
-      return;
-    }
-
-    editor.setEditable(!disabled, false);
-  }, [disabled, editor]);
-
-  useEffect(() => {
-    if (!editor) {
-      return;
-    }
-
-    const nextValue = toEditorHtml(value);
-    if (editor.getHTML() !== nextValue) {
-      editor.commands.setContent(nextValue, { emitUpdate: false });
-    }
-  }, [editor, value]);
-
-  return (
-    <Stack gap={4}>
-      <RichTextEditor className="campaign-description-editor" editor={editor} variant="subtle">
-        <RichTextEditor.Toolbar>
-          <RichTextEditor.ControlsGroup>
-            <RichTextEditor.Bold />
-            <RichTextEditor.Italic />
-            <RichTextEditor.Strikethrough />
-            <RichTextEditor.ClearFormatting />
-          </RichTextEditor.ControlsGroup>
-          <RichTextEditor.ControlsGroup>
-            <RichTextEditor.BulletList />
-            <RichTextEditor.OrderedList />
-            <RichTextEditor.Blockquote />
-          </RichTextEditor.ControlsGroup>
-          <RichTextEditor.ControlsGroup>
-            <RichTextEditor.Undo />
-            <RichTextEditor.Redo />
-          </RichTextEditor.ControlsGroup>
-        </RichTextEditor.Toolbar>
-        <RichTextEditor.Content />
-      </RichTextEditor>
-      <Text c="dimmed" size="xs" ta="right">
-        {characterCount} / {maxCharacters}
-      </Text>
-    </Stack>
-  );
+  return <Stack gap={4}><LexicalComposer initialConfig={{ ...initialConfig, editable: !disabled }}><DescriptionEditorInner disabled={disabled} label={label} maxCharacters={maxCharacters} onChange={onChange} /></LexicalComposer><Text c="dimmed" size="xs" ta="right">{characterCount} / {maxCharacters}</Text></Stack>;
+}
+function DescriptionEditorInner({ disabled = false, label = "Description", maxCharacters = DEFAULT_MAX_CHARACTERS, onChange }: Omit<CampaignDescriptionEditorProps, "value">) {
+  const [editor] = useLexicalComposerContext();
+  useEffect(() => { editor.setEditable(!disabled); }, [disabled, editor]);
+  return <div className="campaign-description-editor"><EditorToolbar editor={editor} disabled={disabled} /><RichTextPlugin contentEditable={<ContentEditable className="campaign-description-content" aria-label={label} />} placeholder={<div className="campaign-description-placeholder">Write a description…</div>} ErrorBoundary={({ children }) => <>{children}</>} /><HistoryPlugin /><ListPlugin /><OnChangePlugin ignoreSelectionChange onChange={(editorState: EditorState, currentEditor: LexicalEditor) => { const html = editorState.read(() => $generateHtmlFromNodes(currentEditor)); if (getPlainText(html).length <= maxCharacters) onChange(html); }} /></div>;
 }

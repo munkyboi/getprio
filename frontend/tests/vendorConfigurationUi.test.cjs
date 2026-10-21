@@ -21,7 +21,7 @@ test('retrying a location hours failure updates the already-created location ins
  const fs=require('node:fs'),vm=require('node:vm'),ts=require('typescript');
  const source=fs.readFileSync(require('node:path').join(__dirname,'../src/pages/VendorDashboardPage.tsx'),'utf8');
  const start=source.indexOf('  async function saveLocation()'),end=source.indexOf('  function selectConfigurationLocation',start);
- const calls=[];const context={editingLocationSlug:'',locationSlugAvailable:true,locationSlugMessage:'',token:'fixture',selectedTenantSlug:'vendor',locationForm:{name:'New branch',slug:'new-branch',hours:[{weekday:1,opensAt:'09:00',closesAt:'17:00',isClosed:false}]},setBusyAction(){},setError(value){context.error=value;},getErrorMessage:error=>error.message,setEditingLocationSlug(value){context.editingLocationSlug=value;},setEditingLocationId(){},setLocationSlugManuallyEdited(){},setLocationForm(update){context.locationForm=update(context.locationForm);},vendorDashboardOperations:{saveLocation:async(_token,_tenant,slug,body)=>{calls.push({slug,body});return{location:{slug:'new-branch',id:'created'}};},saveLocationHours:async()=>{throw Error('Hours unavailable');}}};
+ const calls=[];const context={locationSlug:undefined,editingLocationSlug:'',locationSlugAvailable:true,locationSlugMessage:'',token:'fixture',selectedTenantSlug:'vendor',locationForm:{name:'New branch',slug:'new-branch',hours:[{weekday:1,opensAt:'09:00',closesAt:'17:00',isClosed:false}]},setBusyAction(){},setError(value){context.error=value;},getErrorMessage:error=>error.message,setEditingLocationSlug(value){context.editingLocationSlug=value;},setEditingLocationId(){},setLocationSlugManuallyEdited(){},setLocationForm(update){context.locationForm=update(context.locationForm);},vendorDashboardOperations:{saveLocation:async(_token,_tenant,slug,body)=>{calls.push({slug,body});return{location:{slug:'new-branch',id:'created'}};},saveLocationHours:async()=>{throw Error('Hours unavailable');}}};
  const compiled=ts.transpileModule(source.slice(start,end)+'\nsaveLocation;', {compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText;
  const save=vm.runInNewContext(compiled,context);
  await save();assert.equal(context.error,'Hours unavailable');assert.equal(context.editingLocationSlug,'new-branch');
@@ -58,4 +58,18 @@ test('counter staff search and multi-selection preserve hidden assignments',()=>
  assert.deepEqual(toggleCounterStaff(selected,'two',true),['one','unavailable-member','two']);
  assert.deepEqual(toggleCounterStaff([...selected,'two'],'two',false),selected);
  assert.deepEqual(toggleCounterStaff(selected,'one',true),selected);
+});
+
+test('server canonical slug replacement retains draft and immutable ID when hours save fails', async()=>{
+ const fs=require('node:fs'),vm=require('node:vm'),ts=require('typescript');
+ const source=fs.readFileSync(require('node:path').join(__dirname,'../src/pages/VendorDashboardPage.tsx'),'utf8');
+ const start=source.indexOf('  async function saveLocation()'),end=source.indexOf('  function selectConfigurationLocation',start);
+ const navigations=[],hoursTargets=[];
+ let rows=[{id:'stable-id',slug:'old-link'}];
+ const context={locationSlug:'old-link',editingLocationSlug:'old-link',locationSlugAvailable:true,locationSlugMessage:'',token:'fixture',selectedTenantSlug:'vendor',location:{search:'?business=vendor&workspace=administration'},locationEditorPath:require('../src/vendor/locationEditorRoute.ts').locationEditorPath,locationForm:{name:'Draft name',slug:'old-link',hours:[{weekday:1,isClosed:true}]},setBusyAction(){},setError(value){context.error=value;},getErrorMessage:error=>error.message,setEditingLocationSlug(value){context.editingLocationSlug=value;},setEditingLocationId(value){context.savedId=value;},setLocationSlugManuallyEdited(){},setLocationForm(update){context.locationForm=update(context.locationForm);},setLocations(update){rows=update(rows);},navigate(...args){navigations.push(args);},vendorDashboardOperations:{saveLocation:async()=>({location:{id:'stable-id',slug:'canonical-link'}}),saveLocationHours:async(_token,_tenant,slug)=>{hoursTargets.push(slug);throw Error('Hours unavailable');}}};
+ const compiled=ts.transpileModule(source.slice(start,end)+'\nsaveLocation;',{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText;
+ await vm.runInNewContext(compiled,context)();
+ assert.equal(context.savedId,'stable-id');assert.equal(context.locationForm.name,'Draft name');assert.equal(context.locationForm.hours.length,1);
+ assert.equal(rows[0].id,'stable-id');assert.equal(rows[0].slug,'canonical-link');assert.deepEqual(hoursTargets,['canonical-link']);
+ assert.equal(navigations[0][0],'/dashboard/locations/canonical-link/edit?business=vendor&workspace=administration');assert.equal(navigations[0][1].replace,true);assert.equal(context.error,'Hours unavailable');
 });

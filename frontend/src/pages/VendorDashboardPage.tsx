@@ -1,3 +1,29 @@
+import { ResourceReadStatus } from '../vendor/ResourceReadStatus';
+import { clearQueueReview, initialQueueLocation } from '../vendor/queueReviewRoute';
+import { SkippedQueueRequests } from "../vendor/SkippedQueueRequests";
+import { CounterQueueControls } from "../vendor/CounterQueueControls";
+import { QueueServicePolicyEditor } from '../vendor/QueueServicePolicyEditor';
+import { NamedQueuePanel } from "../vendor/NamedQueuePanel";
+import { ButtonGroup, ButtonGroupSeparator } from "../vendor/components/ui/button-group";
+import { DateExceptionsGrid } from "../vendor/DateExceptionsGrid";
+import { WeeklyAvailabilityGrid } from "../vendor/WeeklyAvailabilityGrid";
+import { serviceEditorPath, resolveServiceEditor } from "../vendor/serviceEditorRoute";
+import { ServiceCatalog } from "../vendor/ServiceCatalog";
+import { CountersGrid } from "../vendor/CountersGrid";
+import { IconArrowLeft } from "@tabler/icons-react";
+import { locationEditorPath, resolveLocationEditor } from "../vendor/locationEditorRoute";
+import { validateLocationEditor } from "../vendor/locationEditorValidation";
+import { useLocationPageBackGuard } from "../vendor/useLocationPageBackGuard";
+import { TaskPage } from "../vendor/TaskPage";
+import { LocationsGrid } from "../vendor/LocationsGrid";
+import { linearQueueRecovery } from "../vendor/linearQueueErrors";
+import { PaymentQrImageField } from "../vendor/PaymentQrImageField";
+import { QueueDetailsEditor } from "../vendor/QueueDetailsEditor";
+import { localPoolReadState, scopedLocalPoolData, localPoolDispatchSnapshot, hasExecutableLocalPlan, missingServicePlanGuidance } from "../vendor/localPoolState";
+import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from "../vendor/components/ui/accordion";
+import { ResourceDashboard } from "../vendor/ResourceDashboard";
+import { useLocalPoolOperations, localPoolDemoClientEnabled } from "../vendor/useLocalPoolOperations";
+import { ManagedCollection } from "../vendor/ManagedCollection";
 import { draftUnloadHandler } from "../vendor/draftUnloadGuard";
 import { ActivationPanel, WorkspaceLoading, WorkspaceUnavailable } from "../vendor/WorkspaceAccessState";
 import { VendorAuthLayout } from "../vendor/VendorAuthLayout";
@@ -8,6 +34,8 @@ import { Card as AccountCard, Stack as AccountStack, Group as AccountGroup, Simp
 import { queueSettingsPayload, tenantSettingsFromSnapshot } from "../vendor/settingsState";
 import { StaffManagement } from "../vendor/StaffManagement";
 import { CounterStaffAssignments } from "../vendor/CounterStaffAssignments";
+import { ServiceEditorTabs } from "../vendor/ServiceEditorTabs";
+import { validateServiceEditor } from "../vendor/serviceEditorValidation";
 import { serviceQuantityError, dateExceptionPayload } from "../vendor/serviceConfigurationState";
 import { FieldGroup } from "../vendor/components/ui/field";
 import { ConfigurationScope, ConfigurationNumber, ConfigurationTextarea, ConfigurationInput, ConfigurationPhone, ConfigurationCheck, ConfigurationSelect, ConfigurationFile, ConfigurationSection } from "../vendor/ConfigurationUi";
@@ -20,8 +48,6 @@ import {
   OperationInput,
   OperationTextarea,
   OperationSelect,
-  OperationCheckbox,
-  OperationDateRange,
   OperationDate,
   OperationButton,
   OperationAction,
@@ -31,12 +57,16 @@ import {
   OperationQueryState,
 } from "../vendor/OperationsUi";
 import { Separator as QueueSeparator } from "../vendor/components/ui/separator";
+import { DateRangePicker } from "../vendor/components/ui/date-range-picker";
+import { Input as QueueInput } from "../vendor/components/ui/input";
 import { TaskDialog, QueueConfirmation } from "../vendor/TaskDialog";
 import { WalkInDialog } from "../vendor/WalkInDialog";
+import { QueueRecoveryTable } from "../vendor/QueueRecoveryTable";
 import { QueueCounterPicker, QueueViewPicker, QueueCopyField, QueueEmptyState, LiveQueueIntake, LiveQueueSummary, CounterTickets } from "../vendor/LiveQueueWidgets";
 import { Button as QueueButton, buttonVariants as queueButtonVariants } from "../vendor/components/ui/button";
 import { Badge as QueueBadge } from "../vendor/components/ui/badge";
-import { Card as QueueCard, CardHeader as QueueCardHeader, CardTitle as QueueCardTitle, CardContent as QueueCardContent } from "../vendor/components/ui/card";
+import { Card as QueueCard, CardHeader as QueueCardHeader, CardTitle as QueueCardTitle,
+  CardDescription as QueueCardDescription, CardContent as QueueCardContent } from "../vendor/components/ui/card";
 import { Alert as QueueAlert, AlertTitle as QueueAlertTitle, AlertDescription as QueueAlertDescription } from "../vendor/components/ui/alert";
 import { Table as QueueTable, TableHeader as QueueTableHeader, TableBody as QueueTableBody, TableRow as QueueTableRow, TableHead as QueueTableHead, TableCell as QueueTableCell } from "../vendor/components/ui/table";
 import { createDirtyForms } from "../vendor/dirtyForms";
@@ -101,8 +131,13 @@ import {
   IconX,
   IconClock,
   IconSettings,
+  IconMoon,
+  IconSun,
   IconUserPlus,
   IconUsersGroup
+  ,IconSearch
+  ,IconFilter
+  ,IconPlayerPause
 } from "@tabler/icons-react";
 import { VendorToastProvider, VendorToastViewport, useVendorNotifications } from "../vendor/VendorToasts";
 import { getDay } from "date-fns";
@@ -145,7 +180,7 @@ import { DEFAULT_TIMEZONE, getTimeZoneOptions } from "../../../shared/timezones"
 import { BusinessCategorySelect } from "../components/BusinessCategorySelect";
 import { VendorAccountDeletionPanel } from "../components/VendorAccountDeletionPanel";
 import { EmailMfaSettingsPanel } from "../components/EmailMfaSettingsPanel";
-import { API_BASE_URL } from "../api/client";
+import { API_BASE_URL, ApiError } from "../api/client";
 
 import CampaignDescriptionEditor from "../components/CampaignDescriptionEditor";
 import RichCampaignDescription from "../components/RichCampaignDescription";
@@ -196,7 +231,7 @@ import { getPlanHighlights, getPlanPriceDisplay } from "../utils/subscriptionPla
 import { checkServiceSlugAvailability } from "../api/vendorDashboardCatalog";
 import { checkCounterSlugAvailability } from "../api/vendorDashboardOperations";
 
-const dashboardSections = new Set(["queue", "tenants", "services", "bookings", "staff", "clients", "history", "reports", "ratings", "settings", "account"]);
+const dashboardSections = new Set(["overview", "queue", "locations", "tenants", "services", "bookings", "staff", "clients", "history", "reports", "ratings", "settings", "account"]);
 const RECORDED_INTERVAL_TICKET_LIMIT = 30;
 const timeZoneOptions = getTimeZoneOptions();
 
@@ -677,7 +712,7 @@ const presetBackgroundImageUrls = new Set(
     .filter(Boolean)
 );
 
-type DashboardSection = "queue" | "tenants" | "services" | "bookings" | "group-funded" | "staff" | "clients" | "history" | "reports" | "ratings" | "settings" | "account";
+type DashboardSection = "overview" | "queue" | "tenants" | "services" | "bookings" | "group-funded" | "staff" | "clients" | "history" | "reports" | "ratings" | "settings" | "account";
 type AccountTab = "subscription" | "billing" | "profile" | "security";
 type SettingsTab = "contact" | "queue" | "notifications" | "board";
 type QueueView = "current" | "overflow" | "recovery";
@@ -687,7 +722,7 @@ const bookingStatusFilters = ["all", "pending", "confirmed", "rescheduled", "com
 type BookingStatusFilter = typeof bookingStatusFilters[number];
 const bookingStatusFilterOptions = bookingStatusFilters.map((value) => ({
   value,
-  label: value === "all" ? "All statuses" : value.charAt(0).toUpperCase() + value.slice(1)
+  label: value === "all" ? "All Statuses" : value.charAt(0).toUpperCase() + value.slice(1)
 }));
 
 const CLIENTS_PAGE_SIZE = 10;
@@ -704,7 +739,8 @@ type VendorHistoryResponse = {
 };
 
 const navItems = [
-  { section: "queue", label: "Queue", icon: IconClipboardList },
+  { section: "overview", label: "Dashboard", icon: IconChartBar },
+  { section: "queue", label: "Live queue", icon: IconClipboardList },
   { section: "tenants", label: "Locations", icon: IconHomeStats },
   { section: "services", label: "Services", icon: IconBriefcase },
   { section: "bookings", label: "Bookings", icon: IconCalendarCheck },
@@ -717,6 +753,7 @@ const navItems = [
   { section: "account", label: "Account", icon: IconUserCircle }
 ] as const;
 const dashboardSectionDescriptions: Partial<Record<DashboardSection, string>> = {
+  overview: "Observe requests and resource capacity for the selected business and location.",
   queue: "Run the live queue, manage intake, and move customers through service.",
   tenants: "Configure locations, counters, and the public entry points for each branch.",
   services: "Manage bookable services, durations, pricing, and public availability state.",
@@ -729,6 +766,7 @@ const dashboardSectionDescriptions: Partial<Record<DashboardSection, string>> = 
   account: "Manage your vendor account profile, security, subscription, and billing access."
 };
 const adminAllowedSections = new Set<DashboardSection>([
+  "overview",
   "queue",
   "tenants",
   "services",
@@ -741,7 +779,7 @@ const adminAllowedSections = new Set<DashboardSection>([
   "settings",
   "account"
 ]);
-const staffAllowedSections = new Set<DashboardSection>(["queue", "bookings", "clients", "history", "account"]);
+const staffAllowedSections = new Set<DashboardSection>(["overview", "queue", "bookings", "clients", "history", "account"]);
 
 function getHistoryTimestamp(value: string | Date): number {
   return toTimestamp(value);
@@ -806,9 +844,9 @@ function GroupFundedBookingIndicator({ booking }: { booking: VendorBookingSummar
   const campaignTitle = booking.groupFundedCampaign?.campaignTitle || "Group-funded campaign";
   return (
     <Tooltip label={campaignTitle} withArrow>
-      <Badge color="blue" variant="light" w="fit-content">
+      <QueueBadge variant="info">
         Group-funded{campaignId ? ` · Campaign #${campaignId}` : ""}
-      </Badge>
+      </QueueBadge>
     </Tooltip>
   );
 }
@@ -841,17 +879,19 @@ function VendorDashboardContent() {
     notifications.show({color: "blue", icon: <IconInfoCircle size={18} />, title, message});
   }, [notifications]);
   const { token, user, loading, logout, refreshUser, changePassword } = useAuth();
-  const { section } = useParams<{ section: string }>();
+  const { section, locationSlug, routeServiceSlug } = useParams<{ section: string; locationSlug: string; routeServiceSlug: string }>();
   const location = useLocation();
   const boardApprovalReturn = queueBoardReturnPath(location.search);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const currentSection = (
-    section && dashboardSections.has(section) ? section : "queue"
+    routeServiceSlug ? "services" : locationSlug || section === "locations" ? "tenants" : section && dashboardSections.has(section) ? section : "queue"
   ) as DashboardSection;
   const invalidSection = Boolean(section && !dashboardSections.has(section));
   const [selectedTenantSlug, setSelectedTenantSlug] = useState("");
   const [selectedLocationSlug, setSelectedLocationSlug] = useState("");
+  const [editingQueueTicket, setEditingQueueTicket] = useState<{id:string;tenant:string;location:string}|null>(null);
+  const openQueueDetails = (id:string) => setEditingQueueTicket({id,tenant:selectedTenantSlug,location:selectedLocationSlug});
   const [snapshot, setSnapshot] = useState<QueueSnapshot | null>(null);
   const [boardScannerBusy, setBoardScannerBusy] = useState(false);
   const [savingQueueQr, setSavingQueueQr] = useState(false);
@@ -878,14 +918,23 @@ function VendorDashboardContent() {
   const [activeLocationLimit, setActiveLocationLimit] = useState(1);
   const [platformDefaultTimezone, setPlatformDefaultTimezone] = useState(DEFAULT_TIMEZONE);
   const [locationDialogOpen, setLocationDialogOpen] = useState(false);
+  const [locationErrorTitle, setLocationErrorTitle] = useState("Unable to save location");
   const [editingLocationSlug, setEditingLocationSlug] = useState("");
   const [editingLocationId, setEditingLocationId] = useState("");
+  const locationEditorScopeRef = useRef("");
+  const [locationLeaveAction, setLocationLeaveAction] = useState<(() => void) | null>(null);
+  const [locationToggleErrors, setLocationToggleErrors] = useState<Record<string,string>>({});
   const [locationForm, setLocationForm] = useState(emptyLocationForm);
+  const locationLeaveDraft = useRef(emptyLocationForm);
+  const [locationEditorTab, setLocationEditorTab] = useState("general");
   const [locationSlugManuallyEdited, setLocationSlugManuallyEdited] = useState(false);
   const [locationSlugMessage, setLocationSlugMessage] = useState("");
   const [locationSlugAvailable, setLocationSlugAvailable] = useState(false);
   const [checkingLocationSlug, setCheckingLocationSlug] = useState(false);
   const [paymentQrUploadFile, setPaymentQrUploadFile] = useState<File | null>(null);
+  const serviceEditorScopeRef = useRef("");
+  const serviceLeaveDraft = useRef(emptyServiceForm);
+  const [serviceLeaveAction,setServiceLeaveAction] = useState<(() => void) | null>(null);
   const [serviceDialogOpen, setServiceDialogOpen] = useState(false);
   const [editingServiceSlug, setEditingServiceSlug] = useState("");
   const [editingServiceId, setEditingServiceId] = useState("");
@@ -897,7 +946,7 @@ function VendorDashboardContent() {
   const [locationsTab, setLocationsTab] = useState("locations");
   const [resourceConfigurationBusy, setResourceConfigurationBusy] = useState(false);
   const [resourceConfigurationDialogOpen, setResourceConfigurationDialogOpen] = useState(false);
-  const [servicesTab, setServicesTab] = useState<"catalog" | "weekly" | "exceptions">("catalog");
+  const [servicesTab, setServicesTab] = useState<"catalog" | "weekly" | "exceptions" | "queue-policy">("catalog");
   const [availabilityBlockDialogOpen, setAvailabilityBlockDialogOpen] = useState(false);
   const [editingAvailabilityBlockId, setEditingAvailabilityBlockId] = useState("");
   const [availabilityBlockForm, setAvailabilityBlockForm] = useState<SaveVendorAvailabilityBlockRequest>(emptyAvailabilityBlockForm);
@@ -954,6 +1003,8 @@ function VendorDashboardContent() {
   const browserNotificationsSecure = typeof window !== "undefined" ? window.isSecureContext : false;
   const [walkInForm, setWalkInForm] = useState<CreateWalkInTicketRequest>(emptyWalkIn);
   const [walkInDialogOpen, setWalkInDialogOpen] = useState(false);
+  const [serviceRequestSequence, setServiceRequestSequence] = useState(0);
+  const [serviceRequestAvailable, setServiceRequestAvailable] = useState(false);
   useEffect(() => {
     setWalkInForm((current) => ({ ...current, serviceId: "" }));
   }, [selectedTenantSlug, selectedLocationSlug]);
@@ -967,6 +1018,8 @@ function VendorDashboardContent() {
   const [bookingAlertBookings, setBookingAlertBookings] = useState<VendorBookingSummary[]>([]);
   const dismissedBookingAlertIdsRef = useRef<Set<string>>(new Set());
   const knownQueueTicketIdsRef = useRef<Set<string> | null>(null);
+  const [namedTicketIds,setNamedTicketIds]=useState<string[]>([]);
+  const v2TicketIds=namedTicketIds;
   const [queueAlertIds, setQueueAlertIds] = useState<string[]>([]);
   const dismissedQueueAlertIdsRef = useRef<Set<string>>(new Set());
   const previousQueueDayRef = useRef<QueueDaySyncState | null>(null);
@@ -1001,6 +1054,8 @@ function VendorDashboardContent() {
     onConfirm: () => Promise<void>;
   }>(null);
   const [error, setError] = useState("");
+  const [startPlanErrorScope, setStartPlanErrorScope] = useState<string | null>(null);
+  const [linearCommandError, setLinearCommandError] = useState<{scope:string;message:string} | null>(null);
   const [busyAction, setBusyAction] = useState("");
   const [planDialogOpen, setPlanDialogOpen] = useState(false);
   const [paidPlanDialogOnly, setPaidPlanDialogOnly] = useState(false);
@@ -1008,11 +1063,13 @@ function VendorDashboardContent() {
   const [themeLocation, setThemeLocation] = useState<StoreLocationWithHours | null>(null);
   const [themeForm, setThemeForm] = useState<PublicBoardThemeSettings>(defaultPublicBoardTheme);
   const [businessProfileTheme, setBusinessProfileTheme] = useState<PublicBoardThemeSettings>(defaultPublicBoardTheme);
+  const [profilePreviewMode, setProfilePreviewMode] = useState<"light" | "dark">("light");
+  const [profileBackgroundFile, setProfileBackgroundFile] = useState<File | null>(null);
+  const [profileLogoFile, setProfileLogoFile] = useState<File | null>(null);
   const [applyThemeToAllLocations, setApplyThemeToAllLocations] = useState(false);
   const [billingInterval, setBillingInterval] = useState<"monthly" | "annual">("monthly");
   const [billingPaymentMode, setBillingPaymentMode] = useState<"manual" | "automatic">("manual");
   const [selectedCounterSlug, setSelectedCounterSlug] = useState("");
-  const { lane: selectedLane, ticket: selectedCalledTicket } = selectCounterDispatch(snapshot, selectedTenantSlug, selectedLocationSlug, selectedCounterSlug);
   const [scannerTarget, setScannerTarget] = useState<{ ticketId: string; counterSlug: string | null; tenantSlug: string; locationQuery: string; ticketNumber: string } | null>(null);
 
   const [counterDialogOpen, setCounterDialogOpen] = useState(false);
@@ -1046,7 +1103,7 @@ function VendorDashboardContent() {
   const [historyPage, setHistoryPage] = useState(1);
   const [bookingSearch, setBookingSearch] = useState("");
   const [bookingStatusFilter, setBookingStatusFilter] = useState<BookingStatusFilter>("all");
-  const [hideNonActiveBookings, setHideNonActiveBookings] = useState(true);
+  const [hideNonActiveBookings, setHideNonActiveBookings] = useState(false);
   const [bookingDateRange, setBookingDateRange] = useState<[Date | null, Date | null]>([null, null]);
   const [bookingPage, setBookingPage] = useState(1);
   const [bookingPagination, setBookingPagination] = useState<PaginationMetadata | null>(null);
@@ -1077,6 +1134,14 @@ function VendorDashboardContent() {
   const isAdmin = selectedTenantRole === "admin";
   const requiresMfaEnrollment = Boolean(user?.mfaRequired && !user.mfaEnabled);
   const canLoadProtectedDashboard = !requiresMfaEnrollment;
+  const localPoolQuery = useLocalPoolOperations(token, selectedTenantSlug, selectedLocationSlug, canLoadProtectedDashboard && currentSection === "queue");
+  const localPoolData = !localPoolQuery.isError ? scopedLocalPoolData(snapshot, localPoolQuery.data, selectedTenantSlug, selectedLocationSlug) : null;
+  const localPoolScope = `${selectedTenantSlug}:${selectedLocationSlug}`;
+  const localPoolScopeRef = useRef(localPoolScope);
+  localPoolScopeRef.current = localPoolScope;
+  const dispatchSnapshot = localPoolDemoClientEnabled ? localPoolDispatchSnapshot(snapshot, localPoolData) : snapshot;
+  const {lane: selectedLane, ticket: selectedCalledTicket} = selectCounterDispatch(dispatchSnapshot, selectedTenantSlug, selectedLocationSlug, selectedCounterSlug);
+
   const canOperateQueueDay = Boolean(selectedTenantRole);
   const canReopenQueueDay = isOwner || isAdmin;
   const canManageContactSettings = isOwner;
@@ -1245,7 +1310,7 @@ function VendorDashboardContent() {
   const ticketServiceOptionsQuery = useQuery({
     queryKey: ["vendor-ticket-service-options", token, selectedTenantSlug, selectedLocationSlug],
     queryFn: () => vendorDashboardQueue.getServiceOptions(token!, selectedTenantSlug, locationQuery),
-    enabled: Boolean(canLoadProtectedDashboard && walkInDialogOpen && token && selectedTenantSlug && selectedLocationSlug)
+    enabled: Boolean(canLoadProtectedDashboard && (walkInDialogOpen || (localPoolDemoClientEnabled && currentSection === "queue")) && token && selectedTenantSlug && selectedLocationSlug)
   });
   const locationServicesQuery = useQuery({
     queryKey: ["vendor-dashboard-location-services", token, selectedTenantSlug, isOwner, isAdmin],
@@ -1455,9 +1520,9 @@ function VendorDashboardContent() {
 
   useEffect(() => {
     if (!activeTenants.some((tenant) => tenant.slug === selectedTenantSlug)) {
-      setSelectedTenantSlug(activeTenants[0]?.slug || "");
+      setSelectedTenantSlug(activeTenants.find(tenant=>tenant.slug===new URLSearchParams(location.search).get("business"))?.slug || activeTenants[0]?.slug || "");
     }
-  }, [selectedTenantSlug, activeTenants]);
+  }, [selectedTenantSlug, activeTenants, location.search]);
 
   useEffect(() => {
     if (requiresMfaEnrollment) {
@@ -1484,7 +1549,7 @@ function VendorDashboardContent() {
     setActiveLocationLimit(locationsResponse.activeLocationLimit);
     setPlatformDefaultTimezone(locationsResponse.defaultTimezone);
     if (!selectedLocationSlug || !locationsResponse.locations.some((item) => item.slug === selectedLocationSlug)) {
-      setSelectedLocationSlug(locationsResponse.locations.find((item) => item.isPrimary)?.slug || locationsResponse.locations[0]?.slug || "");
+      setSelectedLocationSlug(initialQueueLocation(locationsResponse.locations,window.location.search));
     }
     setSnapshot((current) => selectFreshestQueueSnapshot(current, snapshotResponse));
     const incomingSettings = tenantSettingsFromSnapshot(snapshotResponse.tenant);
@@ -1812,6 +1877,7 @@ function VendorDashboardContent() {
     );
     eventSource.onmessage = (event) => {
       const payload = JSON.parse(event.data) as QueueSnapshot;
+      window.dispatchEvent(new Event("vendor-queue-snapshot-updated"));
       syncQueueAlerts(payload.nextUp || [], { detectNew: true });
       void queryClient.invalidateQueries({
         queryKey: [
@@ -2383,8 +2449,8 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
   const intervalMaximum = Math.max(...recordedIntervals.map(bar=>bar.minutes),averageRecordedInterval,1);
   const overflowTickets = useMemo(() => snapshot?.overflow || [], [snapshot]);
   const currentQueueTickets = useMemo(
-    () => (snapshot?.nextUp || []).filter((ticket) => !ticket.isCarriedOver),
-    [snapshot]
+    () => (snapshot?.nextUp || []).filter((ticket) => !ticket.isCarriedOver && !v2TicketIds.includes(String(ticket.id))),
+    [snapshot,v2TicketIds]
   );
   const recoverableTickets = useMemo(
     () =>
@@ -2558,6 +2624,8 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
   ): Promise<boolean> {
     setError("");
     setBusyAction(actionName);
+    if (actionName === "call-next" || actionName.startsWith("service-")) setLinearCommandError(null);
+    if (actionName === "service-start") setStartPlanErrorScope(null);
 
     try {
       const data = await request();
@@ -2573,11 +2641,42 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         }
         setSnapshot((current) => selectFreshestQueueSnapshot(current, nextSnapshot));
       }
+      setLinearCommandError(null);
+      setStartPlanErrorScope(null);
       return true;
     } catch (actionError) {
-      setError(getErrorMessage(actionError));
+      const staleResourceConfiguration =
+        actionName === "call-next" &&
+        actionError instanceof ApiError &&
+        (actionError.code === "RESOURCE_CONFIGURATION_CHANGED" ||
+          actionError.code === "STALE_REVISION");
+      if (staleResourceConfiguration) {
+        // The server correctly rejected the call against a changed resource
+        // revision. Refresh dependent catalogs and queue views so the next
+        // attempt is based on authoritative state; never retry or call
+        // another ticket implicitly.
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: ["named-queue-options"] }),
+          queryClient.invalidateQueries({ queryKey: ["queue-options-v4"] }),
+          queryClient.invalidateQueries({ queryKey: ["named-queue-active"] }),
+          queryClient.invalidateQueries({ queryKey: ["vendor-dashboard-queue-lifecycle"] }),
+          queryClient.invalidateQueries({ queryKey: ["vendor-linear-ticket"] })
+        ]);
+        window.dispatchEvent(new Event("queue-plans-updated"));
+      }
+      if (actionName === "service-start" && actionError instanceof ApiError && actionError.code === "SERVICE_PLAN_REQUIRED") {
+        setStartPlanErrorScope(`${selectedTenantSlug}:${selectedLocationSlug}`);
+      } else {
+        const recovery = (actionName === "call-next" || actionName.startsWith("service-")) && actionError instanceof ApiError
+          ? linearQueueRecovery(actionError.code, actionError.message) : null;
+        if (recovery) setLinearCommandError({scope:`${selectedTenantSlug}:${selectedLocationSlug}`,message:recovery});
+        else setError(getErrorMessage(actionError));
+      }
       return false;
     } finally {
+      if (localPoolDemoClientEnabled && currentSection === "queue") {
+        await Promise.all([localPoolQuery.refetch(),queryClient.invalidateQueries({queryKey:["vendor-linear-ticket"]})]);
+      }
       setBusyAction("");
     }
   }
@@ -2965,7 +3064,12 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     }
   }
 
-  function openServiceDialog(service?: VendorServiceSummary) {
+  const openServiceDialog = useCallback((service?: VendorServiceSummary, fromRoute = false) => {
+    if (service && !fromRoute) {
+      const params=new URLSearchParams(location.search);params.set("workspace","administration");params.set("business",selectedTenantSlug);
+      navigate(serviceEditorPath(service.slug,`?${params}`));
+      return;
+    }
     if (!locationServicesQuery.data || locationServicesQuery.isError || servicesQuery.isError) {
       setError("Branch service settings are still loading. Please try again once they are available.");
       return;
@@ -3010,7 +3114,18 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       })
     });
     setServiceDialogOpen(true);
-  }
+  },[location.search,selectedTenantSlug,navigate,locationServicesQuery.data,locationServicesQuery.isError,servicesQuery.isError,locations,selectedLocationSlug]);
+
+  useEffect(()=>{
+    if (!routeServiceSlug) { if(serviceEditorScopeRef.current)setServiceDialogOpen(false);serviceEditorScopeRef.current="";return; }
+    if (!selectedTenantSlug || !servicesQuery.data || servicesQuery.isError || !locationServicesQuery.data || locationServicesQuery.isError) return;
+    const item=resolveServiceEditor(routeServiceSlug,services,new Set(servicesQuery.data.services.map(item=>item.id)));
+    if (!item) return;
+    const scope=`${selectedTenantSlug}:${item.id}`;
+    if (routeServiceSlug!==item.slug) navigate(serviceEditorPath(item.slug,location.search),{replace:true});
+    if(serviceEditorScopeRef.current===scope)return;
+    serviceEditorScopeRef.current=scope;openServiceDialog(item,true);
+  },[routeServiceSlug,selectedTenantSlug,services,servicesQuery.data,servicesQuery.isError,locationServicesQuery.data,locationServicesQuery.isError,navigate,location.search,openServiceDialog]);
 
   useEffect(() => {
     if (!serviceDialogOpen || serviceSlugManuallyEdited) {
@@ -3071,26 +3186,25 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
   async function handleSaveService(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const submittedForm = event.currentTarget;
-    const quantityError = serviceQuantityError(serviceForm);
-    if (quantityError) { setError(quantityError); return; }
+    const validationError = validateServiceEditor(submittedForm, {
+      quantityError: serviceQuantityError(serviceForm), checkingSlug: checkingServiceSlug,
+      slugAvailable: serviceSlugAvailable, slugMessage: serviceSlugMessage,
+    });
+    if (validationError) { setError(validationError); return; }
     setBusyAction("service-save");
     setError("");
 
     try {
-      if (!serviceSlugAvailable) {
-        setError(serviceSlugMessage || "Choose an available booking link name before saving.");
-        return;
-      }
-
-      if (editingServiceSlug) {
-        await vendorDashboardCatalog.saveService(token, selectedTenantSlug, editingServiceSlug, serviceForm);
-      } else {
-        await vendorDashboardCatalog.saveService(token, selectedTenantSlug, null, serviceForm);
-      }
+      const response = await vendorDashboardCatalog.saveService(token, selectedTenantSlug, editingServiceSlug || null, serviceForm);
+      setEditingServiceId(response.service.id);setEditingServiceSlug(response.service.slug);
+      setServiceForm(current=>({...current,slug:response.service.slug}));
+      setServices(current=>current.map(item=>item.id===response.service.id ? response.service : item));
+      if(routeServiceSlug && routeServiceSlug!==response.service.slug) navigate(serviceEditorPath(response.service.slug,location.search),{replace:true});
       await reloadServices();
       await reloadBookings();
       unsavedForm.current.clear(submittedForm);
       setServiceDialogOpen(false);
+      if(routeServiceSlug) navigate(workspacePath("services","administration",location.search));
       showSuccessNotification(
         editingServiceSlug ? "Service updated" : "Service created",
         `${serviceForm.name} is ready for booking setup.`
@@ -3602,6 +3716,8 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
   }
 
   async function handleToggleLocationActive(locationItem: StoreLocationWithHours, isActive: boolean) {
+    if (busyAction || (!isOwner && !isAdmin)) return;
+    setLocationToggleErrors(current=>({...current,[locationItem.id]:""}));
     setBusyAction(`location-status:${locationItem.slug}`);
     setError("");
     try {
@@ -3616,7 +3732,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         `${response.location.name} is now ${isActive ? "active" : "inactive"}.`
       );
     } catch (toggleError) {
-      setError(getErrorMessage(toggleError));
+      setLocationToggleErrors(current=>({...current,[locationItem.id]:getErrorMessage(toggleError)}));
     } finally {
       setBusyAction("");
     }
@@ -3884,6 +4000,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
   }
 
   async function uploadLocationImage(file: File | null) {
+    setLocationErrorTitle("Unable to save location");
     if (!file || !locationForm.slug || !token) {
       return;
     }
@@ -3927,16 +4044,17 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     }
   }
 
-  async function uploadLocationPaymentQr(file: File | null) {
+  async function uploadLocationPaymentQr(file: File | null, onPrepared?: (blob: Blob) => void) {
     if (!file || !token) {
-      return;
+      return false;
     }
 
+    setLocationErrorTitle("Unable to upload payment QR");
     const locationSlug = locationForm.slug.trim();
     if (!locationSlug) {
       setError("Location slug is required before uploading a payment QR.");
       setPaymentQrUploadFile(null);
-      return;
+      return false;
     }
 
     setError("");
@@ -3947,7 +4065,8 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         token,
         selectedTenantSlug,
         locationSlug,
-        file
+        file,
+        onPrepared
       );
       if (!data.asset?.publicUrl) {
         throw new Error("Payment QR upload completed without a usable image URL.");
@@ -3958,8 +4077,10 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         paymentQrImageUrl: data.asset.publicUrl
       }));
       showSuccessNotification("Payment QR uploaded", "The QR image is ready to save with this location.");
+      return true;
     } catch (uploadError) {
       setError(getErrorMessage(uploadError));
+      return false;
     } finally {
       setBusyAction("");
     }
@@ -4099,6 +4220,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
   }
 
   function renderLocationDialog() {
+    const EditorSurface = locationSlug ? TaskPage : TaskDialog;
     const addInterval = (weekday: number) =>
       setLocationForm((current) => {
         const nextInterval = {
@@ -4141,13 +4263,15 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         };
       });
     const close = () => {
-      if (canLeaveFeature()) {
+      if (locationSlug) {
+        requestLocationLeave(() => navigate(workspacePath("tenants", "administration", location.search)));
+      } else if (canLeaveFeature()) {
         unsavedForm.current.discardId("vendor-location-editor");
         setLocationDialogOpen(false);
       }
     };
     return (
-      <TaskDialog
+      <EditorSurface
         opened={locationDialogOpen}
         onClose={close}
         busy={Boolean(busyAction)}
@@ -4184,17 +4308,26 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         >
           <form
             id="vendor-location-editor"
+            noValidate
             onSubmit={(event) => {
               event.preventDefault();
+              if (!validateLocationEditor(event.currentTarget, setLocationEditorTab)) return;
               void saveLocation();
             }}
             className="ops-stack"
           >
             {error ? (
-              <OperationAlert color="red" title="Unable to save location">
+              <OperationAlert color="red" title={locationErrorTitle}>
                 {error}
               </OperationAlert>
             ) : null}
+            <ConfigTabs value={locationEditorTab} onValueChange={(value) => setLocationEditorTab(String(value))}>
+              <ConfigTabsList aria-label="Location details" className="config-tabs-list location-editor-tabs">
+                <ConfigTabsTrigger value="general">General</ConfigTabsTrigger>
+                <ConfigTabsTrigger value="queue">Queue &amp; hours</ConfigTabsTrigger>
+                <ConfigTabsTrigger value="payments">Payments</ConfigTabsTrigger>
+              </ConfigTabsList>
+              <ConfigTabsContent value="general" keepMounted data-location-tab="general" className="ops-stack">
             <ConfigurationSection
               title="Location profile"
               description="These details identify the branch and shape how customers find it on the public queue pages."
@@ -4363,135 +4496,39 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
             </ConfigurationSection>
 
             <ConfigurationSection
-              title="Manual payment"
-              description="Optional payment details shown when this branch accepts manual payments."
+              title="Visibility and access"
+              description="These switches control whether the branch is active and whether it is treated as the main location."
             >
-              <div className="ops-grid ops-grid-2">
-                <ConfigurationSelect
-                  name="paymentMethodLabel"
-                  label="Payment method"
-                  description="Where customers should send payment for this location."
-                  data={["GCash", "Maya", "Bank Transfer"]}
-                  placeholder="Choose a payment method"
-                  value={locationForm.paymentMethodLabel}
-                  onChange={(value) =>
-                    setLocationForm((current) => ({
-                      ...current,
-                      paymentMethodLabel: value || "",
-                    }))
-                  }
-                />
-                {locationForm.paymentMethodLabel === "Bank Transfer" ? (
-                  <ConfigurationInput
-                    name="paymentBankName"
-                    label="Bank name"
-                    placeholder="e.g. BPI, BDO, UnionBank"
-                    value={locationForm.paymentBankName}
-                    onChange={(event) =>
-                      setLocationForm((current) => ({
-                        ...current,
-                        paymentBankName: event.target.value,
-                      }))
-                    }
-                  />
-                ) : null}
-                <ConfigurationInput
-                  name="paymentAccountDisplayName"
-                  label={
-                    locationForm.paymentMethodLabel === "Bank Transfer"
-                      ? "Account owner"
-                      : "Account display name"
-                  }
-                  description={
-                    locationForm.paymentMethodLabel === "Bank Transfer"
-                      ? "Name of the bank account owner."
-                      : "Business or account holder name shown beside the QR code."
-                  }
-                  placeholder={
-                    locationForm.paymentMethodLabel === "Bank Transfer"
-                      ? "Account owner name"
-                      : "Business or account name"
-                  }
-                  value={locationForm.paymentAccountDisplayName}
+              <div className="ops-row">
+                <ConfigurationCheck
+                  name="isActiveLocation"
+                  checked={locationForm.isActive}
+                  label="Enable location"
+                  description="Inactive locations stay saved but are hidden from normal use."
                   onChange={(event) =>
                     setLocationForm((current) => ({
                       ...current,
-                      paymentAccountDisplayName: event.target.value,
+                      isActive: event.currentTarget.checked,
                     }))
                   }
                 />
-                <ConfigurationInput
-                  name="paymentAccountIdentifierDisplay"
-                  description={locationForm.paymentMethodLabel === "Bank Transfer" ? "The account number customers use for bank transfers." : "Use a partially hidden number or suffix so customers can verify the account without exposing the full number."}
-                  label={
-                    locationForm.paymentMethodLabel === "Bank Transfer"
-                      ? "Account number"
-                      : "Masked account identifier"
-                  }
-                  placeholder={
-                    locationForm.paymentMethodLabel === "Bank Transfer"
-                      ? "Bank account number"
-                      : "0917 *** 1234 or account suffix"
-                  }
-                  value={locationForm.paymentAccountIdentifierDisplay}
+                <ConfigurationCheck
+                  name="isPrimaryLocation"
+                  description="Used as the default location in public pages and your dashboard."
+                  checked={locationForm.isPrimary}
+                  label="Primary location"
                   onChange={(event) =>
                     setLocationForm((current) => ({
                       ...current,
-                      paymentAccountIdentifierDisplay: event.target.value,
+                      isPrimary: event.target.checked,
                     }))
                   }
                 />
-                {locationForm.paymentMethodLabel === "Bank Transfer" ? (
-                  <div className="ops-stack">
-                    <div className="config-media">
-                      <IconBuildingBank size={44} />
-                    </div>
-                    <p className="ops-muted">
-                      Customers will see your bank details instead of a QR code.
-                    </p>
-                  </div>
-                ) : (
-                  <div className="ops-stack">
-                    <ConfigurationFile
-                      accept="image/jpeg,image/png,image/webp"
-                      disabled={busyAction === "payment-qr-upload"}
-                      label="QR image"
-                      description="Upload the QR code image customers should scan."
-                      onChange={(file) => {
-                        setPaymentQrUploadFile(file);
-                        void uploadLocationPaymentQr(file);
-                      }}
-                      placeholder={
-                        locationForm.paymentQrImageUrl
-                          ? "Replace QR image"
-                          : "Upload QR image"
-                      }
-                      value={paymentQrUploadFile}
-                    />
-                    {locationForm.paymentQrImageUrl ? (
-                      <img
-                        alt="Payment QR preview"
-                        src={locationForm.paymentQrImageUrl}
-                        className="config-image"
-                      />
-                    ) : null}
-                  </div>
-                )}
               </div>
-              <ConfigurationCheck
-                name="paymentQrActive"
-                checked={locationForm.paymentQrActive}
-                label="Enable manual payment for this location"
-                description="Only turn this on if customers should see these payment details for this branch."
-                onChange={(event) =>
-                  setLocationForm((current) => ({
-                    ...current,
-                    paymentQrActive: event.currentTarget.checked,
-                  }))
-                }
-              />
             </ConfigurationSection>
 
+              </ConfigTabsContent>
+              <ConfigTabsContent value="queue" keepMounted data-location-tab="queue" className="ops-stack">
             <ConfigurationSection
               title="Booking arrival"
               description="Choose how customers join the live queue for their scheduled booking."
@@ -4524,38 +4561,6 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                 }
               />
             </ConfigurationSection>
-            <ConfigurationSection
-              title="Visibility and access"
-              description="These switches control whether the branch is active and whether it is treated as the main location."
-            >
-              <div className="ops-row">
-                <ConfigurationCheck
-                  name="isActiveLocation"
-                  checked={locationForm.isActive}
-                  label="Enable location"
-                  description="Inactive locations stay saved but are hidden from normal use."
-                  onChange={(event) =>
-                    setLocationForm((current) => ({
-                      ...current,
-                      isActive: event.currentTarget.checked,
-                    }))
-                  }
-                />
-                <ConfigurationCheck
-                  name="isPrimaryLocation"
-                  description="Used as the default location in public pages and your dashboard."
-                  checked={locationForm.isPrimary}
-                  label="Primary location"
-                  onChange={(event) =>
-                    setLocationForm((current) => ({
-                      ...current,
-                      isPrimary: event.target.checked,
-                    }))
-                  }
-                />
-              </div>
-            </ConfigurationSection>
-
             <ConfigurationSection
               title="Operating hours"
               description="Set the default operating hours customers should see. Add multiple intervals when a location closes and reopens on the same day."
@@ -4664,9 +4669,121 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                 )}
               </div>
             </ConfigurationSection>
+              </ConfigTabsContent>
+              <ConfigTabsContent value="payments" keepMounted data-location-tab="payments" className="ops-stack">
+            <ConfigurationSection
+              title="Manual payment"
+              description="Optional payment details shown when this branch accepts manual payments."
+            >
+              <div className="ops-grid ops-grid-2">
+                <ConfigurationSelect
+                  name="paymentMethodLabel"
+                  label="Payment method"
+                  description="Where customers should send payment for this location."
+                  data={["GCash", "Maya", "Bank Transfer"]}
+                  placeholder="Choose a payment method"
+                  value={locationForm.paymentMethodLabel}
+                  onChange={(value) =>
+                    setLocationForm((current) => ({
+                      ...current,
+                      paymentMethodLabel: value || "",
+                    }))
+                  }
+                />
+                {locationForm.paymentMethodLabel === "Bank Transfer" ? (
+                  <ConfigurationInput
+                    name="paymentBankName"
+                    label="Bank name"
+                    placeholder="e.g. BPI, BDO, UnionBank"
+                    value={locationForm.paymentBankName}
+                    onChange={(event) =>
+                      setLocationForm((current) => ({
+                        ...current,
+                        paymentBankName: event.target.value,
+                      }))
+                    }
+                  />
+                ) : null}
+                <ConfigurationInput
+                  name="paymentAccountDisplayName"
+                  label={
+                    locationForm.paymentMethodLabel === "Bank Transfer"
+                      ? "Account owner"
+                      : "Account display name"
+                  }
+                  description={
+                    locationForm.paymentMethodLabel === "Bank Transfer"
+                      ? "Name of the bank account owner."
+                      : "Business or account holder name shown beside the QR code."
+                  }
+                  placeholder={
+                    locationForm.paymentMethodLabel === "Bank Transfer"
+                      ? "Account owner name"
+                      : "Business or account name"
+                  }
+                  value={locationForm.paymentAccountDisplayName}
+                  onChange={(event) =>
+                    setLocationForm((current) => ({
+                      ...current,
+                      paymentAccountDisplayName: event.target.value,
+                    }))
+                  }
+                />
+                <ConfigurationInput
+                  name="paymentAccountIdentifierDisplay"
+                  description={locationForm.paymentMethodLabel === "Bank Transfer" ? "The account number customers use for bank transfers." : "Use a partially hidden number or suffix so customers can verify the account without exposing the full number."}
+                  label={
+                    locationForm.paymentMethodLabel === "Bank Transfer"
+                      ? "Account number"
+                      : "Masked account identifier"
+                  }
+                  placeholder={
+                    locationForm.paymentMethodLabel === "Bank Transfer"
+                      ? "Bank account number"
+                      : "0917 *** 1234 or account suffix"
+                  }
+                  value={locationForm.paymentAccountIdentifierDisplay}
+                  onChange={(event) =>
+                    setLocationForm((current) => ({
+                      ...current,
+                      paymentAccountIdentifierDisplay: event.target.value,
+                    }))
+                  }
+                />
+                {locationForm.paymentMethodLabel === "Bank Transfer" ? (
+                  <div className="ops-stack">
+                    <div className="config-media">
+                      <IconBuildingBank size={44} />
+                    </div>
+                    <p className="ops-muted">
+                      Customers will see your bank details instead of a QR code.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="ops-stack">
+                    <PaymentQrImageField url={locationForm.paymentQrImageUrl} file={paymentQrUploadFile} disabled={busyAction === "payment-qr-upload"} onFile={setPaymentQrUploadFile} onUpload={(file,onPrepared)=>uploadLocationPaymentQr(file,onPrepared)} />
+                  </div>
+                )}
+              </div>
+              <ConfigurationCheck
+                name="paymentQrActive"
+                checked={locationForm.paymentQrActive}
+                label="Enable manual payment for this location"
+                description="Only turn this on if customers should see these payment details for this branch."
+                onChange={(event) =>
+                  setLocationForm((current) => ({
+                    ...current,
+                    paymentQrActive: event.currentTarget.checked,
+                  }))
+                }
+              />
+            </ConfigurationSection>
+
+              </ConfigTabsContent>
+            </ConfigTabs>
           </form>
         </ConfigurationScope>
-      </TaskDialog>
+      </EditorSurface>
     );
   }
 
@@ -4703,38 +4820,42 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
 
   function renderRecordedIntervals() {
     return <OperationPanel><div className="queue-stack"><div><h2 className="account-panel-title">Recent ticket activity</h2><p className="ops-muted">Intervals between recorded update times for served tickets in the current location snapshot. Each point uses two recorded timestamps.</p></div>
-      {recordedIntervals.length ? <><OperationMetric label="Average interval" value={`${averageRecordedInterval} min`} detail={`From ${recordedIntervals.length + 1} served-ticket records`} /><div className="report-intervals">{recordedIntervals.map((bar,index)=><div className="queue-stack" key={`${bar.label}:${index}`}><div className="ops-row ops-between"><span>{bar.label}</span><span>{bar.minutes} min</span></div><progress aria-label={`${bar.label}: ${bar.minutes} minute recorded interval`} max={intervalMaximum} value={bar.minutes} /></div>)}</div></> : <OperationEmpty title="More recorded activity needed" text="Intervals appear when this snapshot includes two served tickets with valid update times." />}
+      {recordedIntervals.length ? <><OperationMetric label="Average interval" value={`${averageRecordedInterval} min`} detail={`From ${recordedIntervals.length + 1} served-ticket records`} /><div className="report-intervals" tabIndex={0} role="region" aria-label="Recorded ticket intervals">{recordedIntervals.map((bar,index)=><div className="queue-stack" key={`${bar.label}:${index}`}><div className="ops-row ops-between"><span>{bar.label}</span><span>{bar.minutes} min</span></div><progress aria-label={`${bar.label}: ${bar.minutes} minute recorded interval`} max={intervalMaximum} value={bar.minutes} /></div>)}</div></> : <OperationEmpty title="More recorded activity needed" text="Intervals appear when this snapshot includes two served tickets with valid update times." />}
     </div></OperationPanel>;
   }
 
   function renderQueuePage() {
     const activeCounters = serviceCounters.filter((counter) => counter.isActive);
     const activeTicket = selectedCalledTicket;
+    const queueDayBadgeVariant = queueDayClosed
+      ? "destructive"
+      : queueDayReconciling || queueDayPaused
+        ? "warning"
+        : queueDayUnopened
+          ? "info"
+          : "success";
 
     return (
       <div className="queue-stack vendor-live-queue">
-        <LiveQueueSummary snapshot={snapshot} />
         <QueueCard>
-          <QueueCardHeader>
-            <QueueCardTitle>Queue controls</QueueCardTitle>
-          </QueueCardHeader>
-          <QueueCardContent className="queue-stack">
-            <div className="queue-row queue-between">
-              <div className="queue-stack">
-                <QueueBadge variant="outline">
-                  {queueDayReconciling
-                    ? "Queue closing"
-                    : queueDayUnopened
-                      ? "Queue not opened"
-                      : queueDayActuallyClosed
-                        ? "Queue day closed"
-                        : queueDayPaused
-                          ? "Queue intake paused"
-                          : queueDayExtended
-                            ? "Queue day extended"
-                            : "Queue day open"}
-                </QueueBadge>
-                <div className="queue-row">
+          <QueueCardHeader className="queue-controls-header">
+            <div className="queue-controls-heading">
+              <QueueCardTitle>Queue controls</QueueCardTitle>
+              <QueueBadge variant={queueDayBadgeVariant}>
+                {queueDayReconciling
+                  ? "Queue closing"
+                  : queueDayUnopened
+                    ? "Queue not opened"
+                    : queueDayActuallyClosed
+                      ? "Queue day closed"
+                      : queueDayPaused
+                        ? "Queue intake paused"
+                        : queueDayExtended
+                          ? "Queue day extended"
+                          : "Queue day open"}
+              </QueueBadge>
+            </div>
+            <div className="queue-controls-actions">
                   {queueDayUnopened && canOperateQueueDay ? (
                     <QueueButton
                       variant="default"
@@ -4813,6 +4934,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                         }
                       }}
                     >
+                      <IconPlayerPause aria-hidden="true" data-icon="inline-start" />
                       {busyAction === "queue-pause"
                         ? "Pausing..."
                         : "Pause intake"}
@@ -4835,14 +4957,15 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                         });
                       }}
                     >
+                      <IconX aria-hidden="true" data-icon="inline-start" />
                       {busyAction === "queue-close"
                         ? "Closing..."
                         : "Close queue"}
                     </QueueButton>
                   ) : null}
-                </div>
-              </div>
             </div>
+          </QueueCardHeader>
+          <QueueCardContent className="queue-stack queue-controls-surface">
             {queueDayUnopened ? (
               <QueueAlert>
                 <QueueAlertDescription>
@@ -4864,7 +4987,8 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                 </QueueAlertDescription>
               </QueueAlert>
             ) : null}
-            <div className="vendor-queue-action-layout">
+            <ButtonGroup className="vendor-queue-action-layout" aria-label="Queue controls actions">
+              <div className="vendor-queue-serving-row">
               <QueueCounterPicker
                 className="vendor-queue-counter-select"
                 data={[
@@ -4902,11 +5026,23 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                 value={selectedCounterSlug || null}
                 onChange={(value) => setSelectedCounterSlug(value || "")}
               />
-              <div className="queue-row vendor-queue-primary-actions">
+                {localPoolDemoClientEnabled ? <>
+                  <QueueButton
+                    variant="default"
+                    disabled={Boolean(queueDayClosed || queueDayPaused || busyAction) || boardScannerBusy || !serviceRequestAvailable}
+                    onClick={() => setServiceRequestSequence(value=>value+1)}
+                  >
+                    <IconUserPlus data-icon="inline-start" />
+                    New service request
+                  </QueueButton>
+                </> : null}
+              </div>
+              {localPoolDemoClientEnabled ? <CounterQueueControls token={token} tenant={selectedTenantSlug} location={selectedLocationSlug} counterSlug={selectedCounterSlug} busy={Boolean(busyAction)||ticketScannerOpen} onScan={command=>{setTicketScannerError("");setScannerTarget({ticketId:command.ticketId,ticketNumber:command.ticketNumber,counterSlug:command.counterSlug,tenantSlug:selectedTenantSlug,locationQuery});setTicketScannerOpen(true);}}/> : <ButtonGroup className="vendor-queue-primary-actions" aria-label="Ticket actions">
+                <ButtonGroupSeparator className="queue-walkin-separator" aria-hidden="true" />
                 <QueueButton
                   variant="default"
                   disabled={Boolean(
-                    Boolean(busyAction) ||
+                    (Boolean(busyAction) || v2TicketIds.length > 0) ||
                     !selectedLane?.canCallNext ||
                     queueDayClosed ||
                     Boolean(activeTicket),
@@ -4936,7 +5072,9 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   <QueueButton
                     variant="outline"
                     disabled={
-                      Boolean(busyAction) ||
+                      (Boolean(busyAction) || v2TicketIds.length > 0) ||
+                      (localPoolDemoClientEnabled && !activeTicket.serviceStartedAt &&
+                        (!hasExecutableLocalPlan(localPoolData?.called.find(work => work.id === activeTicket.id)) || Boolean(localPoolData?.reconciliation.required))) ||
                       Boolean(
                         [
                           "serve-current",
@@ -5011,7 +5149,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                 ) : (
                   <QueueButton
                     variant="outline"
-                    disabled={Boolean(!activeTicket || Boolean(busyAction))}
+                    disabled={Boolean(!activeTicket || (Boolean(busyAction) || v2TicketIds.length > 0))}
                     onClick={() => {
                       setTicketScannerError("");
                       if (activeTicket)
@@ -5032,7 +5170,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                 <QueueButton
                   variant="outline"
                   disabled={Boolean(
-                    Boolean(busyAction) ||
+                    (Boolean(busyAction) || v2TicketIds.length > 0) ||
                     !activeTicket ||
                     Boolean(activeTicket.serviceStartedAt),
                   )}
@@ -5069,7 +5207,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                 {activeTicket?.serviceStartedAt ? (
                   <QueueButton
                     variant="outline"
-                    disabled={Boolean(busyAction)}
+                    disabled={(Boolean(busyAction) || v2TicketIds.length > 0)}
                     onClick={() =>
                       setConfirmAction({
                         title: "Interrupt service?",
@@ -5094,8 +5232,16 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     Interrupt service
                   </QueueButton>
                 ) : null}
-              </div>
-            </div>
+                {!localPoolDemoClientEnabled && <QueueButton
+                        variant="default"
+                        disabled={Boolean(queueDayClosed || queueDayPaused || busyAction) || boardScannerBusy || (localPoolDemoClientEnabled && !serviceRequestAvailable)}
+                        onClick={() => localPoolDemoClientEnabled ? setServiceRequestSequence(value=>value+1) : setWalkInDialogOpen(true)}
+                      >
+                        <IconUserPlus data-icon="inline-start" />
+                        Add walk-in
+                      </QueueButton>}
+              </ButtonGroup>}
+            </ButtonGroup>
             {snapshot?.queueDay?.closureReason ? (
               <p className="queue-text queue-muted queue-small">
                 {snapshot.queueDay.closureReason}
@@ -5106,6 +5252,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                 {counterBlockMessage(selectedLane.blockReason)}
               </p>
             ) : null}
+            {!localPoolDemoClientEnabled ? (
             <div
               className="vendor-queue-status-columns"
               data-columns={intakeState?.autoPauseEnabled ? 3 : 2}
@@ -5196,16 +5343,29 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                 </div>
               ) : null}
             </div>
+            ) : null}
           </QueueCardContent>
         </QueueCard>
+        {!localPoolDemoClientEnabled ? <LiveQueueSummary snapshot={snapshot} /> : null}
+        {localPoolDemoClientEnabled && selectedTenantSlug && selectedLocationSlug ? <NamedQueuePanel hasUnsavedEdits={()=>unsavedForm.current.hasEdits()} key={`named:${selectedTenantSlug}:${selectedLocationSlug}`} token={token} tenant={selectedTenantSlug} location={selectedLocationSlug} counterSlug={selectedCounterSlug} staffMode={selectedTenantRole === "staff"} onReviewQueueSetup={(isOwner||isAdmin)&&visibleNavItems.some(item=>item.section==="services")?()=>{if(!canLeaveFeature())return;setServicesTab("queue-policy");navigate(workspacePath("services","administration",location.search));}:undefined} newRequestSequence={serviceRequestSequence} onIntakeAvailability={setServiceRequestAvailable} onTicketIds={setNamedTicketIds} onEditForm={form=>unsavedForm.current.mark(form)} onCloseForm={()=>unsavedForm.current.discardId("named-queue-plan")} onBusy={busy=>setBusyAction(busy?"named-queue-plan":"")} onNotice={showSuccessNotification}/>:null}
 
+
+        {linearCommandError?.scope === `${selectedTenantSlug}:${selectedLocationSlug}` ? <OperationAlert color="orange" title="Queue action needs review">{linearCommandError.message}<OperationButton variant="outline" disabled={Boolean(busyAction)} onClick={() => { void Promise.all([queueLifecycleSnapshotQuery.refetch(), localPoolDemoClientEnabled ? localPoolQuery.refetch() : Promise.resolve()]); }}>Refresh queue</OperationButton></OperationAlert> : null}
+        {startPlanErrorScope === `${selectedTenantSlug}:${selectedLocationSlug}` ? <OperationAlert color="orange" title="Service selection required">{missingServicePlanGuidance}</OperationAlert> : null}
+        {localPoolDemoClientEnabled ? <ResourceReadStatus state={localPoolReadState(snapshot,localPoolQuery.data,selectedTenantSlug,selectedLocationSlug,localPoolQuery.isPending,localPoolQuery.isError,localPoolQuery.error)} refreshing={localPoolQuery.isFetching} onRetry={()=>void localPoolQuery.refetch()}/> : null}
+        {localPoolDemoClientEnabled && localPoolData?.reconciliation.required ? <OperationAlert color="red" title="Resource records need review">Refresh and reconcile these records before starting more work. Active sessions continue to hold capacity.</OperationAlert> : null}
+        {!localPoolDemoClientEnabled ? <>
         <CounterTickets
+          onEdit={openQueueDetails}
           snapshot={snapshot}
           selectedTicketId={activeTicket?.id}
           disabled={Boolean(busyAction) || ticketScannerOpen}
           onSelect={(counter) => {
             setSelectedCounterSlug(counter);
             setQueueView("current");
+          }}
+          onStart={(ticket) => {
+            void runAction("service-start", () => vendorDashboardQueue.recordTicketService(token, selectedTenantSlug, locationQuery, ticket.id, "start"));
           }}
           onEnd={(ticket, action) =>
             setConfirmAction({
@@ -5236,26 +5396,20 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
             })
           }
         />
+        </> : null}
 
-        <div className="queue-page-grid">
-          <div className="queue-page-column">
-            <QueueCard>
-              <QueueCardHeader>
-                <QueueCardTitle>Waiting and recovery</QueueCardTitle>
-              </QueueCardHeader>
-              <QueueCardContent className="queue-stack">
-                <div className="queue-stack">
-                  <QueueViewPicker
-                    data={[
-                      { value: "current", label: "Current queue" },
-                      { value: "overflow", label: "Overflow queue" },
-                      { value: "recovery", label: "Missed recovery" },
-                    ]}
-                    value={queueView}
-                    onChange={(value) => setQueueView(value as QueueView)}
-                  />
+        <div className="queue-stack">
+          <Accordion>
+            <AccordionItem value="request-recovery">
+              <AccordionTrigger headingLevel={2}>Request recovery</AccordionTrigger>
+              <AccordionContent keepMounted className="queue-stack">
+        {localPoolDemoClientEnabled && selectedTenantSlug && selectedLocationSlug ? <SkippedQueueRequests key={`skipped:${selectedTenantSlug}:${selectedLocationSlug}`} token={token} tenant={selectedTenantSlug} location={selectedLocationSlug}/>:null}
+            {!localPoolDemoClientEnabled && queueView === "current" ? (
+              <QueueCard>
+                <QueueCardHeader><QueueCardTitle>Waiting and recovery</QueueCardTitle></QueueCardHeader>
+                <QueueCardContent className="queue-stack">
+                  <QueueViewPicker data={[{value:"current",label:"Current queue"},{value:"overflow",label:"Carried over"},{value:"recovery",label:"Missed recovery"}]} value={queueView} onChange={value => setQueueView(value as QueueView)} />
 
-                  {queueView === "current" ? (
                     <>
                       <div className="queue-table-wrapper">
                         <QueueTable aria-label="Waiting queue" role="table">
@@ -5325,6 +5479,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                                     {formatDateTime(ticket.createdAt)}
                                   </QueueTableCell>
                                   <QueueTableCell data-label="Actions">
+                                    {selectedTenantRole && ticket.status === "waiting" ? <QueueButton variant="outline" disabled={Boolean(busyAction)} onClick={()=>openQueueDetails(ticket.id)} aria-label={`Edit queue details for ${ticket.ticketNumber}`}>Edit queue details</QueueButton> : null}
                                     {selectedTenantRole &&
                                     ticket.status === "waiting" ? (
                                       <QueueButton
@@ -5355,103 +5510,19 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                         </QueueTable>
                       </div>
                     </>
-                  ) : queueView === "overflow" ? (
-                    <>
-                      <div className="queue-row queue-between">
-                        <div>
-                          <p className="queue-text vendor-eyebrow">
-                            Overflow queue
-                          </p>
-                          <h3 className="queue-heading">Carry-over tickets</h3>
-                        </div>
-                        <QueueBadge variant="outline">
-                          {overflowTickets.length} ticket
-                          {overflowTickets.length === 1 ? "" : "s"}
-                        </QueueBadge>
-                      </div>
-                      <div className="queue-table-wrapper">
-                        <QueueTable aria-label="Carry-over queue" role="table">
-                          <QueueTableHeader>
-                            <QueueTableRow>
-                              <QueueTableHead scope="col">ID</QueueTableHead>
-                              <QueueTableHead scope="col">Ticket</QueueTableHead>
-                              <QueueTableHead scope="col">Channel</QueueTableHead>
-                              <QueueTableHead scope="col">Status</QueueTableHead>
-                              <QueueTableHead scope="col">
-                                Activated at
-                              </QueueTableHead>
-                              <QueueTableHead scope="col">Joined</QueueTableHead>
-                            </QueueTableRow>
-                          </QueueTableHeader>
-                          <QueueTableBody>
-                            {overflowTickets.length ? (
-                              overflowTickets.map((ticket) => (
-                                <QueueTableRow key={ticket.id}>
-                                  <QueueTableCell data-label="ID">
-                                    {ticket.id}
-                                  </QueueTableCell>
-                                  <QueueTableCell data-label="Ticket">
-                                    <p className="queue-text queue-strong">
-                                      {ticket.ticketNumber}
-                                    </p>
-                                    <p className="queue-text queue-muted queue-small">
-                                      {ticket.customerName}
-                                    </p>
-                                  </QueueTableCell>
-                                  <QueueTableCell data-label="Channel">
-                                    <QueueBadge variant="outline">
-                                      {ticket.joinChannel}
-                                    </QueueBadge>
-                                  </QueueTableCell>
-                                  <QueueTableCell data-label="Status">
-                                    <QueueBadge variant="outline">
-                                      {ticket.status === "pending_carry_over"
-                                        ? getTicketStateSummary(ticket.status)
-                                            .label
-                                        : "Carried over"}
-                                    </QueueBadge>
-                                  </QueueTableCell>
-                                  <QueueTableCell data-label="Activated">
-                                    {ticket.carriedOverAt
-                                      ? formatDateTime(ticket.carriedOverAt)
-                                      : "--"}
-                                  </QueueTableCell>
-                                  <QueueTableCell data-label="Joined">
-                                    {formatDateTime(ticket.createdAt)}
-                                  </QueueTableCell>
-                                </QueueTableRow>
-                              ))
-                            ) : (
-                              <QueueTableRow>
-                                <QueueTableCell colSpan={6}>
-                                  <QueueEmptyState
-                                    title="No overflow tickets."
-                                    text="Waiting tickets carried over from a previous queue day will appear here."
-                                  />
-                                </QueueTableCell>
-                              </QueueTableRow>
-                            )}
-                          </QueueTableBody>
-                        </QueueTable>
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      <div className="queue-row queue-between">
-                        <div>
-                          <p className="queue-text vendor-eyebrow">
-                            Missed ticket recovery
-                          </p>
-                          <h3 className="queue-heading">Skipped tickets</h3>
-                        </div>
-                        <QueueBadge variant="outline">
-                          {recoverableTickets.length} ticket
-                          {recoverableTickets.length === 1 ? "" : "s"}
-                        </QueueBadge>
-                      </div>
-                      {queueDayClosed ||
-                      queueDayPaused ||
-                      restoreBlockedByThreshold ? (
+
+                </QueueCardContent>
+              </QueueCard>
+            ) : (
+              <QueueRecoveryTable
+                tickets={queueView === "recovery" ? recoverableTickets : overflowTickets}
+                view={queueView === "recovery" ? "recovery" : "overflow"}
+                includeCurrent={!localPoolDemoClientEnabled}
+                onViewChange={value => setQueueView(value as QueueView)}
+                formatDateTime={formatDateTime}
+                isPriorityRecovery={isRecoveryWindowActive}
+                carryOverStatus={status => status === "pending_carry_over" ? getTicketStateSummary(status).label : "Carried over"}
+                notice={queueView === "recovery" && (queueDayClosed || queueDayPaused || restoreBlockedByThreshold) ? (
                         <QueueAlert>
                           <QueueAlertDescription>
                             {queueDayClosed
@@ -5462,58 +5533,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                           </QueueAlertDescription>
                         </QueueAlert>
                       ) : null}
-                      <div className="queue-table-wrapper">
-                        <QueueTable
-                          aria-label="Missed ticket recovery"
-                          role="table"
-                        >
-                          <QueueTableHeader>
-                            <QueueTableRow>
-                              <QueueTableHead scope="col">ID</QueueTableHead>
-                              <QueueTableHead scope="col">Ticket</QueueTableHead>
-                              <QueueTableHead scope="col">Joined</QueueTableHead>
-                              <QueueTableHead scope="col">
-                                Recovery
-                              </QueueTableHead>
-                              <QueueTableHead scope="col">Action</QueueTableHead>
-                            </QueueTableRow>
-                          </QueueTableHeader>
-                          <QueueTableBody>
-                            {recoverableTickets.length ? (
-                              recoverableTickets.map((ticket) => {
-                                const priorityRecovery = isRecoveryWindowActive(
-                                  ticket.rejoinDeadlineAt,
-                                );
-
-                                return (
-                                  <QueueTableRow key={ticket.id}>
-                                    <QueueTableCell data-label="ID">
-                                      {ticket.id}
-                                    </QueueTableCell>
-                                    <QueueTableCell data-label="Ticket">
-                                      <p className="queue-text queue-strong">
-                                        {ticket.ticketNumber}
-                                      </p>
-                                      <p className="queue-text queue-muted queue-small">
-                                        {ticket.customerName}
-                                      </p>
-                                    </QueueTableCell>
-                                    <QueueTableCell data-label="Joined">
-                                      {formatDateTime(ticket.createdAt)}
-                                    </QueueTableCell>
-                                    <QueueTableCell data-label="Recovery">
-                                      <QueueBadge variant="outline">
-                                        {priorityRecovery ? "recovery" : "normal"}
-                                      </QueueBadge>
-                                      <p className="queue-text queue-muted queue-small">
-                                        {ticket.rejoinDeadlineAt
-                                          ? priorityRecovery
-                                            ? `Priority until ${formatDateTime(ticket.rejoinDeadlineAt)}`
-                                            : `Recovery expired ${formatDateTime(ticket.rejoinDeadlineAt)}`
-                                          : "No recovery deadline"}
-                                      </p>
-                                    </QueueTableCell>
-                                    <QueueTableCell data-label="Action">
+                renderRestore={(ticket, priorityRecovery) => (
                                       <QueueButton
                                         variant="secondary"
                                         disabled={Boolean(
@@ -5549,31 +5569,17 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                                       >
                                         Restore
                                       </QueueButton>
-                                    </QueueTableCell>
-                                  </QueueTableRow>
-                                );
-                              })
-                            ) : (
-                              <QueueTableRow>
-                                <QueueTableCell colSpan={5}>
-                                  <QueueEmptyState
-                                    title="No skipped tickets to recover."
-                                    text="Skipped tickets will appear here while they are still relevant for operator recovery."
-                                  />
-                                </QueueTableCell>
-                              </QueueTableRow>
-                            )}
-                          </QueueTableBody>
-                        </QueueTable>
-                      </div>
-                    </>
-                  )}
-                </div>
-              </QueueCardContent>
-            </QueueCard>
-          </div>
-
-          <div className="queue-page-column">
+                )}
+              />
+            )}
+              </AccordionContent>
+            </AccordionItem>
+          </Accordion>
+          <Accordion>
+            <AccordionItem value="public-access">
+              <AccordionTrigger headingLevel={2}>Public access and displays</AccordionTrigger>
+              <AccordionContent keepMounted className="queue-public-access-layout">
+                <div className="queue-public-access-grid">
             <QueueCard>
               <QueueCardHeader>
                 <QueueCardTitle>Customer self-service entry</QueueCardTitle>
@@ -5595,17 +5601,10 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       >
                         Open board
                       </a>
-                      <QueueButton
-                        variant="default"
-                        disabled={Boolean(queueDayClosed || queueDayPaused || busyAction) || boardScannerBusy}
-                        onClick={() => setWalkInDialogOpen(true)}
-                      >
-                        <IconUserPlus data-icon="inline-start" />
-                        Add walk-in
-                      </QueueButton>
+
                     </div>
                   </div>
-                  <div className="queue-row">
+                  <div className="queue-public-entry-grid">
                     <article className="queue-paper neura-qr-card queue-surface">
                       {queueLinks.qrUrl ? (
                         <div ref={queueQrRef}>
@@ -5631,7 +5630,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                         Save QR
                       </QueueButton>
                     </article>
-                    <div className="queue-stack">
+                    <div className="queue-stack queue-public-link-fields">
                       <QueueCopyField
                         label="Join URL"
                         onClick={() =>
@@ -5673,7 +5672,10 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                 }
               />
             ) : null}
-          </div>
+                </div>
+              </AccordionContent>
+            </AccordionItem>
+          </Accordion>
         </div>
 
         {(snapshot?.unfinishedServiceTiming || []).some(
@@ -5763,7 +5765,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
 
   function renderWalkInDialog() {
     const intakeUnavailable = queueDayClosed || queueDayPaused;
-    return <WalkInDialog opened={walkInDialogOpen} busy={busyAction === "walk-in"} unavailable={intakeUnavailable} closed={queueDayClosed}
+    return <WalkInDialog linearMode={localPoolDemoClientEnabled} opened={walkInDialogOpen} busy={busyAction === "walk-in"} unavailable={intakeUnavailable} closed={queueDayClosed}
       form={walkInForm} options={ticketServiceOptionsQuery.data?.services || []} optionsLoading={ticketServiceOptionsQuery.isFetching} optionsError={ticketServiceOptionsQuery.isError}
       onChange={(change) => setWalkInForm((current) => ({ ...current, ...change }))} onClose={() => { unsavedForm.current.discardId("vendor-walk-in"); setWalkInDialogOpen(false); }} onSubmit={handleCreateWalkIn} />;
   }
@@ -5824,7 +5826,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   </Badge>
                 </Group>
                 <Stack gap="sm" mt="md">
-                  <Title className="vendor-hero-title" order={1}>
+                  <Title className="vendor-hero-title" order={2}>
                     {previewVendorName}
                   </Title>
                   {settings.publicProfileDescription ? <RichCampaignDescription className="vendor-hero-description" content={settings.publicProfileDescription} /> : null}
@@ -5968,7 +5970,6 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         size="xl"
         title={
           <Stack className="getprio-modal-title" gap={2}>
-            <Text className="getprio-modal-eyebrow">PUBLIC BOARD</Text>
             <Text className="getprio-modal-heading">
               {`Setup theme${themeLocation ? `: ${themeLocation.name}` : ""}`}
             </Text>
@@ -6092,7 +6093,6 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     accept="image/png,image/jpeg,image/webp"
                     clearable
                     label="Company logo"
-                    description="Displayed inside the circular logo frame."
                     disabled={busyAction === "theme-upload:logo"}
                     onChange={(file) => uploadThemeAsset("logo", file)}
                   />
@@ -6181,7 +6181,16 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     );
   }
 
-  function openLocationDialog(locationItem?: StoreLocationWithHours) {
+  const openLocationDialog = useCallback((locationItem?: StoreLocationWithHours, fromRoute = false) => {
+    if (locationItem && !fromRoute) {
+      const params = new URLSearchParams(location.search);
+      params.set("workspace", "administration");
+      params.set("business", selectedTenantSlug);
+      navigate(locationEditorPath(locationItem.slug, `?${params}`));
+      return;
+    }
+    setLocationEditorTab("general");
+    setLocationErrorTitle("Unable to save location");
     setError("");
     setPaymentQrUploadFile(null);
     if (locationItem) {
@@ -6227,7 +6236,22 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     }
 
     setLocationDialogOpen(true);
-  }
+
+  },[platformDefaultTimezone,location.search,selectedTenantSlug,navigate]);
+
+  useEffect(() => {
+    if (!locationSlug) { if(locationEditorScopeRef.current)setLocationDialogOpen(false); locationEditorScopeRef.current=""; return; }
+    if (!selectedTenantSlug || !dashboardBootstrapQuery.data) return;
+    const item = resolveLocationEditor(locationSlug, locations, new Set(dashboardBootstrapQuery.data.locationsResponse.locations.map(item => item.id)));
+    if (!item) return;
+    const scope = `${selectedTenantSlug}:${item.id}`;
+    if (locationSlug !== item.slug) {
+      navigate(locationEditorPath(item.slug, location.search), { replace: true });
+    }
+    if (locationEditorScopeRef.current === scope) return;
+    locationEditorScopeRef.current = scope;
+    openLocationDialog(item, true);
+  },[locationSlug,selectedTenantSlug,locations,dashboardBootstrapQuery.data,openLocationDialog,navigate,location.search]);
 
   useEffect(() => {
     if (!locationDialogOpen || editingLocationSlug || locationSlugManuallyEdited) {
@@ -6299,6 +6323,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
   }, [editingLocationId, editingLocationSlug, locationDialogOpen, locationForm.slug, selectedTenantSlug, token]);
 
   async function saveLocation() {
+    setLocationErrorTitle("Unable to save location");
     setBusyAction("location");
     setError("");
 
@@ -6343,6 +6368,11 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       setEditingLocationId(locationResponse.location.id);
       setLocationSlugManuallyEdited(true);
       setLocationForm(current=>({...current,slug:locationResponse.location.slug}));
+      if (locationSlug && locationSlug !== locationResponse.location.slug) {
+        setLocations(current => current.map(item => item.id === locationResponse.location.id
+          ? { ...item, slug: locationResponse.location.slug } : item));
+        navigate(locationEditorPath(locationResponse.location.slug, location.search), { replace: true });
+      }
 
       const hoursResponse = await vendorDashboardOperations.saveLocationHours(
         token,
@@ -6363,6 +6393,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       unsavedForm.current.discardId("vendor-location-editor");
       setLocationDialogOpen(false);
       setPaymentQrUploadFile(null);
+      if (locationSlug) navigate(workspacePath("tenants","administration",location.search));
       showSuccessNotification(
         editingLocationSlug ? "Location updated" : "Location created",
         `${hoursResponse.location.name} is ready in your vendor dashboard.`
@@ -6474,143 +6505,9 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       text="Add a location to set its hours and manage its queue."
                     />
                   ) : null}
-                  <div className="ops-grid ops-grid-2">
-                    {locations.map((item) => (
-                      <OperationPanel key={item.id}>
-                        <div className="ops-stack">
-                          <div className="ops-row ops-between">
-                            <div>
-                              <h3 className="ops-heading">{item.name}</h3>
-                              <p className="ops-muted">
-                                {[item.addressLine1, item.city, item.province]
-                                  .filter(Boolean)
-                                  .join(", ") || `/${item.slug}`}
-                              </p>
-                            </div>
-                            <div className="ops-row config-statuses">
-                              {item.isPrimary ? (
-                                <QueueBadge variant="secondary">
-                                  Primary
-                                </QueueBadge>
-                              ) : null}
-                              <QueueBadge
-                                variant={
-                                  item.isActive && item.openStatus.isOpen
-                                    ? "secondary"
-                                    : "outline"
-                                }
-                              >
-                                {item.isActive && item.openStatus.isOpen
-                                  ? "Open"
-                                  : "Closed"}
-                              </QueueBadge>
-                              {item.paymentQrActive ? (
-                                <QueueBadge variant="outline">
-                                  Manual payment
-                                </QueueBadge>
-                              ) : null}
-                            </div>
-                          </div>
-                          <p className="ops-muted">
-                            {item.timezone} · Today
-                            {item.openStatus.today
-                              ? `, ${["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][item.openStatus.today.weekday]}`
-                              : ""}{" "}
-                            · {formatStoreHourRange(item.openStatus.today)}
-                          </p>
-                          {item.paymentQrActive ? (
-                            <p className="ops-muted">
-                              {item.paymentMethodLabel} ·{" "}
-                              {item.paymentAccountDisplayName}
-                            </p>
-                          ) : null}
-                          <ConfigurationCheck
-                            checked={item.isActive}
-                            disabled={!admin}
-                            label={
-                              item.isActive
-                                ? "Location enabled"
-                                : "Location disabled"
-                            }
-                            onChange={(event) =>
-                              void handleToggleLocationActive(
-                                item,
-                                event.currentTarget.checked,
-                              )
-                            }
-                          />
-                          <div className="ops-stack">
-                            <QueueCopyField
-                              label="Join URL"
-                              value={item.joinUrl}
-                              onClick={() =>
-                                void copyLocationUrl("Join URL", item.joinUrl)
-                              }
-                            />
-                            <QueueCopyField
-                              label="Mobile queue QR target"
-                              value={item.qrJoinUrl || item.joinUrl}
-                              onClick={() =>
-                                void copyLocationUrl(
-                                  "QR target",
-                                  item.qrJoinUrl || item.joinUrl,
-                                )
-                              }
-                            />
-                            <QueueCopyField
-                              label="Queue board URL"
-                              value={item.monitorUrl}
-                              onClick={() =>
-                                void copyLocationUrl(
-                                  "Queue board URL",
-                                  item.monitorUrl,
-                                )
-                              }
-                            />
-                          </div>
-                          <div className="ops-row config-actions">
-                            <OperationButton
-                              variant="outline"
-                              loading={
-                                busyAction === `location-qr:${item.slug}`
-                              }
-                              onClick={() =>
-                                void handleRegenerateLocationQueueQr(item)
-                              }
-                            >
-                              Regenerate queue QR
-                            </OperationButton>
-                            <OperationButton
-                              variant="outline"
-                              disabled={item.slug === selectedLocationSlug}
-                              onClick={() =>
-                                selectConfigurationLocation(item.slug)
-                              }
-                            >
-                              {item.slug === selectedLocationSlug
-                                ? "Selected location"
-                                : "Select location"}
-                            </OperationButton>
-                            <OperationButton
-                              variant="outline"
-                              onClick={() => openLocationDialog(item)}
-                              aria-label={`Edit ${item.name} location`}
-                            >
-                              Edit location
-                            </OperationButton>
-                            {effectiveEntitlements?.brandedQueuePages ? (
-                              <OperationButton
-                                variant="outline"
-                                onClick={() => openThemeDialog(item)}
-                              >
-                                Set up theme
-                              </OperationButton>
-                            ) : null}
-                          </div>
-                        </div>
-                      </OperationPanel>
-                    ))}
-                  </div>
+                  <ManagedCollection key={`${selectedTenantSlug}:${selectedLocationSlug}`} items={locations} label="locations" searchText={(item) => [item.name,item.slug,item.city,item.province].filter(Boolean).join(" ")} statusOf={(item) => item.isActive ? "active" : "inactive"} statuses={[{value:"active",label:"Enabled"},{value:"inactive",label:"Disabled"}]}>{(visibleItems) => (
+                  <LocationsGrid items={visibleItems} selectedSlug={selectedLocationSlug} canManage={admin} busyAction={busyAction} errors={locationToggleErrors} onToggle={(item,enabled)=>void handleToggleLocationActive(item,enabled)} onEdit={item=>openLocationDialog(item)} onSelect={selectConfigurationLocation} onQr={item=>void handleRegenerateLocationQueueQr(item)} onTheme={effectiveEntitlements?.brandedQueuePages ? openThemeDialog : undefined} formatHours={formatStoreHourRange}/>
+                  )}</ManagedCollection>
                 </>
               )}
             </div>
@@ -6676,71 +6573,18 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       text="Add a counter and assign the staff who can serve its queue."
                     />
                   ) : null}
-                  <div className="ops-grid ops-grid-3">
-                    {serviceCounters.map((counter) => (
-                      <OperationPanel key={counter.id}>
-                        <div className="ops-stack">
-                          <div>
-                            <h3 className="ops-heading">{counter.name}</h3>
-                            <p className="ops-muted">/{counter.slug}</p>
-                          </div>
-                          <ConfigurationCheck
-                            checked={counter.isActive}
-                            label={
-                              counter.isActive
-                                ? "Counter enabled"
-                                : "Counter disabled"
-                            }
-                            disabled={!admin}
-                            onChange={(event) =>
-                              void handleToggleCounterActive(
-                                counter,
-                                event.currentTarget.checked,
-                              )
-                            }
-                          />
-                          <div>
-                            <p className="ops-strong">Assigned staff</p>
-                            <p className="ops-muted">
-                              {counter.assignedUserIds
-                                .map(
-                                  (id) =>
-                                    staff.find((member) => member.id === id)
-                                      ?.name || "Unavailable staff member",
-                                )
-                                .join(", ") || "No staff assigned"}
-                            </p>
-                          </div>
-                          <div className="ops-row config-actions">
-                            <OperationButton
-                              variant="outline"
-                              onClick={() => openCounterDialog(counter)}
-                              aria-label={`Edit ${counter.name} counter`}
-                            >
-                              Edit counter
-                            </OperationButton>
-                            <OperationButton
-                              variant="destructive"
-                              onClick={() =>
-                                openConfirmAction({
-                                  title: "Remove counter?",
-                                  description:
-                                    "This permanently removes the counter from this location. Existing called work remains recorded.",
-                                  confirmLabel: "Remove counter",
-                                  confirmColor: "red",
-                                  onConfirm: async () => {
-                                    await handleDeleteCounter(counter);
-                                  },
-                                })
-                              }
-                            >
-                              Remove counter
-                            </OperationButton>
-                          </div>
-                        </div>
-                      </OperationPanel>
-                    ))}
-                  </div>
+                  <ManagedCollection key={`${selectedTenantSlug}:${selectedLocationSlug}`} items={serviceCounters} label="counters" searchText={(counter) => `${counter.name} ${counter.slug}`} statusOf={(counter) => counter.isActive ? "active" : "inactive"} statuses={[{value:"active",label:"Enabled"},{value:"inactive",label:"Disabled"}]}>{(visibleItems) => (
+                  <CountersGrid items={visibleItems} staff={staff} canManage={admin} busyAction={busyAction}
+                    onToggle={(counter,active)=>void handleToggleCounterActive(counter,active)}
+                    onEdit={openCounterDialog}
+                    onRemove={counter=>openConfirmAction({
+                      title: "Remove counter?",
+                      description: "This permanently removes the counter from this location. Existing called work remains recorded.",
+                      confirmLabel: "Remove counter", confirmColor: "red",
+                      onConfirm: async()=>{await handleDeleteCounter(counter);}
+                    })}/>
+
+                  )}</ManagedCollection>
                 </>
               )}
             </div>
@@ -6751,23 +6595,18 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
   }
 
   function renderServiceDialog() {
+    const EditorSurface = routeServiceSlug ? TaskPage : TaskDialog;
     const close = () => {
-      if (canLeaveFeature()) {
-        unsavedForm.current.discardId("vendor-service-editor");
-        setServiceDialogOpen(false);
-      }
+      if(routeServiceSlug)requestServiceLeave(()=>navigate(workspacePath("services","administration",location.search)));
+      else if (canLeaveFeature()) { unsavedForm.current.discardId("vendor-service-editor");setServiceDialogOpen(false); }
     };
     return (
-      <TaskDialog
+      <EditorSurface
         opened={serviceDialogOpen}
         onClose={close}
         busy={Boolean(busyAction)}
-        eyebrow="SERVICE"
-        title={
-          editingServiceSlug
-            ? `Edit ${serviceForm.name || "service"}`
-            : "Add a service"
-        }
+        headingEyebrow="SERVICE EDITOR"
+        title={`Service: ${serviceForm.name || "New service"}`}
         description="Set the duration, price and branches where customers can book this service."
         footer={
           <>
@@ -6783,9 +6622,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
               type="submit"
               form="vendor-service-editor"
               disabled={
-                Boolean(busyAction) ||
-                checkingServiceSlug ||
-                !serviceSlugAvailable
+                Boolean(busyAction)
               }
               aria-busy={Boolean(busyAction)}
             >
@@ -6798,16 +6635,16 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
           busy={Boolean(busyAction)}
           onEdit={(form) => unsavedForm.current.mark(form)}
         >
-          <form id="vendor-service-editor" onSubmit={handleSaveService}>
+          <form id="vendor-service-editor" noValidate onSubmit={handleSaveService}>
             <FieldGroup>
               {error ? (
                 <OperationAlert color="red" title="Unable to save">
                   {error}
                 </OperationAlert>
               ) : null}
-              <FieldGroup className="config-related-fields">
-                <ConfigurationSection
-                  title="Name, image, and duration"
+              <ServiceEditorTabs busy={Boolean(busyAction)}
+                general={<FieldGroup>                <ConfigurationSection
+                  title="Service details"
                   description=""
                 >
                   <ConfigurationFile
@@ -6855,6 +6692,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     }}
                   />
                   <ConfigurationInput
+                    data-service-field="slug"
                     label="Booking link name"
                     description={
                       checkingServiceSlug
@@ -6880,6 +6718,49 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     }}
                   />
                   <ConfigurationNumber
+                    label="List order"
+                    description="Lower numbers appear first in your service list."
+                    value={serviceForm.sortOrder || 0}
+                    onChange={(value) =>
+                      setServiceForm((current) => ({
+                        ...current,
+                        sortOrder: Number(value) || 0,
+                      }))
+                    }
+                  />
+                </ConfigurationSection>
+              <ConfigurationSection
+                title="Description and availability"
+                description=""
+              >
+                <ConfigurationTextarea
+                  label="Service description"
+                  description="Tell customers what is included and what they should know before booking."
+                  value={serviceForm.description || ""}
+                  onChange={(event) =>
+                    setServiceForm((current) => ({
+                      ...current,
+                      description: event.target.value,
+                    }))
+                  }
+                />
+                <ConfigurationCheck
+                  checked={serviceForm.isActive !== false}
+                  label="Offer this service for booking"
+                  description="Turn off to stop new bookings. Existing bookings stay in your records."
+                  onChange={(event) =>
+                    setServiceForm((current) => ({
+                      ...current,
+                      isActive: event.currentTarget.checked,
+                    }))
+                  }
+                />
+              </ConfigurationSection></FieldGroup>}
+                booking={<FieldGroup>                <ConfigurationSection
+                  title="Duration, price, and quantity"
+                  description=""
+                >
+                  <ConfigurationNumber
                     label={
                       serviceForm.allowBookingQuantity
                         ? "Duration per unit (minutes)"
@@ -6901,23 +6782,6 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       }))
                     }
                   />
-                  <ConfigurationNumber
-                    label="List order"
-                    description="Lower numbers appear first in your service list."
-                    value={serviceForm.sortOrder || 0}
-                    onChange={(value) =>
-                      setServiceForm((current) => ({
-                        ...current,
-                        sortOrder: Number(value) || 0,
-                      }))
-                    }
-                  />
-                </ConfigurationSection>
-
-                <ConfigurationSection
-                  title="Price, payment, and quantity"
-                  description=""
-                >
                   <ConfigurationNumber
                     step={0.01}
                     label={
@@ -6979,13 +6843,13 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     }}
                   />
                   {serviceForm.allowBookingQuantity ? (
-                    <DurationUnitControls
+                    <div data-service-field="quantity"><DurationUnitControls
                       durationMinutes={serviceForm.durationMinutes}
                       value={serviceForm}
                       onChange={(changes) =>
                         setServiceForm((current) => ({ ...current, ...changes }))
                       }
-                    />
+                    /></div>
                   ) : null}
                   <ConfigurationSelect
                     data={[
@@ -7009,7 +6873,8 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       }))
                     }
                   />
-                  <QueueSeparator />
+                </ConfigurationSection></FieldGroup>}
+                locations={<ConfigurationSection title="Locations offering this service" description="">
                   <div>
                     <p className="ops-muted">Branches offering this service</p>
                     <p className="ops-muted">
@@ -7122,40 +6987,12 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     If a weekly schedule or special date allows more bookings at
                     the same time, the higher limit applies.
                   </p>
-                </ConfigurationSection>
-              </FieldGroup>
-
-              <ConfigurationSection
-                title="Description and availability"
-                description=""
-              >
-                <ConfigurationTextarea
-                  label="Service description"
-                  description="Tell customers what is included and what they should know before booking."
-                  value={serviceForm.description || ""}
-                  onChange={(event) =>
-                    setServiceForm((current) => ({
-                      ...current,
-                      description: event.target.value,
-                    }))
-                  }
-                />
-                <ConfigurationCheck
-                  checked={serviceForm.isActive !== false}
-                  label="Offer this service for booking"
-                  description="Turn off to stop new bookings. Existing bookings stay in your records."
-                  onChange={(event) =>
-                    setServiceForm((current) => ({
-                      ...current,
-                      isActive: event.currentTarget.checked,
-                    }))
-                  }
-                />
-              </ConfigurationSection>
+</ConfigurationSection>}
+              />
             </FieldGroup>
           </form>
         </ConfigurationScope>
-      </TaskDialog>
+      </EditorSurface>
     );
   }
 
@@ -7586,29 +7423,6 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         confirmColor: "red",
         onConfirm,
       });
-    const actions = (
-      label: string,
-      checked: boolean,
-      onToggle: (checked: boolean) => void,
-      onEdit: () => void,
-      onRemove: () => void,
-      disabled = false,
-    ) => (
-      <div className="config-catalog-actions">
-        <OperationButton variant="outline" disabled={disabled} onClick={onEdit}>
-          Edit {label}
-        </OperationButton>
-        <ConfigurationCheck
-          label={label === "exception" ? "Allow bookings" : "Enabled"}
-          checked={checked}
-          disabled={disabled}
-          onChange={(event) => onToggle(event.currentTarget.checked)}
-        />
-        <OperationButton variant="destructive" disabled={label === "service" && !checked} onClick={onRemove}>
-          Remove {label}
-        </OperationButton>
-      </div>
-    );
     return (
       <ConfigurationScope
         busy={busy}
@@ -7617,12 +7431,12 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         <div className="config-page">
           <div className="ops-grid ops-grid-3">
             <OperationMetric
-              label="Active services"
+              label="Active business services"
               value={catalogReady ? activeServices : "—"}
-              detail="Offered for new bookings at enabled branches."
+              detail="Shared catalog; location offerings are configured separately."
             />
             <OperationMetric
-              label="Inactive services"
+              label="Inactive business services"
               value={catalogReady ? services.length - activeServices : "—"}
               detail="Existing booking records are retained."
             />
@@ -7634,7 +7448,6 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
           </div>
           <ConfigTabs value={servicesTab} onValueChange={changeTab}>
             <ConfigTabsList
-              variant="line"
               className="config-tabs-list"
               activateOnFocus
               aria-label="Services and availability"
@@ -7642,6 +7455,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
               <ConfigTabsTrigger disabled={busy} value="catalog">
                 Service catalog
               </ConfigTabsTrigger>
+              {localPoolDemoClientEnabled?<ConfigTabsTrigger disabled={busy} value="queue-policy">Queue policy</ConfigTabsTrigger>:null}
               <ConfigTabsTrigger disabled={busy} value="weekly">
                 Weekly availability
               </ConfigTabsTrigger>
@@ -7650,22 +7464,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
               </ConfigTabsTrigger>
             </ConfigTabsList>
             <ConfigTabsContent value="catalog" keepMounted>
-              <OperationPanel>
-                <div className="ops-list-heading">
-                  <div>
-                    <h2>Service catalog</h2>
-                    <p className="ops-muted">
-                      Manage service details, quantity and branch booking
-                      settings.
-                    </p>
-                  </div>
-                  <OperationButton
-                    disabled={!catalogReady || !assignmentsReady}
-                    onClick={() => openServiceDialog()}
-                  >
-                    Add service
-                  </OperationButton>
-                </div>
+              <div className="ops-stack">
                 <OperationQueryState
                   loading={servicesQuery.isPending}
                   error={servicesQuery.error}
@@ -7676,103 +7475,18 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   error={locationServicesQuery.error}
                   onRetry={() => void locationServicesQuery.refetch()}
                 />
-                {catalogReady ? (
-                  <div className="config-catalog-list">
-                    {services.length ? (
-                      services.map((service) => (
-                        <QueueCard key={service.id}>
-                          <QueueCardHeader>
-                            <div className="ops-list-heading">
-                              <QueueCardTitle>{service.name}</QueueCardTitle>
-                              <QueueBadge
-                                variant={
-                                  service.isActive ? "secondary" : "outline"
-                                }
-                              >
-                                {service.isActive ? "Active" : "Inactive"}
-                              </QueueBadge>
-                            </div>
-                            <p className="ops-muted">
-                              {service.description || service.slug}
-                            </p>
-                          </QueueCardHeader>
-                          <QueueCardContent className="config-catalog-content">
-                            <dl className="config-catalog-summary">
-                              <div>
-                                <dt>Duration</dt>
-                                <dd>
-                                  {service.durationMinutes} min
-                                  {service.allowBookingQuantity
-                                    ? " per unit"
-                                    : " per booking"}
-                                </dd>
-                              </div>
-                              <div>
-                                <dt>Price</dt>
-                                <dd>
-                                  {service.priceDisplay ||
-                                    `PHP ${(service.priceAmountCents / 100).toLocaleString()}`}
-                                </dd>
-                              </div>
-                              <div>
-                                <dt>Quantity</dt>
-                                <dd>
-                                  {service.allowBookingQuantity
-                                    ? `${service.bookingQuantityMin ?? 1}–${service.bookingQuantityMax ?? 24} ${service.bookingQuantityLabel || "Units"}`
-                                    : "One per booking"}
-                                </dd>
-                              </div>
-                              <div>
-                                <dt>Booking limit</dt>
-                                <dd>
-                                  {service.bookingCapacityScope === "location"
-                                    ? "All services at the branch"
-                                    : "Only this service"}
-                                </dd>
-                              </div>
-                              <div>
-                                <dt>Payment</dt>
-                                <dd>
-                                  {service.manualPaymentRequired
-                                    ? "Proof required"
-                                    : "No proof required"}
-                                </dd>
-                              </div>
-                              <div>
-                                <dt>List order</dt>
-                                <dd>{service.sortOrder}</dd>
-                              </div>
-                            </dl>
-                            {actions(
-                              "service",
-                              service.isActive,
-                              (active) =>
-                                void handleToggleServiceActive(service, active),
-                              () => openServiceDialog(service),
-                              () =>
-                                remove(
-                                  "Remove service from booking?",
-                                  "New bookings will stop for this service. Existing bookings and service records are retained.",
-                                  "Remove service",
-                                  () => handleDeleteService(service),
-                                ),
-                              !assignmentsReady,
-                            )}
-                          </QueueCardContent>
-                        </QueueCard>
-                      ))
-                    ) : (
-                      <OperationEmpty
-                        title="No services yet"
-                        text="Add a service, then choose where customers can book it."
-                      />
-                    )}
-                  </div>
-                ) : null}
-              </OperationPanel>
+                <ServiceCatalog key={`${selectedTenantSlug}:${selectedLocationSlug}`} services={servicesQuery.data?.services || []}
+                    assignments={locationServicesQuery.data?.locationServices || []} locations={locations}
+                    selectedLocationSlug={selectedLocationSlug} catalogReady={catalogReady}
+                    assignmentsLoading={locationServicesQuery.isPending}
+                    canManage={isOwner || isAdmin} busyAction={busyAction} assignmentsReady={assignmentsReady}
+                    onAdd={() => openServiceDialog()}
+                    onToggle={(service,active)=>void handleToggleServiceActive(service,active)} onEdit={openServiceDialog}
+                    onRemove={service=>remove("Remove service from all locations?", "New bookings will stop for this shared service at every location. Existing bookings and service records are retained.", "Remove from all locations", ()=>handleDeleteService(service))}/>
+              </div>
             </ConfigTabsContent>
             <ConfigTabsContent value="weekly" keepMounted>
-              <OperationPanel>
+              <div className="ops-stack">
                 <div className="ops-list-heading">
                   <div>
                     <h2>Weekly availability</h2>
@@ -7820,91 +7534,27 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                         other services.
                       </OperationAlert>
                     ) : null}
-                    <div className="config-catalog-list">
-                      {availabilityBlocks.length ? (
-                        availabilityBlocks.map((block) => {
-                          const unavailable = Boolean(
-                            block.serviceId &&
-                            !serviceSlugById.has(block.serviceId),
-                          );
-                          return (
-                            <QueueCard key={block.id}>
-                              <QueueCardHeader>
-                                <div className="ops-list-heading">
-                                  <QueueCardTitle>
-                                    {weekdayOptions.find(
-                                      (day) =>
-                                        day.value === String(block.weekday),
-                                    )?.label || "Weekly rule"}
-                                  </QueueCardTitle>
-                                  <QueueBadge
-                                    variant={
-                                      block.isActive ? "secondary" : "outline"
-                                    }
-                                  >
-                                    {block.isActive ? "Enabled" : "Disabled"}
-                                  </QueueBadge>
-                                </div>
-                                <p className="ops-muted">
-                                  {block.startsAt} – {block.endsAt}
-                                  {block.endsNextDay ? " next day" : ""}
-                                </p>
-                              </QueueCardHeader>
-                              <QueueCardContent className="config-catalog-content">
-                                <dl className="config-catalog-summary">
-                                  <div>
-                                    <dt>Applies to</dt>
-                                    <dd>{getServiceLabel(block.serviceId)}</dd>
-                                  </div>
-                                  <div>
-                                    <dt>Bookings at the same time</dt>
-                                    <dd>{block.capacity}</dd>
-                                  </div>
-                                </dl>
-                                {block.notes ? (
-                                  <p className="ops-muted">{block.notes}</p>
-                                ) : null}
-                                {unavailable ? (
-                                  <OperationAlert title="Service unavailable">
-                                    The assigned service could not be found.
-                                    Reload the catalog before editing this rule.
-                                  </OperationAlert>
-                                ) : null}
-                                {actions(
-                                  "weekly rule",
-                                  block.isActive,
-                                  (active) =>
-                                    void handleToggleAvailabilityBlockActive(
-                                      block,
-                                      active,
-                                    ),
-                                  () => openAvailabilityBlockDialog(block),
-                                  () =>
-                                    remove(
-                                      "Remove weekly rule?",
-                                      "This recurring rule will be removed. Remaining enabled rules or business-hour fallback will determine new booking times.",
-                                      "Remove rule",
-                                      () => handleDeleteAvailabilityBlock(block),
-                                    ),
-                                  unavailable,
-                                )}
-                              </QueueCardContent>
-                            </QueueCard>
-                          );
-                        })
-                      ) : (
-                        <OperationEmpty
-                          title="No weekly rules"
-                          text="Bookings currently use business hours and fallback capacity. Add a rule to customize recurring booking times."
-                        />
-                      )}
-                    </div>
+                    {availabilityBlocks.length ? (
+                      <WeeklyAvailabilityGrid items={availabilityBlocks}
+                        branchName={selectedLocation?.name || "This branch"}
+                        timezone={selectedLocation?.timezone || platformDefaultTimezone}
+                        weekdayLabel={weekday => weekdayOptions.find(day => day.value === String(weekday))?.label || "Weekly rule"}
+                        serviceLabel={getServiceLabel}
+                        serviceAvailable={serviceId => serviceSlugById.has(serviceId)}
+                        canManage={isOwner || isAdmin} busyAction={busyAction}
+                        onToggle={(block, active) => void handleToggleAvailabilityBlockActive(block, active)}
+                        onEdit={openAvailabilityBlockDialog}
+                        onRemove={block => remove("Remove weekly rule?", "This recurring rule will be removed. Remaining enabled rules or business-hour fallback will determine new booking times.", "Remove rule", () => handleDeleteAvailabilityBlock(block))}
+                      />
+                    ) : (
+                      <OperationEmpty title="No weekly rules" text="Bookings currently use business hours and fallback capacity. Add a rule to customize recurring booking times."/>
+                    )}
                   </>
                 ) : null}
-              </OperationPanel>
+              </div>
             </ConfigTabsContent>
             <ConfigTabsContent value="exceptions" keepMounted>
-              <OperationPanel>
+              <div className="ops-stack">
                 <div className="ops-list-heading">
                   <div>
                     <h2>Date exceptions</h2>
@@ -7937,93 +7587,30 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   }}
                 />
                 {availabilityReady ? (
-                  <div className="config-catalog-list">
+                  <>
                     {availabilityExceptions.length ? (
-                      availabilityExceptions.map((exception) => {
-                        const unavailable = Boolean(
-                          exception.serviceId &&
-                          !serviceSlugById.has(exception.serviceId),
-                        );
-                        return (
-                          <QueueCard key={exception.id}>
-                            <QueueCardHeader>
-                              <div className="ops-list-heading">
-                                <QueueCardTitle>
-                                  {formatDate(exception.exceptionDate)}
-                                </QueueCardTitle>
-                                <QueueBadge
-                                  variant={
-                                    exception.isAvailable
-                                      ? "secondary"
-                                      : "destructive"
-                                  }
-                                >
-                                  {exception.isAvailable
-                                    ? "Bookings allowed"
-                                    : "Blocked"}
-                                </QueueBadge>
-                              </div>
-                              <p className="ops-muted">
-                                {exception.startsAt && exception.endsAt
-                                  ? `${exception.startsAt} – ${exception.endsAt}`
-                                  : "Whole day"}
-                              </p>
-                            </QueueCardHeader>
-                            <QueueCardContent className="config-catalog-content">
-                              <dl className="config-catalog-summary">
-                                <div>
-                                  <dt>Applies to</dt>
-                                  <dd>{getServiceLabel(exception.serviceId)}</dd>
-                                </div>
-                                <div>
-                                  <dt>Bookings at the same time</dt>
-                                  <dd>{exception.capacity ?? "Usual limit"}</dd>
-                                </div>
-                              </dl>
-                              {exception.reason ? (
-                                <p className="ops-muted">{exception.reason}</p>
-                              ) : null}
-                              {unavailable ? (
-                                <OperationAlert title="Service unavailable">
-                                  The assigned service could not be found. Reload
-                                  the catalog before editing this exception.
-                                </OperationAlert>
-                              ) : null}
-                              {actions(
-                                "exception",
-                                exception.isAvailable,
-                                (active) =>
-                                  void handleToggleAvailabilityExceptionActive(
-                                    exception,
-                                    active,
-                                  ),
-                                () => openAvailabilityExceptionDialog(exception),
-                                () =>
-                                  remove(
-                                    "Remove date exception?",
-                                    "The usual weekly schedule or business-hour fallback will apply on this date. Existing bookings are retained.",
-                                    "Remove exception",
-                                    () =>
-                                      handleDeleteAvailabilityException(
-                                        exception,
-                                      ),
-                                  ),
-                                unavailable,
-                              )}
-                            </QueueCardContent>
-                          </QueueCard>
-                        );
-                      })
-                    ) : (
-                      <OperationEmpty
-                        title="No date exceptions"
-                        text="Add a holiday, special opening time or one-off booking limit."
+                      <DateExceptionsGrid items={availabilityExceptions}
+                        branchName={selectedLocation?.name || "This branch"}
+                        timezone={selectedLocation?.timezone || platformDefaultTimezone}
+                        dateLabel={formatDate} serviceLabel={getServiceLabel}
+                        serviceAvailable={serviceId => serviceSlugById.has(serviceId)}
+                        canManage={isOwner || isAdmin} busyAction={busyAction}
+                        onToggle={(exception, available) => void handleToggleAvailabilityExceptionActive(exception, available)}
+                        onEdit={openAvailabilityExceptionDialog}
+                        onRemove={exception => remove("Remove date exception?", "The usual weekly schedule or business-hour fallback will apply on this date. Existing bookings are retained.", "Remove exception", () => handleDeleteAvailabilityException(exception))}
                       />
+                    ) : (
+                      <OperationEmpty title="No date exceptions" text="Add a holiday, special opening time or one-off booking limit."/>
                     )}
-                  </div>
+                  </>
                 ) : null}
-              </OperationPanel>
+              </div>
             </ConfigTabsContent>
+            {localPoolDemoClientEnabled&&selectedTenantSlug&&selectedLocationSlug?<ConfigTabsContent value="queue-policy">
+              <OperationQueryState loading={servicesQuery.isPending} error={servicesQuery.error} onRetry={()=>void servicesQuery.refetch()}/>
+              <OperationQueryState loading={locationServicesQuery.isPending} error={locationServicesQuery.error} onRetry={()=>void locationServicesQuery.refetch()}/>
+              <QueueServicePolicyEditor key={`${selectedTenantSlug}:${selectedLocationSlug}`} token={token} tenant={selectedTenantSlug} location={selectedLocationSlug} services={servicesQuery.data?.services || []} assignments={locationServicesQuery.data?.locationServices || []} locations={locations} servicesReady={catalogReady} assignmentsReady={assignmentsReady} canManage={isOwner||isAdmin} onBusy={value=>setBusyAction(value?'queue-service-policy':'')} onCloseForm={()=>unsavedForm.current.discardId('queue-service-policy')} onNotice={showSuccessNotification}/>
+            </ConfigTabsContent>:null}
           </ConfigTabs>
         </div>
       </ConfigurationScope>
@@ -8049,92 +7636,65 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       );
     return (
       <OperationScope busy={Boolean(busyAction)}>
-        <div className="ops-stack">
-          <div className="ops-grid ops-grid-3">
-            <OperationMetric
-              detail="Awaiting vendor confirmation on this page."
-              label="Pending requests"
-              value={pendingBookings}
-            />
-            <OperationMetric
-              detail="Pending, confirmed or rescheduled on this page."
-              label="Active bookings"
-              value={actionableBookings}
-            />
-            <OperationPanel>
-              <div className="ops-stack">
-                <p className="vendor-eyebrow">
-                  {selectedLocation?.name || "Selected location"}
-                </p>
-                <h2 className="ops-heading">Booking queue</h2>
-                <OperationButton onClick={reloadBookings} variant="outline">
-                  Refresh bookings
-                </OperationButton>
-              </div>
-            </OperationPanel>
+        <section className="request-data-table booking-request-data-table" aria-label="Booking requests">
+          <div className="ops-list-heading request-card-heading">
+            <div>
+              <p className="vendor-eyebrow">{selectedLocation?.name || "Selected location"}</p>
+              <h2 className="ops-heading">{canAdminBookings ? "Incoming booking requests" : "Booking check-in queue"}</h2>
+              <p className="ops-muted">
+                Review scheduled services for {selectedLocation?.name || selectedLocationSlug}.
+                <span className="booking-summary-counts">{pendingBookings} pending · {actionableBookings} active</span>
+              </p>
+            </div>
+            <div className="request-card-actions">
+              <OperationButton onClick={reloadBookings} variant="outline">Refresh bookings</OperationButton>
+            </div>
           </div>
 
-          <OperationPanel>
-            <div className="ops-stack">
-              <div className="ops-row ops-between">
-                <div>
-                  <p className="vendor-eyebrow">
-                    {canAdminBookings ? "Vendor Admin" : "Vendor Staff"}
-                  </p>
-                  <h2 className="ops-heading">
-                    {canAdminBookings
-                      ? "Incoming booking requests"
-                      : "Booking check-in queue"}
-                  </h2>
-                  <p className="ops-muted">
-                    Showing bookings for{" "}
-                    {selectedLocation?.name || selectedLocationSlug} only. If a
-                    reference is missing, choose the customer’s booking branch
-                    using Location in the navigation.
-                  </p>
-                </div>
-                <div className="ops-row">
-                  <OperationInput
-                    label="Search"
-                    placeholder="Reference, customer, service"
+          <div className="request-table-surface">
+            <div className="request-filter-surface booking-filter-surface">
+              <div className="request-table-toolbar booking-table-toolbar">
+                <div className="request-search-field">
+                  <IconSearch aria-hidden="true" />
+                  <QueueInput
+                    aria-label="Search booking requests"
+                    placeholder="Search bookings…"
                     value={bookingSearch}
                     onChange={(event) => setBookingSearch(event.target.value)}
                   />
+                </div>
+                <div className="request-filter-controls">
                   <OperationSelect
                     data={bookingStatusFilterOptions}
                     label="Status"
+                    icon={<IconFilter aria-hidden="true" size={16} />}
                     value={bookingStatusFilter}
                     onChange={(value) => {
-                      setBookingStatusFilter(
-                        (value || "all") as BookingStatusFilter,
-                      );
+                      setBookingStatusFilter((value || "all") as BookingStatusFilter);
                       setHideNonActiveBookings(false);
                     }}
                   />
-                  <OperationCheckbox
-                    label="Hide non-active bookings"
-                    checked={hideNonActiveBookings}
-                    onCheckedChange={(checked) => {
-                      setHideNonActiveBookings(checked);
-                      if (checked) setBookingStatusFilter("all");
-                    }}
-                  />
-                  <OperationDateRange
+                  <DateRangePicker
                     value={bookingDateRange}
-                    onChange={(value) =>
-                      setBookingDateRange(value as [Date | null, Date | null])
-                    }
+                    onChange={(value) => setBookingDateRange(value)}
                   />
-                  {bookingDateRange[0] || bookingDateRange[1] ? (
+                  {bookingSearch || bookingStatusFilter !== "all" || bookingDateRange[0] || bookingDateRange[1] ? (
                     <OperationButton
-                      onClick={() => setBookingDateRange([null, null])}
-                      variant="outline"
+                      className="booking-clear-filters"
+                      onClick={() => {
+                        setBookingSearch("");
+                        setBookingStatusFilter("all");
+                        setHideNonActiveBookings(false);
+                        setBookingDateRange([null, null]);
+                      }}
+                      variant="ghost"
                     >
-                      Clear range
+                      Clear filters
                     </OperationButton>
                   ) : null}
                 </div>
               </div>
+            </div>
 
               {filteredBookings.length ? (
                 <>
@@ -8559,9 +8119,8 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   text="Incoming service booking requests for this location will appear here."
                 />
               )}
-            </div>
-          </OperationPanel>
-        </div>
+          </div>
+        </section>
       </OperationScope>
     );
   }
@@ -8770,7 +8329,13 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     };
     return (
       <ConfigurationScope busy={Boolean(busyAction)}>
-        <OperationPanel>
+        <div className="config-page">
+          <div className="ops-grid ops-grid-3">
+            <OperationMetric label="Team members" value={staff.length} detail="Saved memberships in this business" />
+            <OperationMetric label="Enabled access" value={staff.filter((member) => member.isActive !== false).length} detail="Members currently allowed to sign in" />
+            <OperationMetric label="Staff seats" value={`${staff.length}/${staffSeatLimit}`} detail="Disabled memberships still use a seat" />
+          </div>
+        <div className="ops-stack">
           <div className="ops-list-heading ops-between">
             <div>
               <h2>Business access</h2>
@@ -8810,7 +8375,10 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
             </OperationAlert>
           ) : null}
           <StaffManagement
+            key={selectedTenantSlug}
             members={staff}
+            busyAction={busyAction}
+            locationName={selectedLocation?.name || "the selected location"}
             actorId={user?.id || ""}
             owner={isOwner}
             admin={isAdmin}
@@ -8822,7 +8390,8 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
             }
             onRemove={(member) => confirmStaffChange(member, "remove")}
           />
-        </OperationPanel>
+        </div>
+      </div>
       </ConfigurationScope>
     );
   }
@@ -9143,9 +8712,12 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
   function renderReportsPage() {
     const ready = !dashboardBootstrapQuery.error && snapshot?.tenant.slug === selectedTenantSlug && snapshot?.location?.slug === selectedLocationSlug;
     return <div className="config-page">
-      {!ready || !snapshot ? <OperationQueryState loading={!dashboardBootstrapQuery.error} error={dashboardBootstrapQuery.error} onRetry={()=>void dashboardBootstrapQuery.refetch()} /> : <div className="ops-grid ops-grid-2"><OperationMetric label="Waiting tickets" value={snapshot.stats.waitingCount} detail="At the selected location" /><OperationMetric label="Tickets served today" value={ticketUsage} detail="At the selected location" /><OperationMetric label="Estimated wait" value={`${snapshot.stats.estimatedWaitMinutes} min`} detail="Current queue estimate" /><OperationMetric label="Called ticket" value={selectedCalledTicket?.ticketNumber || "—"} detail={selectedCalledTicket?.customerName || "No called ticket for the selected counter"} /></div>}
-      <OperationPanel><h2 className="account-panel-title">Plan consumption</h2>{renderPeriodTicketUsage()}</OperationPanel>
-      {ready ? renderRecordedIntervals() : null}
+      <div className="ops-list-heading"><div><h2 className="account-panel-title">Today at {selectedLocation?.name || "this location"}</h2><p className="ops-muted">Current queue activity for the selected location.</p></div></div>
+      {!ready || !snapshot ? <OperationQueryState loading={!dashboardBootstrapQuery.error} error={dashboardBootstrapQuery.error} onRetry={()=>void dashboardBootstrapQuery.refetch()} /> : <div className="ops-grid report-metrics"><OperationMetric label="Waiting tickets" value={snapshot.stats.waitingCount} detail="At the selected location" /><OperationMetric label="Tickets served today" value={ticketUsage} detail="At the selected location" /><OperationMetric label="Estimated wait" value={`${snapshot.stats.estimatedWaitMinutes} min`} detail="Current queue estimate" /><OperationMetric label="Called ticket" value={selectedCalledTicket?.ticketNumber || "—"} detail={selectedCalledTicket?.customerName || "No called ticket for the selected counter"} /></div>}
+      <div className="report-detail-grid">
+        {ready ? renderRecordedIntervals() : null}
+        <OperationPanel><h2 className="account-panel-title">Billing period usage</h2><p className="ops-muted">Across all locations in this business.</p>{renderPeriodTicketUsage()}</OperationPanel>
+      </div>
     </div>;
   }
 
@@ -9404,6 +8976,17 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       <AccountPresentation key={accountTaskRevision} onBusyChange={setAccountPanelBusy} onDraftChange={setAccountPanelDraft}>
       <ConfigurationScope busy={Boolean(accountProfileBusy || passwordBusy || mfaBusy || accountPanelBusy || busyAction)}>
       <div className="config-page account-page">
+        <QueueCard>
+          <QueueCardHeader>
+            <QueueCardDescription>Your GetPrio account</QueueCardDescription>
+            <QueueCardTitle>{user?.displayName || user?.name || "Account"}</QueueCardTitle>
+            <QueueCardDescription>One identity across your vendor workspaces.</QueueCardDescription>
+          </QueueCardHeader>
+          <QueueCardContent className="ops-row">
+            <QueueBadge variant="secondary">{selectedTenantRole === "owner" ? "Business owner" : selectedTenantRole === "admin" ? "Business admin" : "Staff"}</QueueBadge>
+            <QueueBadge variant="outline">{user?.totpMfaEnabled ? "Authenticator enabled" : "Authenticator not enabled"}</QueueBadge>
+          </QueueCardContent>
+        </QueueCard>
           <ConfigTabs
             className="vendor-account-tabs"
             value={accountTab}
@@ -9417,7 +9000,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
               setAccountTab(nextTab);
             }}
           >
-            <ConfigTabsList variant="line" className="config-tabs-list">
+            <ConfigTabsList className="config-tabs-list">
               {canAccessBillingTabs && !requiresMfaEnrollment ? (
                 <>
                   <ConfigTabsTrigger value="subscription">Subscription</ConfigTabsTrigger>
@@ -9589,9 +9172,13 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     } as CSSProperties;
 
     return (
-      <Stack gap="xs">
-        <Text fw={700}>Profile preview</Text>
-        <Text c="dimmed" size="sm">This is how the default profile media will appear on public profile cards.</Text>
+      <Stack className="vendor-profile-preview-shell" data-preview-theme={profilePreviewMode} gap="xs">
+        <Group justify="space-between" align="flex-start" gap="sm">
+          <div><Text fw={700}>Profile preview</Text><Text c="dimmed" size="sm">This is how the default profile media will appear on public profile cards.</Text></div>
+          <Button size="xs" variant="subtle" leftSection={profilePreviewMode === "light" ? <IconMoon size={16} /> : <IconSun size={16} />} onClick={() => setProfilePreviewMode((mode) => mode === "light" ? "dark" : "light")}>
+            {profilePreviewMode === "light" ? "Dark preview" : "Light preview"}
+          </Button>
+        </Group>
         <Paper className="vendor-card vendor-profile-settings-preview" component="div" p={{ base: "md", sm: "lg" }}>
           <Stack gap="md">
             <div
@@ -9661,19 +9248,22 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
             ) : null}
           </ConfigTabsList>
           <ConfigTabsContent value="contact">
-            <OperationPanel>
+            <OperationPanel className="config-long-form">
               <form
                 id="vendor-business-profile"
                 onSubmit={handleSaveBusinessProfile}
               >
-                <FieldGroup>
-                  <div className="ops-list-heading">
+                  <div className="config-persistent-actions">
                     <h2>Business profile</h2>
-                    <p className="ops-muted">
-                      Update the details and default images customers see for your
-                      business.
-                    </p>
+                  <OperationButton
+                    type="submit"
+                    disabled={profileDisabled}
+                    loading={settingsBusy}
+                  >
+                    Save business profile
+                  </OperationButton>
                   </div>
+                <FieldGroup>
                   {!canManageContactSettings ? (
                     <OperationAlert>
                       Only the business owner can change these details and default
@@ -9727,7 +9317,6 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     <ConfigurationInput
                       name="publicProfileDisplayName"
                       label="Business display name"
-                      description="Shown publicly when set; otherwise the Business name is used."
                       maxLength={120}
                       disabled={profileDisabled}
                       value={settings.publicProfileDisplayName || ""}
@@ -9740,9 +9329,6 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     />
                     <div className="queue-stack">
                       <p className="ops-strong">Business description</p>
-                      <p className="ops-muted">
-                        Shown on public vendor pages and related customer screens.
-                      </p>
                       <CampaignDescriptionEditor
                         label="Business description"
                         disabled={profileDisabled || settingsBusy}
@@ -9763,104 +9349,43 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     title="Default profile media"
                     description="Set the default logo and profile background. Location theme setup can override these values."
                   >
-                    <div className="config-related-fields">
+                    <div className="config-related-fields profile-media-layout">
                       <FieldGroup>
                         <ConfigurationFile
                           accept="image/png,image/jpeg,image/webp"
                           label="Profile background"
-                          description="Upload a custom image for the profile visual area."
+                          value={profileBackgroundFile}
                           disabled={profileDisabled}
-                          onChange={(file) =>
-                            void uploadBusinessProfileAsset("background", file)
-                          }
+                          onChange={(file) => { setProfileBackgroundFile(file); void uploadBusinessProfileAsset("background", file); }}
                         />
-                        <ConfigurationSelect
-                          name="defaultBackgroundImageFit"
-                          label="Profile background fit"
-                          description="Cover fills the profile visual area. Contain shows the full image."
-                          data={[
-                            { value: "cover", label: "Cover" },
-                            { value: "contain", label: "Contain" },
-                          ]}
-                          disabled={profileDisabled}
-                          value={businessProfileTheme.backgroundImageFit}
-                          onChange={(value) =>
-                            setBusinessProfileThemeField(
-                              "backgroundImageFit",
-                              value === "contain" ? "contain" : "cover",
-                            )
-                          }
-                        />
-                        <ConfigurationInput
-                          name="defaultBackgroundImageUrl"
-                          label="Profile background URL"
-                          description="Paste a hosted image URL for the profile visual area."
-                          disabled={profileDisabled}
-                          value={businessProfileTheme.backgroundImageUrl}
-                          onChange={(event) =>
-                            setBusinessProfileThemeField(
-                              "backgroundImageUrl",
-                              event.currentTarget.value,
-                            )
-                          }
-                        />
+                        <div className="profile-media-inline-fields">
+                          <ConfigurationInput name="defaultBackgroundImageUrl" label="Profile background URL" disabled={profileDisabled} value={businessProfileTheme.backgroundImageUrl} onChange={(event) => setBusinessProfileThemeField("backgroundImageUrl", event.currentTarget.value)} />
+                          <ConfigurationSelect name="defaultBackgroundImageFit" label="Image fit" description="Cover fills the visual area; contain shows the full image." data={[{ value: "cover", label: "Cover" }, { value: "contain", label: "Contain" }]} disabled={profileDisabled} value={businessProfileTheme.backgroundImageFit} onChange={(value) => setBusinessProfileThemeField("backgroundImageFit", value === "contain" ? "contain" : "cover")} />
+                        </div>
                         <ConfigurationFile
                           accept="image/png,image/jpeg,image/webp"
                           label="Company logo"
-                          description="Displayed inside the circular logo frame."
+                          value={profileLogoFile}
                           disabled={profileDisabled}
-                          onChange={(file) =>
-                            void uploadBusinessProfileAsset("logo", file)
-                          }
+                          onChange={(file) => { setProfileLogoFile(file); void uploadBusinessProfileAsset("logo", file); }}
                         />
-                        <ConfigurationInput
-                          name="defaultLogoUrl"
-                          label="Logo URL"
-                          description="Paste a hosted logo URL when not uploading a file."
-                          disabled={profileDisabled}
-                          value={businessProfileTheme.logoUrl}
-                          onChange={(event) =>
-                            setBusinessProfileThemeField(
-                              "logoUrl",
-                              event.currentTarget.value,
-                            )
-                          }
-                        />
-                        <ConfigurationSelect
-                          name="defaultLogoFit"
-                          label="Profile logo fit"
-                          description="Contain shows the full logo. Cover fills the circular frame."
-                          data={[
-                            { value: "contain", label: "Contain" },
-                            { value: "cover", label: "Cover" },
-                          ]}
-                          disabled={profileDisabled}
-                          value={businessProfileTheme.logoFit}
-                          onChange={(value) =>
-                            setBusinessProfileThemeField(
-                              "logoFit",
-                              value === "cover" ? "cover" : "contain",
-                            )
-                          }
-                        />
+                        <div className="profile-media-inline-fields">
+                          <ConfigurationInput name="defaultLogoUrl" label="Logo URL" disabled={profileDisabled} value={businessProfileTheme.logoUrl} onChange={(event) => setBusinessProfileThemeField("logoUrl", event.currentTarget.value)} />
+                          <ConfigurationSelect name="defaultLogoFit" label="Logo fit" description="Contain shows the full logo; cover fills the frame." data={[{ value: "contain", label: "Contain" }, { value: "cover", label: "Cover" }]} disabled={profileDisabled} value={businessProfileTheme.logoFit} onChange={(value) => setBusinessProfileThemeField("logoFit", value === "cover" ? "cover" : "contain")} />
+                        </div>
                       </FieldGroup>
                       {renderBusinessProfilePreview()}
                     </div>
                   </ConfigurationSection>
-                  <OperationButton
-                    type="submit"
-                    disabled={profileDisabled}
-                    loading={settingsBusy}
-                  >
-                    Save business profile
-                  </OperationButton>
+
                 </FieldGroup>
               </form>
             </OperationPanel>
           </ConfigTabsContent>
           <ConfigTabsContent value="queue">
-            <OperationPanel>
+            <OperationPanel className="config-long-form">
               <form id="vendor-queue-settings" onSubmit={handleSaveSettings}>
+                <div className="config-persistent-actions"><p className="ops-muted">Changes apply to queue preferences at this business.</p><OperationButton type="submit" loading={settingsBusy}>Save queue settings</OperationButton></div>
                 <FieldGroup>
                   <div className="ops-list-heading">
                     <h2>Queue preferences</h2>
@@ -10013,9 +9538,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                         : "Only applies to queues paused automatically by threshold."}
                     </p>
                   </ConfigurationSection>
-                  <OperationButton type="submit" loading={settingsBusy}>
-                    Save queue settings
-                  </OperationButton>
+
                 </FieldGroup>
               </form>
             </OperationPanel>
@@ -10926,15 +10449,34 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       return <ActivationPanel onViewPlans={() => openPlanDialog()} />;
     }
 
+    if (currentSection === "overview") {
+      return <ResourceDashboard token={token} canOpenQueue={canAccessVendorSection("queue", effectiveEntitlements, tenantPlan)} scope={{tenantSlug: selectedTenantSlug, locationSlug: selectedLocationSlug,
+        tenantId: snapshot?.tenant.id || "", locationId: snapshot?.location?.id || ""}}
+        onOpenQueue={() => { if (canLeaveFeature()) navigate(workspacePath("queue", "operations", location.search)); }} />;
+    }
+
     if (currentSection === "queue") {
       return renderQueuePage();
     }
 
     if (currentSection === "tenants") {
+      if (locationSlug) {
+        if (!isOwner && !isAdmin) return <OperationAlert color="red" title="Location access required">You do not have permission to edit this location.</OperationAlert>;
+        if (!dashboardBootstrapQuery.data) return <OperationAlert color="blue" title="Loading location">Loading authorized locations for this business.</OperationAlert>;
+        if (!resolveLocationEditor(locationSlug, locations, new Set(dashboardBootstrapQuery.data.locationsResponse.locations.map(item => item.id)))) return <OperationAlert color="red" title="Location unavailable">This location is unavailable in the selected business.<OperationButton variant="outline" onClick={()=>navigate(workspacePath("tenants","administration",location.search))}>Back to locations</OperationButton></OperationAlert>;
+        return renderLocationDialog();
+      }
       return renderTenantsPage();
     }
 
     if (currentSection === "services") {
+      if(routeServiceSlug) {
+        if(!isOwner && !isAdmin)return <OperationAlert color="red" title="Service access required">You do not have permission to edit this service.</OperationAlert>;
+        if(servicesQuery.isPending || locationServicesQuery.isPending)return <OperationQueryState loading error={null} onRetry={()=>{void servicesQuery.refetch();void locationServicesQuery.refetch();}}/>;
+        if(servicesQuery.isError || locationServicesQuery.isError)return <OperationQueryState loading={false} error={servicesQuery.error || locationServicesQuery.error} onRetry={()=>{void servicesQuery.refetch();void locationServicesQuery.refetch();}}/>;
+        if(!servicesQuery.data || !resolveServiceEditor(routeServiceSlug,services,new Set(servicesQuery.data.services.map(item=>item.id))))return <OperationAlert color="red" title="Service unavailable">This service is unavailable in the selected business.</OperationAlert>;
+        return renderServiceDialog();
+      }
       return renderServicesPage();
     }
 
@@ -10969,10 +10511,10 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     return renderSettingsPage();
   }
 
-  const canLeaveFeature = () => {
+  const canLeaveFeature = (discardApproved = false) => {
     if (resourceConfigurationBusy || busyAction || boardScannerBusy || boardSettingsBusy || savingNotificationSettings || requestingBrowserPermission || accountProfileBusy || passwordBusy || mfaBusy || accountPanelBusy || ratingsBusy) return false;
     const editing = unsavedForm.current.hasEdits() || themeDialogOpen || accountDraftRef.current;
-    if (editing && !window.confirm("You have unsaved edits. Leave this view?")) return false;
+    if (editing && !discardApproved && !window.confirm("You have unsaved edits. Leave this view?")) return false;
     if (currentSection === "account" && accountTab === "security") {
       if (mfaRecoveryCodes.length && !window.confirm("Save your recovery codes before leaving Security. They remain visible only in this dashboard session. Leave Security?")) return false;
       if (mfaSecret && !window.confirm("Your authenticator setup will stay pending. Return to Security to finish or cancel it. Leave Security?")) return false;
@@ -10981,6 +10523,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       setAccountTaskRevision((revision) => revision + 1);
       setAccountPanelDraft(false);
     }
+    setEditingQueueTicket(null);
     unsavedForm.current.clear();
     setAccountProfileForm({name:user?.name || "",displayName:user?.displayName || ""});
     setPasswordForm({currentPassword:"",newPassword:""});
@@ -10991,6 +10534,19 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     setStaffDialogOpen(false); setRescheduleDialogOpen(false); setWalkInDialogOpen(false); setThemeDialogOpen(false);
     return true;
   };
+  const requestLocationLeave = (proceed: () => void) => {
+    if (unsavedForm.current.hasEdits()) {
+      locationLeaveDraft.current = locationForm;
+      setLocationLeaveAction(() => proceed);
+    }
+    else if (canLeaveFeature(true)) proceed();
+  };
+  useLocationPageBackGuard(Boolean(locationSlug), location.key, requestLocationLeave);
+  const requestServiceLeave = (proceed:()=>void)=>{
+    if(unsavedForm.current.hasEdits()){serviceLeaveDraft.current=serviceForm;setServiceLeaveAction(()=>proceed);}
+    else if(canLeaveFeature(true))proceed();
+  };
+  useLocationPageBackGuard(Boolean(routeServiceSlug),location.key,requestServiceLeave);
   useEffect(() => {
     if (!navigationGuard) return;
     navigationGuard.current = canLeaveFeature;
@@ -11004,6 +10560,8 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
   if (!user) {
     return <Navigate to={`/login?next=${encodeURIComponent(location.pathname + location.search)}`} replace />;
   }
+
+  if (section === "tenants") return <Navigate to={`/dashboard/locations${location.search}${location.hash}`} replace />;
 
   if (invalidSection) {
     return <Navigate to="/dashboard/queue" replace />;
@@ -11049,14 +10607,26 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     savePreference(preferenceKey(user.id, selectedTenantSlug), next);
     navigate(workspacePath(destination, next, location.search, location.hash));
   };
+  const routedLocation = locationSlug && dashboardBootstrapQuery.data
+    ? resolveLocationEditor(locationSlug, locations, new Set(dashboardBootstrapQuery.data.locationsResponse.locations.map(item => item.id))) : undefined;
+  const routedService = routeServiceSlug && servicesQuery.data ? resolveServiceEditor(routeServiceSlug,services,new Set(servicesQuery.data.services.map(item=>item.id))) : undefined;
+  const pageTitle = requiresMfaEnrollment ? "Secure your account" : routeServiceSlug ? routedService ? `Service: ${serviceDialogOpen ? serviceForm.name || "New service" : routedService.name}` : servicesQuery.isPending ? "Loading service" : "Service unavailable" : locationSlug ? routedLocation ? `Edit ${routedLocation.name}` : "Location unavailable" : currentSection === "queue" ? "Live queue" : navItems.find(item => item.section === currentSection)?.label || "Account";
+  const pageDescription = requiresMfaEnrollment ? "Set up an authenticator to continue to your vendor workspace. Your sign-in session remains active during setup." : routeServiceSlug ? "Set the duration, price and branches where customers can book this service." : locationSlug ? "Set the branch details, payment options and operating hours customers see." : dashboardSectionDescriptions[currentSection] || "Manage your vendor workspace.";
   return (
     <VendorWorkspaceShell
       workspace={workspace} canAdmin={canSwitchWorkspace} items={workspaceNavItems}
       businessName={activeTenants.find((tenant) => tenant.slug === selectedTenantSlug)?.name || "Your business"}
       locationName={selectedLocation?.name || ""}
       publicVendorUrl={selectedTenantSlug ? `/vendors/${selectedTenantSlug}` : undefined}
-      title={requiresMfaEnrollment ? "Secure your account" : currentSection === "queue" ? "Live queue" : navItems.find((item) => item.section === currentSection)?.label || "Account"}
-      description={requiresMfaEnrollment ? "Set up an authenticator to continue to your vendor workspace. Your sign-in session remains active during setup." : dashboardSectionDescriptions[currentSection] || "Manage your vendor workspace."}
+      title={pageTitle}
+      eyebrow={routeServiceSlug && !requiresMfaEnrollment ? "SERVICE EDITOR" : undefined}
+      description={pageDescription}
+      breadcrumbs={routeServiceSlug && !requiresMfaEnrollment ? [{label:"Administration",href:workspacePath("services","administration",location.search)},{label:"Services",href:workspacePath("services","administration",location.search)},{label:pageTitle}] : locationSlug && !requiresMfaEnrollment ? [
+        {label: "Administration", href: workspacePath("tenants", "administration", location.search)},
+        {label: "Locations", href: workspacePath("tenants", "administration", location.search)},
+        {label: pageTitle}
+      ] : undefined}
+      headerAction={routeServiceSlug && !requiresMfaEnrollment ? <OperationButton variant="outline" disabled={Boolean(busyAction)} onClick={()=>requestServiceLeave(()=>navigate(workspacePath("services","administration",location.search)))}><IconArrowLeft data-icon="inline-start" aria-hidden="true"/>Back to services</OperationButton> : locationSlug && !requiresMfaEnrollment ? <OperationButton variant="outline" disabled={Boolean(busyAction)} onClick={() => requestLocationLeave(() => navigate(workspacePath("tenants", "administration", location.search)))}><IconArrowLeft data-icon="inline-start" aria-hidden="true" />Back to locations</OperationButton> : undefined}
       name={user.name || "Vendor"} role={selectedTenantRole || "Vendor"} plan={activeSubscription?.planName || tenantPlan?.planName || "No active plan"}
       onBeforeNavigate={canLeaveFeature} onEdit={(form) => unsavedForm.current.mark(form)}
       onWorkspace={switchWorkspace} onLogout={() => { if (canLeaveFeature()) void logout(); }} search={location.search} hash={location.hash}
@@ -11075,16 +10645,27 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
             if (!target) return;
             const nextWorkspace = rememberedTenantWorkspace(user.id, target);
             setSelectedTenantSlug(value);
-            navigate(workspacePath(currentSection === "account" ? "account" : nextWorkspace === "administration" ? "settings" : "queue",
-              nextWorkspace, location.search, location.hash));
+            navigate(workspacePath(currentSection === "account" ? "account" : nextWorkspace === "administration" ? "settings" : "overview",
+              nextWorkspace, clearQueueReview(location.search), location.hash));
           }} />
         <ContextPicker data={locationOptions} label="Location" value={selectedLocationSlug} disabled={Boolean(busyAction) || boardScannerBusy || boardSettingsBusy || savingNotificationSettings || requestingBrowserPermission || accountPanelBusy || accountProfileBusy || passwordBusy || mfaBusy || ratingsBusy}
-          onChange={(value) => { if (value && value !== selectedLocationSlug && canLeaveFeature()) { setSnapshot(null); setServiceCounters([]); setVendorBookings([]); setBookingPagination(null); setClients(null); setHistory(null); setBookingDetailOpen(false); setBookingDetailBooking(null); setBookingDetailModalId(null); setAvailabilityBlocks([]); setAvailabilityExceptions([]); setAvailabilitySummary(null); setSelectedCounterSlug(""); setSelectedLocationSlug(value); } }} />
-      </> : <Badge color="orange" variant="light">MFA setup required</Badge>}
+          onChange={(value) => { if (value && value !== selectedLocationSlug && canLeaveFeature()) { setSnapshot(null); setServiceCounters([]); setVendorBookings([]); setBookingPagination(null); setClients(null); setHistory(null); setBookingDetailOpen(false); setBookingDetailBooking(null); setBookingDetailModalId(null); setAvailabilityBlocks([]); setAvailabilityExceptions([]); setAvailabilitySummary(null); setSelectedCounterSlug(""); setSelectedLocationSlug(value); if(locationSlug)navigate(workspacePath("tenants","administration",clearQueueReview(location.search))); else navigate({pathname:location.pathname,search:clearQueueReview(location.search),hash:location.hash},{replace:true}); } }} />
+      </> : <QueueBadge variant="warning">MFA setup required</QueueBadge>}
       dialogs={<>
       {renderPlanDialog()}
-      {renderLocationDialog()}
-      {renderServiceDialog()}
+      {!locationSlug ? renderLocationDialog() : null}
+          <QueueConfirmation opened={Boolean(locationLeaveAction)} title="Discard location changes?"
+            description="Your unsaved location changes will be discarded."
+            confirmLabel="Discard changes" cancelLabel="Keep editing"
+            onClose={() => { setLocationForm(locationLeaveDraft.current); setLocationLeaveAction(null); }}
+            onConfirm={() => {
+              if (!canLeaveFeature(true)) return;
+              const proceed = locationLeaveAction;
+              setLocationLeaveAction(null);
+              proceed?.();
+            }} />
+      {serviceLeaveAction ? <QueueConfirmation opened title="Discard service changes?" description="Your unsaved service changes will be discarded." confirmLabel="Discard changes" cancelLabel="Keep editing" confirmColor="red" loading={Boolean(busyAction)} onClose={()=>{setServiceForm(serviceLeaveDraft.current);setServiceLeaveAction(null);}} onConfirm={()=>{if(!canLeaveFeature(true))return;const proceed=serviceLeaveAction;setServiceLeaveAction(null);proceed();}}/> : null}
+      {!routeServiceSlug && !serviceEditorScopeRef.current ? renderServiceDialog() : null}
       {renderAvailabilityBlockDialog()}
       {renderAvailabilityExceptionDialog()}
       {renderRescheduleDialog()}
@@ -11094,6 +10675,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       <VendorToastViewport />
       {renderDashboardAlertOverlay()}
       {renderRescheduleBlockedModal()}
+      {editingQueueTicket && editingQueueTicket.tenant === selectedTenantSlug && editingQueueTicket.location === selectedLocationSlug ? <QueueDetailsEditor key={`${editingQueueTicket.tenant}:${editingQueueTicket.location}:${editingQueueTicket.id}`} token={token} tenantSlug={editingQueueTicket.tenant} locationSlug={editingQueueTicket.location} ticketId={editingQueueTicket.id} onClose={()=>{unsavedForm.current.discardId("queue-details-editor");setEditingQueueTicket(null);}} onBusy={busy=>setBusyAction(busy?"ticket-details":"")} onRefresh={async()=>{await Promise.all([reloadDashboardSnapshot(),...(localPoolDemoClientEnabled?[localPoolQuery.refetch()]:[])]);}}/> : null}
       {renderWalkInDialog()}
       <TicketScannerModal
         error={ticketScannerError}
@@ -11110,7 +10692,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       />
       </>}
     >
-        {!requiresMfaEnrollment ? <VendorQueueLifecycleTray
+        {!requiresMfaEnrollment && currentSection !== "overview" ? <VendorQueueLifecycleTray
           busyAction={busyAction}
           canOperate={canOperateQueueDay}
           locationName={selectedLocation?.name || "This queue"}
@@ -11122,7 +10704,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         {error ? <Text c="red" fw={700}>{error}</Text> : null}
         {requiresMfaEnrollment || currentSection === "account" || (snapshot?.tenant.slug === selectedTenantSlug && snapshot?.location?.slug === selectedLocationSlug)
           ? renderCurrentSection()
-          : <Stack><Text>Loading this business and location...</Text><Button variant="default" onClick={() => void retryDashboardContext()}>Retry</Button></Stack>}
+          : <OperationQueryState loading={!dashboardBootstrapQuery.error} error={dashboardBootstrapQuery.error} onRetry={() => void retryDashboardContext()} />}
     </VendorWorkspaceShell>
   );
 }

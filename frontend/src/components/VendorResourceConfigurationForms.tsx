@@ -1,3 +1,4 @@
+import type { LocalResourceActivationV1 } from "../../../shared/localResourceActivationV1";
 import type { FormEvent } from "react";
 import {
   ConfigurationInput,
@@ -11,8 +12,22 @@ export type ResourceConfiguration = {
     id: string;
     name: string;
     capacity: number;
+    display_order: number;
     revision: number;
     tracking_enabled: boolean;
+    archived_at?: string | null;
+    deletion?: {
+      allowed: boolean;
+      reasonCode: "RESOURCE_POOL_REFERENCED" | null;
+      message: string;
+      dependencies: Array<{ code: string; count: number; label: string }>;
+      archiveAllowed: boolean;
+      archiveBlock?: {
+        code: "RESOURCE_POOL_WORKFLOW_IN_PROGRESS";
+        message: string;
+        affectedRequests: number;
+      };
+    };
   }[];
   requirements: {
     service_id: string;
@@ -22,15 +37,18 @@ export type ResourceConfiguration = {
   }[];
   services: { id: string; name: string }[];
   trackingAvailable: false;
+  localActivation?: LocalResourceActivationV1;
 };
 export type PoolEditor = {
   kind: "pool";
   poolId?: string;
   name: string;
   capacity: number | string;
+  displayOrder: number | string;
   version: string;
   initialName: string;
   initialCapacity: number | string;
+  initialDisplayOrder: number | string;
 };
 export type RequirementEditor = {
   kind: "requirement";
@@ -50,6 +68,7 @@ export function hasResourceEdits(editor: ResourceEditor | null) {
     return (
       editor.name !== editor.initialName ||
       editor.capacity !== editor.initialCapacity
+      || editor.displayOrder !== editor.initialDisplayOrder
     );
   return (
     editor.serviceId !== editor.initialServiceId ||
@@ -74,11 +93,33 @@ export function validResourceUnits(value: number | string, max = 100) {
     value <= max
   );
 }
-export function validResourceEditor(editor: ResourceEditor | null, data?: ResourceConfiguration) {
+export function validResourceOrder(value: number | string) {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 10000;
+}
+export function validResourceEditor(
+  editor: ResourceEditor | null,
+  data?: ResourceConfiguration,
+) {
   if (!editor) return false;
-  if (editor.kind === "pool") return Boolean(editor.name.trim()) && validResourceUnits(editor.capacity);
-  const pool = data?.pools.find(item=>item.id === editor.poolId);
-  return Boolean(pool && data?.services.some(service=>service.id === editor.serviceId) && validResourceUnits(editor.units, pool.capacity));
+  if (editor.kind === "pool")
+    return (
+      Boolean(editor.name.trim()) &&
+      validResourceUnits(editor.capacity) &&
+      validResourceOrder(editor.displayOrder) &&
+      (!editor.poolId ||
+        Boolean(
+          data?.pools.some(
+            (pool) => pool.id === editor.poolId && !pool.archived_at,
+          ),
+        ))
+    );
+  const pool = data?.pools.find((item) => item.id === editor.poolId);
+  return Boolean(
+    pool &&
+    !pool.archived_at &&
+    data?.services.some((service) => service.id === editor.serviceId) &&
+    validResourceUnits(editor.units, pool.capacity),
+  );
 }
 
 type Actions = { busy: boolean; onSubmit: (event: FormEvent) => void };
@@ -104,6 +145,25 @@ export function ResourcePoolForm({
             required
             onChange={(event) =>
               onChange({ ...editor, name: event.currentTarget.value })
+            }
+          />
+          <ConfigurationInput
+            type="number"
+            label="List order"
+            description="Lower numbers appear first in resource pool lists and service request pickers."
+            min={0}
+            max={10000}
+            step={1}
+            required
+            value={editor.displayOrder}
+            onChange={(event) =>
+              onChange({
+                ...editor,
+                displayOrder:
+                  event.currentTarget.value === ""
+                    ? ""
+                    : Number(event.currentTarget.value),
+              })
             }
           />
           <ConfigurationInput
@@ -176,7 +236,8 @@ export function ResourceRequirementForm({
             required
             data={data.pools.map((item) => ({
               value: item.id,
-              label: `${item.name} · ${resourceUnits(item.capacity)}`,
+              label: `${item.name} · ${resourceUnits(item.capacity)}${item.archived_at ? " · Archived" : ""}`,
+              disabled: Boolean(item.archived_at),
             }))}
             value={editor.poolId}
             onChange={(poolId) => onChange({ ...editor, poolId })}
