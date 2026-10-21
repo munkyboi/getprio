@@ -41,6 +41,10 @@ export interface LocalResourceOperations {
   }>;
   pools: Array<{
     id: string; name: string; capacity: number; revision: string; trackingEnabled: boolean;
+    /** Point-in-time recorded arithmetic only; never admission or global health. */
+    archivedAt: string | null;
+    availabilityQuality: 'observed' | 'unknown';
+    availabilityReasonCodes: Array<'pool_archived' | 'tracking_disabled' | 'protection_expired' | 'protection_inconsistent' | 'reconciliation_required'>;
     allocatedUnits: number; protectedUnitsNow: number; availableUnits: number;
     overdueUnits: number; overCapacity: boolean;
   }>;

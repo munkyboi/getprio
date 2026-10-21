@@ -17,9 +17,17 @@ async function readState(client, ticket) {
       LEFT JOIN ticket_service_plans p ON (p.booking_id,p.tenant_id,p.location_id)=(r.booking_id,r.tenant_id,r.location_id)
         AND p.source='booking'
       WHERE r.tenant_id=$1 AND r.location_id=$2 AND (b.queue_ticket_id=$3 OR p.ticket_id=$3)) AS bound`, scope);
-  const allocations = await client.query(`SELECT id::text,released_at,outcome FROM resource_allocations
-    WHERE tenant_id=$1 AND location_id=$2 AND ticket_id=$3`, scope);
+  const identity=(await client.query(`SELECT to_jsonb(p)->>'contract_version' AS version,to_jsonb(p)->>'stage_attempt_id' AS stage_attempt_id
+    FROM ticket_service_plans p WHERE tenant_id=$1 AND location_id=$2 AND ticket_id=$3`,scope)).rows[0];
+  const currentStage=identity?.version==='2' ? identity.stage_attempt_id:null;
+  const allocations = await client.query(`SELECT a.id::text,a.released_at,a.outcome,to_jsonb(a)->>'group_id' AS group_id FROM resource_allocations a
+    WHERE a.tenant_id=$1 AND a.location_id=$2 AND a.ticket_id=$3
+    ${currentStage ? 'AND EXISTS(SELECT 1 FROM queue_allocation_groups g WHERE g.id=a.group_id AND g.stage_attempt_id=$4)':''}`,
+  currentStage?[...scope,currentStage]:scope);
   const allocation = allocations.rows[0] || null;
+  const inconsistentGroup=allocations.rows.some(row=>row.group_id) && allocations.rows.some(row=>
+    row.group_id!==allocation.group_id || Boolean(row.released_at)!==Boolean(allocation.released_at) || row.outcome!==allocation.outcome);
+  if(inconsistentGroup)conflict();
   let enabled = flags.rows[0].enabled;
   if (enabled && !allocation && !flags.rows[0].bound) {
     const plans = await client.query(`SELECT items FROM ticket_service_plans
@@ -71,13 +79,13 @@ async function allocate(ledger, ticket, state) {
   return result.allocationId;
 }
 
-async function release(ledger, ticket, state, outcome) {
+async function release(ledger, ticket, state, outcome, reason) {
   assertStarted(state);
   if (!state.allocation) return null;
   await ledger.executeCommand({ operationKey: `ticket:${ticket._id}:service:${outcome}`,
     command: "release", payload: { allocationId: state.allocation.id,
       outcome: outcome === "completed" ? "completed" : "terminated",
-      ...(outcome === "interrupted" ? { reason: "Staff explicitly interrupted service." } : {}) } });
+      ...(outcome === "interrupted" ? { reason: reason || "Staff explicitly interrupted service." } : {}) } });
   return state.allocation.id;
 }
 

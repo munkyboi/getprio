@@ -40,7 +40,7 @@ function isPrivilegedMfaRecoveryRoute(req) {
   ].includes(path);
 }
 
-async function loadAuthenticatedUser(req, strict) {
+async function loadAuthenticatedUser(req, strict, { touchSession = true } = {}) {
   const token = getTokenFromRequest(req);
   if (!token) {
     if (strict) {
@@ -120,7 +120,7 @@ async function loadAuthenticatedUser(req, strict) {
       transport: getAccessCookie(parseCookies(req.headers.cookie), env.authCookieSecure) ? "cookie" : "bearer",
       session
     };
-    if (!deletionRetry && typeof authSessionRepository.touchSession === "function") {
+    if (touchSession && !deletionRetry && typeof authSessionRepository.touchSession === "function") {
       await authSessionRepository.touchSession(session._id, {
         inactivityMinutes: env.sessionInactivityMinutes
       });
@@ -203,6 +203,7 @@ function requirePlatformPermission(permission) {
 
 module.exports = {
   authenticate,
+  revalidateAuthenticatedUser: req => loadAuthenticatedUser(req, true, {touchSession:false}),
   maybeAuthenticate,
   userHasTenantAccess,
   getTenantRole,

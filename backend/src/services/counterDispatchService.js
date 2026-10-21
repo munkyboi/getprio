@@ -1,5 +1,4 @@
 const tickets = require("../repositories/tickets");
-const { readLocalPoolDemoScope } = require("./localPoolDemoScope");
 
 function fail(message, code, statusCode = 409) {
   throw Object.assign(new Error(message), { statusCode, code });
@@ -13,14 +12,18 @@ function counterId(options) {
   if (id !== null && (!/^[1-9]\d*$/u.test(String(id)) || !Number.isSafeInteger(Number(id)))) {
     fail("Counter not found.", "COUNTER_NOT_FOUND", 404);
   }
+  if(Object.hasOwn(options,"expectedCounterId")){
+    require("./queueCounterBinding").validate(options);
+    if(String(id)!==options.expectedCounterId)fail("The selected counter changed. Refresh before continuing.","COUNTER_CONTEXT_CHANGED");
+  }
   return id === null ? null : String(id);
 }
 
-async function assertCounter(client, scope, id, { allowInactive = false } = {}) {
+async function assertCounter(client, scope, id, { allowInactive = false, expectedSlug } = {}) {
   if (id === null) return;
   const counter = await client.query(`SELECT id FROM service_counters
     WHERE id=$1 AND tenant_id=$2 AND location_id=$3
-      ${allowInactive ? "" : "AND is_active=TRUE"} FOR SHARE`, [id, scope.tenantId, scope.locationId]);
+      ${allowInactive ? "" : "AND is_active=TRUE"} ${expectedSlug === undefined ? "" : "AND slug=$4"} FOR SHARE`, [id, scope.tenantId, scope.locationId,...(expectedSlug === undefined ? [] : [expectedSlug])]);
   if (!counter.rows.length) fail("Counter not found.", "COUNTER_NOT_FOUND", 404);
 }
 
@@ -28,17 +31,16 @@ async function assertCounter(client, scope, id, { allowInactive = false } = {}) 
 async function claimNext(client, scope, options) {
   const serviceCounterId = counterId(options);
   if (serviceCounterId === null) fail("Select an active counter before calling a customer.", "COUNTER_REQUIRED", 400);
-  await assertCounter(client, scope, serviceCounterId);
-  // Ordinary unresolved calls occupy their counter across Queue Days. Only the
-  // isolated fixture may reuse a call lane after actual resource allocation;
-  // started timing without held capacity never proves that a lane is free.
-  const pooledDemo = await readLocalPoolDemoScope(client, scope);
+  await assertCounter(client, scope, serviceCounterId,{expectedSlug:options.expectedCounterId?options.counterSlug:undefined});
+  // Unresolved calls occupy their counter across Queue Days. Started service
+  // backed by live scoped allocation releases only dispatch occupancy; timing
+  // alone never proves a lane is free, and no resource capacity is released.
   const lane = { client, locationId: scope.locationId, serviceCounterId,
-    ...(pooledDemo ? { excludeAllocatedService: true } : {}) };
+    excludeAllocatedService: true };
   if (await tickets.findCurrentCalledTicket(scope.tenantId, { ...lane, forUpdate: true })) {
     fail("Serve or skip this counter's called ticket before calling the next one.", "COUNTER_OCCUPIED");
   }
-  const query = { ...lane, dateKey: scope.dateKey };
+  const query = { ...lane, dateKey: scope.dateKey, ...(options.targetTicketId?{targetTicketId:options.targetTicketId}:{}) };
   const next = await tickets.callNextWaitingTicket(scope.tenantId, query);
   if (!next && (await tickets.listWaitingTickets(scope.tenantId, { ...query, limit: 1 })).length) {
     fail("No waiting ticket is ready to be called yet. Arrived bookings become ready at their scheduled start.", "NO_READY_WAITING_TICKET");
@@ -52,7 +54,7 @@ async function lockCurrent(client, scope, options) {
     fail("Refresh the queue and select the called ticket.", "CURRENT_TICKET_REQUIRED", 400);
   }
   // An inactive counter may still have a called ticket that staff must resolve.
-  await assertCounter(client, scope, serviceCounterId, { allowInactive: true });
+  await assertCounter(client, scope, serviceCounterId, { allowInactive: true,expectedSlug:options.expectedCounterId?options.counterSlug:undefined });
   const ticket = await tickets.findCurrentCalledTicket(scope.tenantId, {
     client, forUpdate: true, locationId: scope.locationId,
     serviceCounterId, ticketId: options.ticketId

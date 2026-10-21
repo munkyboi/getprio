@@ -25,10 +25,12 @@ const tenantMembershipLocationRepository = require("../repositories/tenantMember
 const asyncHandler = require("../middleware/asyncHandler");
 const {
   authenticate,
+  revalidateAuthenticatedUser,
   userHasTenantAccess,
   assertTenantPermission
 } = require("../middleware/auth");
 const { moderatePublicText } = require("../middleware/moderatePublicText");
+const queueEvents = require("../services/queueEvents");
 const billingService = require("../services/billingService");
 const publicBoardThemeUploadService = require("../services/publicBoardThemeUploadService");
 const vendorMediaUploadService = require("../services/vendorMediaUploadService");
@@ -280,13 +282,23 @@ for (const method of ["get", "put"]) {
     assertTenantPermission(req.user, tenant._id, "tenant.location.manage");
     assertTenantPermission(req.user, tenant._id, "tenant.service.manage");
     const location = await getLocationForTenant(tenant, req.params.locationSlug);
-    const scope = { tenantId: tenant._id, locationId: location._id, actorUserId: req.user._id };
+    const scope = { tenantId: tenant._id, locationId: location._id, actorUserId: req.user._id,localRequest:require("../services/localFixtureTenantScope").loopbackRequest(req) };
     const configuration = method === "get"
       ? await resourceConfigurationService.getConfiguration(scope)
       : await resourceConfigurationService.saveConfiguration(scope, req.body);
     res.json(configuration);
   }));
 }
+router.post("/tenant/:tenantSlug/locations/:locationSlug/resources/:poolId/activate",asyncHandler(async(req,res)=>{
+  const localRequest=require("../services/localFixtureTenantScope").loopbackRequest(req);
+  if(!localRequest)throw Object.assign(new Error("Local resource activation is unavailable."),{statusCode:404,code:"LOCAL_ACTIVATION_UNAVAILABLE"});
+  const tenant=await getAuthorizedTenant(req.user,req.params.tenantSlug);
+  assertTenantPermission(req.user,tenant._id,"tenant.location.manage");
+  assertTenantPermission(req.user,tenant._id,"tenant.service.manage");
+  const location=await getLocationForTenant(tenant,req.params.locationSlug);
+  res.json(await resourceConfigurationService.activateConfiguration({tenantId:tenant._id,locationId:location._id,actorUserId:req.user._id,localRequest},req.params.poolId,req.body,req.get("Idempotency-Key")));
+}));
+
 
 
 
@@ -504,6 +516,7 @@ router.post(
     }
 
     const upload = await locationPaymentQrUploadService.uploadBinary({
+      actorUserId: req.user._id,
       tenant,
       location: { slug: locationSlug },
       body: {
@@ -597,6 +610,7 @@ router.post(
     }
 
     const upload = await locationPaymentQrUploadService.uploadBinary({
+      actorUserId: req.user._id,
       tenant,
       location,
       body: {
@@ -1129,7 +1143,9 @@ async function getCurrentCounterTarget(req, location) {
   if (!Object.hasOwn(req.body, "counterSlug") || (req.body.counterSlug !== null && !normalizeRequestText(req.body.counterSlug))) {
     throw Object.assign(new Error("Select the counter for this called ticket."), { statusCode: 400, code: "COUNTER_REQUIRED" });
   }
+  if(Object.hasOwn(req.body,"expectedCounterId"))require('../services/queueCounterBinding').validate(req.body);
   return { ticketId: req.body.ticketId,
+    ...(Object.hasOwn(req.body,"expectedCounterId")?{expectedCounterId:req.body.expectedCounterId,counterSlug:req.body.counterSlug}:{}),
     serviceCounter: await getCounterForLocation(location, normalizeRequestText(req.body.counterSlug)) };
 }
 
@@ -1147,6 +1163,9 @@ router.post(
     const result = await callNextTicket(tenant, {
       location,
       serviceCounter,
+      counterSlug:req.body.counterSlug,
+      ...(Object.hasOwn(req.body,"expectedCounterId")?{expectedCounterId:req.body.expectedCounterId}:{}),
+      ...(req.get('Idempotency-Key')?{operationKey:req.get('Idempotency-Key')}:{}),
       actorUserId: req.user?._id,
       actorRole: "vendor",
       source: "vendor"
@@ -1161,6 +1180,7 @@ router.post(
     }
 
     res.json({
+      ...(result.replayed?{replayed:true}:{}),
       ticket: {
         id: String(result.ticket._id),
         ticketNumber: result.ticket.ticketNumber,
@@ -1272,7 +1292,12 @@ router.get("/tenant/:tenantSlug/queue/waiting-tickets", asyncHandler(async (req,
   const tickets = await ticketRepository.listWaitingTickets(tenant._id, {
     locationId: location._id, limit: 26, offset: (page - 1) * 25
   });
+  const eligibility = await require("../config/db").withTransaction(async client => {
+    await client.query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY");
+    return require("../services/queueServiceHoursEligibilityService").forTickets(client,{tenantId:String(tenant._id),locationId:String(location._id)},tickets.slice(0,25).map(ticket=>String(ticket._id)));
+  });
   res.json({ page, hasNextPage: tickets.length > 25, tickets: tickets.slice(0, 25).map(ticket => ({
+    serviceHoursEligibility: eligibility.get(String(ticket._id)),
     id: String(ticket._id), ticketNumber: ticket.ticketNumber, customerName: ticket.customerName,
     isCarriedOver: Boolean(ticket.carriedOverAt || ticket.carryOverCount > 0),
     linkedBookingReference: ticket.linkedBookingReference || null
@@ -1324,8 +1349,120 @@ router.get("/tenant/:tenantSlug/queue/service-options", asyncHandler(async (req,
   assertTenantPermission(req.user, tenant._id, "tenant.queue.operate");
   const location = await getLocationForTenant(tenant, normalizeRequestText(req.query.location));
   await assertQueueLocationAccess(req.user, tenant, location);
-  const services = await ticketServicePlanService.listServiceOptions({ tenantId: tenant._id, locationId: location._id });
-  res.json({ services });
+  const catalog = await require('../services/queuePlanCatalog').readCatalog(require('../config/db').pool,{ tenantId: tenant._id, locationId: location._id });
+  res.json({ ...catalog,queuePlanPolicy:{contractVersion:2,maxLines:20,quantityMin:1,quantityMax:100,durationEditable:false} });
+}));
+
+// V2 drafts remain separate from issued tickets and all queue intake effects.
+const queuePlanDraftService = require('../services/queuePlanDraftService');
+async function queuePlanContext(req) {
+  const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+  assertTenantPermission(req.user, tenant._id, 'tenant.queue.operate');
+  const location = await getLocationForTenant(tenant, normalizeRequestText(req.query.location));
+  await assertQueueLocationAccess(req.user, tenant, location);
+  return {tenant,location,actorUserId:req.user._id};
+}
+router.get('/tenant/:tenantSlug/queue/counter-controls',asyncHandler(async(req,res)=>{res.json(await require('../services/queueCounterControlsService').read(await queuePlanContext(req),{counterSlug:normalizeRequestText(req.query.counterSlug),requestKey:normalizeRequestText(req.query.requestKey)}));}));
+async function queueStreamReadContext(req) {
+  const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+  assertTenantPermission(req.user, tenant._id, 'tenant.queue.read');
+  const location = await getLocationForTenant(tenant, normalizeRequestText(req.query.location));
+  await assertQueueLocationAccess(req.user, tenant, location);
+  return {tenant, location};
+}
+router.get('/tenant/:tenantSlug/queue/stream',asyncHandler(async(req,res)=>{
+  const context=await queueStreamReadContext(req);
+  res.set({'Content-Type':'text/event-stream','Cache-Control':'no-cache, no-transform',Connection:'keep-alive','X-Accel-Buffering':'no'});
+  res.flushHeaders?.();
+  res.write(`event: ready\ndata: ${JSON.stringify({locationId:String(context.location._id)})}\n\n`);
+  require('../services/queueReadEventStream').attach({req,res,context,queueEvents,
+    revalidate:async()=>{await revalidateAuthenticatedUser(req);return queueStreamReadContext(req);},
+    sampleHours:fresh=>require('../config/db').withTransaction(async client=>{
+      await client.query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY");
+      await client.query("SET LOCAL statement_timeout='3000ms'");
+      return require('../services/queueServiceHoursEligibilityService').sample(client,{tenantId:String(fresh.tenant._id),locationId:String(fresh.location._id)});
+    })});
+}));
+router.get('/tenant/:tenantSlug/queue/selection-options', asyncHandler(async(req,res)=>{
+  const version=normalizeRequestText(req.query.contractVersion);
+  if(version && version!=='4')throw Object.assign(new Error('Unsupported selection contract version.'),{statusCode:400});
+  res.json(await queuePlanDraftService.selectionOptions(await queuePlanContext(req),version==='4'?4:3));
+}));
+router.get('/tenant/:tenantSlug/queue/plans', asyncHandler(async (req,res) => {
+  res.json(await queuePlanDraftService.list(await queuePlanContext(req),req.query.cursor,req.query.state));
+}));
+router.post('/tenant/:tenantSlug/queue/plans', asyncHandler(async (req,res) => {
+  const result = await queuePlanDraftService.mutate(await queuePlanContext(req),{
+    action:'create',operationKey:req.get('Idempotency-Key'),body:req.body});
+  res.status(201).json(result);
+}));
+router.get('/tenant/:tenantSlug/queue/plans/:planId', asyncHandler(async (req,res) => {
+  res.json(await queuePlanDraftService.read(await queuePlanContext(req),req.params.planId));
+}));
+router.patch('/tenant/:tenantSlug/queue/plans/:planId', asyncHandler(async (req,res) => {
+  res.json(await queuePlanDraftService.mutate(await queuePlanContext(req),{
+    action:'update',draftId:req.params.planId,operationKey:req.get('Idempotency-Key'),body:req.body}));
+}));
+router.delete('/tenant/:tenantSlug/queue/plans/:planId', asyncHandler(async(req,res)=>{res.json(await queuePlanDraftService.remove(await queuePlanContext(req),{draftId:req.params.planId,operationKey:req.get('Idempotency-Key'),body:req.body}));}));
+router.post('/tenant/:tenantSlug/queue/plans/:planId/publish', asyncHandler(async (req,res) => {
+  const result=await require('../services/queuePlanPublishService').publish(await queuePlanContext(req),{
+    draftId:req.params.planId,operationKey:req.get('Idempotency-Key'),body:req.body});
+  res.json(result);
+}));
+for(const action of ['call','start','complete','interrupt','amend','handoff','pause','resume','retry','reassign','cancelProtection','skip','recall']) {
+  router.post(`/tenant/:tenantSlug/queue/plans/:planId/${action}`,asyncHandler(async(req,res)=>{
+    const context=await queuePlanContext(req);
+    const serviceCounter=action==='call'||Object.hasOwn(req.body||{},'expectedCounterId') ? await getCounterForLocation(context.location,normalizeRequestText(req.body.counterSlug)):undefined;
+    try{
+      res.json(await require('../services/queuePlanCommandService').execute(context,{action,draftId:req.params.planId,
+        operationKey:req.get('Idempotency-Key'),body:req.body,serviceCounter}));
+    }catch(error){
+      if(error.plan){res.status(error.statusCode||409).json({code:error.code,message:error.message,plan:error.plan,...require("../services/queueServiceHoursErrorResponse").fields(error)});return;}
+      throw error;
+    }
+  }));
+}
+router.get('/tenant/:tenantSlug/queue/workflow',asyncHandler(async(req,res)=>{
+  res.json(await require('../services/queueWorkflowService').get(await queuePlanContext(req)));
+}));
+router.put('/tenant/:tenantSlug/queue/workflow',asyncHandler(async(req,res)=>{
+  res.json(await require('../services/queueWorkflowService').put(await queuePlanContext(req),req.body,req.get('Idempotency-Key')));
+}));
+router.post('/tenant/:tenantSlug/queue/named-resource-availability',asyncHandler(async(req,res)=>{
+  res.json(await require('../services/queueNamedAvailabilityService').preview(await queuePlanContext(req),req.body));
+}));
+router.get('/tenant/:tenantSlug/queue/resource-members',asyncHandler(async(req,res)=>{
+  res.json(await require('../services/queueNamedResourceConfigurationService').listMembers(await queuePlanContext(req),normalizeRequestText(req.query.poolId)));
+}));
+router.post('/tenant/:tenantSlug/queue/resource-members/reorder',asyncHandler(async(req,res)=>{
+  res.json(await require('../services/queueNamedResourceConfigurationService').reorderMembers(await queuePlanContext(req),{
+    poolId:req.body?.poolId,memberIds:req.body?.memberIds,operationKey:req.get('Idempotency-Key')
+  }));
+}));
+router.post('/tenant/:tenantSlug/queue/resource-members',asyncHandler(async(req,res)=>{
+  res.status(201).json(await require('../services/queueNamedResourceConfigurationService').saveMember(await queuePlanContext(req),{
+    body:req.body,operationKey:req.get('Idempotency-Key')}));
+}));
+router.patch('/tenant/:tenantSlug/queue/resource-members/:memberId',asyncHandler(async(req,res)=>{
+  res.json(await require('../services/queueNamedResourceConfigurationService').saveMember(await queuePlanContext(req),{
+    memberId:req.params.memberId,body:req.body,operationKey:req.get('Idempotency-Key')}));
+}));
+router.post('/tenant/:tenantSlug/queue/resource-members/:memberId/archive',asyncHandler(async(req,res)=>{
+  res.json(await require('../services/queueNamedResourceConfigurationService').archiveMember(await queuePlanContext(req),{
+    memberId:req.params.memberId,body:req.body,operationKey:req.get('Idempotency-Key')}));
+}));
+router.get('/tenant/:tenantSlug/queue/service-policies/:serviceId/configuration',asyncHandler(async(req,res)=>{
+  res.json(await require('../services/queueNamedResourceConfigurationService').getConfiguration(await queuePlanContext(req),req.params.serviceId));
+}));
+router.put('/tenant/:tenantSlug/queue/service-policies/:serviceId/configuration',asyncHandler(async(req,res)=>{
+  res.json(await require('../services/queueNamedResourceConfigurationService').saveConfiguration(await queuePlanContext(req),req.params.serviceId,req.body,req.get('Idempotency-Key')));
+}));
+router.get('/tenant/:tenantSlug/queue/service-policies',asyncHandler(async(req,res)=>{
+  res.json(await require('../services/queueNamedResourceConfigurationService').getPolicies(await queuePlanContext(req)));
+}));
+router.put('/tenant/:tenantSlug/queue/service-policies/:serviceId',asyncHandler(async(req,res)=>{
+  res.json(await require('../services/queueNamedResourceConfigurationService').savePolicy(await queuePlanContext(req),
+    req.params.serviceId,req.body,req.get('Idempotency-Key')));
 }));
 
 router.get("/tenant/:tenantSlug/queue/tickets/:ticketId/service-plan", asyncHandler(async (req, res) => {
@@ -1344,7 +1481,8 @@ for (const action of ["start", "complete", "interrupt"]) {
     const location = await getLocationForTenant(tenant, normalizeRequestText(req.query.location));
     await assertQueueLocationAccess(req.user, tenant, location);
     const result = await recordTicketService(tenant, req.params.ticketId, action, {
-      location, actorUserId: req.user._id
+      location, actorUserId: req.user._id,
+      ...(Object.hasOwn(req.body||{},'expectedCounterId')||Object.hasOwn(req.body||{},'counterSlug')?{expectedCounterId:req.body.expectedCounterId,counterSlug:req.body.counterSlug}:{})
     });
     res.json({ ticket: { id: String(result.ticket._id), ticketNumber: result.ticket.ticketNumber,
       status: result.ticket.status }, snapshot: result.snapshot });

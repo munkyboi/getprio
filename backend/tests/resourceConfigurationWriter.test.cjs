@@ -61,7 +61,7 @@ test('draft resource configuration writer under PostgreSQL constraints', { skip:
     await pool.query(`TRUNCATE users, tenants, tenant_memberships, tenant_membership_locations,
       store_locations, vendor_services, location_services, location_resource_pools,
       service_resource_requirements, resource_ledger_scopes, resource_ledger_commands,
-      resource_allocations, resource_ledger_reservations RESTART IDENTITY CASCADE;
+      resource_allocations, resource_ledger_reservations, resource_pool_lifecycle_commands, queue_plan_drafts RESTART IDENTITY CASCADE;
       INSERT INTO users VALUES(1,'{}',NULL,NULL),(2,'{}',NULL,NULL),(3,'{}',NULL,NULL);
       INSERT INTO tenants VALUES(1),(2);
       INSERT INTO tenant_memberships VALUES(1,1,1,'owner',TRUE),(2,2,1,'staff',TRUE),(3,3,2,'admin',TRUE);
@@ -106,9 +106,90 @@ test('draft resource configuration writer under PostgreSQL constraints', { skip:
       CREATE TABLE location_services(location_id BIGINT REFERENCES store_locations(id),service_id BIGINT REFERENCES vendor_services(id),tenant_id BIGINT,is_active BOOLEAN,UNIQUE(location_id,service_id));
       CREATE TABLE booking_bundle_items(id BIGINT PRIMARY KEY,booking_id BIGINT,tenant_id BIGINT,location_id BIGINT);
       CREATE TABLE tickets(id BIGINT PRIMARY KEY,tenant_id BIGINT,location_id BIGINT,UNIQUE(id,tenant_id,location_id))`);
-    for (const migration of ['20261003_add_resource_capacity_foundation.sql', '20261007_add_resource_ledger_foundation.sql']) {
+    for (const migration of ['20261003_add_resource_capacity_foundation.sql', '20261007_add_resource_ledger_foundation.sql', '20261017_resource_pool_lifecycle.sql']) {
       await pool.query(fs.readFileSync(path.resolve(__dirname, '../../database/migrations', migration), 'utf8'));
     }
+    await pool.query(`CREATE TABLE queue_plan_drafts(id UUID PRIMARY KEY,tenant_id BIGINT,location_id BIGINT,lines JSONB,
+      FOREIGN KEY(location_id,tenant_id) REFERENCES store_locations(id,tenant_id));`);
+    await t.test('unused pool deletes once and replay survives deletion; changed payload is rejected', async () => {
+      await reset();
+      assert.equal((await get()).pools[0].deletion.allowed, true);
+      const request = await body({action:'deletePool',poolId:'1',operationKey:randomUUID()});
+      const result = await save(request);
+      assert.equal(result.pools.length, 0);
+      assert.deepEqual(await save(request), result);
+      await assert.rejects(save({...request,action:'archivePool'}),{code:'IDEMPOTENCY_CONFLICT'});
+      assert.equal((await pool.query('SELECT count(*)::int n FROM resource_pool_lifecycle_commands')).rows[0].n,1);
+      assert.equal(await revision(),'2');
+    });
+    await t.test('referenced pool reports scoped dependencies; archive preserves mapping and is idempotent', async () => {
+      await reset();
+      await save(await body({action:'requirement',serviceId:'1000',poolId:'1',unitsRequired:1}));
+      const configured = await get();
+      assert.equal(configured.pools[0].deletion.allowed,false);
+      assert.ok(configured.pools[0].deletion.dependencies.some(d=>d.code==='service_requirements'));
+      await assert.rejects(save(await body({action:'deletePool',poolId:'1',operationKey:randomUUID()})),e=>{
+        assert.equal(e.code,'RESOURCE_POOL_REFERENCED');assert.equal(e.poolDeletion.allowed,false);return true;
+      });
+      const request = await body({action:'archivePool',poolId:'1',operationKey:randomUUID()});
+      const archived=await save(request);
+      assert.ok(archived.pools[0].archived_at);
+      assert.equal(archived.requirements.length,1);
+      assert.deepEqual(await save(request),archived);
+      const before=await revision();
+      await save(await body({action:'archivePool',poolId:'1',operationKey:randomUUID()}));
+      assert.equal(await revision(),before);
+      await assert.rejects(save(await body({action:'requirement',serviceId:'1000',poolId:'1',unitsRequired:1})),{statusCode:400});
+      await assert.rejects(save(await body()),{statusCode:409});
+      await assert.rejects(pool.query('DELETE FROM location_resource_pools WHERE id=1'),{code:'23001'});
+    });
+    await t.test('nested draft JSON pool references block deletion without cross-branch disclosure', async () => {
+      await reset();
+      await pool.query(`INSERT INTO queue_plan_drafts VALUES($1,1,10,$2::jsonb),($3,2,20,$4::jsonb)`,
+        [randomUUID(),JSON.stringify([{resources:[{resource:{poolId:'1'}}]}]),randomUUID(),JSON.stringify([{resource:{poolId:'1'}}])]);
+      const disposition=(await get()).pools[0].deletion;
+      assert.deepEqual(disposition.dependencies,[{code:'queue_drafts',count:1,label:'queue drafts or draft history'}]);
+      await assert.rejects(save(await body({action:'deletePool',poolId:'1',operationKey:randomUUID()})),{code:'RESOURCE_POOL_REFERENCED'});
+    });
+    await t.test('delete and archive enforce actor, branch, stale version and rollback boundaries', async () => {
+      await reset();
+      const request=await body({action:'deletePool',poolId:'1',operationKey:randomUUID()});
+      await assert.rejects(save(request,{...scope,actorUserId:'2'}),{statusCode:403});
+      await assert.rejects(save({...request,poolId:'2'}),{statusCode:404});
+      failRevision=true;
+      await assert.rejects(save(request),/revision write failed/);
+      failRevision=false;
+      assert.equal((await get()).pools.length,1);
+      assert.equal((await pool.query('SELECT count(*)::int n FROM resource_pool_lifecycle_commands')).rows[0].n,0);
+      await save(await body());
+      await assert.rejects(save(request),{code:'STALE_REVISION'});
+    });
+    await t.test('reference creation committing before deletion is observed, not cascaded', async () => {
+      await reset();
+      const request=await body({action:'deletePool',poolId:'1',operationKey:randomUUID()});
+      const writer=await pool.connect();let deleting;
+      try {
+        await writer.query('BEGIN');
+        await writer.query('INSERT INTO service_resource_requirements(tenant_id,location_id,service_id,pool_id,units_required) VALUES(1,10,1000,1,1)');
+        deleting=assert.rejects(save(request),{code:'RESOURCE_POOL_REFERENCED'});
+        await waitForLock('FROM location_resource_pools');
+        await writer.query('COMMIT');
+        await deleting;
+      } finally {await writer.query('ROLLBACK');writer.release();}
+      assert.equal((await get()).requirements.length,1);
+    });
+    await t.test('delete holds pool and branch until commit; late FK reference cannot resurrect deleted pool', async () => {
+      await reset();const held=hold();
+      const deleting=save(await body({action:'deletePool',poolId:'1',operationKey:randomUUID()}));
+      let reference;
+      try {
+        await held.entered;
+        reference=assert.rejects(pool.query('INSERT INTO service_resource_requirements(tenant_id,location_id,service_id,pool_id,units_required) VALUES(1,10,1000,1,1)'),{code:'23503'});
+        await waitForLock('INSERT INTO service_resource_requirements');
+      } finally {held.release();}
+      await deleting;await reference;
+      assert.equal((await get()).pools.length,0);
+    });
     await t.test('reads create no ledger state; pool and mapping edits advance only their branch', async () => {
       await reset();
       const initial = await get();

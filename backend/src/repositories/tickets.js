@@ -51,9 +51,17 @@ const TICKET_COLUMNS = `
   updated_at
 `;
 
-const { bookingCallNotReady, waitingPriorityOrder } = require("../services/queueDispatchRules");
+const { bookingCallNotReady, waitingPriorityOrder, startedResourceServicePredicate } = require("../services/queueDispatchRules");
 const BOOKING_CALL_NOT_READY = bookingCallNotReady();
 const WAITING_PRIORITY_ORDER = waitingPriorityOrder();
+// The observed candidate and the mutating claim must share every readiness,
+// station/counter and fairness predicate. Capacity is checked by the claim's owner.
+const READY_WAITING_PREDICATE = `tenant_id = $1 AND location_id = $2 AND date_key = $4 AND status = 'waiting'
+  AND NOT ${BOOKING_CALL_NOT_READY}
+  AND NOT EXISTS(SELECT 1 FROM ticket_service_plans stage_plan WHERE stage_plan.ticket_id=tickets.id
+    AND to_jsonb(stage_plan)->>'workflow_mode'='multi_station'
+    AND NOT (COALESCE(to_jsonb(stage_plan)->'current_station_counter_ids','[]'::jsonb) ? $3::bigint::text))`;
+
 
 function mapTicket(row) {
   if (!row) {
@@ -792,10 +800,7 @@ async function listCalledTickets(tenantId, options = {}) {
     filters.push(`service_counter_id IS NOT DISTINCT FROM $${values.length}::bigint`);
   }
   if (options.excludeAllocatedService === true) {
-    filters.push(`NOT (tickets.service_started_at IS NOT NULL AND tickets.service_ended_at IS NULL
-      AND EXISTS (SELECT 1 FROM resource_allocations allocation
-        WHERE allocation.ticket_id=tickets.id AND allocation.tenant_id=tickets.tenant_id
-          AND allocation.location_id=tickets.location_id AND allocation.released_at IS NULL))`);
+    filters.push(`NOT ${startedResourceServicePredicate()}`);
   }
   const result = await buildQueryClient(options.client).query(`
     SELECT ${withLinkedBookingReferenceSelect()} FROM tickets
@@ -818,6 +823,20 @@ async function countReadyWaitingTickets(tenantId, options = {}) {
   return result.rows[0].count;
 }
 
+async function listReadyWaitingTickets(tenantId, options = {}) {
+  const result = await buildQueryClient(options.client).query(`SELECT ${withLinkedBookingReferenceSelect()} FROM tickets
+    WHERE ${READY_WAITING_PREDICATE} ORDER BY ${WAITING_PRIORITY_ORDER}`,
+    [String(tenantId), String(options.locationId), String(options.serviceCounterId), String(options.dateKey)]);
+  return result.rows.map(mapTicket);
+}
+
+async function peekNextWaitingTicket(tenantId, options = {}) {
+  const result = await buildQueryClient(options.client).query(`SELECT ${withLinkedBookingReferenceSelect()} FROM tickets
+    WHERE ${READY_WAITING_PREDICATE} ORDER BY ${WAITING_PRIORITY_ORDER} LIMIT 1`,
+    [String(tenantId), String(options.locationId), String(options.serviceCounterId), String(options.dateKey)]);
+  return mapTicket(result.rows[0]);
+}
+
 async function callNextWaitingTicket(tenantId, options = {}) {
   const queryClient = buildQueryClient(options.client);
   const result = await queryClient.query(
@@ -825,8 +844,8 @@ async function callNextWaitingTicket(tenantId, options = {}) {
       WITH next_ticket AS (
         SELECT id
         FROM tickets
-        WHERE tenant_id = $1 AND location_id = $2 AND date_key = $4 AND status = 'waiting'
-          AND NOT ${BOOKING_CALL_NOT_READY}
+        WHERE ${READY_WAITING_PREDICATE}
+          ${options.targetTicketId ? "AND id = $5" : ""}
         ORDER BY ${WAITING_PRIORITY_ORDER}
         LIMIT 1
         FOR UPDATE SKIP LOCKED
@@ -844,7 +863,8 @@ async function callNextWaitingTicket(tenantId, options = {}) {
       Number(tenantId),
       Number(options.locationId),
       options.serviceCounterId ? Number(options.serviceCounterId) : null,
-      String(options.dateKey)
+      String(options.dateKey),
+      ...(options.targetTicketId ? [String(options.targetTicketId)] : [])
     ]
   );
 
@@ -1208,6 +1228,8 @@ module.exports = {
   countReadyWaitingTickets,
   confirmCurrentCalledTicket,
   callNextWaitingTicket,
+  peekNextWaitingTicket,
+  listReadyWaitingTickets,
   updateCurrentCalledTicketStatus,
   cancelWaitingTicket,
   claimTicketForUser,

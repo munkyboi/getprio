@@ -4,6 +4,7 @@ const events = require('../repositories/queueEvents');
 const { withVendorQueueTransaction, readAuthorizedVendorQueueActor } = require('./vendorQueueTransactionService');
 const { assertPublicTextFieldsAllowed } = require('./contentModeration');
 const { getDateKey } = require('./queueHelpers');
+const {assertLegacyTicket}=require('./queuePlanBoundary');
 
 function fail(message,statusCode,code) { throw Object.assign(new Error(message),{statusCode,code}); }
 function validId(id) { return typeof id === 'string' && /^[1-9]\d{0,18}$/u.test(id) && Number.isSafeInteger(Number(id)); }
@@ -64,7 +65,9 @@ function createQueueTicketDetailsService({pool}) {
     try {
       await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
       if (!await readAuthorizedVendorQueueActor(client,scope,'tenant.ticket.update_state')) fail('Ticket operation is not authorized.',403,'TICKET_DETAILS_FORBIDDEN');
-      const row=await repository.read(client,scope,ticketId);assertEditable(row);await assertOperationsOpen(client,scope,row);
+      const row=await repository.read(client,scope,ticketId);assertEditable(row);
+      await assertLegacyTicket(client,{_id:ticketId,tenantId:scope.tenantId,locationId:scope.locationId});
+      await assertOperationsOpen(client,scope,row);
       const result=dto(row);await client.query('COMMIT');
       await client.query('BEGIN READ ONLY');
       if (!await readAuthorizedVendorQueueActor(client,scope,'tenant.ticket.update_state')) fail('Ticket operation is not authorized.',403,'TICKET_DETAILS_FORBIDDEN');
@@ -75,6 +78,7 @@ function createQueueTicketDetailsService({pool}) {
     const scope=scopeFor(tenant,location,actorUserId,ticketId);const details=validateBody(body);
     return withVendorQueueTransaction({pool,tenant,location,actorUserId,lockTenantActivity:true},async client=>{
       const row=await repository.read(client,scope,ticketId,{forUpdate:true});assertEditable(row);
+      await assertLegacyTicket(client,{_id:ticketId,tenantId:scope.tenantId,locationId:scope.locationId});
       if (row.status!==body.expectedStatus || version(row)!==body.version) fail('Ticket details changed while the editor was open. Refresh and review before saving again.',409,'TICKET_DETAILS_CHANGED');
       await assertOperationsOpen(client,scope,row,{lock:true});
       const changedFields=['customerName','notes'].filter(key=>details[key]!==row[key==='customerName'?'customer_name':'notes']);

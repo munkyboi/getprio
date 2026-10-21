@@ -28,9 +28,10 @@ test('actual PostgreSQL local operational inventory and authorization', {skip:!a
    CREATE TABLE service_counter_assignments(user_id bigint,counter_id bigint);
    CREATE TABLE local_pool_demo_scopes(tenant_id bigint,location_id bigint,fixture_key text);
    CREATE TABLE resource_ledger_scopes(tenant_id bigint,location_id bigint,revision bigint);
-   CREATE TABLE location_resource_pools(id bigint,tenant_id bigint,location_id bigint,name text,capacity int,tracking_enabled boolean,revision int);
+   CREATE TABLE location_resource_pools(id bigint,tenant_id bigint,location_id bigint,name text,capacity int,tracking_enabled boolean,revision int,archived_at timestamptz);
    CREATE TABLE resource_allocations(id bigint,ticket_id bigint,tenant_id bigint,location_id bigint,pool_id bigint,units int,started_at timestamptz,expected_end_at timestamptz,released_at timestamptz);
-   CREATE TABLE resource_ledger_reservations(id bigint,tenant_id bigint,location_id bigint,pool_id bigint,units int,starts_at timestamptz,ends_at timestamptz,state text);
+   CREATE TABLE resource_ledger_reservations(id bigint,tenant_id bigint,location_id bigint,pool_id bigint,units int,starts_at timestamptz,ends_at timestamptz,state text,group_id uuid,line_id text);
+   CREATE TABLE queue_reservation_groups(id uuid,tenant_id bigint,location_id bigint,state text,expires_at timestamptz,expected_members jsonb);
    CREATE TABLE tickets(id bigint,tenant_id bigint,location_id bigint,ticket_number text,status text,current_queue_day_id bigint,queue_date_key text,date_key text,service_counter_id bigint,pending_carry_over_since timestamptz,service_started_at timestamptz,service_ended_at timestamptz,service_priority_band text,carry_over_count int,created_at timestamptz);
    CREATE TABLE bookings(queue_ticket_id bigint,tenant_id bigint,location_id bigint,scheduled_start_at timestamptz);
    CREATE TABLE queue_days(id bigint,tenant_id bigint,location_id bigint,business_date date,version bigint,current_closes_at timestamptz,state text);
@@ -43,7 +44,7 @@ test('actual PostgreSQL local operational inventory and authorization', {skip:!a
    INSERT INTO tenant_membership_locations VALUES(2,10,2);
    INSERT INTO local_pool_demo_scopes VALUES(1,10,'four-court-v1');
    INSERT INTO resource_ledger_scopes VALUES(1,10,7);
-   INSERT INTO location_resource_pools VALUES(100,1,10,'Courts',4,TRUE,1);
+   INSERT INTO location_resource_pools VALUES(100,1,10,'Courts',4,TRUE,1,NULL);
    INSERT INTO queue_days VALUES(30,1,10,(now() AT TIME ZONE 'Asia/Manila')::date,1,now()+interval '12 hours','open');
    INSERT INTO service_counters VALUES(1,1,10,TRUE,'desk','Check-in desk');
    INSERT INTO tickets SELECT i,1,10,'T-'||i,CASE WHEN i<=4 THEN 'called' ELSE 'waiting' END,30,to_char(now() AT TIME ZONE 'Asia/Manila','YYYYMMDD'),to_char(now() AT TIME ZONE 'Asia/Manila','YYYYMMDD'),1,NULL,
@@ -55,7 +56,7 @@ test('actual PostgreSQL local operational inventory and authorization', {skip:!a
   const read=createLocalResourceOperationsReader({pool});const input={tenantSlug:'courts',locationSlug:'main',actorUserId:'1'};
   await t.test('four active sessions consume all capacity; overdue remains held and pending calls exclude active sessions',async()=>{
    const j=await read(input);assert.equal(j.pools[0].allocatedUnits,4);assert.equal(j.pools[0].availableUnits,0);assert.equal(j.pools[0].overdueUnits,1);
-   assert.equal(j.activeSessions.length,4);assert.equal(j.called.length,0);assert.equal(j.waiting.length,2);assert.equal(j.ledgerRevision,'7');assert.equal(j.reconciliation.required,false);
+   assert.equal(j.activeSessions.length,4);assert.equal(j.called.length,0);assert.equal(j.waiting.length,2);assert.equal(j.ledgerRevision,'7');assert.equal(j.reconciliation.required,false);assert.equal(j.pools[0].availabilityQuality,'observed');
    assert.equal(j.counterDispatch[0].canCallNext,true);assert.equal(j.counterDispatch[0].currentTicketId,null);
    assert.equal(j.forecastReadiness,'not_evaluated');assert.equal(j.waiting[0].plan.serviceName,'Court rental');
   });
@@ -69,8 +70,23 @@ test('actual PostgreSQL local operational inventory and authorization', {skip:!a
   await t.test('released units become available while protected-now reservations are counted without converted double count',async()=>{
    await pool.query("UPDATE resource_allocations SET released_at=now() WHERE id=1; UPDATE tickets SET service_ended_at=now(),status='served' WHERE id=1; UPDATE resource_ledger_scopes SET revision=8;");
    let j=await read(input);assert.equal(j.pools[0].availableUnits,1);assert.equal(j.activeSessions.length,3);assert.equal(j.ledgerRevision,'8');
-   await pool.query("INSERT INTO resource_ledger_reservations VALUES(1,1,10,100,1,now()-interval '1 minute',now()+interval '1 hour','protected'),(2,1,10,100,1,now()-interval '1 minute',now()+interval '1 hour','converted')");
+   await pool.query("INSERT INTO resource_ledger_reservations VALUES(1,1,10,100,1,now()-interval '1 minute',now()+interval '1 hour','protected',NULL,NULL),(2,1,10,100,1,now()-interval '1 minute',now()+interval '1 hour','converted',NULL,NULL)");
    j=await read(input);assert.equal(j.pools[0].availableUnits,0);assert.equal(j.pools[0].protectedUnitsNow,1);
+  });
+  await t.test('archive, tracking and expired protection are unknown observations and never mutate ledger',async()=>{
+   const before=(await pool.query('SELECT row_to_json(r) AS row FROM resource_ledger_reservations r ORDER BY id')).rows;
+   await pool.query("UPDATE location_resource_pools SET archived_at=now(),tracking_enabled=FALSE");
+   let j=await read(input);assert.equal(j.pools[0].availabilityQuality,'unknown');assert.ok(j.pools[0].availabilityReasonCodes.includes('pool_archived'));assert.ok(j.pools[0].availabilityReasonCodes.includes('tracking_disabled'));assert.equal(j.pools[0].allocatedUnits,3);
+   assert.deepEqual((await pool.query('SELECT row_to_json(r) AS row FROM resource_ledger_reservations r ORDER BY id')).rows,before);
+   await pool.query("UPDATE location_resource_pools SET archived_at=NULL,tracking_enabled=TRUE; INSERT INTO queue_reservation_groups VALUES('00000000-0000-4000-8000-000000000001',1,10,'protected',now()-interval '1 second','[{\"reservationId\":\"1\",\"lineId\":\"one\"}]'); UPDATE resource_ledger_reservations SET group_id='00000000-0000-4000-8000-000000000001',line_id='one' WHERE id=1");
+   const recorded=(await pool.query('SELECT row_to_json(r) AS row FROM resource_ledger_reservations r ORDER BY id')).rows;
+   j=await read(input);assert.equal(j.pools[0].protectedUnitsNow,1);assert.equal(j.pools[0].availabilityQuality,'unknown');assert.ok(j.pools[0].availabilityReasonCodes.includes('protection_expired'));
+   assert.deepEqual((await pool.query('SELECT row_to_json(r) AS row FROM resource_ledger_reservations r ORDER BY id')).rows,recorded);
+   await pool.query("UPDATE queue_reservation_groups SET expires_at=now()+interval '1 hour',expected_members='[{\"reservationId\":\"999\",\"lineId\":\"one\"}]'");
+   j=await read(input);assert.equal(j.pools[0].protectedUnitsNow,1);assert.ok(j.pools[0].availabilityReasonCodes.includes('protection_inconsistent'));
+   await pool.query("UPDATE queue_reservation_groups SET expected_members='{}'::jsonb");
+   j=await read(input);assert.ok(j.pools[0].availabilityReasonCodes.includes('protection_inconsistent'));
+   await pool.query('UPDATE resource_ledger_reservations SET group_id=NULL,line_id=NULL; DELETE FROM queue_reservation_groups');
   });
   await t.test('missing plan remains unknown and inconsistent timing is reported for reconciliation',async()=>{
    await pool.query('DELETE FROM ticket_service_plans WHERE ticket_id=5; UPDATE tickets SET service_started_at=now() WHERE id=6');
@@ -98,7 +114,7 @@ test('actual PostgreSQL local operational inventory and authorization', {skip:!a
    await pool.query('UPDATE tenant_memberships SET is_active=TRUE WHERE id=1');
   });
   await t.test('bounds fail closed rather than returning partial inventory; missing or wrong fixture marker does not enable scope',async()=>{
-   await pool.query("INSERT INTO location_resource_pools SELECT i,1,10,'extra',4,TRUE,1 FROM generate_series(101,150)i");
+   await pool.query("INSERT INTO location_resource_pools SELECT i,1,10,'extra',4,TRUE,1,NULL FROM generate_series(101,150)i");
    await assert.rejects(read(input),{statusCode:409});
    await pool.query("DELETE FROM location_resource_pools WHERE id>100; UPDATE local_pool_demo_scopes SET fixture_key='wrong'");
    await assert.rejects(read(input),{statusCode:404});

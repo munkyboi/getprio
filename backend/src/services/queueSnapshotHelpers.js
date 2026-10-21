@@ -75,12 +75,17 @@ async function buildQueueSnapshot(tenant, options = {}, getTenantUsage) {
   // visible across days for counter occupancy and explicit staff resolution.
   const currentDayCalled = called.find(ticket => ticket.dateKey === dateKey) || null;
   const calledTickets = called.map(counterDispatchService.formatCalledTicket);
+  // Preserve all called/started tickets above for history, timing and explicit
+  // outcomes. Dispatch advice uses the same resource-backed lane rule as claim.
+  const dispatchCalled = await ticketRepository.listCalledTickets(tenant._id, {
+    locationId, excludeAllocatedService: true
+  });
   const counters = locationId ? await serviceCounterRepository.listCountersByLocationId(locationId) : [];
   const readyWaitingCount = locationId
     ? await ticketRepository.countReadyWaitingTickets(tenant._id, { locationId, dateKey }) : 0;
   const queueOpen = !queueDayClosure && (locationToUse?.queueLifecycleMode !== "enforced"
     || await queueDayRepository.isOpenForDispatch(tenant._id, locationId, dateKey));
-  const counterDispatch = counterDispatchService.buildCounterDispatch(counters, calledTickets, readyWaitingCount, queueOpen);
+  const counterDispatch = counterDispatchService.buildCounterDispatch(counters, dispatchCalled.map(counterDispatchService.formatCalledTicket), readyWaitingCount, queueOpen);
   const waitingTickets = await ticketRepository.listWaitingTickets(tenant._id, { locationId, dateKey });
   const overflowTickets = await ticketRepository.listWaitingTickets(tenant._id, {
     locationId,

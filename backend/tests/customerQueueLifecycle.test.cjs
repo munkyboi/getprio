@@ -8,6 +8,7 @@ test('customer lifecycle preserves recovery and carry-over while reporting expli
     ['cancelled','terminal'],['expired','terminal']]) {
     assert.deepEqual(customerQueueLifecycle({status}), {version:1,state,resourceWait:null});
   }
+  assert.equal(customerQueueLifecycle({status:'skipped',serviceStartedAt:'2026-10-15',serviceEndedAt:null}).state,'recovery');
   assert.equal(customerQueueLifecycle({status:'unserved',serviceStartedAt:'2026-10-15',serviceEndedAt:null}).state,'in_service');
   assert.equal(customerQueueLifecycle({status:'unserved',serviceStartedAt:'2026-10-15',serviceEndedAt:'2026-10-16'}).state,'terminal');
 });

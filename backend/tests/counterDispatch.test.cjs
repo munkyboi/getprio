@@ -178,8 +178,12 @@ test('PostgreSQL counter dispatch uses vendor authorization and branch resource 
       const query = { client: pool, locationId:'10',serviceCounterId:'1' };
       assert.equal((await tickets.findCurrentCalledTicket('1',query))._id,'1');
       assert.equal(await tickets.findCurrentCalledTicket('1',{...query,excludeAllocatedService:true}),null);
-      // Ordinary dispatch retains the legacy lane contract even with allocations.
-      await assert.rejects(claim(1),{code:'COUNTER_OCCUPIED'});
+      // All resource-backed dispatch lanes may call again; allocations and the
+      // started ticket stay intact for their explicit request outcomes.
+      const heldBefore=(await pool.query('SELECT * FROM resource_allocations ORDER BY id')).rows;
+      assert.equal((await claim(1))._id,'5');
+      assert.deepEqual((await pool.query('SELECT * FROM resource_allocations ORDER BY id')).rows,heldBefore);
+      assert.equal((await current(1,'1')).status,'called');
       // Timing alone, another scope's allocation, or a released allocation cannot free a lane.
       await pool.query('DELETE FROM resource_allocations WHERE ticket_id=1');
       assert.equal((await tickets.findCurrentCalledTicket('1',{...query,excludeAllocatedService:true}))._id,'1');
@@ -189,7 +193,16 @@ test('PostgreSQL counter dispatch uses vendor authorization and branch resource 
       assert.equal((await tickets.findCurrentCalledTicket('1',{...query,excludeAllocatedService:true}))._id,'1');
       await pool.query("UPDATE resource_allocations SET released_at=NULL WHERE id=1; UPDATE tickets SET service_ended_at=clock_timestamp(),service_outcome='completed' WHERE id=1");
       assert.equal((await tickets.findCurrentCalledTicket('1',{...query,excludeAllocatedService:true}))._id,'1');
-      assert.equal((await pool.query("SELECT status FROM tickets WHERE id=5")).rows[0].status,'waiting');
+      assert.equal((await pool.query("SELECT status FROM tickets WHERE id=5")).rows[0].status,'called');
+    });
+    await t.test('started allocated service permits one serialized winner at its dispatch lane', async () => {
+      await reset(3);
+      await pool.query("UPDATE tickets SET status='called',service_counter_id=1,service_started_at=clock_timestamp(),called_at=clock_timestamp() WHERE id=1; INSERT INTO resource_allocations VALUES(1,1,1,10,NULL)");
+      const results=await Promise.allSettled([claim(1),claim(1)]);
+      assert.equal(results.filter(result=>result.status==='fulfilled').length,1);
+      assert.equal(results.find(result=>result.status==='rejected').reason.code,'COUNTER_OCCUPIED');
+      assert.equal((await pool.query('SELECT COUNT(*)::int count FROM resource_allocations WHERE released_at IS NULL')).rows[0].count,1);
+      assert.equal((await current(1,'1')).serviceEndedAt,null);
     });
     await t.test('revoked vendor access rejects before dispatch', async () => {
       await reset(1);

@@ -31,11 +31,12 @@ function normalizedCommand(command, payload) {
   return normalized;
 }
 async function poolMapping(client, scope, serviceId) {
-  const result = await client.query(`SELECT p.id::text, p.capacity, p.revision AS pool_revision,
+  const result = await client.query(`SELECT p.id::text, p.capacity, p.revision AS pool_revision, to_jsonb(p)->>'archived_at' AS archived_at,
     r.units_required, r.revision AS requirement_revision FROM service_resource_requirements r
     JOIN location_resource_pools p ON (p.id,p.tenant_id,p.location_id) = (r.pool_id,r.tenant_id,r.location_id)
     WHERE r.tenant_id=$1 AND r.location_id=$2 AND r.service_id=$3`, [...scope, serviceId]);
   if (!result.rows[0]) fail("Service resource demand is unknown.");
+  if (result.rows[0].archived_at) fail("This resource pool is archived. Select an active pool before assigning or starting work.", 409, "RESOURCE_POOL_ARCHIVED");
   return result.rows[0];
 }
 
@@ -86,7 +87,7 @@ async function reserve(client, scope, payload) {
   return { reservationId: result.rows[0].id };
 }
 async function reserveTicket(client, scope, payload) {
-  const ticket = await client.query(`SELECT t.status,t.join_channel,p.items,
+  const ticket = await client.query(`SELECT t.status,t.join_channel,p.items,to_jsonb(p)->>'contract_version' AS contract_version,
       clock_timestamp() AS observed_at
     FROM tickets t LEFT JOIN ticket_service_plans p
       ON (p.ticket_id,p.tenant_id,p.location_id)=(t.id,t.tenant_id,t.location_id)
@@ -94,6 +95,8 @@ async function reserveTicket(client, scope, payload) {
   const row = ticket.rows[0];
   if (!row) fail("Ticket not found.", 404);
   if (row.status !== "called") fail("Call the ticket before protecting its service interval.");
+  if (['3','4'].includes(row.contract_version)) fail('Use the resource selection command boundary.',409,'USE_NESTED_CHILD_COMMAND');
+  if (row.contract_version === '2') return require('./queueGroupedLedger').reserve(client,scope,payload.ticketId);
   const item = row.items?.[0];
   if (row.items?.length !== 1 || !item?.resource?.known
     || !Number.isInteger(item.durationMinutes) || item.durationMinutes < 5 || item.durationMinutes > 480) {
@@ -125,9 +128,20 @@ async function reserveTicket(client, scope, payload) {
   return { reservationId: result.rows[0].id };
 }
 async function cancelReservation(client, scope, payload) {
+  const binding=(await client.query(`SELECT to_jsonb(resource_ledger_reservations)->>'group_id' AS group_id
+    FROM resource_ledger_reservations WHERE tenant_id=$1 AND location_id=$2 AND id=$3`,[...scope,payload.reservationId])).rows[0];
+  if(binding?.group_id){
+    const model=(await client.query("SELECT to_jsonb(queue_reservation_groups)->>'execution_model' AS model FROM queue_reservation_groups WHERE id=$1 AND tenant_id=$2 AND location_id=$3",[binding.group_id,...scope])).rows[0];
+    if(model?.model==='nested')return require('./queueSelectionLedger').cancelProtection(client,scope,payload.reservationId,binding.group_id);
+  }
   const result = await client.query(`UPDATE resource_ledger_reservations SET state='cancelled'
-    WHERE tenant_id=$1 AND location_id=$2 AND id=$3 AND state='protected' RETURNING id::text`, [...scope, payload.reservationId]);
-  if (result.rows.length) return { reservationId: result.rows[0].id };
+    WHERE tenant_id=$1 AND location_id=$2 AND id=$3 AND state='protected' RETURNING id::text,to_jsonb(resource_ledger_reservations)->>'group_id' AS group_id`, [...scope, payload.reservationId]);
+  if (result.rows.length) {
+    const groupId=result.rows[0].group_id;
+    if(groupId)await client.query(`UPDATE queue_reservation_groups SET state='cancelled' WHERE id=$1 AND state='protected'
+      AND NOT EXISTS(SELECT 1 FROM resource_ledger_reservations WHERE group_id=$1 AND state IN('protected','converted'))`,[groupId]);
+    return { reservationId: result.rows[0].id };
+  }
   const existing = await client.query(`SELECT id::text,state FROM resource_ledger_reservations
     WHERE tenant_id=$1 AND location_id=$2 AND id=$3`, [...scope, payload.reservationId]);
   if (existing.rows[0]?.state === "cancelled") return { reservationId: existing.rows[0].id };
@@ -157,6 +171,10 @@ async function allocationPlan(client, scope, ticketId) {
   return { row, item, pool };
 }
 async function allocate(client, scope, payload) {
+  const version = await client.query(`SELECT to_jsonb(p)->>'contract_version' AS version FROM ticket_service_plans p
+    WHERE tenant_id=$1 AND location_id=$2 AND ticket_id=$3`,[...scope,payload.ticketId]);
+  if (version.rows[0]?.version === '2') return require('./queueGroupedLedger').allocate(client,scope,payload.ticketId);
+  if (['3','4'].includes(version.rows[0]?.version)) fail('Use the resource selection command boundary.',409,'USE_NESTED_CHILD_COMMAND');
   const prior = await client.query(`SELECT id FROM resource_allocations
     WHERE tenant_id=$1 AND location_id=$2 AND ticket_id=$3`, [...scope, payload.ticketId]);
   if (prior.rows.length) fail("Ticket already has a resource allocation.");
@@ -213,6 +231,13 @@ async function allocate(client, scope, payload) {
   return { allocationId: result.rows[0].id, reservationId };
 }
 async function release(client, scope, payload) {
+  const grouped = await client.query(`SELECT to_jsonb(a)->>'group_id' AS group_id FROM resource_allocations a
+    WHERE tenant_id=$1 AND location_id=$2 AND id=$3`,[...scope,payload.allocationId]);
+  if (grouped.rows[0]?.group_id) {
+    const model=(await client.query("SELECT to_jsonb(g)->>'execution_model' AS model FROM queue_reservation_groups g JOIN queue_allocation_groups a ON a.reservation_group_id=g.id WHERE a.id=$1 AND a.tenant_id=$2 AND a.location_id=$3",[grouped.rows[0].group_id,...scope])).rows[0];
+    if(model?.model==='nested')fail('Use recorded child outcome commands for this group.',409,'USE_NESTED_CHILD_COMMAND');
+    return require('./queueGroupedLedger').release(client,scope,payload,grouped.rows[0].group_id);
+  }
   const result = await client.query(`UPDATE resource_allocations SET released_at=clock_timestamp(),outcome=$4,reason=$5
     WHERE tenant_id=$1 AND location_id=$2 AND id=$3 AND released_at IS NULL RETURNING id::text`,
   [...scope, payload.allocationId, payload.outcome, payload.reason]);

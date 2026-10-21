@@ -126,6 +126,27 @@ function createLocalImageStorage({ pool, assertSize = assertImageUploadSize }) {
       )
     );
   }
+  async function resolvePaymentQrScope(client, {tenant,location,actorUserId}) {
+    const requestedLocationSlug=String(location?.slug||"");
+    if(!/^\d+$/u.test(String(tenant?._id||""))||!/^\d+$/u.test(String(actorUserId||""))
+      ||requestedLocationSlug.length>160||!/^[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(requestedLocationSlug))unavailable();
+    // A payment QR can precede the location. Its authorization anchor remains
+    // the same tenant's verified fixture; the draft slug is separate metadata.
+    const rows=(await client.query(`SELECT s.tenant_id::text,s.location_id::text FROM public.local_pool_demo_scopes s
+      JOIN store_locations l ON(l.tenant_id,l.id)=(s.tenant_id,s.location_id)
+      WHERE s.tenant_id=$1 AND s.fixture_key='four-court-v1'`,[String(tenant._id)])).rows;
+    if(rows.length!==1)unavailable();
+    const scope={tenantId:String(rows[0].tenant_id),locationId:String(rows[0].location_id)};
+    if(scope.tenantId!==String(tenant._id)||!(await readLocalPoolDemoScope(client,scope)))unavailable();
+    if(location?._id){
+      const target=(await client.query('SELECT id FROM store_locations WHERE tenant_id=$1 AND id=$2 AND slug=$3',[scope.tenantId,location._id,requestedLocationSlug])).rows;
+      if(target.length!==1)unavailable();
+    }
+    const actor=await require("./vendorQueueTransactionService").readAuthorizedVendorQueueActor(client,
+      {...scope,actorUserId:String(actorUserId)},"tenant.location.manage");
+    if(!actor)throw Object.assign(new Error("You cannot manage locations for this business."),{statusCode:403,code:"NOT_AUTHORIZED"});
+    return {...scope,assetPurpose:"location-payment-qr",requestedLocationSlug};
+  }
   async function resolveScope(client, { tenant, location, user, booking }) {
     let rows;
     if (booking) {
@@ -191,11 +212,13 @@ function createLocalImageStorage({ pool, assertSize = assertImageUploadSize }) {
     location,
     user,
     booking,
+    actorUserId,
     objectKey,
     contentType,
     body,
-  }) {
+  }, paymentQr = false) {
     if (!localImageStorageEnabled()) return null;
+    if(paymentQr&&(user||booking||objectKey))unavailable();
     if (
       !Buffer.isBuffer(body) ||
       !MIME.has(contentType) ||
@@ -209,12 +232,9 @@ function createLocalImageStorage({ pool, assertSize = assertImageUploadSize }) {
       );
     await assertSize(body.length);
     return scoped(async (client, configuration) => {
-      const scope = await resolveScope(client, {
-        tenant,
-        location,
-        user,
-        booking,
-      });
+      const scope = paymentQr
+        ? await resolvePaymentQrScope(client,{tenant,location,actorUserId})
+        : await resolveScope(client, {tenant,location,user,booking});
       const root = rootFor(configuration.databaseName),
         base = publicBase();
       const perform = async () => {
@@ -275,9 +295,9 @@ function createLocalImageStorage({ pool, assertSize = assertImageUploadSize }) {
       return result;
     });
   }
-  async function store(input) {
+  async function store(input, paymentQr = false) {
     try {
-      return await storeUnchecked(input);
+      return await storeUnchecked(input,paymentQr);
     } catch (error) {
       if (error.statusCode === 400 || error.statusCode === 403) throw error;
       unavailable();
@@ -311,6 +331,13 @@ function createLocalImageStorage({ pool, assertSize = assertImageUploadSize }) {
           metadata.visibility !== "private"
         )
           notFound();
+        if ((Object.hasOwn(metadata,"assetPurpose") || Object.hasOwn(metadata,"requestedLocationSlug")) && (
+          metadata.assetPurpose !== "location-payment-qr" ||
+          typeof metadata.requestedLocationSlug !== "string" ||
+          metadata.requestedLocationSlug.length > 160 ||
+          !/^[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(metadata.requestedLocationSlug) ||
+          metadata.visibility !== "public"
+        )) notFound();
         if (metadata.visibility === "private") {
           if (!validAccess(id, access)) notFound();
           const row = (
@@ -367,7 +394,7 @@ function createLocalImageStorage({ pool, assertSize = assertImageUploadSize }) {
     await read(id, access);
     return `${publicBase()}/api/local-image-assets/private/${id}?expires=${expires}&signature=${access.signature}`;
   }
-  return { store, read, proofAccess };
+  return { store: input=>store(input,false), storePaymentQr:input=>store(input,true), read, proofAccess };
 }
 let instance;
 function defaultStorage() {
@@ -378,7 +405,7 @@ module.exports = {
   localImageStorageEnabled,
   createLocalImageStorage,
   rootFor,
-  storeLocalPaymentQr: (input) => defaultStorage().store(input),
+  storeLocalPaymentQr: (input) => defaultStorage().storePaymentQr(input),
   storeLocalImage: (input) => defaultStorage().store(input),
   readLocalImage: (id, access) => defaultStorage().read(id, access),
   localProofAccess: (booking) => defaultStorage().proofAccess(booking),

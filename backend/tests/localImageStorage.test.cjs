@@ -356,3 +356,67 @@ test(
     }
   },
 );
+
+test('dedicated QR draft scope stores real bytes for same-tenant new/unmarked location without relaxing generic image guard',async()=>{
+ const {runInNewContext}=require('node:vm'),{createRequire}=require('node:module');
+ const file=require.resolve('../src/services/localImageStorage'),real=createRequire(file);
+ const name=`getprio_local_pool_demo_qr_unit_${randomUUID().replaceAll('-','')}`;
+ const state={anchors:[{tenant_id:'1',location_id:'10'}],authorized:true,marker:true,transaction:false,authChecks:0,queries:[]};
+ const client={query:async(sql,args)=>{state.queries.push({sql,args});if(sql==='BEGIN READ ONLY'){state.transaction=true;return {rows:[]};}if(sql==='COMMIT'||sql==='ROLLBACK'){state.transaction=false;return {rows:[]};}
+  if(sql.includes('SELECT s.tenant_id::text,s.location_id::text'))return {rows:state.anchors};
+  if(sql.startsWith('SELECT id FROM store_locations'))return {rows:args[0]==='1'&&args[1]==='11'&&args[2]==='new-mandaue'?[{id:'11'}]:[]};
+  if(sql.includes('SELECT l.tenant_id::text'))return {rows:[]};
+  throw Error('Unexpected query');},release:()=>{}};
+ const module={exports:{}};
+ runInNewContext(await fs.readFile(file,'utf8'),{module,exports:module.exports,Buffer,URL,process:{env:{LOCAL_IMAGE_STORAGE_ENABLED:'1',SERVER_URL:'http://127.0.0.1:5009'},getuid:()=>process.getuid()},require:dep=>dep==='./localPoolDemoScope'?{localPoolDemoConfiguration:()=>({databaseName:name}),readLocalPoolDemoScope:async(_client,scope)=>state.marker&&scope.tenantId==='1'&&scope.locationId==='10'}:dep==='./imageUploadPolicy'?{assertImageUploadSize:async()=>{}}:dep==='./vendorQueueTransactionService'?{readAuthorizedVendorQueueActor:async(_client,scope,permission)=>{assert.equal(state.transaction,true);assert.equal(permission,'tenant.location.manage');assert.equal(scope.tenantId,'1');assert.equal(scope.locationId,'10');assert.equal(scope.actorUserId,'5');state.authChecks++;return state.authorized?{tenantMemberships:[{role:'owner'}]}:null;}}:real(dep)},{filename:file});
+ const storage=module.exports.createLocalImageStorage({pool:{connect:async()=>client},assertSize:async()=>{}});
+ const root=module.exports.rootFor(name);const input={tenant:{_id:'1'},location:{slug:'new-mandaue'},actorUserId:'5',contentType:'image/png',body:png};
+ try{
+  // The old/generic seam still rejects an unsaved slug. The dedicated path is
+  // narrower in purpose and separately revalidates location-management access.
+  await assert.rejects(storage.store(input),{statusCode:503});
+  const asset=await storage.storePaymentQr(input);assert.equal(state.authChecks,1);assert.ok(asset.publicUrl.startsWith('http://127.0.0.1:5009/api/local-image-assets/'));
+  const id=asset.publicUrl.split('/').at(-1),metadata=JSON.parse(await fs.readFile(path.join(root,`${id}.json`),'utf8'));
+  assert.equal(metadata.tenantId,'1');assert.equal(metadata.locationId,'10');assert.equal(metadata.assetPurpose,'location-payment-qr');assert.equal(metadata.requestedLocationSlug,'new-mandaue');assert.equal(metadata.visibility,'public');
+  assert.deepEqual(Buffer.from((await storage.read(id)).body),png);
+  const metadataFile=path.join(root,`${id}.json`);
+  const {assetPurpose,requestedLocationSlug,...legacyMetadata}=metadata;
+  await fs.writeFile(metadataFile,JSON.stringify(legacyMetadata));
+  assert.deepEqual(Buffer.from((await storage.read(id)).body),png);
+  for(const malformed of [
+    {...metadata,assetPurpose:'other-purpose'},
+    {...legacyMetadata,requestedLocationSlug},
+    {...legacyMetadata,assetPurpose},
+    {...metadata,requestedLocationSlug:null},
+    {...metadata,requestedLocationSlug:123},
+    {...metadata,requestedLocationSlug:''},
+    {...metadata,requestedLocationSlug:'../foreign'},
+    {...metadata,requestedLocationSlug:'Uppercase'},
+    {...metadata,requestedLocationSlug:'a'.repeat(161)},
+    {...metadata,visibility:'private'},
+  ]){
+    await fs.writeFile(metadataFile,JSON.stringify(malformed));
+    await assert.rejects(storage.read(id),{statusCode:404});
+  }
+  await fs.writeFile(metadataFile,JSON.stringify(metadata));
+  assert.deepEqual(Buffer.from((await storage.read(id)).body),png);
+  const existing=await storage.storePaymentQr({...input,location:{_id:'11',slug:'new-mandaue'}});assert.ok(existing.publicUrl);assert.equal(state.authChecks,2);
+  await assert.rejects(storage.storePaymentQr({...input,tenant:{_id:'2'}}),{statusCode:503});
+  await assert.rejects(storage.storePaymentQr({...input,location:{_id:'99',slug:'foreign'}}),{statusCode:503});
+  for(const bad of [{actorUserId:null},{location:{slug:'../bad'}},{location:{slug:''}},{booking:{_id:'8'}},{user:{_id:'5'}},{objectKey:'proof'}])await assert.rejects(storage.storePaymentQr({...input,...bad}),{statusCode:503});
+  state.authorized=false;await assert.rejects(storage.storePaymentQr(input),{statusCode:403,code:'NOT_AUTHORIZED'});state.authorized=true;
+  state.anchors=[];await assert.rejects(storage.storePaymentQr(input),{statusCode:503});
+  state.anchors=[{tenant_id:'1',location_id:'10'},{tenant_id:'1',location_id:'12'}];await assert.rejects(storage.storePaymentQr(input),{statusCode:503});
+  state.anchors=[{tenant_id:'1',location_id:'10'}];state.marker=false;await assert.rejects(storage.storePaymentQr(input),{statusCode:503});await assert.rejects(storage.read(id),{statusCode:404});
+  assert.ok(state.queries.every(({sql})=>!/^\s*(INSERT|UPDATE|DELETE|CREATE|ALTER)/iu.test(sql)));
+ }finally{await fs.rm(root,{recursive:true,force:true});}
+});
+
+test('both QR upload routes pass authenticated actor; upload service forwards it only to local QR adapter',async()=>{
+ const {readFileSync}=require('node:fs'),{loadModuleWithMocks}=require('./helpers/loadModuleWithMocks.cjs');
+ const source=readFileSync(require.resolve('../src/routes/vendorRoutes'),'utf8');
+ assert.equal((source.match(/locationPaymentQrUploadService\.uploadBinary\(\{\s*actorUserId: req\.user\._id,/g)||[]).length,2);
+ let captured;
+ const service=loadModuleWithMocks(require.resolve('../src/services/locationPaymentQrUploadService'),{'./localImageStorage':{storeLocalPaymentQr:async input=>{captured=input;return {publicUrl:'http://127.0.0.1:5009/api/local-image-assets/test'};}},'./imageUploadPolicy':{assertImageUploadSize:async()=>{}},'../config/env':{}});
+ const result=await service.uploadBinary({tenant:{_id:'1'},location:{slug:'draft'},actorUserId:'5',body:{contentType:'image/png'},fileBuffer:png});assert.equal(captured.actorUserId,'5');assert.equal(result.asset.publicUrl,'http://127.0.0.1:5009/api/local-image-assets/test');
+});

@@ -128,7 +128,7 @@ function getObjectKeyFromPublicUrl(publicUrl) {
   return objectKey;
 }
 
-async function uploadBinary({ tenant, location, body, fileBuffer }) {
+async function uploadBinary({ tenant, location, actorUserId, body, fileBuffer }) {
   const uploadBuffer = Buffer.isBuffer(fileBuffer) ? Buffer.from(fileBuffer) : null;
   const fileName = normalizeFileName(body.fileName);
   const contentType = String(body.contentType || "").toLowerCase();
@@ -141,7 +141,7 @@ async function uploadBinary({ tenant, location, body, fileBuffer }) {
 
   await assertImageUploadSize(uploadBuffer?.length || 0);
 
-  const localAsset = await storeLocalPaymentQr({ tenant, location, contentType, body: uploadBuffer });
+  const localAsset = await storeLocalPaymentQr({ tenant, location, actorUserId, contentType, body: uploadBuffer });
   if (localAsset) return { asset: localAsset };
   assertB2Configured();
   const objectKey = buildObjectKey({ tenant, location, fileName, contentType });
