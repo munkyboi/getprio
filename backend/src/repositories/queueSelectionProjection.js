@@ -203,7 +203,7 @@ async function read(client, scope, draft, options = {}) {
       })),
   }));
   const projectedResourceWait = row.status === "waiting" && [3, 4].includes(Number(row.contract_version))
-    ? await require("../services/queueResourceConflictProjection").readWaitingConflict(client, scope, draft, row.service_selections)
+    ? await require("../services/queueResourceConflictProjection").readWaitingConflict(client, scope, draft, row.service_selections, { contractVersion: row.contract_version, resourceWait: row.resource_wait || null })
     : null;
   const serviceHoursEligibility = await require("../services/queueServiceHoursEligibilityService").read(client,scope,{...row,ticket_id:row.id},options);
   return {

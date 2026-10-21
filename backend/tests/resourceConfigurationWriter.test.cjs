@@ -106,7 +106,7 @@ test('draft resource configuration writer under PostgreSQL constraints', { skip:
       CREATE TABLE location_services(location_id BIGINT REFERENCES store_locations(id),service_id BIGINT REFERENCES vendor_services(id),tenant_id BIGINT,is_active BOOLEAN,UNIQUE(location_id,service_id));
       CREATE TABLE booking_bundle_items(id BIGINT PRIMARY KEY,booking_id BIGINT,tenant_id BIGINT,location_id BIGINT);
       CREATE TABLE tickets(id BIGINT PRIMARY KEY,tenant_id BIGINT,location_id BIGINT,UNIQUE(id,tenant_id,location_id))`);
-    for (const migration of ['20261003_add_resource_capacity_foundation.sql', '20261007_add_resource_ledger_foundation.sql', '20261017_resource_pool_lifecycle.sql']) {
+    for (const migration of ['20261003_add_resource_capacity_foundation.sql', '20261007_add_resource_ledger_foundation.sql', '20261017_resource_pool_lifecycle.sql', '20261017_resource_members_and_queue_policies.sql', '20261020_add_resource_display_order.sql']) {
       await pool.query(fs.readFileSync(path.resolve(__dirname, '../../database/migrations', migration), 'utf8'));
     }
     await pool.query(`CREATE TABLE queue_plan_drafts(id UUID PRIMARY KEY,tenant_id BIGINT,location_id BIGINT,lines JSONB,

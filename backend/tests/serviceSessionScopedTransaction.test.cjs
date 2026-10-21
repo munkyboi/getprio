@@ -60,6 +60,7 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
         service_started_at TIMESTAMPTZ,service_started_by_user_id BIGINT,service_ended_at TIMESTAMPTZ,service_ended_by_user_id BIGINT,
         service_outcome TEXT,status_reason TEXT,updated_at TIMESTAMPTZ,served_at TIMESTAMPTZ,unserved_at TIMESTAMPTZ,service_priority_band TEXT,rejoin_deadline_at TIMESTAMPTZ,
         lookup_code TEXT,user_id BIGINT,customer_email TEXT,customer_phone TEXT,UNIQUE(id,tenant_id,location_id));
+      CREATE TABLE queue_stage_attempts(id UUID PRIMARY KEY,state TEXT,started_at TIMESTAMPTZ);
       CREATE TABLE ticket_service_plans(ticket_id BIGINT PRIMARY KEY,tenant_id BIGINT,location_id BIGINT,source TEXT,booking_id BIGINT,items JSONB);
       CREATE TABLE events(id BIGSERIAL PRIMARY KEY,ticket_id BIGINT,event_type TEXT,metadata JSONB,actor_role TEXT,source TEXT,tenant_id BIGINT,location_id BIGINT,event_key TEXT);
       CREATE UNIQUE INDEX events_expiry_key ON events(event_key) WHERE event_key IS NOT NULL;
@@ -99,7 +100,7 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
         ADD COLUMN payment_qr_image_url TEXT, ADD COLUMN payment_qr_active BOOLEAN, ADD COLUMN customer_self_check_in_enabled BOOLEAN,
         ADD COLUMN is_primary BOOLEAN DEFAULT FALSE, ADD COLUMN created_at TIMESTAMPTZ, ADD COLUMN updated_at TIMESTAMPTZ;
       ALTER TABLE location_resource_pools ADD COLUMN name TEXT DEFAULT 'Court';
-      ALTER TABLE ticket_service_plans ADD COLUMN execution_mode TEXT, ADD COLUMN created_by_user_id BIGINT;
+      ALTER TABLE ticket_service_plans ADD COLUMN execution_mode TEXT, ADD COLUMN created_by_user_id BIGINT, ADD COLUMN contract_version INTEGER DEFAULT 1, ADD COLUMN stage_attempt_id UUID;
       ALTER TABLE users ADD COLUMN display_name TEXT;
       ALTER TABLE store_locations ADD COLUMN queue_lifecycle_mode TEXT DEFAULT 'legacy', ADD COLUMN timezone TEXT DEFAULT 'Asia/Manila';
       ALTER TABLE bookings ADD COLUMN reference TEXT DEFAULT 'BK-1', ADD COLUMN scheduled_start_at TIMESTAMPTZ,

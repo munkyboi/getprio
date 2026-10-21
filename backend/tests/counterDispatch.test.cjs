@@ -62,6 +62,8 @@ test('PostgreSQL counter dispatch uses vendor authorization and branch resource 
       CREATE TABLE queue_days(tenant_id BIGINT,location_id BIGINT,business_date DATE,state TEXT,current_closes_at TIMESTAMPTZ);
       CREATE TABLE bookings(id BIGINT PRIMARY KEY,queue_ticket_id BIGINT,tenant_id BIGINT,location_id BIGINT,reference TEXT,scheduled_start_at TIMESTAMPTZ,scheduled_end_at TIMESTAMPTZ,execution_mode TEXT);
       CREATE TABLE booking_bundle_items(id BIGINT,booking_id BIGINT,tenant_id BIGINT,location_id BIGINT,scheduled_start_at TIMESTAMPTZ,scheduled_end_at TIMESTAMPTZ,sort_order INT);
+      CREATE TABLE ticket_service_plans(ticket_id BIGINT PRIMARY KEY,tenant_id BIGINT,location_id BIGINT,contract_version INTEGER DEFAULT 1,stage_attempt_id UUID);
+      CREATE TABLE queue_stage_attempts(id UUID PRIMARY KEY,state TEXT,started_at TIMESTAMPTZ);
       ${ticketTable}
       ALTER TABLE tickets ADD queue_date_key TEXT, ADD original_queue_day_id BIGINT, ADD current_queue_day_id BIGINT,
         ADD status_reason TEXT, ADD pending_carry_over_since TIMESTAMPTZ, ADD carry_over_expires_at TIMESTAMPTZ,

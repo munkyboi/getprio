@@ -181,6 +181,14 @@ test(
    INSERT INTO service_resource_requirements VALUES(1,1,10,1,1,1),(2,1,10,1,1,1);
    CREATE TABLE location_resource_pools(id BIGINT,tenant_id BIGINT,location_id BIGINT,revision INTEGER,name TEXT,capacity INTEGER,tracking_enabled BOOLEAN,UNIQUE(id,tenant_id,location_id));
    INSERT INTO location_resource_pools VALUES(1,1,10,1,'Courts',4,TRUE);`);
+      // This suite owns a minimal schema; reuse the actual bootstrap hours table.
+      const initSql = fs.readFileSync(path.join(__dirname, "../../database/init.sql"), "utf8");
+      await pool.query("ALTER TABLE store_locations ADD UNIQUE(id)");
+      await pool.query(initSql.match(/CREATE TABLE store_hours \([\s\S]*?\n\);/)[0]);
+      // Ordinary lifecycle cases need a real open window; dedicated hours tests cover rejection.
+      await pool.query(`INSERT INTO store_hours(location_id,weekday,opens_at,closes_at,is_closed)
+        SELECT 10,day,(clock_timestamp() AT TIME ZONE 'Asia/Manila' - interval '1 hour')::time,
+          (clock_timestamp() AT TIME ZONE 'Asia/Manila' - interval '1 hour')::time,FALSE FROM generate_series(0,6) day`);
       for (const filename of [
         "20261017_add_queue_plan_drafts.sql",
         "20261017_queue_plan_catalog_revision.sql",
@@ -251,6 +259,7 @@ test(
       await pool.query(fs.readFileSync(path.join(__dirname,"../../database/migrations/20261017_named_resource_archival.sql"),"utf8"));
       await pool.query(fs.readFileSync(path.join(__dirname,"../../database/migrations/20261017_named_extra_members_v1.sql"),"utf8"));
       await pool.query(fs.readFileSync(path.join(__dirname,"../../database/migrations/20261017_queue_plan_skip_recall_v1.sql"),"utf8"));
+      await pool.query(fs.readFileSync(path.join(__dirname,"../../database/migrations/20261020_add_resource_display_order.sql"),"utf8"));
       catalogRevision = (await readCatalog(pool, scope)).catalogRevision;
       await t.test(
         "parallel snapshot treats quantity separately from duration and rejects excess or multi-pool demand",
@@ -804,6 +813,8 @@ test(
             tenantId: String(row.tenant_id),
             locationId: String(row.location_id),
             status: row.status,
+            joinChannel: row.join_channel,
+            customerConfirmedAt: row.customer_confirmed_at,
             dateKey: row.date_key || "20261017",
             serviceStartedAt: row.service_started_at,
             serviceEndedAt: row.service_ended_at,
@@ -1111,13 +1122,13 @@ test(
             holder,
             "complete",
             "holder-complete",
-            { allocationGroupId: holder.allocationGroups.at(-1).id },
+            { allocationGroupId: holder.allocationGroups.at(-1).id, completeAll: true },
           );
           assert.deepEqual(
             JSON.parse(
               JSON.stringify(
                 await invoke(holder, "complete", "holder-complete", {
-                  allocationGroupId: holder.allocationGroups.at(-1).id,
+                  allocationGroupId: holder.allocationGroups.at(-1).id, completeAll: true,
                 }),
               ),
             ),
@@ -1467,7 +1478,7 @@ test(
         async () => {
           multi = (
             await invoke(multi, "complete", "station-one-complete", {
-              allocationGroupId: multi.allocationGroups.at(-1).id,
+              allocationGroupId: multi.allocationGroups.at(-1).id, completeAll: true,
             })
           ).plan;
           assert.equal(multi.currentStage.state, "completed");
@@ -1582,7 +1593,7 @@ test(
           ).plan;
           multi = (
             await invoke(multi, "complete", "station-two-final", {
-              allocationGroupId: multi.allocationGroups.at(-1).id,
+              allocationGroupId: multi.allocationGroups.at(-1).id, completeAll: true,
             })
           ).plan;
           assert.equal(multi.state, "served");
@@ -1668,6 +1679,10 @@ test(
           assert.ok(
             listed.members.every((member) => member.availability.provisional),
           );
+          const namedPoolBefore = (await pool.query("SELECT capacity,revision::text FROM location_resource_pools WHERE id=1")).rows[0];
+          assert.equal(namedPoolBefore.capacity, 8, "creating four active members expands pool capacity from four to eight");
+          // Exercise the current hard limit rather than the obsolete fixed-capacity creation rule.
+          await pool.query("UPDATE location_resource_pools SET capacity=100 WHERE id=1");
           await assert.rejects(
             named.saveMember(context, {
               body: { poolId: "1", name: "Court 5", isActive: true },
@@ -1675,6 +1690,10 @@ test(
             }),
             { code: "RESOURCE_CAPACITY_EXCEEDED" },
           );
+          assert.equal((await pool.query("SELECT count(*)::int AS count FROM resource_pool_members WHERE pool_id=1")).rows[0].count, 4);
+          assert.deepEqual((await pool.query("SELECT capacity,revision::text FROM location_resource_pools WHERE id=1")).rows[0], {...namedPoolBefore, capacity:100});
+          await pool.query("UPDATE location_resource_pools SET capacity=$1 WHERE id=1",[namedPoolBefore.capacity]);
+          assert.deepEqual((await pool.query("SELECT capacity,revision::text FROM location_resource_pools WHERE id=1")).rows[0], namedPoolBefore);
           await assert.rejects(
             named.saveMember(context, {
               body: { poolId: "999", name: "Wrong branch", isActive: true },
@@ -4257,7 +4276,7 @@ test(
           );
         },
       );
-      await t.test('named display renames preserve stable IDs and frozen history; maintenance retains registry and capacity',async()=>{
+      await t.test('named display renames preserve stable IDs and frozen history; maintenance retains registry and reduces active capacity',async()=>{
         const before=(await pool.query("SELECT selection_id,snapshot FROM queue_selection_definitions WHERE resource_member_id=$1 ORDER BY ticket_id,plan_revision,selection_id",[memberIds[0]])).rows;
         const old=(await named.listMembers(context,'1')).members.find(m=>m.id===memberIds[0]);
         const capacity=(await pool.query('SELECT capacity FROM location_resource_pools WHERE id=1')).rows[0].capacity;
@@ -4269,10 +4288,10 @@ test(
         const archived=(await named.saveMember(context,{memberId:renamed.id,body:{name:renamed.name,isActive:false,expectedRevision:renamed.revision},operationKey:randomUUID()})).member;
         assert.equal(archived.id,renamed.id);assert.equal(archived.isActive,false);
         assert.equal((await named.listMembers(context,'1')).members.find(m=>m.id===archived.id).availability.state,'inactive');
-        assert.equal((await pool.query('SELECT capacity FROM location_resource_pools WHERE id=1')).rows[0].capacity,capacity);
+        assert.equal((await pool.query('SELECT capacity FROM location_resource_pools WHERE id=1')).rows[0].capacity,capacity-1);
         assert.deepEqual((await pool.query("SELECT selection_id,snapshot FROM queue_selection_definitions WHERE resource_member_id=$1 ORDER BY ticket_id,plan_revision,selection_id",[memberIds[0]])).rows,before);
       });
-      await t.test('named enable-disable is reversible, replay-safe, permission-scoped and excludes fresh capture without resizing the pool',async()=>{
+      await t.test('named enable-disable is reversible, replay-safe and permission-scoped while active capacity follows member state',async()=>{
         const oldPolicy=await named.getConfiguration(context,'1');
         await named.saveConfiguration(context,'1',{expectedRevision:oldPolicy.policy.revision,configuration:{...oldPolicy.policy.configuration,extras:[]}},randomUUID());
         const original=(await named.listMembers(context,'1')).members.find(m=>m.id===memberIds[0]);
@@ -4281,6 +4300,7 @@ test(
         const enabled=(await named.saveMember(context,enable)).member;
         const disable={memberId:enabled.id,body:{name:enabled.name,isActive:false,expectedRevision:enabled.revision},operationKey:randomUUID()};
         const disabled=(await named.saveMember(context,disable)).member;
+        assert.equal((await pool.query('SELECT capacity FROM location_resource_pools WHERE id=1')).rows[0].capacity,capacity);
         assert.equal(disabled.id,original.id);assert.equal(disabled.name,original.name);assert.equal(disabled.isActive,false);
         assert.deepEqual((await named.saveMember(context,disable)).member,disabled);
         await assert.rejects(named.saveMember(context,{...disable,body:{...disable.body,isActive:true}}),{code:'IDEMPOTENCY_CONFLICT'});
@@ -4296,18 +4316,20 @@ test(
         assert.equal(restored.id,original.id);assert.equal(restored.isActive,true);
         const fresh=await selections4.readCatalog(pool,scope);
         assert.ok(await selections4.capture(pool,scope,input,fresh.catalogRevision));
-        assert.equal((await pool.query('SELECT capacity FROM location_resource_pools WHERE id=1')).rows[0].capacity,capacity);
+        assert.equal((await pool.query('SELECT capacity FROM location_resource_pools WHERE id=1')).rows[0].capacity,capacity+1);
         const historical=(await pool.query('SELECT name,is_active FROM resource_pool_member_versions WHERE member_id=$1 AND revision=$2',[original.id,original.revision])).rows[0];
         assert.equal(historical.name,original.name);assert.equal(historical.is_active,original.isActive);
       });
-      await t.test('concurrent enable requests serialize the last configured member slot without growing capacity',async()=>{
+      await t.test('concurrent enable requests serialize the last capacity increment at the maximum of one hundred',async()=>{
         await pool.query("INSERT INTO location_resource_pools(id,tenant_id,location_id,revision,name,capacity,tracking_enabled) VALUES(9999,1,10,1,'Toggle concurrency QA',1,TRUE)");
         const a=(await named.saveMember(context,{body:{poolId:'9999',name:'Toggle A',isActive:false},operationKey:randomUUID()})).member;
         const b=(await named.saveMember(context,{body:{poolId:'9999',name:'Toggle B',isActive:false},operationKey:randomUUID()})).member;
+        const baselineCapacity=(await named.listMembers(context,'9999')).pool.capacity;
+        await pool.query('UPDATE location_resource_pools SET capacity=99 WHERE id=9999');
         const results=await Promise.allSettled([a,b].map(m=>named.saveMember(context,{memberId:m.id,body:{name:m.name,isActive:true,expectedRevision:m.revision},operationKey:randomUUID()})));
         assert.equal(results.filter(r=>r.status==='fulfilled').length,1);
         assert.equal(results.find(r=>r.status==='rejected').reason.code,'RESOURCE_CAPACITY_EXCEEDED');
-        const registry=await named.listMembers(context,'9999');assert.equal(registry.members.filter(m=>m.isActive).length,1);assert.equal(registry.pool.capacity,1);
+        const registry=await named.listMembers(context,'9999');assert.equal(registry.members.filter(m=>m.isActive).length,1);assert.equal(registry.pool.capacity,100);
         const winner=registry.members.find(m=>m.isActive);
         const ticket=(await pool.query("INSERT INTO tickets(tenant_id,location_id,ticket_number,status) VALUES(1,10,'Anonymous toggle QA','called') RETURNING id::text")).rows[0].id;
         const allocation=(await pool.query("INSERT INTO resource_allocations(tenant_id,location_id,ticket_id,pool_id,pool_revision,units,started_at,expected_end_at) VALUES(1,10,$1,9999,1,1,clock_timestamp(),clock_timestamp()+interval '30 minutes') RETURNING id::text",[ticket])).rows[0].id;
@@ -4317,6 +4339,9 @@ test(
         const disabled=(await named.saveMember(context,{memberId:winner.id,body:{name:winner.name,isActive:false,expectedRevision:winner.revision},operationKey:randomUUID()})).member;
         const sameMember=await Promise.allSettled([1,2].map(()=>named.saveMember(context,{memberId:disabled.id,body:{name:disabled.name,isActive:true,expectedRevision:disabled.revision},operationKey:randomUUID()})));
         assert.equal(sameMember.filter(r=>r.status==='fulfilled').length,1);assert.equal(sameMember.find(r=>r.status==='rejected').reason.code,'STALE_REVISION');
+        assert.equal((await named.listMembers(context,'9999')).pool.capacity,100);
+        await pool.query('UPDATE location_resource_pools SET capacity=$1 WHERE id=9999',[baselineCapacity]);
+        assert.equal((await named.listMembers(context,'9999')).pool.capacity,baselineCapacity);
 
       });
       await t.test('waiting named plan cannot Call after disable or reenable until explicit amendment; protected and occupied toggles never release work',async()=>{
@@ -4370,7 +4395,7 @@ test(
         plan=(await commands.execute(context,{draftId:plan.id,action:'complete',operationKey:randomUUID(),body:guarded(plan,{childAttemptId:child.childAttemptId,expectedChildRevision:child.revision,allocationGroupId:child.allocationGroupId})})).plan;
         assert.equal(plan.state,'served');
       });
-      await t.test('member archive is separate from maintenance, idempotent and excluded from capacity; archived edits cannot restore it',async()=>{
+      await t.test('member archive is separate from maintenance, idempotent and preserves configured pool capacity; archived edits cannot restore it',async()=>{
         const registry=await named.listMembers(context,'9999'),member=registry.members.find(m=>m.isActive&&!m.archivedAt);
         const command={memberId:member.id,body:{expectedRevision:member.revision},operationKey:randomUUID()};
         const result=await named.archiveMember(context,command),archived=result.member;
@@ -4387,7 +4412,8 @@ test(
         const again=await named.archiveMember(context,{memberId:member.id,body:{expectedRevision:archived.revision},operationKey:randomUUID()});assert.equal(again.member.revision,archived.revision);
         const listed=await named.listMembers(context,'9999');assert.equal(listed.members.find(m=>m.id===member.id).availability.state,'archived');
         const fresh=(await named.saveMember(context,{body:{poolId:'9999',name:'Archive replacement QA',isActive:true},operationKey:randomUUID()})).member;
-        assert.equal(fresh.isActive,true);assert.equal(fresh.archivedAt,null);assert.equal(listed.pool.capacity,1);
+        assert.equal(fresh.isActive,true);assert.equal(fresh.archivedAt,null);assert.equal(listed.pool.capacity,registry.pool.capacity);
+        assert.equal((await named.listMembers(context,'9999')).pool.capacity,registry.pool.capacity+1);
       });
       await t.test('member archive and maintenance race has one revision winner without conflating the states',async()=>{
         const member=(await named.listMembers(context,'9999')).members.find(m=>m.isActive&&!m.archivedAt);
@@ -4530,10 +4556,11 @@ test(
         await commands.execute(context,{draftId:loser.id,action:'cancelProtection',operationKey:randomUUID(),body:guarded(loser,{reservationGroupId:loser.reservationGroups.find(g=>g.state==='protected').id,reason:'Finish isolated concurrency QA'})});
       });
       await t.test('named fanout permits twenty-one members but retains editor-group and total-child bounds',async()=>{
-        await pool.query(`INSERT INTO location_resource_pools(id,tenant_id,location_id,revision,name,capacity,tracking_enabled) VALUES(10002,1,10,1,'Large named extra QA',100,TRUE);
+        await pool.query(`INSERT INTO location_resource_pools(id,tenant_id,location_id,revision,name,capacity,tracking_enabled) VALUES(10002,1,10,1,'Large named extra QA',1,TRUE);
           INSERT INTO vendor_services(id,tenant_id,name,duration_minutes,price_display,is_active) VALUES(10002,1,'Large named extra QA',30,'0',TRUE);
           INSERT INTO location_services VALUES(10002,1,10,TRUE);INSERT INTO service_resource_requirements VALUES(10002,1,10,10002,1,1);`);
-        const members=[];for(let i=0;i<100;i++)members.push((await named.saveMember(context,{body:{poolId:'10002',name:'Large QA '+i,isActive:true},operationKey:randomUUID()})).member);
+        const members=[];for(let i=0;i<100;i++)members.push((await named.saveMember(context,{body:{poolId:'10002',name:'Large QA '+i,isActive:i<99},operationKey:randomUUID()})).member);
+        assert.equal((await named.listMembers(context,'10002')).pool.capacity,100);assert.equal(members.filter(m=>m.isActive).length,99);
         const cfg=structuredClone((await named.getConfiguration(context,'10001')).policy.configuration);await named.saveConfiguration(context,'10002',{expectedRevision:'0',configuration:cfg},randomUUID());
         const rootCfg=structuredClone((await named.getConfiguration(context,'10000')).policy.configuration);rootCfg.extras.push({serviceId:'10002',selection:'optional'});await named.saveConfiguration(context,'10000',{expectedRevision:(await named.getConfiguration(context,'10000')).policy.revision,configuration:rootCfg},randomUUID());
         const catalog=await selections4.readCatalog(pool,scope),input=structuredClone(namedExtraInput),extra=input[0].resources[0].extras[0];extra.serviceId='10002';extra.quantity=21;extra.resourceMemberIds=members.slice(0,21).map(m=>m.id);extra.durationPolicyRevision=catalog.services.find(s=>s.id==='10002').durationPolicy.revision;input[0].resources[0].durationPolicyRevision=catalog.services.find(s=>s.id==='10000').durationPolicy.revision;

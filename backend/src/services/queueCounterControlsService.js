@@ -22,7 +22,7 @@ async function target(client,scope,ticket,options={}){
  if(!draft)return {...summary,kind:'unknown',blockReason:{code:'PLAN_RECONCILIATION_REQUIRED',message:'This request needs its recorded plan reconciled.'}};
  let plan=await projection.read(client,scope,draft,options);
  if(plan.state==='waiting'&&!plan.resourceWait&&Array.isArray(plan.serviceSelections)){
-  const projectedWait=await require('./queueResourceConflictProjection').readWaitingConflict(client,scope,draft,plan.serviceSelections);
+  const projectedWait=await require('./queueResourceConflictProjection').readWaitingConflict(client,scope,draft,plan.serviceSelections,{contractVersion:plan.contractVersion,resourceWait:plan.resourceWait});
   if(projectedWait)plan={...plan,resourceWait:projectedWait};
  }
  return {...summary,kind:'plan',planId:plan.id,contractVersion:plan.contractVersion,state:plan.state,plan,ticket};

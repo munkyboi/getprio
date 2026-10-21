@@ -49,9 +49,17 @@ function requestBody(serviceSelections, catalogRevision, catalog) {
   return { serviceSelections: selections, requests, catalogRevision, requestKey: `projection-${Date.now()}` };
 }
 
-async function readWaitingConflict(client, scope, draft, serviceSelections) {
+async function readWaitingConflict(client, scope, draft, serviceSelections, { contractVersion = 4, resourceWait = null } = {}) {
   if (!Array.isArray(serviceSelections) || !serviceSelections.length) return null;
   const catalog = await capture.readCatalog(client, scope);
+  // Legacy selections can predate V4 policy configuration. Keep their recorded
+  // conflict when the V4 preview cannot represent the complete captured plan.
+  if (Number(contractVersion) === 3) {
+    const configured = new Set(catalog.services.map((service) => service.id));
+    const serviceIds = serviceSelections.flatMap((service) => [service.serviceId,
+      ...service.resources.flatMap((resource) => (resource.extras || []).map((extra) => extra.serviceId))]);
+    if (serviceIds.some((id) => !configured.has(id))) return resourceWait;
+  }
   const body = requestBody(serviceSelections, catalog.catalogRevision, catalog);
   const preview = await availability.evaluate(client, scope, {
     ...body,
