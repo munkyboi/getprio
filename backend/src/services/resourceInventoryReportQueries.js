@@ -71,7 +71,9 @@ const COLLECTIONS = {
   work: { maximum: 10000, count: 'SELECT COUNT(*) FROM work_scope', rows: `SELECT w.id::text,w.status,w.join_channel,
     (w.developer_project_id IS NOT NULL) AS developer_linked,w.customer_confirmed,w.created_at,w.service_started_at,w.service_ended_at,
     w.service_priority_band,w.carry_over_count,w.current_queue_day_id::text,w.original_queue_day_id::text,
-    p.source AS plan_source,p.booking_id::text,p.execution_mode,p.contract_version AS plan_contract_version,p.items,p.created_at AS plan_captured_at
+    p.source AS plan_source,p.booking_id::text,p.execution_mode,
+    CASE WHEN to_jsonb(p)->>'contract_version' ~ '^[1-9][0-9]*$' THEN (to_jsonb(p)->>'contract_version')::integer END AS plan_contract_version,
+    p.items,p.created_at AS plan_captured_at
     FROM work_scope w LEFT JOIN ticket_service_plans p ON (p.ticket_id,p.tenant_id,p.location_id)=(w.id,$1,$2) ORDER BY w.id` },
   allocations: { maximum: 10000, count: 'SELECT COUNT(*) FROM held_allocations', rows: `SELECT id::text,ticket_id::text,pool_id::text,
     pool_revision::text,units,reservation_id::text,started_at,expected_end_at,
@@ -96,7 +98,9 @@ const COLLECTIONS = {
       (r.starts_at=i.scheduled_start_at AND r.ends_at=i.scheduled_end_at) AS booking_interval_matches,
       b.status AS booking_status,t.id::text AS work_id,t.service_started_at,
       (t.service_started_at IS NOT DISTINCT FROM a.started_at) AS ticket_start_matches,
-      p.source AS plan_source,p.booking_id::text AS plan_booking_id,p.contract_version AS plan_contract_version,p.items AS plan_items
+      p.source AS plan_source,p.booking_id::text AS plan_booking_id,p.execution_mode,
+      CASE WHEN to_jsonb(p)->>'contract_version' ~ '^[1-9][0-9]*$' THEN (to_jsonb(p)->>'contract_version')::integer END AS plan_contract_version,
+      p.items AS plan_items
       ${HISTORICAL_CONVERSIONS} ORDER BY a.id` },
   bookingItems: { maximum: 20000, count: 'SELECT COUNT(*) FROM relevant_items', rows: `SELECT id::text,booking_id::text,service_id::text,
     booking_quantity,scheduled_start_at,scheduled_end_at,booking_scheduled_start_at,booking_status,pending_expires_at,proof_present,item_count,

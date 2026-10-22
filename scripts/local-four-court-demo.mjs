@@ -115,7 +115,7 @@ export async function createFourCourtDemo({ adminUrl }) {
         [tenant, location, number, index, day.date_key, randomUUID(), `Local Player ${index}`, day.id])).rows[0].id;
         ticketIds.push(ticket);
         await client.query("INSERT INTO queue_ticket_segments(ticket_id,queue_day_id,display_number,sequence,priority_band) VALUES($1,$2,$3,$4,'normal')", [ticket, day.id, number, index]);
-        await client.query("INSERT INTO ticket_service_plans(ticket_id,tenant_id,location_id,source,execution_mode,contract_version,items,created_by_user_id) VALUES($1,$2,$3,'staff_selection','parallel',4,$4,$5)", [ticket, tenant, location, JSON.stringify(items), user]);
+        await client.query("INSERT INTO ticket_service_plans(ticket_id,tenant_id,location_id,source,execution_mode,items,created_by_user_id) VALUES($1,$2,$3,'staff_selection','parallel',$4,$5)", [ticket, tenant, location, JSON.stringify(items), user]);
       }
       fixture = { tenantId: tenant, locationId: location, actorUserId: user, counterId: counter, serviceId: service, poolId: resourcePool,
         queueDayId: day.id, dateKey: day.date_key, ticketIds, tenantSlug: 'vd-sports-club', locationSlug: 'demo-courts' };
