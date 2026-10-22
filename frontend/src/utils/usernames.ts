@@ -29,7 +29,12 @@ export function buildTenantSlugFromName(name: string) {
 }
 
 export function normalizeTenantSlugInput(slug: string) {
-  return buildTenantSlugFromName(slug);
+  return String(slug || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, "-")
+    .replace(/-{2,}/g, "-")
+    .slice(0, 48);
 }
 
 export function isTenantSlugFormatValid(slug: string) {

@@ -14,16 +14,40 @@ function createResetTokenValue() {
   return crypto.randomBytes(32).toString("hex");
 }
 
-function buildPasswordResetUrl(token) {
+function hasReturnPathControls(value) {
+  return Array.from(value).some(character => {
+    const codePoint = character.codePointAt(0);
+    return codePoint < 32 || codePoint === 127;
+  });
+}
+
+function getVendorResetReturnPath(value) {
+  if (typeof value !== "string" || value.length > 2048 || !value.startsWith("/")
+    || value.startsWith("//") || value.includes("\\") || value.includes(" ")
+    || hasReturnPathControls(value)) return null;
+  try {
+    const url = new URL(value, "https://getprio.invalid");
+    // Dashboard routes use literal path segments. Encoded separators and nested
+    // encodings cannot become a different navigation target after another decode.
+    if (url.origin !== "https://getprio.invalid" || url.pathname.includes("%")
+      || !/^\/dashboard(?:\/|$)/.test(url.pathname)
+      || decodeURIComponent(value).includes("\\") || hasReturnPathControls(decodeURIComponent(value))) return null;
+    return `${url.pathname}${url.search}${url.hash}`;
+  } catch { return null; }
+}
+
+function buildPasswordResetUrl(token, next) {
   const baseUrl = String(env.clientUrl || "").replace(/\/$/, "");
-  return `${baseUrl}/login?resetToken=${encodeURIComponent(token)}`;
+  const returnPath = getVendorResetReturnPath(next);
+  const nextQuery = returnPath ? `&next=${encodeURIComponent(returnPath)}` : "";
+  return `${baseUrl}/login?resetToken=${encodeURIComponent(token)}${nextQuery}`;
 }
 
 function getPasswordResetExpiry() {
   return new Date(Date.now() + Math.max(1, Number(env.passwordResetTtlMinutes) || 30) * 60 * 1000);
 }
 
-async function issuePasswordResetToken({ user, req, client }) {
+async function issuePasswordResetToken({ user, req, client, next }) {
   const token = createResetTokenValue();
   const tokenHash = hashResetToken(token);
   const expiresAt = getPasswordResetExpiry();
@@ -56,7 +80,7 @@ async function issuePasswordResetToken({ user, req, client }) {
   return {
     token,
     expiresAt,
-    resetUrl: buildPasswordResetUrl(token)
+    resetUrl: buildPasswordResetUrl(token, next)
   };
 }
 
@@ -78,7 +102,7 @@ async function resolveValidResetToken(token, options = {}) {
   return resetToken;
 }
 
-async function resetPassword({ token, newPassword, req }) {
+async function resetPassword({ token, newPassword, req, userGuard }) {
   return db.withTransaction(async (client) => {
     const resetToken = await resolveValidResetToken(token, { client });
     if (!resetToken) {
@@ -91,6 +115,11 @@ async function resetPassword({ token, newPassword, req }) {
     const userRepository = require("../repositories/users");
     const user = await userRepository.findUserById(userId, { client });
     if (!user) {
+      const error = new Error("Password reset token is invalid or expired.");
+      error.statusCode = 400;
+      throw error;
+    }
+    if (userGuard && !(await userGuard({ user, client }))) {
       const error = new Error("Password reset token is invalid or expired.");
       error.statusCode = 400;
       throw error;

@@ -1,7 +1,28 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const express = require("express");
+const fs = require("node:fs");
 const path = require("node:path");
+
+test("vendor entitlements endpoint supports role-safe navigation without exposing billing", () => {
+  const source = fs.readFileSync(path.resolve(__dirname, "../src/routes/vendorRoutes.js"), "utf8");
+  assert.match(
+    source,
+    /"\/tenant\/:tenantSlug\/entitlements"[\s\S]*?"tenant\.queue\.read"[\s\S]*?getTenantEntitlements\(tenant\._id\)/
+  );
+  assert.doesNotMatch(
+    source.match(/"\/tenant\/:tenantSlug\/entitlements"[\s\S]*?\n\);/)?.[0] || "",
+    /getBillingOverview/
+  );
+});
+
+test("default profile theme saves do not fall back to the primary location", () => {
+  const source = fs.readFileSync(path.resolve(__dirname, "../src/routes/vendorRoutes.js"), "utf8");
+  assert.match(
+    source,
+    /const requestedLocationSlug = normalizeRequestText\(req\.query\.location\);\s+const location = requestedLocationSlug\s+\? await getLocationForTenant\(tenant, requestedLocationSlug\)\s+: null;/
+  );
+});
 
 function resolveMockPath(requestPath, baseDir) {
   if (!requestPath.startsWith(".")) {
@@ -94,11 +115,30 @@ test("vendor routes queue mutations invoke the queue service helpers", async () 
     "../services/billingService": {
       getBillingOverview: async () => ({})
     },
+    "../services/storeHoursService": {
+      assertLocationOpenForCustomerJoin: async () => {
+        calls.push(["assertLocationOpenForCustomerJoin"]);
+      }
+    },
     "../services/queueService": {
-      createTicket: async () => ({ snapshot: { ok: true } }),
+      createTicket: async () => ({ ticket: { _id: "ticket-1", ticketNumber: "A001", lookupCode: "LOOKUP1", status: "waiting" }, snapshot: { ok: true } }),
       getQueueSnapshot: async () => ({ ok: true }),
+      openQueueDay: async (...args) => {
+        calls.push(["openQueueDay", args]);
+        return { ok: true };
+      },
+      extendQueueDay: async (...args) => {
+        calls.push(["extendQueueDay", args]);
+        return { ok: true };
+      },
       callNextTicket: async (...args) => {
         calls.push(["callNextTicket", args]);
+        return { ticket: { _id: "ticket-1", ticketNumber: "A001", status: "called" },
+          reservation: { id: "reservation-9", state: "protected", poolId: "pool-2", units: 1,
+            startsAt: "2026-10-15T02:00:00.000Z", endsAt: "2026-10-15T03:00:00.000Z" }, snapshot: { ok: true } };
+      },
+      confirmCurrentTicket: async (...args) => {
+        calls.push(["confirmCurrentTicket", args]);
         return { ticket: { _id: "ticket-1", ticketNumber: "A001", status: "called" }, snapshot: { ok: true } };
       },
       updateCurrentTicketStatus: async (...args) => {
@@ -121,9 +161,21 @@ test("vendor routes queue mutations invoke the queue service helpers", async () 
       verifyVendorBookingPayment: async () => ({ _id: "booking-1", reference: "BKG-1", locationSlug: "main" }),
       rejectVendorBookingPayment: async () => ({ _id: "booking-1", reference: "BKG-1", locationSlug: "main" }),
       rescheduleVendorBooking: async () => ({ _id: "booking-1", reference: "BKG-1", locationSlug: "main" }),
+      listVendorBookingRescheduleSlots: async ({ tenant, bookingId, date }) => {
+        calls.push(["listVendorBookingRescheduleSlots", [tenant, bookingId, date]]);
+        return [
+          {
+            startAt: "2026-06-24T01:00:00.000Z",
+            endAt: "2026-06-24T01:30:00.000Z",
+            remainingCapacity: 1,
+            isAvailable: true
+          }
+        ];
+      },
       checkInVendorBooking: async () => ({ booking: { _id: "booking-1", reference: "BKG-1", locationSlug: "main" }, ticket: { ticketNumber: "A100" } }),
       markVendorBookingNoShow: async () => ({ _id: "booking-1", reference: "BKG-1", locationSlug: "main" })
     },
+
     "../repositories/bookings": {
       listBookingsForTenant: async () => ({ bookings: [], totalItems: 0 }),
       findBookingById: async (bookingId) => ({
@@ -143,6 +195,9 @@ test("vendor routes queue mutations invoke the queue service helpers", async () 
         serviceCurrency: "PHP",
         servicePriceDisplay: "Free",
         bookingQuantity: 1,
+        groupFundedBookingId: null,
+        bookingPaymentSource: "standard",
+        groupFundedCampaign: null,
         customerUserId: null,
         customerName: "Alex",
         customerEmail: "alex@example.com",
@@ -183,6 +238,26 @@ test("vendor routes queue mutations invoke the queue service helpers", async () 
         updatedAt: new Date("2026-06-23T08:00:00.000Z")
       })
     },
+    "../repositories/groupFundedBookings": {
+      listCampaignItemsByCampaign: async (campaignId) => {
+        assert.equal(campaignId, "campaign-1");
+        return [
+          {
+            _id: "campaign-item-1",
+            serviceId: "service-1",
+            serviceNameSnapshot: "Court 1",
+            serviceSlugSnapshot: "court-1",
+            bookingQuantity: 3,
+            priceAmountCents: 30000,
+            currency: "PHP",
+            executionMode: "parallel",
+            scheduledStartAt: "2026-06-23T08:00:00.000Z",
+            scheduledEndAt: "2026-06-23T11:00:00.000Z",
+            sortOrder: 0
+          }
+        ];
+      }
+    },
     "../repositories/vendorServices": { listServicesByTenantId: async () => [] },
     "../repositories/vendorAvailability": { listAvailabilityByLocation: async () => ({ blocks: [], exceptions: [] }) },
     "../repositories/serviceCounters": {
@@ -193,22 +268,72 @@ test("vendor routes queue mutations invoke the queue service helpers", async () 
     "../repositories/publicBoardThemes": { getResolvedTheme: async () => ({}) },
     "../services/publicBoardThemeUploadService": { createUpload: async () => ({}) , uploadBinary: async () => ({}) },
     "../services/locationPaymentQrUploadService": { uploadBinary: async () => ({}) },
-    "../services/storeHoursService": { getOpenStatus: async () => ({}) },
+    "../services/storeHoursService": {
+      getOpenStatus: async () => ({}),
+      assertLocationOpenForCustomerJoin: async () => {
+        calls.push(["assertLocationOpenForCustomerJoin"]);
+      }
+    },
     "pdfkit": function PDFDocument() {},
     "../utils/pagination": { parsePaginationParams: () => ({ page: 1, pageSize: 10 }), formatPaginationMetadata: () => ({}) }
   });
 
   const { server, baseUrl } = await startServer(router);
   try {
+    const openRes = await fetch(`${baseUrl}/tenant/demo/queue/open?location=main`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ expectedVersion: 1 })
+    });
+    assert.equal(openRes.status, 200, await openRes.text());
+
+    const walkInRes = await fetch(`${baseUrl}/tenant/demo/tickets`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ locationSlug: "main", customerName: "Jane Doe" })
+    });
+    assert.equal(walkInRes.status, 201, await walkInRes.text());
+
+    const extendRes = await fetch(`${baseUrl}/tenant/demo/queue/extend?location=main`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        expectedVersion: 2,
+        reason: "serve_remaining_customers"
+      })
+    });
+    assert.equal(extendRes.status, 200, await extendRes.text());
+
     const pauseRes = await fetch(`${baseUrl}/tenant/demo/queue/pause?location=main`, { method: "POST" });
     assert.equal(pauseRes.status, 200, await pauseRes.text());
 
+    for (const action of ["serve", "skip", "confirm"]) {
+      const bodyless = await fetch(`${baseUrl}/tenant/demo/queue/current/${action}?location=main`, { method: "POST" });
+      assert.equal(bodyless.status, 400, await bodyless.text());
+    }
     const callNextRes = await fetch(`${baseUrl}/tenant/demo/queue/call-next?location=main`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ counterSlug: "counter-1" })
     });
     assert.equal(callNextRes.status, 200);
+    const callNextBody = await callNextRes.json();
+    assert.deepEqual(callNextBody.ticket.serviceReservation, {
+      id: "reservation-9", state: "protected", poolId: "pool-2", units: 1,
+      startsAt: "2026-10-15T02:00:00.000Z", endsAt: "2026-10-15T03:00:00.000Z"
+    });
+
+    const confirmCurrentRes = await fetch(`${baseUrl}/tenant/demo/queue/current/confirm?location=main`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ lookupCode: "abcd1234", ticketId: "7", counterSlug: null })
+    });
+    assert.equal(confirmCurrentRes.status, 200);
+    const barcodeToken='QB'+'A'.repeat(32);
+    const rotatingRes=await fetch(`${baseUrl}/tenant/demo/queue/current/confirm?location=main`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({barcodeToken:barcodeToken.toLowerCase(),ticketId:"7",counterSlug:null})});
+    assert.equal(rotatingRes.status,200);assert.equal(calls.filter(([name])=>name==='confirmCurrentTicket')[1][1][2].barcodeToken,barcodeToken);
+    const invalidRes=await fetch(`${baseUrl}/tenant/demo/queue/current/confirm?location=main`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({barcodeToken:'QBbad'})});assert.equal(invalidRes.status,400);
+
 
     const restoreRes = await fetch(`${baseUrl}/tenant/demo/queue/tickets/ticket-1/restore?location=main`, {
       method: "POST",
@@ -223,10 +348,127 @@ test("vendor routes queue mutations invoke the queue service helpers", async () 
     const bookingDetail = JSON.parse(bookingDetailText);
     assert.equal(bookingDetail.booking.id, "booking-1");
     assert.equal(bookingDetail.booking.reference, "BKG-DETAIL");
+    assert.equal(bookingDetail.booking.groupFundedCampaign, null);
+
+    const rescheduleSlotsRes = await fetch(`${baseUrl}/tenant/demo/bookings/booking-1/reschedule-slots?date=2026-06-24`);
+    const rescheduleSlotsText = await rescheduleSlotsRes.text();
+    assert.equal(rescheduleSlotsRes.status, 200, rescheduleSlotsText);
+    assert.deepEqual(JSON.parse(rescheduleSlotsText), {
+      slots: [
+        {
+          startAt: "2026-06-24T01:00:00.000Z",
+          endAt: "2026-06-24T01:30:00.000Z",
+          remainingCapacity: 1,
+          isAvailable: true
+        }
+      ]
+    });
 
     assert.equal(calls.some(([name]) => name === "callNextTicket"), true);
+    assert.deepEqual(calls.find(([name]) => name === "confirmCurrentTicket"), [
+      "confirmCurrentTicket",
+      [
+        { _id: "tenant-1", slug: "demo" },
+        "ABCD1234",
+        {
+          location: { _id: "location-1", slug: "main" },
+          actorUserId: "user-1",
+          actorRole: "vendor",
+          source: "vendor_barcode_scan",
+          ticketId: "7",
+          serviceCounter: null
+        }
+      ]
+    ]);
     assert.equal(calls.some(([name]) => name === "restoreSkippedTicket"), true);
+    assert.equal(calls.some(([name]) => name === "openQueueDay"), true);
+    assert.equal(calls.some(([name]) => name === "extendQueueDay"), true);
+    assert.equal(calls.some(([name]) => name === "assertLocationOpenForCustomerJoin"), true);
+    assert.deepEqual(calls.find(([name]) => name === "listVendorBookingRescheduleSlots"), [
+      "listVendorBookingRescheduleSlots",
+      [{ _id: "tenant-1", slug: "demo" }, "booking-1", "2026-06-24"]
+    ]);
+
+    const rejectContributionRes = await fetch(
+      `${baseUrl}/tenant/demo/group-funded-campaigns/contributions/contribution-1/reject-payment`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason: "Payment received after target.", refundDisposition: "required" })
+      }
+    );
+    const rejectContributionText = await rejectContributionRes.text();
+    assert.equal(rejectContributionRes.status, 404, rejectContributionText);
+    assert.equal(calls.some(([name]) => name === "rejectContribution"), false);
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }
+});
+
+test("review endpoints block unpaid vendors before accessing reviews", async () => {
+  let paid = false;
+  let reviewCalls = 0;
+  const router = requireWithMocks("../src/routes/vendorRoutes.js", {
+    "../middleware/auth": {
+      authenticate: (req, _res, next) => { req.user = { _id: "1" }; next(); },
+      maybeAuthenticate: (_req, _res, next) => next(),
+      userHasTenantAccess: () => true,
+      assertTenantPermission: () => {}
+    },
+    "../repositories/tenants": { findTenantBySlug: async () => ({ _id: "2", slug: "demo" }) },
+    "../services/billingService": { assertPaidReviewAccess: async tenantId => {
+      assert.equal(tenantId, "2");
+      if (!paid) throw Object.assign(new Error("Paid plan required"), { statusCode: 403 });
+    } },
+    "../repositories/ratings": {
+      listVendorReviews: async () => { reviewCalls++; return []; },
+      setReviewVisibility: async () => { reviewCalls++; return { id: "1", public_visible: false }; }
+    },
+    "../services/ratingService": { replyToVendorReview: async () => { reviewCalls++; return { id: "1" }; } }
+  });
+  const { server, baseUrl } = await startServer(router);
+  try {
+    const requests = [
+      ["GET", "/tenant/demo/ratings", undefined],
+      ["PATCH", "/tenant/demo/ratings/1", { visible: false }],
+      ["POST", "/tenant/demo/vendor-reviews/1/reply", { reply: "Thank you" }]
+    ];
+    for (const [method, route, body] of requests) {
+      const response = await fetch(baseUrl + route, { method, headers: { "Content-Type": "application/json" }, body: body && JSON.stringify(body) });
+      assert.equal(response.status, 403);
+    }
+    assert.equal(reviewCalls, 0);
+    paid = true;
+    for (const [method, route, body] of requests) {
+      const response = await fetch(baseUrl + route, { method, headers: { "Content-Type": "application/json" }, body: body && JSON.stringify(body) });
+      assert.equal(response.status, 200);
+    }
+    assert.equal(reviewCalls, 3);
+  } finally { await new Promise(resolve => server.close(resolve)); }
+});
+
+test("staff deletion delegates server-owned scope and preserves 204 and access errors", async () => {
+  const calls = [];
+  let role = "owner";
+  let failure = null;
+  const router = requireWithMocks("../src/routes/vendorRoutes.js", {
+    "../middleware/auth": {
+      authenticate: (req, _res, next) => { req.user = {_id:"1",tenantMemberships:[{tenantId:"7",role,isActive:true}]}; next(); },
+      maybeAuthenticate: (_req,_res,next) => next(), userHasTenantAccess: () => true,
+      assertTenantPermission: (_user,tenantId,permission) => { assert.equal(tenantId,"7"); assert.equal(permission,"tenant.staff.manage"); }
+    },
+    "../repositories/tenants": {findTenantBySlug: async () => ({_id:"7",slug:"demo"})},
+    "../services/staffRemovalResourceService": {remove: async context => {calls.push(context); if(failure) throw Object.assign(new Error("Denied after wait"),{statusCode:failure});}}
+  });
+  const {server,baseUrl} = await startServer(router);
+  try {
+    const remove = id => fetch(`${baseUrl}/tenant/demo/staff/${id}`,{method:"DELETE"});
+    assert.equal((await remove("2")).status,204);
+    assert.deepEqual(calls[0],{tenant:{_id:"7",slug:"demo"},userId:"2",actorId:"1"});
+    failure=403; assert.equal((await remove("2")).status,403);
+    failure=404; assert.equal((await remove("2")).status,404);
+    assert.equal((await remove("1")).status,400);
+    role="admin"; assert.equal((await remove("2")).status,403);
+    assert.equal(calls.length,3);
+  } finally {server.close();}
 });

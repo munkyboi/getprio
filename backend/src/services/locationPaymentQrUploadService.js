@@ -1,5 +1,7 @@
+const { storeLocalPaymentQr } = require("./localImageStorage");
+const { assertImageUploadSize } = require("./imageUploadPolicy");
 const crypto = require("crypto");
-const { PutObjectCommand, S3Client } = require("@aws-sdk/client-s3");
+const { GetObjectCommand, PutObjectCommand, S3Client } = require("@aws-sdk/client-s3");
 const env = require("../config/env");
 
 const ALLOWED_CONTENT_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
@@ -44,8 +46,9 @@ function assertB2Configured() {
     .map(([key]) => key);
 
   if (missing.length) {
-    const error = new Error(`Payment QR uploads are not configured. Missing: ${missing.join(", ")}.`);
+    const error = new Error("Image storage is currently unavailable. Please try again later.");
     error.statusCode = 503;
+    error.code = "IMAGE_UPLOAD_UNAVAILABLE";
     throw error;
   }
 }
@@ -90,9 +93,43 @@ function buildPublicUrl(objectKey) {
   return `${publicBaseUrl}${bucketPrefix}/${objectKey}`;
 }
 
-async function uploadBinary({ tenant, location, body, fileBuffer }) {
-  assertB2Configured();
+function getObjectKeyFromPublicUrl(publicUrl) {
+  let expectedUrl;
+  let assetUrl;
+  try {
+    expectedUrl = new URL(buildPublicUrl(""));
+    assetUrl = new URL(String(publicUrl || ""));
+  } catch {
+    const error = new Error("Payment QR image is unavailable.");
+    error.statusCode = 404;
+    throw error;
+  }
 
+  if (assetUrl.origin !== expectedUrl.origin || !assetUrl.pathname.startsWith(expectedUrl.pathname)) {
+    const error = new Error("Payment QR image is unavailable.");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  let objectKey;
+  try {
+    objectKey = decodeURIComponent(assetUrl.pathname.slice(expectedUrl.pathname.length));
+  } catch {
+    const error = new Error("Payment QR image is unavailable.");
+    error.statusCode = 404;
+    throw error;
+  }
+  if (!objectKey.startsWith("payment-qrs/")) {
+    const error = new Error("Payment QR image is unavailable.");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  return objectKey;
+}
+
+async function uploadBinary({ tenant, location, actorUserId, body, fileBuffer }) {
+  const uploadBuffer = Buffer.isBuffer(fileBuffer) ? Buffer.from(fileBuffer) : null;
   const fileName = normalizeFileName(body.fileName);
   const contentType = String(body.contentType || "").toLowerCase();
 
@@ -102,12 +139,11 @@ async function uploadBinary({ tenant, location, body, fileBuffer }) {
     throw error;
   }
 
-  if (!Buffer.isBuffer(fileBuffer) || !fileBuffer.length || fileBuffer.length > MAX_UPLOAD_BYTES) {
-    const error = new Error("QR image must be between 1 byte and 8 MB.");
-    error.statusCode = 400;
-    throw error;
-  }
+  await assertImageUploadSize(uploadBuffer?.length || 0);
 
+  const localAsset = await storeLocalPaymentQr({ tenant, location, actorUserId, contentType, body: uploadBuffer });
+  if (localAsset) return { asset: localAsset };
+  assertB2Configured();
   const objectKey = buildObjectKey({ tenant, location, fileName, contentType });
   const publicUrl = buildPublicUrl(objectKey);
 
@@ -115,7 +151,7 @@ async function uploadBinary({ tenant, location, body, fileBuffer }) {
     Bucket: env.b2BucketPublicBoard,
     Key: objectKey,
     ContentType: contentType,
-    Body: fileBuffer
+    Body: uploadBuffer
   }));
 
   return {
@@ -123,11 +159,55 @@ async function uploadBinary({ tenant, location, body, fileBuffer }) {
       objectKey,
       publicUrl,
       contentType,
-      sizeBytes: fileBuffer.length
+      sizeBytes: uploadBuffer.length
     }
   };
 }
 
+async function downloadBinary({ publicUrl }) {
+  assertB2Configured();
+  const objectKey = getObjectKeyFromPublicUrl(publicUrl);
+
+  try {
+    const response = await getS3Client().send(new GetObjectCommand({
+      Bucket: env.b2BucketPublicBoard,
+      Key: objectKey
+    }));
+    if (!response.Body || typeof response.Body.transformToByteArray !== "function") {
+      const error = new Error("Payment QR image is unavailable.");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    const body = Buffer.from(await response.Body.transformToByteArray());
+    if (!body.length || body.length > MAX_UPLOAD_BYTES) {
+      const error = new Error("Payment QR image is unavailable.");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    const contentType = String(response.ContentType || "").toLowerCase();
+    if (!ALLOWED_CONTENT_TYPES.has(contentType)) {
+      const error = new Error("Payment QR image is unavailable.");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    const extension = contentType === "image/png"
+      ? "png"
+      : contentType === "image/webp"
+        ? "webp"
+        : "jpg";
+    return { body, contentType, fileName: `payment-qr.${extension}` };
+  } catch (error) {
+    if (!error.statusCode && error?.$metadata?.httpStatusCode === 404) {
+      error.statusCode = 404;
+    }
+    throw error;
+  }
+}
+
 module.exports = {
+  downloadBinary,
   uploadBinary
 };

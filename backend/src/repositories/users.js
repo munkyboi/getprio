@@ -2,7 +2,10 @@ const db = require("../config/db");
 
 const USER_COLUMNS = `
   users.id,
+  users.deletion_requested_at,
   users.name,
+  users.display_name,
+  users.avatar_url,
   users.username,
   users.email,
   users.phone,
@@ -12,11 +15,16 @@ const USER_COLUMNS = `
   users.last_login_provider,
   users.roles,
   users.account_locked_until,
+  users.platform_access_suspended_at,
+  users.platform_access_suspended_reason,
   users.failed_login_count,
   users.last_failed_login_at,
   users.last_password_changed_at,
   users.mfa_enabled,
+  users.email_mfa_enabled,
   users.mfa_required,
+  users.is_sandbox_test_account,
+  users.sandbox_test_account_expires_at,
   users.notification_settings,
   users.created_at,
   users.updated_at
@@ -47,7 +55,10 @@ function mapUser(row, relationships = {}) {
 
   return {
     _id: String(row.id),
+    deletionRequestedAt: row.deletion_requested_at,
     name: row.name,
+    displayName: row.display_name || "",
+    avatarUrl: row.avatar_url || "",
     username: row.username,
     email: row.email,
     phone: row.phone,
@@ -57,11 +68,16 @@ function mapUser(row, relationships = {}) {
     lastLoginProvider: row.last_login_provider,
     roles: row.roles || [],
     accountLockedUntil: row.account_locked_until,
+    platformAccessSuspendedAt: row.platform_access_suspended_at,
+    platformAccessSuspendedReason: row.platform_access_suspended_reason,
     failedLoginCount: row.failed_login_count || 0,
     lastFailedLoginAt: row.last_failed_login_at,
     lastPasswordChangedAt: row.last_password_changed_at,
     mfaEnabled: row.mfa_enabled === true,
+    emailMfaEnabled: row.email_mfa_enabled === true,
     mfaRequired: row.mfa_required === true,
+    isSandboxTestAccount: row.is_sandbox_test_account === true,
+    sandboxTestAccountExpiresAt: row.sandbox_test_account_expires_at,
     notificationSettings: row.notification_settings || {},
     oauthAccounts: relationships.oauthAccounts || [],
     tenantMemberships: relationships.tenantMemberships || [],
@@ -75,7 +91,7 @@ function buildQueryClient(client) {
 }
 
 function normalizeIds(ids) {
-  return [...new Set(ids.filter(Boolean).map((id) => Number(id)))];
+  return [...new Set(ids.filter(Boolean).map(String))];
 }
 
 async function loadOauthAccounts(userIds, client) {
@@ -157,7 +173,7 @@ async function findUserById(id, options = {}) {
   const queryClient = buildQueryClient(options.client);
   const result = await queryClient.query(
     `SELECT ${USER_COLUMNS} FROM users WHERE id = $1 LIMIT 1`,
-    [Number(id)]
+    [String(id)]
   );
   const users = await hydrateUsers(result.rows, queryClient);
   return users[0] || null;
@@ -229,6 +245,7 @@ async function createUser(data, options = {}) {
     `
       INSERT INTO users (
         name,
+        display_name,
         username,
         email,
         phone,
@@ -237,13 +254,16 @@ async function createUser(data, options = {}) {
         email_verified,
         last_login_provider,
         roles,
+        is_sandbox_test_account,
+        sandbox_test_account_expires_at,
         last_password_changed_at
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
       RETURNING ${USER_COLUMNS}
     `,
     [
       data.name,
+      data.displayName || null,
       data.username || null,
       data.email || null,
       data.phone || null,
@@ -252,6 +272,8 @@ async function createUser(data, options = {}) {
       Boolean(data.emailVerified),
       data.lastLoginProvider || "password",
       data.roles && data.roles.length ? data.roles : ["customer"],
+      Boolean(data.isSandboxTestAccount),
+      data.sandboxTestAccountExpiresAt || null,
       data.passwordHash ? new Date() : null
     ]
   );
@@ -297,11 +319,13 @@ async function createUser(data, options = {}) {
 
 async function updateUser(userId, changes, options = {}) {
   const queryClient = buildQueryClient(options.client);
-  const values = [Number(userId)];
+  const values = [String(userId)];
   const updates = [];
 
   const setters = {
     name: "name",
+    displayName: "display_name",
+    avatarUrl: "avatar_url",
     username: "username",
     email: "email",
     phone: "phone",
@@ -315,7 +339,10 @@ async function updateUser(userId, changes, options = {}) {
     lastFailedLoginAt: "last_failed_login_at",
     lastPasswordChangedAt: "last_password_changed_at",
     mfaEnabled: "mfa_enabled",
+    emailMfaEnabled: "email_mfa_enabled",
     mfaRequired: "mfa_required",
+    isSandboxTestAccount: "is_sandbox_test_account",
+    sandboxTestAccountExpiresAt: "sandbox_test_account_expires_at",
     notificationSettings: "notification_settings"
   };
 
@@ -380,7 +407,7 @@ async function addTenantMembership(userId, tenantId, role = "staff", options = {
         role = EXCLUDED.role,
         is_active = EXCLUDED.is_active
     `,
-    [Number(userId), Number(tenantId), role, true]
+    [String(userId), String(tenantId), role, true]
   );
 
   return findUserById(userId, { client: queryClient });
@@ -393,6 +420,7 @@ async function listUsersByTenantId(tenantId, options = {}) {
       SELECT
         users.id,
         users.name,
+        users.display_name,
         users.email,
         users.phone,
         users.password_hash,
@@ -406,7 +434,7 @@ async function listUsersByTenantId(tenantId, options = {}) {
       WHERE tenant_memberships.tenant_id = $1
       ORDER BY users.name ASC, users.email ASC
     `,
-    [Number(tenantId)]
+    [String(tenantId)]
   );
 
   return hydrateUsers(result.rows, queryClient);
@@ -420,7 +448,7 @@ async function updateTenantMembershipRole(userId, tenantId, role, options = {}) 
       SET role = $3
       WHERE user_id = $1 AND tenant_id = $2
     `,
-    [Number(userId), Number(tenantId), role]
+    [String(userId), String(tenantId), role]
   );
 
   return findUserById(userId, { client: queryClient });
@@ -434,7 +462,7 @@ async function updateTenantMembershipStatus(userId, tenantId, isActive, options 
       SET is_active = $3
       WHERE user_id = $1 AND tenant_id = $2
     `,
-    [Number(userId), Number(tenantId), Boolean(isActive)]
+    [String(userId), String(tenantId), Boolean(isActive)]
   );
 
   return findUserById(userId, { client: queryClient });
@@ -444,7 +472,7 @@ async function removeTenantMembership(userId, tenantId, options = {}) {
   const queryClient = buildQueryClient(options.client);
   await queryClient.query(
     `DELETE FROM tenant_memberships WHERE user_id = $1 AND tenant_id = $2`,
-    [Number(userId), Number(tenantId)]
+    [String(userId), String(tenantId)]
   );
 }
 

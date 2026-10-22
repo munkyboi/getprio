@@ -1,6 +1,8 @@
 # GetPrio
 
-GetPrio is a multi-tenant queue platform for vendors that want QR-based ticketing, remote queue joins, live queue monitoring, and near-turn notifications by email or SMS.
+GetPrio is a multi-tenant queue platform for vendors that want QR-based ticketing, remote queue joins, live queue monitoring, and booking/queue notifications through email, in-app alerts, and planned browser Web Push.
+
+GetPrio is owned and operated by MNK-Labs Software Development Services.
 
 ## Project layout
 
@@ -10,6 +12,10 @@ GetPrio is a multi-tenant queue platform for vendors that want QR-based ticketin
 - `database/init.sql`: database bootstrap schema for Dockerized PostgreSQL.
 - `scripts/db-apply.sh`: repo-supported SQL bootstrap and migration runner.
 - `scripts/db-verify-schema.sh`: deploy-time schema sanity check for critical tables/columns.
+- `scripts/service-timing-audit.mjs`: scoped read-only report of explicit staff service timing; see `docs/plan/service-timing.md`.
+- `scripts/entitlement-rollout.mjs`: explicit census, dry-run, apply, resume, and verification commands for Free assignment.
+- `scripts/queue-lifecycle-smoke.mjs`: destructive lifecycle verification guarded
+  to disposable databases whose name contains `smoke` or `test`.
 - `.env`: shared environment variables for local and Docker-based runs.
 - `docker-compose.yml`: local stack orchestration for the frontend, backend, and database.
 
@@ -19,7 +25,7 @@ GetPrio is a multi-tenant queue platform for vendors that want QR-based ticketin
 - Customer registration and authenticated queue joins.
 - Public queue monitoring over Server-Sent Events.
 - Daily per-tenant ticket numbering with atomic Postgres counters.
-- Email and SMS notification hooks with console fallbacks for local development.
+- Email notification hooks, live in-app operational alerts, and planned browser Web Push support with console fallbacks for local development.
 
 ## Local development
 
@@ -27,6 +33,35 @@ GetPrio is a multi-tenant queue platform for vendors that want QR-based ticketin
 2. Install dependencies from the repo root with `npm install`.
 3. Start the frontend, platform dashboard, and backend together with `npm run dev`.
 4. Start PostgreSQL separately or use Docker Compose.
+
+### Physical iPhone queue QR testing
+
+Keep the normal browser URLs on localhost, but give mobile queue QR payloads an HTTPS-form origin using the Mac's current LAN address:
+
+```env
+APP_BASE_URL=http://localhost:5173
+MOBILE_QR_BASE_URL=https://192.168.1.22:5173
+```
+
+Then launch the Flutter app from `../mobile-app` with the same host approved for QR parsing:
+
+```bash
+flutter run -d "Zero32 Domain" \
+  --dart-define=GETPRIO_API_BASE_URL=http://192.168.1.22:5001 \
+  --dart-define=GETPRIO_APPROVED_HOSTS=192.168.1.22
+```
+
+The GetPrio scanner validates the HTTPS-form QR target but does not open it; it resolves the UUID through the configured API. Use a real HTTPS origin or tunnel when also testing the QR with the iPhone's regular Camera app. Update both values if the Mac's LAN address changes.
+
+Database helpers:
+
+The controlled Free-plan rollout, allowance ledger, and Usage Credit incident procedures are in `docs/operations/free-tier-entitlements-rollout.md`. All new authority and commerce controls default off until a reviewed cohort promotion.
+
+- `npm run db:bootstrap` is destructive and intended for a fresh install. It drops the existing schema, rebuilds it from `database/init.sql`, and then applies all migrations. If the database already has app tables, the script prompts for `DELETE-AND-REBUILD` in an interactive shell or requires `DB_BOOTSTRAP_FORCE=1` in non-interactive runs.
+- `npm run db:migrate` applies only new migrations to an existing database.
+- `npm run db:verify` checks for the critical columns the app expects before you start the backend.
+- `npm run smoke:queue-lifecycle` verifies Queue Day transitions and recovery
+  against a disposable database.
 
 For QR join spam protection, local development can use Cloudflare Turnstile test keys:
 
@@ -37,15 +72,17 @@ TURNSTILE_SECRET_KEY=1x0000000000000000000000000000000AA
 
 Replace those with real Turnstile keys outside local development.
 
-Local smoke tests use the default customer/vendor account below when `SMOKE_EMAIL`
-and `SMOKE_PASSWORD` are not provided:
+Local smoke tests require an explicit customer/vendor fixture. Set `SMOKE_EMAIL`
+and `SMOKE_PASSWORD` to a real seeded account before running authenticated smoke:
 
 ```env
-SMOKE_EMAIL=carlo.abella+store4@gmail.com
-SMOKE_PASSWORD=asdfasdf
+SMOKE_EMAIL=<seeded-customer-or-vendor-email>
+SMOKE_PASSWORD=<fixture-password>
 ```
 
-The smoke harness uses that account for customer, booking, and vendor checks.
+The smoke harness uses that account for customer, booking, and vendor checks. If
+the values are missing, the authenticated stages skip instead of silently using
+stale defaults.
 
 Email delivery uses Resend in the current MVP setup:
 
@@ -58,7 +95,9 @@ RESEND_API_URL=https://api.resend.com/emails
 
 `RESEND_FROM_EMAIL` must use a verified Resend domain or sender.
 
-OAuth login is supported for Google and Facebook when provider credentials are present:
+OAuth login is supported for Google and Facebook when their provider credentials are
+present. Sign in with Apple is supported by the native iOS client when its backend
+credentials are present:
 
 ```env
 OAUTH_CALLBACK_PATH=/oauth/callback
@@ -66,12 +105,20 @@ GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=
 FACEBOOK_APP_ID=
 FACEBOOK_APP_SECRET=
+APPLE_CLIENT_ID=
+APPLE_TEAM_ID=
+APPLE_KEY_ID=
+APPLE_PRIVATE_KEY=
 ```
 
 The backend exposes these redirect URIs:
 
 - `https://<your-server>/api/auth/oauth/google/callback`
 - `https://<your-server>/api/auth/oauth/facebook/callback`
+
+Native Apple sign-in does not use a browser callback. The iOS client posts the Apple
+identity token and authorization code to `/api/mobile/auth/oauth/apple` for server
+verification and session creation.
 
 Set the provider console redirect URI to the backend callback above, then point `APP_BASE_URL`
 and `SERVER_URL` at the frontend and API origins that will be used in production. The OAuth
@@ -118,13 +165,35 @@ for uploaded board assets.
 Manual booking payment proof uploads use `B2_BUCKET_PAYMENT_PROOF`. Keep that bucket private;
 the backend issues short-lived signed upload/view URLs from authenticated booking endpoints.
 
-SMS delivery is expected to use Semaphore in the MVP deployment. Keep the provider wiring and sender
-settings aligned with the backend notification service configuration.
+Browser Web Push delivery uses VAPID keys. Generate a local key pair with:
+
+```bash
+npm exec web-push -- generate-vapid-keys
+```
+
+Then set:
+
+```env
+VAPID_PUBLIC_KEY=
+VAPID_PRIVATE_KEY=
+VAPID_SUBJECT=mailto:admin@example.com
+```
+
+The frontend must run on `localhost` or `https://` for service worker registration and Push API
+subscription. The implementation checklist remains in `docs/plan/web-push-notifications-execution-checklist.md`.
+
+To roll back Web Push sends without disabling in-app alerts or email fallback, remove or blank the
+VAPID environment variables and redeploy the backend. The push service treats missing VAPID keys as
+a no-op, while SSE/in-app dashboard alerts and email notifications continue through their existing
+paths.
 
 ## Docker Compose
 
 1. Confirm the values in the root `.env` file.
 2. Start the full stack with `docker compose up --build`.
+   A fresh PostgreSQL volume loads `database/init.sql`, then applies the ordered
+   `database/migrations` through the migration ledger before becoming healthy.
+   Existing volumes are preserved and still require `npm run db:migrate` for upgrades.
 3. Open the frontend at the URL configured by `APP_BASE_URL`.
 
 ## Database updates
@@ -143,6 +212,40 @@ Use `npm run db:bootstrap` only for a brand new or disposable database. It runs 
 For existing databases, do not run `database/init.sql` by hand. Use `npm run db:migrate` so upgrades stay additive and repeatable.
 
 `npm run db:status` is the deploy gate. It reports whether the database is clean, pending migrations exist, or a previously applied migration is missing from the repo.
+
+Wait-time predictor observation capture is off by default. After applying the additive wait-time
+prediction migration, set `WAIT_TIME_PREDICTION_CAPTURE_ENABLED=true` in the backend environment to
+record privacy-minimized queue features and outcomes for later model evaluation. Samples are
+deduplicated to at most one observation per ticket per five-minute bucket. Captured feature data
+does not include customer names, email addresses, or phone numbers.
+
+After samples have accumulated, inspect coverage and baseline error with the read-only audit command:
+
+Set `API_ENVIRONMENT=sandbox`, `DATABASE_HOST`, and `DATABASE_NAME` to values matching the Sandbox
+`DATABASE_URL`, then run:
+
+```bash
+node scripts/wait-time-prediction-audit.mjs
+```
+
+It verifies the configured database target before connecting and again after connection,
+then reports aggregate metrics without changing database state. Vendor reports support
+`--scope vendors --vendor-slug <slug>`. To inspect a specific ticket's stored booking link,
+add `--ticket-number PB002 --location-slug main --date 2026-10-02`; these three flags must
+be supplied together with the vendor scope and slug. This optional report contains only
+operational ticket/booking references and service-duration context, not customer contact
+details or lookup codes. See [deployment guidance](docs/digitalocean-deployment.md).
+The baseline audit supports coverage and error analysis; a future candidate model still needs a
+time-separated holdout evaluation before production use.
+
+New vendor observations may include versioned `serviceTimeContext`: the current ticket,
+aggregate workload ahead, and the observed ticket's own schedule duration. Linked bookings
+use their scheduled elapsed duration (parallel bundles are not added together); tickets
+without a valid linked schedule use the vendor average. These inputs prepare later
+estimation work. `baseline-v1` still calculates position × vendor average and does not
+infer service start, resource availability, or occupancy from a booking schedule.
+
+The optional resource-capacity foundation provides a separate read-only reservation diagnostic. See [Resource capacity audit](docs/plan/resource-capacity-audit.md) for its command and limits, and [the implementation plan](docs/plan/queue-resource-occupancy.md) for the service-session workflow. Draft configuration cannot enable tracking in this release; current customer estimates and queue operations are unchanged.
 
 ## Main API routes
 
@@ -181,6 +284,8 @@ For existing databases, do not run `database/init.sql` by hand. Use `npm run db:
 - `GET /api/vendor/tenant/:tenantSlug/history`
 
 ### Platform operations
+
+For AI policy controls, saving, global disable and readiness troubleshooting, see the [AI Inference Platform Admin guide](docs/platform/ai-inference-admin-guide.md).
 
 - `GET /api/platform/overview`
 - `GET /api/platform/queue-fees`

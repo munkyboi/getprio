@@ -1,0 +1,28 @@
+# Tenant queue-settings resource writer (B2.3)
+
+The existing Vendor settings PATCH now delegates tenant configuration and the requesting user's profile update to one tenant catalog transaction. Its response shape, permissions, moderation, business-category resolution, phone normalization, field bounds/falsy fallbacks and omitted-boolean semantics remain unchanged. No UI, schema, estimate formula or activation change is included.
+
+## Atomic operation
+
+- Lock every current tenant branch in numeric ID order using the catalog adapter's `FOR NO KEY UPDATE`, then the tenant using `FOR UPDATE`.
+- Acquire the actor's user row using `FOR NO KEY UPDATE` before taking share-held active membership authorization. This serializes profile writes across different vendors for the same account and avoids upgrading two concurrent SHARE locks into competing writes. Active scoped membership, deletion and suspension checks and `tenant.settings.manage` are revalidated after waits. Business/contact requests also require current `tenant.settings.manage_contact`.
+- Rediscover branch IDs after the tenant lock. Concurrent branch creation invalidates discovery and causes rollback with the existing reload/retry conflict; a new request includes the new branch. No partial write or revision advance occurs on the conflict.
+- Reread current tenant and actor fallbacks under these locks. Resolve the selected/default branch and category through the same transaction client. A returned branch outside the locked tenant inventory is rejected. Existing category validation remains authoritative; this does not invent resource significance for business-category fields.
+- Commit tenant changes, requesting-user profile changes and relevant branch revisions together. Tenant/profile/revision/COMMIT failure, including a database rollback completion, rolls everything back. Current actor/membership grants stay held through completion.
+- Assemble the queue snapshot and response after commit, through the existing location-specific snapshot path. Snapshot failure cannot undo a committed settings change. No snapshot reconciliation, broadcast, email delivery or second-client operational lock is performed inside the write transaction.
+
+## Revision policy
+
+A real change to queue prefix, average service minutes, auto-pause enable/threshold or auto-resume enable/vacancy percentage advances every affected tenant branch exactly once. Multiple policy fields in one save still produce one advance per branch. Identical normalized policy produces no advance. Missing scope storage is initialized and advanced through the existing helper without setting tracking or writer-coverage flags; a tenant with zero branches invents no branch scope.
+
+`notificationThreshold` controls alert delivery and is deliberately excluded from this resource-policy revision. Business/contact/category and user profile fields also do not advance branch revisions by themselves. The existing handler resets omitted auto-pause/resume booleans to false; a nominal profile-only request can therefore change queue policy if those booleans were previously enabled. This slice preserves that existing PATCH behavior, rather than treating such a save as a resource no-op or redesigning the form contract.
+
+Repository tenant/user updates and default-location lookup retain exact string IDs and `options.client`; setters, return mapping and no-change lookup behavior remain the same. Shared avatar/profile/security callers retain the existing transaction interface. Unsafe numeric IDs are rejected at the new domain boundary before SQL.
+
+## Verification and remaining gates
+
+Disposable loopback PostgreSQL checks cover multi/zero-branch behavior, all policy fields, identical/profile/notification saves, stale fallbacks, revoked access after lock waits, held grants through commit, branch insertion conflicts and reload, scope readers before/after settings changes, same-account cross-vendor writes, exact adjacent BIGINT IDs and shared avatar transaction rollback. Handler checks preserve normalization/category client propagation and postcommit snapshot ordering. Existing counter/staff-removal/session suites remain compatibility gates; independent review, CI/CodeQL/Sonar, merge, deployment and authenticated settings acceptance are separate evidence.
+
+No ticket number, frozen plan, reservation or allocation is rewritten or released. This advances the existing disabled ledger revision for one writer; it does not establish a complete configuration/plan watermark, certify all writer coverage, reconcile history, produce a ready snapshot, start capture or enable customer-facing inference. Other staff/grant/policy/account-deletion/direct-maintenance writers and B3/B4 readiness gates remain separate work. This is not a Developer API queue writer.
+
+Local verification: 1,366 backend tests passed, 14 environment-dependent skips, zero failures with explicit disposable loopback targets and bounded file concurrency. This includes 18 settings PostgreSQL scenarios plus their suite, existing counter/staff/session compatibility and handler/repository checks. An initial full run exposed an expected numeric-ID assertion and a timing-sensitive queue fixture under load; the assertion now requires exact string IDs, isolated queue compatibility passed 78 checks, and the final full run passed. Backend typecheck, changed-source lint and diff checks passed. Independent specification and standards reviews found no remaining actionable findings after testing the real default-location BIGINT resolver. No live settings mutation, private application environment, migration, external email or inference activation was performed.

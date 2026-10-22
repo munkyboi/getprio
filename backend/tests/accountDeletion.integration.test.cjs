@@ -1,0 +1,248 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const url = process.env.ACCOUNT_DELETION_TEST_DATABASE_URL;
+
+test('account deletion against disposable PostgreSQL', { skip: !url }, async (t) => {
+  const parsed = new URL(url);
+  assert.equal(parsed.pathname, '/getprio_deletion_test', 'Use only the disposable test database');
+  assert.ok(['localhost', '127.0.0.1'].includes(parsed.hostname));
+  process.env.DATABASE_URL = url;
+  process.env.DATABASE_SSL = 'false';
+  const db = require('../src/config/db');
+  const bcrypt = require('bcryptjs');
+  const deletionModule = require('../src/services/accountDeletionService');
+  const service = {...deletionModule, ...deletionModule.createAccountDeletionService({refreshQueues: async () => {}})};
+  const worker = require('../src/services/accountDeletionWorker');
+  const sessions = require('../src/services/sessionService');
+  const users = require('../src/repositories/users');
+  const { authenticate } = require('../src/middleware/auth');
+  const ids = [];
+  let scope;
+  let secondTenant;
+  async function fixture(password = 'correct-password') {
+    const suffix = require('node:crypto').randomUUID();
+    const {rows: [row]} = await db.pool.query(
+      'INSERT INTO users(name,username,email,password_hash) VALUES($1,$2,$3,$4) RETURNING id',
+      ['Deletion fixture', suffix, suffix+'@example.invalid', password ? await bcrypt.hash(password, 4) : null]);
+    ids.push(row.id);
+    return users.findUserById(row.id);
+  }
+  const auth = req => new Promise((resolve, reject) => authenticate(req, {}, e => e ? reject(e) : resolve(req)));
+  try {
+    const slug = 'delete-test-' + require('node:crypto').randomUUID();
+    const tenant = (await db.pool.query("INSERT INTO tenants(name,slug) VALUES('Deletion fixture',$1) RETURNING id",[slug])).rows[0];
+    scope = (await db.pool.query("INSERT INTO store_locations(tenant_id,name,slug) VALUES($1,'Deletion fixture','main') RETURNING id,tenant_id",[tenant.id])).rows[0];
+    await t.test('HTTP endpoints require authentication, gate admission, and ignore another user ID', async () => {
+      const express = require('express');
+      const app = express();
+      app.use(express.json());
+      app.use('/api/account', require('../src/routes/accountRoutes'));
+      app.use((error, _req, res, _next) => res.status(error.statusCode || 500).json({code:error.code}));
+      const server = app.listen(0, '127.0.0.1');
+      await new Promise(resolve => server.once('listening', resolve));
+      const base = 'http://127.0.0.1:' + server.address().port;
+      const originalFlag = process.env.ACCOUNT_DELETION_ENABLED;
+      try {
+        const user = await fixture(), other = await fixture();
+        const session = await sessions.createAuthSession({user,authMethod:'password'});
+        const headers = {authorization:'Bearer '+session.accessToken,'content-type':'application/json'};
+        assert.equal((await fetch(base+'/api/account/deletion-options')).status,401);
+        delete process.env.ACCOUNT_DELETION_ENABLED;
+        assert.equal((await fetch(base+'/api/account/deletion-options',{headers})).status,503);
+        process.env.ACCOUNT_DELETION_ENABLED='true';
+        assert.deepEqual(await (await fetch(base+'/api/account/deletion-options',{headers})).json(),{passwordRequired:true});
+        const response = await fetch(base+'/api/account/delete',{method:'POST',headers,
+          body:JSON.stringify({password:'correct-password',userId:other._id})});
+        assert.equal(response.status,202);
+        assert.equal((await response.json()).status,'accepted');
+        assert.equal((await users.findUserById(other._id)).deletionRequestedAt,null);
+        assert.ok((await users.findUserById(user._id)).deletionRequestedAt);
+      } finally {
+        if (originalFlag === undefined) delete process.env.ACCOUNT_DELETION_ENABLED;
+        else process.env.ACCOUNT_DELETION_ENABLED=originalFlag;
+        await new Promise(resolve => server.close(resolve));
+      }
+    });
+    await t.test('wrong password leaves account and sessions unchanged', async () => {
+      const user = await fixture();
+      await assert.rejects(service.requestDeletion({userId:user._id,password:'wrong'}), {code:'INVALID_PASSWORD'});
+      assert.equal((await users.findUserById(user._id)).deletionRequestedAt, null);
+      assert.equal((await db.pool.query('SELECT * FROM account_deletion_requests WHERE user_id=$1',[user._id])).rowCount,0);
+    });
+    await t.test('atomic revocation, retry, blocked login, and reviewed asynchronous cleanup', async () => {
+      const user = await fixture();
+      const other = await fixture();
+      await db.pool.query(`INSERT INTO ai_inference_policy_operations(actor_user_id,operation_key,payload_digest,response)
+        VALUES($1,'former-admin-policy','fixture','{}'),($2,'unrelated-admin-policy','fixture','{}')`, [user._id, other._id]);
+      secondTenant = (await db.pool.query("INSERT INTO tenants(name,slug) VALUES('Second deletion fixture',$1) RETURNING id", ['delete-test-' + require('node:crypto').randomUUID()])).rows[0];
+      await db.pool.query('INSERT INTO customer_favorites(customer_user_id,tenant_id) VALUES($1,$3),($2,$3),($1,$4),($2,$4)', [user._id, other._id, scope.tenant_id, secondTenant.id]);
+      const event = (await db.pool.query("INSERT INTO queue_events(tenant_id,location_id,queue_date_key,event_type,actor_user_id,actor_role,source,metadata) VALUES($1,$2,'2026-10-01','fixture_event',$3,'customer','cleanup-test',$4::jsonb) RETURNING *", [scope.tenant_id, scope.id, user._id, JSON.stringify({ accountEmail: user.email })])).rows[0];
+      const otherEvent = (await db.pool.query("INSERT INTO queue_events(tenant_id,queue_date_key,event_type,actor_user_id,source) VALUES($1,'2026-10-01','fixture_event',$2,'cleanup-test') RETURNING *", [scope.tenant_id, other._id])).rows[0];
+      const session = await sessions.createAuthSession({user,authMethod:'password'});
+      await db.pool.query("INSERT INTO mobile_push_registrations(user_id,installation_id,token,platform) VALUES($1,$2,$2,'ios')",[user._id,'fixture-'+user._id]);
+      const result = await service.requestDeletion({userId:user._id,password:'correct-password'});
+      assert.equal(result.status,'accepted');
+      const retry = await service.requestDeletion({userId:user._id,password:'correct-password'});
+      assert.equal(retry.requestId,result.requestId);
+      assert.equal((await db.pool.query('SELECT is_active FROM mobile_push_registrations WHERE user_id=$1',[user._id])).rows[0].is_active,false);
+      const request = (method,path) => ({method,originalUrl:path,headers:{authorization:'Bearer '+session.accessToken}});
+      await assert.rejects(auth(request('GET','/api/account/profile')), {statusCode:401});
+      await auth(request('POST','/api/account/delete'));
+      await assert.rejects(sessions.createAuthSession({user:await users.findUserById(user._id),authMethod:'password'}), {code:'ACCOUNT_DELETION_PENDING'});
+      const load = async () => (await db.pool.query('SELECT * FROM account_deletion_requests WHERE id=$1',[result.requestId])).rows[0];
+      await db.pool.query("UPDATE account_deletion_requests SET scan_status='queued',scan_next_attempt_at=NOW() WHERE id=$1", [result.requestId]);
+      const cleanupClient = await db.pool.connect();
+      try {
+        const request = await load();
+        assert.equal(await worker.generateInventory(cleanupClient, request), true);
+        const scanned = await load();
+        assert.equal(scanned.scan_report.categories.find((category) => category.id === 'relational_references').status, 'scanned');
+        const selected = Object.fromEntries(scanned.scan_report.categories.map((category) => [category.id, category.id === 'relational_references']));
+        const exclusions = Object.fromEntries(scanned.scan_report.categories.filter((category) => !selected[category.id])
+          .map((category) => [category.id, 'Outside the verified automated cleanup scope.']));
+        const references = Object.fromEntries(scanned.scan_report.inventory.sources
+          .filter((source) => source.recordCount > 0 && source.source !== 'public.users.id')
+          .map((source) => [source.source, source.items.map((item) => item.id)]));
+        await db.pool.query(`UPDATE account_deletion_requests SET cleanup_status='queued',cleanup_selection=$2::jsonb,status='processing' WHERE id=$1`,
+          [result.requestId, JSON.stringify({reportVersion:scanned.scan_report.version,selected,references,exclusions})]);
+        const lateEvent = (await db.pool.query("INSERT INTO queue_events(tenant_id,queue_date_key,event_type,actor_user_id,source) VALUES($1,'2026-10-01','fixture_event',$2,'cleanup-test') RETURNING id", [scope.tenant_id, user._id])).rows[0];
+        await assert.rejects(worker.runApprovedCleanup(cleanupClient, await load()), { code: 'CLEANUP_REFERENCES_CHANGED' });
+        assert.equal((await db.pool.query('SELECT * FROM customer_favorites WHERE customer_user_id=$1', [user._id])).rowCount, 2);
+        await db.pool.query('DELETE FROM queue_events WHERE id=$1', [lateEvent.id]);
+        await db.pool.query("UPDATE account_deletion_requests SET cleanup_status='queued' WHERE id=$1", [result.requestId]);
+        const failingClient = { query(sql, params) {
+          if (sql === 'DELETE FROM mobile_push_registrations WHERE user_id=$1') throw Object.assign(new Error('Failure after reviewed reference mutations'), { code: 'FIXTURE_FAILURE' });
+          return cleanupClient.query(sql, params);
+        } };
+        await assert.rejects(worker.runApprovedCleanup(failingClient, await load()), { code: 'FIXTURE_FAILURE' });
+        assert.equal((await load()).cleanup_status, 'needs_attention');
+        assert.ok(await users.findUserById(user._id));
+        assert.equal((await db.pool.query('SELECT * FROM customer_favorites WHERE customer_user_id=$1', [user._id])).rowCount, 2);
+        assert.deepEqual((await db.pool.query('SELECT * FROM queue_events WHERE id=$1', [event.id])).rows[0], event);
+        await db.pool.query("UPDATE account_deletion_requests SET cleanup_status='queued' WHERE id=$1", [result.requestId]);
+        assert.equal(await worker.runApprovedCleanup(cleanupClient,await load()),true);
+      }
+      finally { cleanupClient.release(); }
+      assert.equal(await users.findUserById(user._id),null);
+      assert.equal((await db.pool.query('SELECT 1 FROM ai_inference_policy_operations WHERE actor_user_id=$1',[user._id])).rowCount,0);
+      assert.equal((await db.pool.query('SELECT 1 FROM ai_inference_policy_operations WHERE actor_user_id=$1',[other._id])).rowCount,1);
+      assert.equal((await db.pool.query('SELECT requested_mode FROM ai_inference_policy WHERE id=1')).rows[0].requested_mode,'off');
+      assert.equal((await load()).cleanup_status,'completed');
+      assert.equal((await load()).report_status,'ready');
+      assert.deepEqual((await load()).cleanup_report.actions[0].deletedPreferenceReferences, [{ source: 'public.customer_favorites.customer_user_id', count: 2 }]);
+      assert.equal((await load()).cleanup_report.actions[0].deletedTransientReferences.some((item) => item.source === 'public.customer_favorites.customer_user_id'), false);
+      assert.notEqual((await load()).status,'completed');
+      assert.equal((await load()).user_id,null);
+      assert.equal((await db.pool.query('SELECT * FROM auth_sessions WHERE user_id=$1',[user._id])).rowCount,0);
+      assert.equal((await db.pool.query('SELECT * FROM mobile_push_registrations WHERE user_id=$1',[user._id])).rowCount,0);
+      assert.equal((await db.pool.query('SELECT * FROM customer_favorites WHERE customer_user_id=$1', [user._id])).rowCount, 0);
+      assert.equal((await db.pool.query('SELECT * FROM customer_favorites WHERE customer_user_id=$1', [other._id])).rowCount, 2);
+      assert.equal((await db.pool.query('SELECT * FROM tenants WHERE id=$1', [scope.tenant_id])).rowCount, 1);
+      assert.equal((await db.pool.query('SELECT * FROM tenants WHERE id=$1', [secondTenant.id])).rowCount, 1);
+      assert.deepEqual((await db.pool.query('SELECT * FROM queue_events WHERE id=$1', [event.id])).rows[0], { ...event, actor_user_id: null });
+      assert.deepEqual((await db.pool.query('SELECT * FROM queue_events WHERE id=$1', [otherEvent.id])).rows[0], otherEvent);
+    });
+    async function ticketFixture(user, status) {
+      const key = require('node:crypto').randomUUID();
+      const sequence = Math.floor(Math.random()*1000000000)+1000;
+      return (await db.pool.query(`INSERT INTO tickets(tenant_id,location_id,user_id,ticket_number,sequence,date_key,
+        lookup_code,customer_name,status,queue_date_key) VALUES($1,$2,$3,$4,$5,'2099-01-01',$4,'Deletion fixture',$6,'2099-01-01') RETURNING *`,
+        [scope.tenant_id,scope.id,user._id,key,sequence,status])).rows[0];
+    }
+    await t.test('only waiting and carry-over tickets cancel, once, and events are recorded', async () => {
+      const user = await fixture(), other = await fixture();
+      const tickets = [];
+      for (const status of ['waiting','pending_carry_over','called','served','cancelled']) tickets.push(await ticketFixture(user,status));
+      const unrelated = await ticketFixture(other,'waiting');
+      await service.requestDeletion({userId:user._id,password:'correct-password'});
+      await service.requestDeletion({userId:user._id,password:'correct-password'});
+      const rows = (await db.pool.query('SELECT * FROM tickets WHERE id=ANY($1::bigint[]) ORDER BY id',[tickets.map(t=>t.id)])).rows;
+      assert.deepEqual(rows.map(t=>t.status),['cancelled','cancelled','called','served','cancelled']);
+      assert.ok(rows[0].cancelled_at && rows[0].terminal_at);
+      assert.equal(rows[0].current_queue_day_id,null);
+      assert.equal(rows[0].status_reason,'account_deletion');
+      const events = (await db.pool.query("SELECT * FROM queue_events WHERE ticket_id=ANY($1::bigint[]) AND event_type='ticket_cancelled'",[tickets.map(t=>t.id)])).rows;
+      assert.equal(events.length,2);
+      assert.deepEqual(events.map(e=>e.from_status).sort(),['pending_carry_over','waiting']);
+      assert.equal((await db.pool.query('SELECT status FROM tickets WHERE id=$1',[unrelated.id])).rows[0].status,'waiting');
+    });
+    await t.test('deletion suppresses pending journey retries and erases captured payloads only for the requesting account', async () => {
+      const user = await fixture(), other = await fixture();
+      const ownTicket = await ticketFixture(user, 'called'), otherTicket = await ticketFixture(other, 'called');
+      for (const ticket of [ownTicket, otherTicket]) {
+        const journey = (await db.pool.query("INSERT INTO queue_email_journeys(tenant_id,ticket_id,mode) VALUES($1,$2,'unmetered') RETURNING id", [scope.tenant_id, ticket.id])).rows[0];
+        await db.pool.query("INSERT INTO queue_email_slots(journey_id,slot_key,status,delivery_payload,claim_token) VALUES($1,'called','queued',$2::jsonb,$3)", [journey.id, JSON.stringify({ to: 'private@example.invalid', text: 'private retry' }), require('node:crypto').randomUUID()]);
+      }
+      await service.requestDeletion({ userId: user._id, password: 'correct-password' });
+      const rows = (await db.pool.query('SELECT j.ticket_id,s.status,s.delivery_payload,s.claim_token FROM queue_email_slots s JOIN queue_email_journeys j ON j.id=s.journey_id WHERE j.ticket_id=ANY($1::bigint[]) ORDER BY j.ticket_id', [[ownTicket.id, otherTicket.id]])).rows;
+      assert.equal(rows[0].status, 'suppressed');
+      assert.equal(rows[0].delivery_payload, null);
+      assert.equal(rows[0].claim_token, null);
+      assert.equal(rows[1].status, 'queued');
+      assert.equal(rows[1].delivery_payload.to, 'private@example.invalid');
+      assert.ok(rows[1].claim_token);
+    });
+    await t.test('a concurrent call-next preserves the called ticket', async () => {
+      const user = await fixture();
+      const ticket = await ticketFixture(user,'waiting');
+      const caller = await db.pool.connect();
+      await caller.query('BEGIN');
+      await caller.query("UPDATE tickets SET status='called' WHERE id=$1",[ticket.id]);
+      let started;
+      const entered = new Promise(resolve => { started = resolve; });
+      const concurrent = service.createAccountDeletionService({
+        refreshQueues: async () => {},
+        transaction: callback => db.withTransaction(client => callback({
+          query(sql, params) {
+            if (sql.startsWith('UPDATE tickets SET notify_by_email')) started();
+            return client.query(sql, params);
+          }
+        }))
+      });
+      const pending = concurrent.requestDeletion({userId:user._id,password:'correct-password'});
+      await entered;
+      await caller.query('COMMIT');
+      caller.release();
+      await pending;
+      assert.equal((await db.pool.query('SELECT status FROM tickets WHERE id=$1',[ticket.id])).rows[0].status,'called');
+    });
+    await t.test('later deletion failure rolls ticket cancellation and events back', async () => {
+      const user = await fixture();
+      const ticket = await ticketFixture(user,'waiting');
+      const failing = service.createAccountDeletionService({
+        refreshQueues: async () => {},
+        transaction: callback => db.withTransaction(client => callback({
+          query(sql, params) {
+            if (sql.startsWith('DELETE FROM vendor_reviews')) throw Error('cleanup failed');
+            return client.query(sql, params);
+          }
+        }))
+      });
+      await assert.rejects(failing.requestDeletion({userId:user._id,password:'correct-password'}),/cleanup failed/);
+      assert.equal((await db.pool.query('SELECT status FROM tickets WHERE id=$1',[ticket.id])).rows[0].status,'waiting');
+      assert.equal((await db.pool.query('SELECT * FROM queue_events WHERE ticket_id=$1',[ticket.id])).rowCount,0);
+      assert.equal((await users.findUserById(user._id)).deletionRequestedAt,null);
+    });
+    await t.test('passwordless deletion requires recent provider authentication', async () => {
+      const user = await fixture(null);
+      await assert.rejects(service.requestDeletion({userId:user._id,password:''}),{code:'PROVIDER_REAUTH_REQUIRED'});
+      await assert.rejects(service.requestDeletion({userId:user._id,session:{authMethod:'google',primaryAuthenticatedAt:new Date(Date.now()-3600000)}}),{code:'PROVIDER_REAUTH_REQUIRED'});
+      const receipt = await service.requestDeletion({userId:user._id,session:{authMethod:'google',primaryAuthenticatedAt:new Date()}});
+      assert.equal(receipt.status,'accepted');
+    });
+    await t.test('failure during revocation rolls the request and user state back', async () => {
+      const user = await fixture();
+      const failing = service.createAccountDeletionService({revokeSessions: async () => {throw Error('simulated failure');}});
+      await assert.rejects(failing.requestDeletion({userId:user._id,password:'correct-password'}),/simulated failure/);
+      assert.equal((await users.findUserById(user._id)).deletionRequestedAt,null);
+      assert.equal((await db.pool.query('SELECT * FROM account_deletion_requests WHERE user_id=$1',[user._id])).rowCount,0);
+    });
+  } finally {
+    await db.pool.query('DELETE FROM account_deletion_requests WHERE user_id=ANY($1::bigint[]) OR (user_id IS NULL AND retention_notice=$2)',[ids,'No retained records in fixture.']);
+    await db.pool.query('DELETE FROM tickets WHERE user_id=ANY($1::bigint[])',[ids]);
+    await db.pool.query('DELETE FROM users WHERE id=ANY($1::bigint[])',[ids]);
+    if (scope) await db.pool.query('DELETE FROM tenants WHERE id=$1',[scope.tenant_id]);
+    if (secondTenant) await db.pool.query('DELETE FROM tenants WHERE id=$1',[secondTenant.id]);
+    await db.pool.end();
+  }
+});

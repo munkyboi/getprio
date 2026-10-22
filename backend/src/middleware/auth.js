@@ -3,17 +3,44 @@ const env = require("../config/env");
 const authSessionRepository = require("../repositories/authSessions");
 const userRepository = require("../repositories/users");
 const permissions = require("../services/permissions");
+const { userRequiresPrivilegedMfa } = require("../services/mfaService");
+const { getAccessCookie, parseCookies } = require("../services/browserSessionService");
+const { normalizeApiPath } = require("./apiPath");
+const { assertRequestAllowed: assertSandboxTestAccountRequest } = require("../services/sandboxTestAccountAccess");
+
+function isDeveloperOnlyIdentity(user) {
+  const roles = new Set(user?.roles || []);
+  return roles.has("developer") && !["customer", "vendor", "staff", "admin", "platform_admin"].some((role) => roles.has(role));
+}
 
 function getTokenFromRequest(req) {
   const authorization = req.headers.authorization || "";
-  if (!authorization.startsWith("Bearer ")) {
-    return null;
+  const bearerToken = authorization.startsWith("Bearer ") ? authorization.slice(7) : null;
+  const cookieToken = getAccessCookie(parseCookies(req.headers.cookie), env.authCookieSecure);
+
+  if (bearerToken && cookieToken) {
+    const error = new Error("Use one authentication method per request.");
+    error.statusCode = 400;
+    error.code = "AMBIGUOUS_AUTHENTICATION";
+    throw error;
   }
 
-  return authorization.slice(7);
+  return cookieToken || bearerToken;
 }
 
-async function loadAuthenticatedUser(req, strict) {
+function isPrivilegedMfaRecoveryRoute(req) {
+  const path = normalizeApiPath(req.originalUrl || req.url);
+  return [
+    "/auth/me",
+    "/auth/logout",
+    "/auth/mfa/enrollment/start",
+    "/auth/mfa/enrollment/confirm",
+    "/auth/mfa/enrollment/cancel",
+    "/auth/mfa/step-up"
+  ].includes(path);
+}
+
+async function loadAuthenticatedUser(req, strict, { touchSession = true } = {}) {
   const token = getTokenFromRequest(req);
   if (!token) {
     if (strict) {
@@ -36,7 +63,16 @@ async function loadAuthenticatedUser(req, strict) {
     }
 
     const session = await authSessionRepository.findSessionById(sessionId);
-    if (!session || session.status !== "active" || new Date(session.expiresAt).getTime() <= Date.now()) {
+    const deletionRetry = req.method === 'POST' && normalizeApiPath(req.originalUrl || req.url) === '/account/delete'
+      && session?.status === 'revoked' && session?.revokeReason === 'account_deletion';
+    if (
+      !session ||
+      (session.surface && session.surface !== "app") ||
+      (session.status !== "active" && !deletionRetry) ||
+      new Date(session.expiresAt).getTime() <= Date.now() ||
+      (session.absoluteExpiresAt && new Date(session.absoluteExpiresAt).getTime() <= Date.now()) ||
+      (session.inactivityExpiresAt && new Date(session.inactivityExpiresAt).getTime() <= Date.now())
+    ) {
       const error = new Error("User session is no longer valid.");
       error.statusCode = 401;
       throw error;
@@ -44,18 +80,53 @@ async function loadAuthenticatedUser(req, strict) {
 
     const user = await userRepository.findUserById(payload.sub);
 
-    if (!user) {
+    if (!user || (user.deletionRequestedAt && !deletionRetry)) {
       const error = new Error("User session is no longer valid.");
       error.statusCode = 401;
       throw error;
     }
+    if (user.platformAccessSuspendedAt) {
+      const error = new Error("This account's access is suspended. Contact GetPrio support.");
+      error.statusCode = 403;
+      error.code = "ACCOUNT_ACCESS_SUSPENDED";
+      throw error;
+    }
+    assertSandboxTestAccountRequest(user, req);
+    if (isDeveloperOnlyIdentity(user)) {
+      const error = new Error("This account is only available in the Developer Portal.");
+      error.statusCode = 403;
+      error.code = "DEVELOPER_PORTAL_ONLY";
+      throw error;
+    }
+
+    if (userRequiresPrivilegedMfa(user) && !isPrivilegedMfaRecoveryRoute(req)) {
+      if (!user.mfaEnabled) {
+        const error = new Error("Set up multi-factor authentication before accessing this account.");
+        error.statusCode = 403;
+        error.code = "MFA_ENROLLMENT_REQUIRED";
+        throw error;
+      }
+      if (!session.mfaVerifiedAt) {
+        const error = new Error("Confirm your multi-factor authentication before accessing this account.");
+        error.statusCode = 403;
+        error.code = "MFA_VERIFICATION_REQUIRED";
+        throw error;
+      }
+    }
 
     req.user = user;
     req.auth = {
-      sessionId: String(session._id)
+      sessionId: String(session._id),
+      transport: getAccessCookie(parseCookies(req.headers.cookie), env.authCookieSecure) ? "cookie" : "bearer",
+      session
     };
+    if (touchSession && !deletionRetry && typeof authSessionRepository.touchSession === "function") {
+      await authSessionRepository.touchSession(session._id, {
+        inactivityMinutes: env.sessionInactivityMinutes
+      });
+    }
   } catch (error) {
-    error.statusCode = 401;
+    error.statusCode ||= 401;
     throw error;
   }
 }
@@ -132,6 +203,7 @@ function requirePlatformPermission(permission) {
 
 module.exports = {
   authenticate,
+  revalidateAuthenticatedUser: req => loadAuthenticatedUser(req, true, {touchSession:false}),
   maybeAuthenticate,
   userHasTenantAccess,
   getTenantRole,

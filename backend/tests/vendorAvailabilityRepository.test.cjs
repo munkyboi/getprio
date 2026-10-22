@@ -186,6 +186,10 @@ test("vendor availability repository normalizes list, create, update, and delete
         return { rows: [] };
       }
 
+      if (String(query).includes("DELETE FROM vendor_availability_blocks")) {
+        return { rows: [] };
+      }
+
       return { rows: [] };
     }
   };
@@ -226,6 +230,8 @@ test("vendor availability repository normalizes list, create, update, and delete
   assert.equal(updatedBlock.locationId, "4");
   assert.equal(updatedBlock.isActive, false);
 
+  await repository.deleteBlock(3, { client });
+
   const createdException = await repository.createException({
     tenantId: 2,
     locationId: 3,
@@ -253,4 +259,5 @@ test("vendor availability repository normalizes list, create, update, and delete
   await repository.deleteException(4, { client });
 
   assert.equal(calls.length > 0, true);
+  assert.ok(calls.some((call) => call.query.includes("DELETE FROM vendor_availability_blocks")));
 });

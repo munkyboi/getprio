@@ -1,15 +1,123 @@
 const express = require("express");
+const { rateLimit, ipKeyGenerator } = require("express-rate-limit");
 const asyncHandler = require("../middleware/asyncHandler");
 const { authenticate } = require("../middleware/auth");
+const { moderatePublicText } = require("../middleware/moderatePublicText");
 const bookingRepository = require("../repositories/bookings");
+
 const ticketRepository = require("../repositories/tickets");
+const ticketBarcodeService = require("../services/ticketBarcodeService");
+const tenantRepository = require("../repositories/tenants");
 const userRepository = require("../repositories/users");
 const bookingService = require("../services/bookingService");
+
+const ratingService = require("../services/ratingService");
 const passwordResetService = require("../services/passwordResetService");
+const emailChangeService = require("../services/emailChangeService");
+const phoneChangeService = require("../services/phoneChangeService");
+const authService = require("../services/authService");
+const mfaFlowService = require("../services/mfaFlowService");
+const { userRequiresPrivilegedMfa } = require("../services/mfaService");
+const pushNotificationService = require("../services/pushNotificationService");
+const userAvatarUploadService = require("../services/userAvatarUploadService");
+const { getImageUploadPolicy } = require("../services/imageUploadPolicy");
+const customerTicketAccess = require("../services/customerTicketAccess");
+const { assertPublicTextFieldsAllowed } = require("../services/contentModeration");
+const { assertTenantPermission } = require("../middleware/auth");
+const { formatPaginationMetadata, parsePaginationParams } = require("../utils/pagination");
 
 const router = express.Router();
 
+const avatarUploadLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => `${req.user?._id || "anonymous"}:${ipKeyGenerator(req.ip)}`,
+  message: { message: "Too many avatar upload attempts. Please try again later." }
+});
+
 router.use(authenticate);
+router.get("/image-upload-policy", asyncHandler(async (_req, res) => {
+  res.set("Cache-Control", "no-store");
+  res.json(await getImageUploadPolicy());
+}));
+const notificationInbox = require("../services/customerNotificationInbox");
+router.get("/notifications", asyncHandler(async (req, res) => {
+  res.set("Cache-Control", "no-store");
+  res.json(await notificationInbox.list(req.user._id, req.query.cursor));
+}));
+router.post("/notifications/:id/read", asyncHandler(async (req, res) => {
+  res.json(await notificationInbox.markRead(req.user._id, req.params.id));
+}));
+for (const [path, method] of [["read-all", "markAllRead"], ["clear", "clear"]]) {
+  router.post(`/notifications/${path}`, asyncHandler(async (req, res) => {
+    if (!req.body || Object.keys(req.body).some(key => key !== "before")) {
+      throw Object.assign(new Error("Provide the notification snapshot cutoff."), { statusCode: 400 });
+    }
+    res.json(await notificationInbox[method](req.user._id, req.body.before));
+  }));
+}
+
+const deletionLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, limit: 5, standardHeaders: true, legacyHeaders: false,
+  keyGenerator: (req) => `${req.user._id}:${ipKeyGenerator(req.ip)}`,
+  message: { code: "DELETION_RATE_LIMIT", message: "Too many attempts. Try again later." }
+});
+function requireDeletionEnabled(req, _res, next) {
+  if (process.env.ACCOUNT_DELETION_ENABLED !== "true" && !req.user.deletionRequestedAt) {
+    return next(Object.assign(new Error("Account deletion is not available yet. Please try again later."), {
+      statusCode: 503, code: "ACCOUNT_DELETION_UNAVAILABLE"
+    }));
+  }
+  next();
+}
+router.get("/deletion-options", requireDeletionEnabled, asyncHandler(async (req, res) => {
+  res.json({ passwordRequired: Boolean(req.user.passwordHash) });
+}));
+router.post("/delete", requireDeletionEnabled, deletionLimiter, asyncHandler(async (req, res) => {
+  const result = await require("../services/accountDeletionService").requestDeletion({
+    userId: req.user._id, password: req.body?.password, session: req.auth.session
+  });
+  require("../services/browserSessionService").clearBrowserSession(res, { secure: require("../config/env").authCookieSecure });
+  res.status(202).json(result);
+}));
+
+router.use(moderatePublicText);
+
+const barcodeLimiter = rateLimit({
+  windowMs: 60 * 1000, limit: 120, standardHeaders: true, legacyHeaders: false,
+  keyGenerator: (req) => String(req.user._id),
+  message: { message: "Too many QR code requests. Please try again later." }
+});
+router.post("/queue/tickets/:ticketId/barcode", barcodeLimiter, asyncHandler(async (req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  const hostname = String(req.hostname || "").toLowerCase();
+  if (["sandbox.getprio.online", "sandbox-api.getprio.online"].includes(hostname)) {
+    throw Object.assign(new Error("Ticket not found."), { statusCode: 404, code: "TICKET_NOT_FOUND" });
+  }
+  res.json(await ticketBarcodeService.issueForOwner(String(req.params.ticketId), String(req.user._id)));
+}));
+
+const favorites = require("../repositories/favorites");
+router.get("/favorites", asyncHandler(async (req, res) => res.json({ vendors: await favorites.list(req.user._id) })));
+router.put("/favorites/:tenantSlug", asyncHandler(async (req, res) => {
+  if (!await favorites.add(req.user._id, req.params.tenantSlug)) return res.status(404).json({ message: "Vendor not found." });
+  res.json({ favorite: true });
+}));
+router.delete("/favorites/:tenantSlug", asyncHandler(async (req, res) => {
+  await favorites.remove(req.user._id, req.params.tenantSlug);
+  res.json({ favorite: false });
+}));
+
+const emailChangeLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => `${req.user?._id || "anonymous"}:${ipKeyGenerator(req.ip)}`,
+  message: { message: "Too many email change verification attempts. Please try again later." }
+});
 
 function normalizeRequestText(value, fallback = "") {
   if (Array.isArray(value)) {
@@ -24,6 +132,39 @@ function normalizeRequestText(value, fallback = "") {
   return fallback;
 }
 
+function requireRequestParam(value, label) {
+  if (typeof value !== "string") {
+    const error = new Error(`${label} is required.`);
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const text = value.trim();
+  if (!text) {
+    const error = new Error(`${label} is required.`);
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return text;
+}
+
+function normalizeQueryText(value, fallback = "") {
+  if (value === undefined || value === null || value === "") {
+    return fallback;
+  }
+
+  if (typeof value !== "string") {
+    const error = new Error("Query parameter must be a single value.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return normalizeRequestText(value, fallback);
+}
+
+const { customerQueueLifecycle } = require('../services/customerQueueLifecycle');
+
 function formatCustomerTicket(ticket) {
   return {
     id: ticket._id,
@@ -34,12 +175,25 @@ function formatCustomerTicket(ticket) {
     locationName: ticket.locationName,
     locationSlug: ticket.locationSlug,
     status: ticket.status,
+    queueLifecycle: customerQueueLifecycle(ticket),
+    statusReason: ticket.statusReason,
+    customerConfirmedAt: ticket.customerConfirmedAt || null,
+    serviceStartedAt: ticket.serviceStartedAt || null,
+    serviceEndedAt: ticket.serviceEndedAt || null,
+    serviceOutcome: ticket.serviceOutcome || null,
+    carryOverExpiresAt: ticket.carryOverExpiresAt,
+    currentQueueDayId: ticket.currentQueueDayId,
+    journeySegments: ticket.journeySegments || [],
     createdAt: ticket.createdAt,
     updatedAt: ticket.updatedAt
   };
 }
 
 function formatManualPaymentDestination(booking) {
+  if (booking.bookingPaymentSource === "group_funded" || booking.groupFundedBookingId) {
+    return null;
+  }
+
   if (
     booking.paymentStatus !== "unpaid" ||
     booking.paymentProofObjectKey ||
@@ -51,22 +205,69 @@ function formatManualPaymentDestination(booking) {
     return null;
   }
 
-  if (!booking.locationPaymentQrActive || !booking.locationPaymentQrImageUrl) {
+  const bundleItems = Array.isArray(booking.bundleItems) && booking.bundleItems.length
+    ? booking.bundleItems
+    : [{
+        priceAmountCents: Number(booking.servicePriceAmountCents || 0) * Number(booking.bookingQuantity || 1),
+        manualPaymentRequired: booking.serviceManualPaymentRequired
+      }];
+  if (!booking.serviceManualPaymentRequired && !bundleItems.some((item) => item.manualPaymentRequired)) {
+    return null;
+  }
+
+  const isBankTransfer = booking.locationPaymentMethodLabel === "Bank Transfer";
+  if (!booking.locationPaymentQrActive || (!isBankTransfer && !booking.locationPaymentQrImageUrl)) {
     return null;
   }
 
   return {
     methodLabel: booking.locationPaymentMethodLabel,
+    ...(isBankTransfer ? { bankName: booking.locationPaymentBankName || "" } : {}),
     accountDisplayName: booking.locationPaymentAccountDisplayName,
     accountIdentifierDisplay: booking.locationPaymentAccountIdentifierDisplay,
-    qrImageUrl: booking.locationPaymentQrImageUrl,
-    amountCents: Number(booking.servicePriceAmountCents || 0) * Number(booking.bookingQuantity || 1),
+    qrImageUrl: isBankTransfer ? "" : booking.locationPaymentQrImageUrl,
+    amountCents: bundleItems.reduce((total, item) => total + Number(item.priceAmountCents || 0), 0),
     currency: booking.serviceCurrency || "PHP",
     unitPriceDisplay: booking.servicePriceDisplay
   };
 }
 
 function formatCustomerBooking(booking) {
+  const groupFundedCampaign = booking.groupFundedCampaign
+    ? {
+        ...booking.groupFundedCampaign,
+        bundleItems: Array.isArray(booking.groupFundedBundleItems)
+          ? booking.groupFundedBundleItems.map((item) => ({
+              id: item._id,
+              serviceId: item.serviceId,
+              serviceName: item.serviceNameSnapshot,
+              serviceSlug: item.serviceSlugSnapshot,
+              bookingQuantity: item.bookingQuantity,
+              priceAmountCents: item.priceAmountCents,
+              currency: item.currency,
+              executionMode: item.executionMode,
+              scheduledStartAt: item.scheduledStartAt,
+              scheduledEndAt: item.scheduledEndAt,
+              sortOrder: item.sortOrder
+            }))
+          : [],
+        contributions: Array.isArray(booking.groupFundedContributions)
+          ? booking.groupFundedContributions.map((contribution) => ({
+              id: contribution._id,
+              contributorDisplayName: contribution.participantDisplayName || "Contributor",
+              amountCents: contribution.amountCents,
+              currency: contribution.currency,
+              contributionStatus: contribution.contributionStatus,
+              submittedAt: contribution.submittedAt,
+              verifiedAt: contribution.verifiedAt,
+              rejectedAt: contribution.rejectedAt,
+              rejectionReason: contribution.rejectionReason,
+              refundStatus: contribution.refundStatus
+            }))
+          : []
+      }
+    : null;
+
   return {
     id: booking._id,
     reference: booking.reference,
@@ -83,6 +284,8 @@ function formatCustomerBooking(booking) {
     servicePriceAmountCents: booking.servicePriceAmountCents,
     serviceCurrency: booking.serviceCurrency,
     servicePriceDisplay: booking.servicePriceDisplay,
+    bundleItems: booking.bundleItems || [],
+    executionMode: booking.executionMode || "parallel",
     bookingQuantity: booking.bookingQuantity,
     scheduledStartAt: booking.scheduledStartAt,
     scheduledEndAt: booking.scheduledEndAt,
@@ -90,6 +293,10 @@ function formatCustomerBooking(booking) {
     notes: booking.notes,
     paymentReference: booking.paymentReference,
     paymentStatus: booking.paymentStatus,
+    groupFundedBookingId: booking.groupFundedBookingId,
+    bookingPaymentSource: booking.bookingPaymentSource,
+
+    groupFundedCampaign,
     manualPaymentDestination: formatManualPaymentDestination(booking),
     paymentProof: booking.paymentProofObjectKey
       ? {
@@ -105,6 +312,9 @@ function formatCustomerBooking(booking) {
     pendingExpiresAt: booking.pendingExpiresAt,
     expiredAt: booking.expiredAt,
     expirationReason: booking.expirationReason,
+    fulfillmentOutcomeReason: booking.fulfillmentOutcomeReason,
+    refundEligible: booking.refundEligible,
+    fulfillmentResolvedAt: booking.fulfillmentResolvedAt,
     notifyByEmail: booking.notifyByEmail,
     notifyBySms: booking.notifyBySms,
     smsAlertFeePaymentId: booking.smsAlertFeePaymentId,
@@ -119,6 +329,7 @@ function formatCustomerBooking(booking) {
         }
       : null,
     checkedInAt: booking.checkedInAt,
+    customerSelfCheckInEnabled: booking.customerSelfCheckInEnabled === true,
     noShowAt: booking.noShowAt,
     createdAt: booking.createdAt,
     updatedAt: booking.updatedAt
@@ -129,31 +340,48 @@ function formatAccountUser(user) {
   return {
     id: user._id,
     name: user.name,
+    displayName: user.displayName || "",
+    avatarUrl: user.avatarUrl || "",
     username: user.username,
     email: user.email,
     phone: user.phone,
     emailVerified: Boolean(user.emailVerified),
     mfaEnabled: Boolean(user.mfaEnabled),
-    mfaRequired: Boolean(user.mfaRequired)
+    emailMfaEnabled: Boolean(user.emailMfaEnabled),
+    hasPassword: Boolean(user.passwordHash),
+    // Role membership is authoritative for privileged MFA. The persisted flag can
+    // lag a role change, so use the same policy as the MFA enforcement boundary.
+    mfaRequired: Boolean(user.mfaRequired || userRequiresPrivilegedMfa(user))
   };
 }
 
 function normalizeCustomerNotificationSettings(settings = {}) {
   return {
     bookingAlerts: settings.bookingAlerts !== false,
-    queueAlerts: settings.queueAlerts !== false
+    queueAlerts: settings.queueAlerts !== false,
+
+    preferredContactMethod: ["in_app", "email", "sms"].includes(settings.preferredContactMethod)
+      ? settings.preferredContactMethod
+      : "in_app"
   };
 }
 
 router.get(
   "/overview",
   asyncHandler(async (req, res) => {
-    const tickets = await ticketRepository.listTicketsForCustomerAccount(req.user, { limit: 50 });
+    const [tickets, ticketStats, mfaMethods] = await Promise.all([
+      ticketRepository.listTicketsForCustomerAccount(req.user, { limit: 50 }),
+      ticketRepository.getCustomerTicketStats(req.user._id),
+      mfaFlowService.getLoginMethods(req.user)
+    ]);
 
     res.json({
     user: {
-      ...formatAccountUser(req.user)
+      ...formatAccountUser(req.user),
+      totpMfaEnabled: mfaMethods.includes("totp"),
+      emailMfaEnabled: mfaMethods.includes("email")
     },
+    ticketStats,
     notificationSettings: normalizeCustomerNotificationSettings(req.user.notificationSettings),
     tickets: tickets.map(formatCustomerTicket)
   });
@@ -183,19 +411,75 @@ router.patch(
   })
 );
 
+router.post("/bookings/:bookingId/rating", asyncHandler(async (req, res) => res.status(201).json({ rating: await ratingService.rateVendor({ user: req.user, bookingId: req.params.bookingId, body: req.body || {} }) })));
+router.get("/tickets/:lookupCode/rating", asyncHandler(async (req, res) => res.json(await ratingService.getQueueTicketRating({ user: req.user, lookupCode: req.params.lookupCode }))));
+router.post("/tickets/:lookupCode/rating", asyncHandler(async (req, res) => res.status(201).json({ rating: await ratingService.rateQueueTicket({ user: req.user, lookupCode: req.params.lookupCode, body: req.body || {} }) })));
+
+router.post("/ratings/dispute", asyncHandler(async (req, res) => res.status(201).json({ dispute: await ratingService.disputeRating({ user: req.user, body: req.body || {} }) })));
+router.patch("/ratings/vendor-reviews/:reviewId", asyncHandler(async (req, res) => res.json({ rating: await ratingService.reviseVendorReview({ user: req.user, reviewId: req.params.reviewId, body: req.body || {} }) })));
+
+router.post(
+  "/push-subscriptions",
+  asyncHandler(async (req, res) => {
+    let tenant = null;
+    const tenantSlug = String(req.body?.tenantSlug || "").trim();
+
+    if (tenantSlug) {
+      tenant = await tenantRepository.findTenantBySlug(tenantSlug, { activeOnly: true });
+      if (!tenant) {
+        const error = new Error("Tenant not found.");
+        error.statusCode = 404;
+        throw error;
+      }
+
+      assertTenantPermission(req.user, tenant._id, "tenant.queue.read");
+    }
+
+    const subscription = await pushNotificationService.saveSubscription({
+      user: req.user,
+      tenant,
+      payload: req.body?.subscription || req.body,
+      userAgent: req.headers["user-agent"] || ""
+    });
+
+    res.status(201).json({ subscription });
+  })
+);
+
+router.delete(
+  "/push-subscriptions/:subscriptionId",
+  asyncHandler(async (req, res) => {
+    const subscription = await pushNotificationService.deleteSubscription({
+      user: req.user,
+      subscriptionId: req.params.subscriptionId
+    });
+
+    if (!subscription) {
+      const error = new Error("Push subscription not found.");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    res.json({ subscription });
+  })
+);
+
 router.patch(
   "/profile",
   asyncHandler(async (req, res) => {
     const name = String(req.body.name || "").trim();
+    const displayName = normalizeRequestText(req.body.displayName).slice(0, 60);
 
     if (!name) {
       const error = new Error("Name is required.");
       error.statusCode = 400;
       throw error;
     }
+    assertPublicTextFieldsAllowed({ Name: name, "Display name": displayName });
 
     const updatedUser = await userRepository.updateUser(req.user._id, {
-      name
+      name,
+      displayName: displayName || null
     });
 
     res.json({
@@ -206,14 +490,179 @@ router.patch(
   })
 );
 
+router.post(
+  "/email-change/start",
+  emailChangeLimiter,
+  asyncHandler(async (req, res) => {
+    const result = await emailChangeService.start({
+      user: req.user,
+      newEmail: req.body?.newEmail,
+      method: req.body?.method === "mfa" ? "mfa" : "current_email",
+      password: req.body?.password,
+      totpCode: req.body?.totpCode
+    });
+    res.json(result);
+  })
+);
+
+router.post(
+  "/email-change/verify-current",
+  emailChangeLimiter,
+  asyncHandler(async (req, res) => {
+    res.json(await emailChangeService.verifyCurrent({
+      user: req.user,
+      challengeId: req.body?.challengeId,
+      code: req.body?.code
+    }));
+  })
+);
+
+router.post(
+  "/email-change/verify-new",
+  emailChangeLimiter,
+  asyncHandler(async (req, res) => {
+    const updatedUser = await emailChangeService.verifyNew({
+      user: req.user,
+      challengeId: req.body?.challengeId,
+      code: req.body?.code,
+      sessionId: req.auth.sessionId,
+      ipAddress: authService.getRequestIp(req),
+      userAgent: authService.getUserAgent(req)
+    });
+    res.json({ user: formatAccountUser(updatedUser), success: true, message: "Your email address has been changed." });
+  })
+);
+
+router.post(
+  "/phone-change/start",
+  emailChangeLimiter,
+  asyncHandler(async (req, res) => {
+    const result = await phoneChangeService.start({
+      user: req.user,
+      newPhone: req.body?.newPhone,
+      method: req.body?.method === "totp" ? "totp" : "email",
+      totpCode: req.body?.totpCode
+    });
+    res.json({ ...result, user: result.user ? formatAccountUser(result.user) : undefined });
+  })
+);
+
+router.post(
+  "/phone-change/verify-email",
+  emailChangeLimiter,
+  asyncHandler(async (req, res) => {
+    const result = await phoneChangeService.verifyEmail({
+      user: req.user,
+      challengeId: req.body?.challengeId,
+      code: req.body?.code,
+      password: req.body?.password
+    });
+    res.json({ ...result, user: formatAccountUser(result.user) });
+  })
+);
+
+router.post(
+  "/profile/avatar",
+  avatarUploadLimiter,
+  express.raw({ type: ["image/jpeg", "image/png", "image/webp"], limit: "8mb" }),
+  asyncHandler(async (req, res) => {
+    if (!Buffer.isBuffer(req.body) || !req.body.length) {
+      const error = new Error("Avatar image payload is required.");
+      error.statusCode = 400;
+      throw error;
+    }
+
+    const result = await userAvatarUploadService.uploadAvatar({
+      user: req.user,
+      fileName: normalizeQueryText(req.query.fileName, "avatar"),
+      contentType: normalizeQueryText(req.headers["content-type"]),
+      fileBuffer: req.body
+    });
+
+    res.status(201).json({
+      user: formatAccountUser(result.user),
+      avatarUrl: result.avatarUrl,
+      success: true,
+      message: "Profile photo updated."
+    });
+  })
+);
+
+router.post(
+  "/tickets/:lookupCode/claim",
+  asyncHandler(async (req, res) => {
+    const lookupCode = requireRequestParam(req.params.lookupCode, "Ticket lookup code").toUpperCase();
+
+    if (!lookupCode) {
+      const error = new Error("Ticket lookup code is required.");
+      error.statusCode = 400;
+      throw error;
+    }
+
+    const ticket = await ticketRepository.findTicketByLookupCode(lookupCode);
+    if (!ticket) {
+      const error = new Error("Ticket not found.");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    if (ticket.userId && String(ticket.userId) === String(req.user._id)) {
+      res.json({
+        success: true,
+        ticket: formatCustomerTicket({
+          ...ticket,
+          tenantName: null,
+          tenantSlug: null,
+          locationName: null,
+          locationSlug: null
+        })
+      });
+      return;
+    }
+
+    if (ticket.userId) {
+      const error = new Error("We could not verify that this ticket belongs to you.");
+      error.statusCode = 403;
+      throw error;
+    }
+
+    if (!customerTicketAccess.userOwnsTicket(req.user, ticket)) {
+      const error = new Error("We could not verify that this ticket belongs to you.");
+      error.statusCode = 403;
+      throw error;
+    }
+
+    const claimedTicket = await ticketRepository.claimTicketForUser(ticket._id, req.user._id);
+    if (!claimedTicket) {
+      const error = new Error("This ticket has already been claimed by another account.");
+      error.statusCode = 409;
+      throw error;
+    }
+
+    res.json({
+      success: true,
+      ticket: formatCustomerTicket({
+        ...claimedTicket,
+        tenantName: null,
+        tenantSlug: null,
+        locationName: null,
+        locationSlug: null
+      })
+    });
+  })
+);
+
 router.get(
   "/history",
   asyncHandler(async (req, res) => {
-    const limit = Math.min(Math.max(Number(req.query.limit || 50) || 50, 1), 100);
-    const tickets = await ticketRepository.listTicketsForCustomerAccount(req.user, { limit });
+    const { page, pageSize, offset } = parsePaginationParams(req.query);
+    const result = await ticketRepository.listTicketsForCustomerAccount(req.user, { page, pageSize, offset });
+    const tickets = Array.isArray(result) ? result : result.tickets;
+    const totalItems = Array.isArray(result) ? result.length : result.totalItems;
 
     res.json({
-      tickets: tickets.map(formatCustomerTicket)
+      tickets: tickets.map(formatCustomerTicket),
+      pagination: formatPaginationMetadata(totalItems, page, pageSize)
     });
   })
 );
@@ -221,12 +670,27 @@ router.get(
 router.get(
   "/bookings",
   asyncHandler(async (req, res) => {
-    const limit = Math.min(Math.max(Number(req.query.limit || 50) || 50, 1), 100);
+    const { page, pageSize, offset } = parsePaginationParams(req.query);
+    const search = normalizeRequestText(req.query.search);
+    const status = normalizeRequestText(req.query.status, "all");
+    const scheduledDateFrom = normalizeRequestText(req.query.scheduledDateFrom);
+    const scheduledDateTo = normalizeRequestText(req.query.scheduledDateTo);
     await bookingService.expirePendingBookingsForCustomer(req.user._id);
-    const bookings = await bookingRepository.listBookingsForCustomer(req.user._id, { limit });
+    const result = await bookingRepository.listBookingsForCustomer(req.user._id, {
+      page,
+      pageSize,
+      offset,
+      search,
+      status,
+      scheduledDateFrom,
+      scheduledDateTo
+    });
+    const bookings = Array.isArray(result) ? result : result.bookings;
+    const totalItems = Array.isArray(result) ? result.length : result.totalItems;
 
     res.json({
-      bookings: bookings.map(formatCustomerBooking)
+      bookings: bookings.map(formatCustomerBooking),
+      pagination: formatPaginationMetadata(totalItems, page, pageSize)
     });
   })
 );
@@ -242,9 +706,15 @@ router.get(
       throw error;
     }
 
-    res.json({
-      booking: formatCustomerBooking(booking)
-    });
+    res.json({ booking: { ...formatCustomerBooking(booking), organizerCampaign: null } });
+  })
+);
+
+router.post(
+  "/bookings/:bookingId/arrival",
+  asyncHandler(async (req, res) => {
+    const result = await bookingService.checkInCustomerBooking({ user: req.user, bookingId: req.params.bookingId });
+    res.json({ booking: formatCustomerBooking(result.booking) });
   })
 );
 
@@ -274,11 +744,10 @@ router.post(
 
     const upload = await bookingService.uploadCustomerPaymentProofDirect({
       user: req.user,
-      bookingId: req.params.bookingId,
+      bookingId: requireRequestParam(req.params.bookingId, "Booking"),
       body: {
-        fileName: normalizeRequestText(req.query.fileName),
-        contentType: req.headers["content-type"],
-        sizeBytes: req.body.length
+        fileName: normalizeQueryText(req.query.fileName),
+        contentType: normalizeQueryText(req.headers["content-type"])
       },
       fileBuffer: req.body
     });

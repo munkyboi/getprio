@@ -1,10 +1,14 @@
 # GetPrio Capstone PRD Index
 
+- [Future Goals](future-goals.md)
+
 This index is the planning entry point for the current GetPrio capstone direction: a service marketplace and booking platform with role-aware HCI screens and Information Assurance and Security deliverables.
 
 The older v1 stability PRDs remain useful implementation history for the queue platform already in the repository. Use this capstone PRD set when planning new screens, routes, documentation, Figma flows, RBAC, privacy analysis, or vulnerability assessment work.
 
 ## PRD Set
+
+- [AI Wait-Time Prediction PRD](ai-wait-time-prediction-prd.md) — implementation inventory, runtime dependencies, private evaluation and staged rollout gates.
 
 - [Marketplace and Booking Product PRD](/Users/carloabella/Projects/getprio/dev/docs/plan/capstone-marketplace-booking-prd.md)
 - [Role-Based HCI Screen PRD](/Users/carloabella/Projects/getprio/dev/docs/plan/capstone-role-based-hci-screens-prd.md)

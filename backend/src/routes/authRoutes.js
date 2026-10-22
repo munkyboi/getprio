@@ -1,11 +1,16 @@
+const queueBoardReturnPath = require("../services/queueBoardReturnPath");
+const businessCategories = require("../repositories/businessCategories");
 const express = require("express");
+const { rateLimit, ipKeyGenerator } = require("express-rate-limit");
 const bcrypt = require("bcryptjs");
+const crypto = require("node:crypto");
 const db = require("../config/db");
 const tenantRepository = require("../repositories/tenants");
 const authSessionRepository = require("../repositories/authSessions");
 const userRepository = require("../repositories/users");
 const asyncHandler = require("../middleware/asyncHandler");
 const { authenticate, maybeAuthenticate } = require("../middleware/auth");
+const { moderatePublicText } = require("../middleware/moderatePublicText");
 const authService = require("../services/authService");
 const {
   buildAuthorizationUrl,
@@ -18,20 +23,57 @@ const {
   readOAuthState
 } = require("../services/oauthService");
 const notificationService = require("../services/notificationService");
+const welcomeEmailService = require("../services/welcomeEmailService");
 const passwordResetService = require("../services/passwordResetService");
 const securityEventService = require("../services/securityEventService");
 const sessionService = require("../services/sessionService");
+const subscriptionLifecycleService = require("../services/subscriptionLifecycleService");
+const mfaFlowService = require("../services/mfaFlowService");
+const customerRegistrationOtpService = require("../services/customerRegistrationOtpService");
+const securityRateLimitService = require("../services/securityRateLimitService");
+const { userRequiresPrivilegedMfa } = require("../services/mfaService");
+const { buildBaseAuthUserPayload } = require("../services/authUserPayloadService");
+const { assertPublicTextFieldsAllowed } = require("../services/contentModeration");
+const { normalizePhilippineMobileNumber } = require("../utils/phone");
+const { assertRequestAllowed: assertSandboxTestAccountRequest } = require("../services/sandboxTestAccountAccess");
+const env = require("../config/env");
+const {
+  clearBrowserSession,
+  getRefreshCookie,
+  issueBrowserSession,
+  restoreBrowserCsrf,
+  parseCookies
+} = require("../services/browserSessionService");
 
 const router = express.Router();
+const authHttpLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 100,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => ipKeyGenerator(req.ip || req.socket?.remoteAddress || "unknown"),
+  message: { message: "Too many authentication requests. Please try again later." }
+});
+router.use(authHttpLimiter);
+router.use(moderatePublicText);
 const OAUTH_INTENTS = new Set(["login", "register_customer", "register_vendor"]);
 const normalizeEmail = authService.normalizeEmail;
+const authAttemptLimiter = asyncHandler(async (req, _res, next) => {
+  const key = crypto.createHash("sha256").update(String(req.ip || req.socket?.remoteAddress || "unknown")).digest("hex");
+  await securityRateLimitService.consume({ bucketKey: `auth-attempt:${key}`, limit: 100, windowSeconds: 15 * 60, blockedMessage: "Too many authentication attempts. Please try again later." });
+  next();
+});
+const customerRegistrationOtpLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => ipKeyGenerator(req.ip || req.socket?.remoteAddress || "unknown"),
+  message: { message: "Too many registration verification requests. Please try again later." }
+});
 
 function normalizeSlug(value) {
-  return String(value || "")
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
+  return (String(value || "").toLowerCase().match(/[a-z0-9]+/g) || []).join("-");
 }
 
 function validateTenantSlug(value) {
@@ -88,6 +130,27 @@ function validateUsername(value) {
   };
 }
 
+function validateCustomerEmail(value) {
+  const email = normalizeEmail(value);
+  const atIndex = email.indexOf("@");
+  const lastAtIndex = email.lastIndexOf("@");
+  const dotIndex = email.lastIndexOf(".");
+  if (
+    !email ||
+    email.length > 254 ||
+    atIndex <= 0 ||
+    atIndex !== lastAtIndex ||
+    dotIndex <= atIndex + 1 ||
+    dotIndex >= email.length - 1 ||
+    /\s/.test(email)
+  ) {
+    const error = new Error("Enter a valid email address.");
+    error.statusCode = 400;
+    throw error;
+  }
+  return email;
+}
+
 async function assertUsernameAvailable(username, options = {}) {
   const validation = validateUsername(username);
   if (!validation.valid) {
@@ -95,6 +158,7 @@ async function assertUsernameAvailable(username, options = {}) {
     error.statusCode = 400;
     throw error;
   }
+  assertPublicTextFieldsAllowed({ Username: validation.username });
 
   const existingUser = await userRepository.findUserByUsername(validation.username, options);
   if (existingUser) {
@@ -138,11 +202,23 @@ async function buildAvailableUsername(name, options = {}) {
   throw error;
 }
 
-function buildAuthResponse(user, sessionResult) {
+function buildAuthResponse(req, res, user, sessionResult) {
+  const { csrfToken } = issueBrowserSession(res, sessionResult, {
+    secure: env.authCookieSecure,
+    csrfSecret: env.csrfSecret,
+    accessMaxAgeSeconds: env.accessTokenTtlMinutes * 60
+  });
+  const compatibilityRequested =
+    env.authBearerCompatibilityEnabled &&
+    String(req.headers["x-auth-compatibility"] || "").toLowerCase() === "bearer-v1";
+
   return {
-    token: sessionResult.accessToken,
-    refreshToken: sessionResult.refreshToken,
-    user
+    user,
+    csrfToken,
+    sessionExpiresAt: sessionResult.session.inactivityExpiresAt || sessionResult.session.expiresAt,
+    ...(compatibilityRequested
+      ? { token: sessionResult.accessToken, refreshToken: sessionResult.refreshToken }
+      : {})
   };
 }
 
@@ -188,6 +264,11 @@ function buildExistingAccountMessage(user) {
   return "That email is already registered.";
 }
 
+function isDeveloperOnlyIdentity(user) {
+  const roles = new Set(user?.roles || []);
+  return roles.has("developer") && !["customer", "vendor", "staff", "admin", "platform_admin"].some((role) => roles.has(role));
+}
+
 function buildFallbackName(provider, email) {
   if (email) {
     return email.split("@")[0] || `${getProviderLabel(provider)} User`;
@@ -207,39 +288,15 @@ function buildOauthAccount(profile) {
 }
 
 async function buildUserPayload(user) {
-  const memberships = user.tenantMemberships || [];
-  const tenants = await tenantRepository.findTenantsByIds(
-    memberships.map((membership) => membership.tenantId)
-  );
-  const tenantsById = new Map(tenants.map((tenant) => [String(tenant._id), tenant]));
-
+  const mfaMethods = user.mfaEnabled && typeof mfaFlowService.getLoginMethods === "function"
+    ? await mfaFlowService.getLoginMethods(user)
+    : null;
   return {
-    id: String(user._id),
-    name: user.name,
-    username: user.username,
-    email: user.email,
-    phone: user.phone,
-    roles: user.roles,
-    emailVerified: Boolean(user.emailVerified),
-    hasPassword: Boolean(user.passwordHash),
-    oauthProviders: [...new Set((user.oauthAccounts || []).map((account) => account.provider))],
-    lastLoginProvider: user.lastLoginProvider,
-    tenants: memberships
-      .map((membership) => {
-        const tenant = tenantsById.get(String(membership.tenantId));
-        if (!tenant) {
-          return null;
-        }
-
-        return {
-          id: String(tenant._id),
-          name: tenant.name,
-          slug: tenant.slug,
-          role: membership.role,
-          isActive: membership.isActive !== false
-        };
-      })
-      .filter(Boolean)
+    ...await buildBaseAuthUserPayload(user, tenantRepository),
+    totpMfaEnabled: mfaMethods ? mfaMethods.includes("totp") : Boolean(user.mfaEnabled && !user.emailMfaEnabled),
+    emailMfaEnabled: Boolean(user.emailMfaEnabled),
+    mfaRequired: Boolean(user.mfaRequired || userRequiresPrivilegedMfa(user)),
+    lastLoginProvider: user.lastLoginProvider
   };
 }
 
@@ -252,7 +309,7 @@ async function findOrCreateOauthUser(profile) {
   }
 
   if (!user) {
-    return userRepository.createUser({
+    const createdUser = await userRepository.createUser({
       name: profile.name || buildFallbackName(profile.provider, normalizedEmail),
       username: await buildAvailableUsername(profile.name || buildFallbackName(profile.provider, normalizedEmail)),
       email: normalizedEmail || undefined,
@@ -261,6 +318,7 @@ async function findOrCreateOauthUser(profile) {
       oauthAccounts: [buildOauthAccount(profile)],
       roles: ["customer"]
     });
+    return { user: createdUser, created: true };
   }
 
   const conflictingProviderAccount = (user.oauthAccounts || []).find(
@@ -295,7 +353,7 @@ async function findOrCreateOauthUser(profile) {
     roles: [...new Set([...(user.roles || []), "customer"])]
   });
 
-  return user;
+  return { user, created: false };
 }
 
 function getPostOauthPath(intent, provider, user) {
@@ -324,7 +382,7 @@ function redirectOauthError(res, message) {
 }
 
 function getAuthMethodForProvider(provider) {
-  return provider === "google" || provider === "facebook" ? provider : "password";
+  return provider === "google" || provider === "facebook" || provider === "apple" ? provider : "password";
 }
 
 router.get("/oauth/providers", (req, res) => {
@@ -335,7 +393,6 @@ router.get("/oauth/providers", (req, res) => {
 
 router.get(
   "/username-availability",
-  maybeAuthenticate,
   asyncHandler(async (req, res) => {
     const validation = validateUsername(req.query.username);
 
@@ -349,9 +406,8 @@ router.get(
       return;
     }
 
-    const existingUser = await userRepository.findUserByUsername(validation.username, {
-      excludeId: req.user?._id
-    });
+    // Registration checks are public and must not depend on an existing browser session.
+    const existingUser = await userRepository.findUserByUsername(validation.username);
 
     res.json({
       username: validation.username,
@@ -388,6 +444,81 @@ router.get(
   })
 );
 
+router.post(
+  "/register/customer/otp",
+  customerRegistrationOtpLimiter,
+  asyncHandler(async (req, res) => {
+    const { name, username, email, password } = req.body || {};
+    if (!name || !username || !email || !password) {
+      const error = new Error("name, username, email, and password are required.");
+      error.statusCode = 400;
+      throw error;
+    }
+
+    const normalizedName = String(name).trim();
+    if (normalizedName.length < 2) {
+      const error = new Error("Enter your full name.");
+      error.statusCode = 400;
+      throw error;
+    }
+    const normalizedEmail = validateCustomerEmail(email);
+    const normalizedUsername = await assertUsernameAvailable(username);
+    assertPublicTextFieldsAllowed({ "Account name": name, Username: normalizedUsername });
+    customerRegistrationOtpService.assertValidPassword(password);
+    const existingUser = await userRepository.findUserByEmail(normalizedEmail);
+    if (existingUser) {
+      const error = new Error(buildExistingAccountMessage(existingUser));
+      error.statusCode = 409;
+      throw error;
+    }
+
+    const challenge = await customerRegistrationOtpService.start({
+      name: normalizedName,
+      username: normalizedUsername,
+      email: normalizedEmail,
+      passwordHash: await bcrypt.hash(password, 10)
+    });
+    res.status(201).json(challenge);
+  })
+);
+
+router.post(
+  "/register/customer/otp/verify",
+  customerRegistrationOtpLimiter,
+  asyncHandler(async (req, res) => {
+    const result = await customerRegistrationOtpService.verify({
+      challengeId: req.body?.challengeId,
+      code: req.body?.code,
+      ipAddress: authService.getRequestIp(req),
+      userAgent: authService.getUserAgent(req)
+    });
+    await authService.recordLoginAttempt({
+      email: result.user.email,
+      success: true,
+      user: result.user,
+      sessionId: result.sessionResult.session._id,
+      req
+    });
+    res.json(buildAuthResponse(
+      req,
+      res,
+      await buildUserPayload(result.user),
+      result.sessionResult
+    ));
+    await welcomeEmailService.sendWelcomeEmail({ user: result.user });
+  })
+);
+
+router.post(
+  "/register/customer/otp/resend",
+  customerRegistrationOtpLimiter,
+  asyncHandler(async (req, res) => {
+    res.json(await customerRegistrationOtpService.resend({
+      challengeId: req.body?.challengeId
+    }));
+  })
+);
+
 router.get("/oauth/:provider/start", (req, res) => {
   const provider = String(req.params.provider || "").toLowerCase();
   const intent = String(req.query.intent || "login");
@@ -396,7 +527,7 @@ router.get("/oauth/:provider/start", (req, res) => {
     ensureSupportedProvider(provider);
     ensureValidIntent(intent);
 
-    const state = createOAuthState({ provider, intent });
+    const state = createOAuthState({ provider, intent, next: intent === "login" ? queueBoardReturnPath(req.query.next) : null });
     res.redirect(buildAuthorizationUrl(provider, state));
   } catch (error) {
     redirectOauthError(res, error.message || "Unable to start social sign-in.");
@@ -430,8 +561,8 @@ router.all("/oauth/:provider/callback", async (req, res) => {
       requestBody: req.body
     });
 
-    const user = await findOrCreateOauthUser(profile);
-    const next = getPostOauthPath(oauthState.intent, provider, user);
+    const { user, created } = await findOrCreateOauthUser(profile);
+    const next = (oauthState.intent === "login" && queueBoardReturnPath(oauthState.next)) || getPostOauthPath(oauthState.intent, provider, user);
     const sessionResult = await sessionService.createAuthSession({
       user,
       authMethod: getAuthMethodForProvider(provider),
@@ -447,13 +578,20 @@ router.all("/oauth/:provider/callback", async (req, res) => {
       req
     });
 
+    issueBrowserSession(res, sessionResult, {
+      secure: env.authCookieSecure,
+      csrfSecret: env.csrfSecret,
+      accessMaxAgeSeconds: env.accessTokenTtlMinutes * 60
+    });
+
     res.redirect(
       buildClientCallbackUrl({
-        token: sessionResult.accessToken,
-        refreshToken: sessionResult.refreshToken,
         next
       })
     );
+    if (created && oauthState.intent !== "register_vendor") {
+      await welcomeEmailService.sendWelcomeEmail({ user });
+    }
   } catch (error) {
     redirectOauthError(res, error.message || "Social sign-in failed.");
   }
@@ -462,10 +600,12 @@ router.all("/oauth/:provider/callback", async (req, res) => {
 router.post(
   "/register/vendor",
   asyncHandler(async (req, res) => {
-    const { tenantName, tenantSlug, name, username, email, phone, password } = req.body;
+    const { tenantName, tenantSlug, category, name, username, email, phone, password } = req.body;
+    const normalizedPhone = normalizePhilippineMobileNumber(phone);
+    const normalizedCategory = String(category || "").trim();
 
-    if (!tenantName || !tenantSlug || !name || !username || !email || !password) {
-      const error = new Error("tenantName, tenantSlug, name, username, email, and password are required.");
+    if (!tenantName || !tenantSlug || (!normalizedCategory && !req.body.categoryId) || !name || !username || !email || !password) {
+      const error = new Error("tenantName, tenantSlug, category, name, username, email, and password are required.");
       error.statusCode = 400;
       throw error;
     }
@@ -486,6 +626,13 @@ router.post(
       error.statusCode = 400;
       throw error;
     }
+    assertPublicTextFieldsAllowed({
+      "Business name": tenantName,
+      "Business slug": normalizedSlug,
+      "Business category": normalizedCategory,
+      "Account name": name,
+      Username: normalizedUsername.username
+    });
 
     const result = await db.withTransaction(async (client) => {
       const [existingTenant, existingUser, existingUsername] = await Promise.all([
@@ -512,13 +659,22 @@ router.post(
         throw error;
       }
 
+      const selectedCategory = await businessCategories.resolve({ id: req.body.categoryId, label: normalizedCategory }, client);
+      if (!selectedCategory) { const error = new Error("Choose an active business category."); error.statusCode = 400; throw error; }
       const tenant = await tenantRepository.createTenant(
         {
           name: tenantName,
           slug: normalizedSlug,
           contactEmail: normalizedEmail,
-          contactPhone: phone
+          contactPhone: normalizedPhone,
+          publicProfileCategory: selectedCategory.name,
+          businessCategoryId: selectedCategory.id
         },
+        { client }
+      );
+      await subscriptionLifecycleService.assignFreeToApprovedTenant(
+        tenant._id,
+        { reason: "Automatic Free assignment after vendor registration" },
         { client }
       );
 
@@ -527,7 +683,7 @@ router.post(
           name,
           username: normalizedUsername.username,
           email: normalizedEmail,
-          phone,
+          phone: normalizedPhone,
           passwordHash: await bcrypt.hash(password, 10),
           passwordHashAlgorithm: "bcrypt",
           emailVerified: false,
@@ -538,7 +694,7 @@ router.post(
         { client }
       );
 
-      return { user };
+      return { user, tenant };
     });
 
     const sessionResult = await sessionService.createAuthSession({
@@ -557,8 +713,9 @@ router.post(
     });
 
     res.status(201).json({
-      ...buildAuthResponse(await buildUserPayload(result.user), sessionResult)
+      ...buildAuthResponse(req, res, await buildUserPayload(result.user), sessionResult)
     });
+    await welcomeEmailService.sendWelcomeEmail({ user: result.user, tenant: result.tenant });
   })
 );
 
@@ -566,10 +723,12 @@ router.post(
   "/register/vendor/complete",
   authenticate,
   asyncHandler(async (req, res) => {
-    const { tenantName, tenantSlug, name, username, email, phone } = req.body;
+    const { tenantName, tenantSlug, category, name, username, email, phone } = req.body;
+    const normalizedPhone = normalizePhilippineMobileNumber(phone);
+    const normalizedCategory = String(category || "").trim();
 
-    if (!tenantName || !tenantSlug) {
-      const error = new Error("tenantName and tenantSlug are required.");
+    if (!tenantName || !tenantSlug || (!normalizedCategory && !req.body.categoryId)) {
+      const error = new Error("tenantName, tenantSlug, and category are required.");
       error.statusCode = 400;
       throw error;
     }
@@ -604,8 +763,24 @@ router.post(
       error.statusCode = 400;
       throw error;
     }
+    assertPublicTextFieldsAllowed({
+      "Business name": tenantName,
+      "Business slug": normalizedSlug,
+      "Business category": normalizedCategory,
+      "Account name": resolvedName,
+      Username: resolvedUsername.username
+    });
 
-    const user = await db.withTransaction(async (client) => {
+    const { user, tenant } = await db.withTransaction(async (client) => {
+      await subscriptionLifecycleService.prepareFreeAssignmentActor(req.user._id, { client });
+      const currentUser = await userRepository.findUserById(req.user._id, { client });
+      if (!currentUser) throw Object.assign(new Error("User session is no longer valid."), { statusCode: 401 });
+      assertSandboxTestAccountRequest(currentUser, req);
+      if (isDeveloperOnlyIdentity(currentUser)) throw Object.assign(new Error("This account is only available in the Developer Portal."), { statusCode: 403, code: "DEVELOPER_PORTAL_ONLY" });
+      if (userRequiresPrivilegedMfa(currentUser)) {
+        if (!currentUser.mfaEnabled) throw Object.assign(new Error("Set up multi-factor authentication before accessing this account."), { statusCode: 403, code: "MFA_ENROLLMENT_REQUIRED" });
+        if (!req.auth?.session?.mfaVerifiedAt) throw Object.assign(new Error("Confirm your multi-factor authentication before accessing this account."), { statusCode: 403, code: "MFA_VERIFICATION_REQUIRED" });
+      }
       const [existingTenant, conflictingUser, conflictingUsername] = await Promise.all([
         tenantRepository.findTenantBySlug(normalizedSlug, { client }),
         userRepository.findUserByEmail(normalizedEmail, {
@@ -636,29 +811,39 @@ router.post(
         throw error;
       }
 
+      const selectedCategory = await businessCategories.resolve({ id: req.body.categoryId, label: normalizedCategory }, client);
+      if (!selectedCategory) { const error = new Error("Choose an active business category."); error.statusCode = 400; throw error; }
       const tenant = await tenantRepository.createTenant(
         {
           name: tenantName,
           slug: normalizedSlug,
           contactEmail: normalizedEmail,
-          contactPhone: phone || req.user.phone
+          contactPhone: normalizedPhone || currentUser.phone,
+          publicProfileCategory: selectedCategory.name,
+          businessCategoryId: selectedCategory.id
         },
+        { client }
+      );
+      await subscriptionLifecycleService.assignFreeToApprovedTenant(
+        tenant._id,
+        { actorId: req.user._id, reason: "Automatic Free assignment after vendor registration" },
         { client }
       );
 
       await userRepository.addTenantMembership(req.user._id, tenant._id, "owner", { client });
 
-      return userRepository.updateUser(
+      const updatedUser = await userRepository.updateUser(
         req.user._id,
         {
           name: resolvedName,
           username: resolvedUsername.username,
           email: normalizedEmail,
-          phone: phone || req.user.phone,
-          roles: [...new Set([...(req.user.roles || []), "customer", "vendor"])]
+          phone: normalizedPhone || currentUser.phone,
+          roles: [...new Set([...(currentUser.roles || []), "customer", "vendor"])]
         },
         { client }
       );
+      return { user: updatedUser, tenant };
     });
 
     const sessionResult = await sessionService.createAuthSession({
@@ -669,8 +854,9 @@ router.post(
     });
 
     res.status(201).json({
-      ...buildAuthResponse(await buildUserPayload(user), sessionResult)
+      ...buildAuthResponse(req, res, await buildUserPayload(user), sessionResult)
     });
+    await welcomeEmailService.sendWelcomeEmail({ user, tenant });
   })
 );
 
@@ -678,6 +864,7 @@ router.post(
   "/register/customer",
   asyncHandler(async (req, res) => {
     const { name, username, email, phone, password } = req.body;
+    const normalizedPhone = normalizePhilippineMobileNumber(phone);
 
     if (!name || !username || !email || !password) {
       const error = new Error("name, username, email, and password are required.");
@@ -687,6 +874,7 @@ router.post(
 
     const normalizedEmail = normalizeEmail(email);
     const normalizedUsername = await assertUsernameAvailable(username);
+    assertPublicTextFieldsAllowed({ "Account name": name, Username: normalizedUsername });
     const existingUser = await userRepository.findUserByEmail(normalizedEmail);
     if (existingUser) {
       const error = new Error(buildExistingAccountMessage(existingUser));
@@ -698,7 +886,7 @@ router.post(
       name,
       username: normalizedUsername,
       email: normalizedEmail,
-      phone,
+      phone: normalizedPhone,
       passwordHash: await bcrypt.hash(password, 10),
       passwordHashAlgorithm: "bcrypt",
       emailVerified: false,
@@ -722,36 +910,42 @@ router.post(
     });
 
     res.status(201).json({
-      ...buildAuthResponse(await buildUserPayload(user), sessionResult)
+      ...buildAuthResponse(req, res, await buildUserPayload(user), sessionResult)
     });
+    await welcomeEmailService.sendWelcomeEmail({ user });
   })
 );
 
 router.post(
   "/login",
+  authAttemptLimiter,
   asyncHandler(async (req, res) => {
-    const { email, password } = req.body;
+    const { password } = req.body;
+    const loginIdentifier = authService.normalizeLoginIdentifier(req.body.identifier || req.body.email);
 
-    if (!email || !password) {
-      const error = new Error("email and password are required.");
+    if (!loginIdentifier.identifierValue || !password) {
+      const error = new Error("email or username and password are required.");
       error.statusCode = 400;
       throw error;
     }
 
-    const normalizedEmail = normalizeEmail(email);
-    const user = await userRepository.findUserByEmail(normalizedEmail);
-    if (!user) {
+    const user = loginIdentifier.identifierType === "email"
+      ? await userRepository.findUserByEmail(loginIdentifier.identifierValue)
+      : await userRepository.findUserByUsername(loginIdentifier.identifierValue);
+    if (!user || isDeveloperOnlyIdentity(user)) {
       await authService.recordLoginAttempt({
-        email: normalizedEmail,
+        identifierType: loginIdentifier.identifierType,
+        identifierValue: loginIdentifier.identifierValue,
         success: false,
-        failureReason: "invalid_credentials",
+        failureReason: user ? "invalid_surface" : "invalid_credentials",
         req
       });
-      const error = new Error("Invalid email or password.");
+      const error = new Error("Invalid email/username or password.");
       error.statusCode = 401;
       throw error;
     }
 
+    const normalizedEmail = normalizeEmail(user.email);
     if (authService.isUserLocked(user)) {
       await authService.recordLockedLoginAttempt({
         email: normalizedEmail,
@@ -778,11 +972,22 @@ router.post(
       const error = new Error(
         failureResult.updatedUser?.accountLockedUntil
           ? "Your account is temporarily locked. Please try again later."
-          : "Invalid email or password."
+          : "Invalid email/username or password."
       );
       error.statusCode = failureResult.updatedUser?.accountLockedUntil ? 423 : 401;
       throw error;
     }
+
+    if (user.platformAccessSuspendedAt) {
+      const error = new Error("This account's access is suspended. Contact GetPrio support.");
+      error.statusCode = 403;
+      error.code = "ACCOUNT_ACCESS_SUSPENDED";
+      throw error;
+    }
+
+    // Keep sandbox-only and expiry details behind successful credential
+    // verification so they cannot be used to enumerate test accounts.
+    assertSandboxTestAccountRequest(user, req);
 
     const updatedUser = await db.withTransaction(async (client) => {
       return authService.handleSuccessfulPasswordLogin({
@@ -791,6 +996,29 @@ router.post(
         client
       });
     });
+    const methods = updatedUser.mfaEnabled
+      ? await mfaFlowService.getLoginMethods(updatedUser)
+      : [];
+    if (updatedUser.mfaEnabled && !methods.length) {
+      const error = new Error("Multi-factor authentication is enabled but no usable method is configured.");
+      error.statusCode = 409;
+      error.code = "MFA_CONFIGURATION_INVALID";
+      throw error;
+    }
+    if (updatedUser.mfaEnabled) {
+      const challenge = await mfaFlowService.issueLoginChallenge({
+        user: updatedUser,
+        ipAddress: authService.getRequestIp(req),
+        userAgent: authService.getUserAgent(req)
+      });
+      res.json({
+        mfaRequired: true,
+        challengeToken: challenge.token,
+        expiresAt: challenge.expiresAt,
+        methods
+      });
+      return;
+    }
     const sessionResult = await sessionService.createAuthSession({
       user: updatedUser,
       authMethod: "password",
@@ -807,7 +1035,7 @@ router.post(
     });
 
     res.json({
-      ...buildAuthResponse(await buildUserPayload(updatedUser), sessionResult)
+      ...buildAuthResponse(req, res, await buildUserPayload(updatedUser), sessionResult)
     });
   })
 );
@@ -815,7 +1043,9 @@ router.post(
 router.post(
   "/refresh",
   asyncHandler(async (req, res) => {
-    const refreshToken = String(req.body.refreshToken || "");
+    const refreshToken = String(
+      getRefreshCookie(parseCookies(req.headers.cookie), env.authCookieSecure) || req.body?.refreshToken || ""
+    );
     if (!refreshToken) {
       const error = new Error("refreshToken is required.");
       error.statusCode = 400;
@@ -823,7 +1053,7 @@ router.post(
     }
 
     const session = await sessionService.resolveSessionByRefreshToken(refreshToken);
-    if (!session || session.status !== "active" || new Date(session.expiresAt).getTime() <= Date.now()) {
+    if (!session || (session.surface && session.surface !== "app") || session.status !== "active" || new Date(session.expiresAt).getTime() <= Date.now()) {
       const error = new Error("Refresh session is no longer valid.");
       error.statusCode = 401;
       throw error;
@@ -835,6 +1065,7 @@ router.post(
       error.statusCode = 401;
       throw error;
     }
+    assertSandboxTestAccountRequest(user, req);
 
     const sessionResult = await sessionService.rotateRefreshSession({ session, user });
 
@@ -848,12 +1079,203 @@ router.post(
       metadata: {}
     });
 
-    res.json(buildAuthResponse(await buildUserPayload(user), sessionResult));
+    res.json(buildAuthResponse(req, res, await buildUserPayload(user), sessionResult));
+  })
+);
+
+router.get(
+  "/csrf",
+  asyncHandler(async (req, res) => {
+    const refreshToken = String(getRefreshCookie(parseCookies(req.headers.cookie), env.authCookieSecure) || "");
+    if (!refreshToken) return res.status(401).json({ message: "Please sign in again." });
+    const session = await sessionService.resolveSessionByRefreshToken(refreshToken);
+    if (!session || (session.surface && session.surface !== "app") || session.status !== "active" || new Date(session.expiresAt).getTime() <= Date.now()) {
+      return res.status(401).json({ message: "Please sign in again." });
+    }
+    const csrfToken = restoreBrowserCsrf({
+      headers: req.headers,
+      auth: { transport: "cookie", session }
+    }, res, { secure: env.authCookieSecure, csrfSecret: env.csrfSecret });
+    res.set("Cache-Control", "no-store");
+    return res.json({ csrfToken });
+  })
+);
+
+router.post(
+  "/mfa/verify",
+  authAttemptLimiter,
+  asyncHandler(async (req, res) => {
+    const result = await mfaFlowService.verifyLoginChallenge({
+      challengeToken: req.body?.challengeToken,
+      code: req.body?.code,
+      recoveryCode: req.body?.recoveryCode,
+      method: String(req.body?.method || "totp")
+    });
+    res.json(buildAuthResponse(req, res, await buildUserPayload(result.user), result.sessionResult));
+  })
+);
+
+router.post(
+  "/mfa/email/send",
+  authAttemptLimiter,
+  asyncHandler(async (req, res) => {
+    res.json(await mfaFlowService.issueEmailLoginChallenge({
+      challengeToken: String(req.body?.challengeToken || ""),
+      ipAddress: authService.getRequestIp(req),
+      userAgent: authService.getUserAgent(req),
+      surface: "app"
+    }));
+  })
+);
+
+router.post(
+  "/mfa/enrollment/start",
+  authenticate,
+  asyncHandler(async (req, res) => {
+    res.json(await mfaFlowService.startTotpEnrollment({
+      user: req.user,
+      session: req.auth.session,
+      currentCode: req.body?.currentCode
+    }));
+  })
+);
+
+router.post(
+  "/mfa/enrollment/confirm",
+  authenticate,
+  asyncHandler(async (req, res) => {
+    const result = await mfaFlowService.confirmTotpEnrollment({
+      user: req.user,
+      sessionId: req.auth.sessionId,
+      code: req.body?.code
+    });
+    res.json({
+      success: true,
+      recoveryCodes: result.recoveryCodes,
+      message: "Authenticator verification is now enabled. Save your recovery codes somewhere secure."
+    });
+  })
+);
+
+router.post(
+  "/mfa/enrollment/cancel",
+  authenticate,
+  asyncHandler(async (req, res) => {
+    const result = await mfaFlowService.cancelTotpEnrollment({ user: req.user });
+    res.json({
+      ...result,
+      message: "Pending authenticator setup canceled. Your active sign-in methods were not changed."
+    });
+  })
+);
+
+router.post(
+  "/mfa/email/enable",
+  authenticate,
+  asyncHandler(async (req, res) => {
+    const user = await mfaFlowService.enableEmailMfa({ user: req.user });
+    res.json({
+      success: true,
+      user: await buildUserPayload(user),
+      message: "Email OTP is now enabled for sign-in."
+    });
+  })
+);
+
+router.post(
+  "/mfa/email/disable",
+  authenticate,
+  authAttemptLimiter,
+  asyncHandler(async (req, res) => {
+    let primaryAuthenticationValid = false;
+    if (req.user.passwordHash) {
+      primaryAuthenticationValid = await authService.verifyPasswordLogin(req.user, String(req.body?.password || ""));
+    } else {
+      const session = req.auth?.session;
+      const primaryAge = Date.now() - new Date(session?.primaryAuthenticatedAt || 0).getTime();
+      primaryAuthenticationValid = ["google", "facebook", "apple"].includes(session?.authMethod)
+        && Number.isFinite(primaryAge)
+        && primaryAge >= 0
+        && primaryAge <= 5 * 60_000;
+    }
+    if (!primaryAuthenticationValid) {
+      const providerOnly = !req.user.passwordHash;
+      const error = new Error(providerOnly
+        ? "Sign out and sign in again with your original provider before disabling Email OTP."
+        : "We could not verify your sign-in details.");
+      error.statusCode = providerOnly ? 403 : 401;
+      error.code = providerOnly ? "RECENT_AUTHENTICATION_REQUIRED" : "PRIMARY_AUTHENTICATION_INVALID";
+      throw error;
+    }
+
+    const user = await mfaFlowService.disableEmailMfa({ user: req.user });
+    res.json({
+      success: true,
+      user: await buildUserPayload(user),
+      message: "Email OTP has been disabled for sign-in."
+    });
+  })
+);
+
+router.post(
+  "/mfa/disable",
+  authenticate,
+  authAttemptLimiter,
+  asyncHandler(async (req, res) => {
+    const passwordMatches = req.user.passwordHash &&
+      await authService.verifyPasswordLogin(req.user, String(req.body?.password || ""));
+    if (!passwordMatches) {
+      const error = new Error("We could not verify your sign-in details.");
+      error.statusCode = 401;
+      error.code = "PRIMARY_AUTHENTICATION_INVALID";
+      throw error;
+    }
+
+    await mfaFlowService.disableMfa({
+      user: req.user,
+      sessionId: req.auth.sessionId,
+      code: req.body?.code,
+      recoveryCode: req.body?.recoveryCode,
+      ipAddress: authService.getRequestIp(req),
+      userAgent: authService.getUserAgent(req)
+    });
+    res.json({
+      success: true,
+      message: "Multi-factor authentication has been removed from your account."
+    });
+  })
+);
+
+router.post(
+  "/mfa/step-up",
+  authenticate,
+  authAttemptLimiter,
+  asyncHandler(async (req, res) => {
+    const passwordMatches = req.user.passwordHash &&
+      await authService.verifyPasswordLogin(req.user, String(req.body?.password || ""));
+    if (!passwordMatches) {
+      const error = new Error("We could not verify your sign-in details.");
+      error.statusCode = 401;
+      throw error;
+    }
+    const mfaRepository = require("../repositories/mfa");
+    const { decryptSecret, verifyTotp } = require("../services/mfaService");
+    const factor = await mfaRepository.findTotpFactor(req.user._id, "active");
+    const secret = factor && decryptSecret(factor, env.mfaEncryptionSecret);
+    if (!secret || !verifyTotp(secret, req.body?.code)) {
+      const error = new Error("That security code could not be verified. Check the code and try again.");
+      error.statusCode = 400;
+      error.code = "MFA_CODE_INVALID";
+      throw error;
+    }
+    const session = await authSessionRepository.markRecentAuthentication(req.auth.sessionId);
+    res.json({ success: true, verifiedAt: session.mfaVerifiedAt });
   })
 );
 
 router.post(
   "/password-reset/request",
+  authAttemptLimiter,
   asyncHandler(async (req, res) => {
     const email = normalizeEmail(req.body.email);
     if (!email) {
@@ -868,7 +1290,8 @@ router.post(
         return passwordResetService.issuePasswordResetToken({
           user,
           req,
-          client
+          client,
+          next: req.body.next
         });
       });
 
@@ -882,6 +1305,7 @@ router.post(
           `This reset token expires at ${new Date(reset.expiresAt).toISOString()}.`,
           `If you did not request this, you can ignore this email.`
         ].join("\n\n"),
+        emailTemplate: { illustration: "account-verification", actionLabel: "Reset password", actionUrl: reset.resetUrl },
         purpose: "general",
         metadata: {
           category: "password_reset"
@@ -898,6 +1322,7 @@ router.post(
 
 router.post(
   "/password-reset/confirm",
+  authAttemptLimiter,
   asyncHandler(async (req, res) => {
     const token = String(req.body.token || "").trim();
     const newPassword = String(req.body.newPassword || "");
@@ -925,7 +1350,9 @@ router.post(
   "/logout",
   maybeAuthenticate,
   asyncHandler(async (req, res) => {
-    const refreshToken = String(req.body.refreshToken || "");
+    const refreshToken = String(
+      getRefreshCookie(parseCookies(req.headers.cookie), env.authCookieSecure) || req.body?.refreshToken || ""
+    );
     let session = null;
 
     if (refreshToken) {
@@ -947,6 +1374,7 @@ router.post(
       });
     }
 
+    clearBrowserSession(res, { secure: env.authCookieSecure });
     res.json({ success: true });
   })
 );
@@ -955,8 +1383,13 @@ router.get(
   "/me",
   authenticate,
   asyncHandler(async (req, res) => {
+    const user = await buildUserPayload(req.user);
+    const csrfToken = restoreBrowserCsrf(req, res, { secure: env.authCookieSecure, csrfSecret: env.csrfSecret });
+    res.set("Cache-Control", "no-store");
     res.json({
-      user: await buildUserPayload(req.user)
+      user,
+      csrfToken,
+      sessionExpiresAt: req.auth.session?.inactivityExpiresAt || req.auth.session?.expiresAt || null
     });
   })
 );

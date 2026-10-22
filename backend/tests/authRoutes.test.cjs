@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const path = require("node:path");
+const { requireWithMocks: loadWithMocks } = require("./testSupport.cjs");
 const express = require("express");
 
 function buildAsyncHandlerMock() {
@@ -41,59 +41,12 @@ function buildErrorHandlerMock() {
   };
 }
 
-function resolveMockPath(requestPath, baseDir) {
-  if (!requestPath.startsWith(".")) {
-    return require.resolve(requestPath, { paths: [baseDir] });
-  }
-
-  const absoluteBase = path.resolve(baseDir, requestPath);
-  const candidates = [
-    absoluteBase,
-    `${absoluteBase}.js`,
-    `${absoluteBase}.ts`,
-    path.join(absoluteBase, "index.js"),
-    path.join(absoluteBase, "index.ts")
-  ];
-
-  for (const candidate of candidates) {
-    try {
-      return require.resolve(candidate);
-    } catch {
-      // Try the next candidate.
-    }
-  }
-
-  throw new Error(`Unable to resolve mock path: ${requestPath}`);
-}
-
 function requireWithMocks(targetPath, mocks) {
-  const resolvedTarget = require.resolve(targetPath);
-  const originals = new Map();
-
-  try {
-    for (const [requestPath, mockExports] of Object.entries(mocks)) {
-      const resolvedDependency = resolveMockPath(requestPath, path.dirname(resolvedTarget));
-      originals.set(resolvedDependency, require.cache[resolvedDependency]);
-      require.cache[resolvedDependency] = {
-        id: resolvedDependency,
-        filename: resolvedDependency,
-        loaded: true,
-        exports: mockExports
-      };
-    }
-
-    delete require.cache[resolvedTarget];
-    return require(resolvedTarget);
-  } finally {
-    delete require.cache[resolvedTarget];
-    for (const [resolvedDependency, originalEntry] of originals.entries()) {
-      if (originalEntry) {
-        require.cache[resolvedDependency] = originalEntry;
-      } else {
-        delete require.cache[resolvedDependency];
-      }
-    }
+  const effectiveMocks = { "../services/welcomeEmailService": { sendWelcomeEmail: async () => true }, ...mocks };
+  if (targetPath.endsWith("/authRoutes.js") && !effectiveMocks["../services/securityRateLimitService"]) {
+    effectiveMocks["../services/securityRateLimitService"] = { consume: async () => ({ allowed: true }) };
   }
+  return loadWithMocks(targetPath, effectiveMocks);
 }
 
 async function startServer(router, basePath) {
@@ -180,6 +133,119 @@ test("oauth providers endpoint exposes configured availability", async () => {
   }
 });
 
+for (const roles of [["customer"], ["platform_admin"]]) {
+  for (const bearer of [false, true]) {
+    test(`MFA-enabled ${roles[0]} password login challenges before issuing a session (${bearer ? "bearer" : "cookie"})`, async () => {
+      const user = {
+        _id: "user-mfa", username: "qqq3", email: "mfa@example.com",
+        passwordHash: "hash", roles, tenantMemberships: [], mfaEnabled: true
+      };
+      let sessionCalls = 0;
+      let challengedUser;
+      const router = requireWithMocks("../src/routes/authRoutes.js", {
+        "../config/db": { withTransaction: async (callback) => callback({}) },
+        "../repositories/users": { findUserByUsername: async (username) => {
+          assert.equal(username, "qqq3");
+          return user;
+        } },
+        "../middleware/asyncHandler": buildAsyncHandlerMock(),
+        "../middleware/auth": buildAuthMock(),
+        "../services/authService": {
+          normalizeEmail: (value) => value,
+          normalizeLoginIdentifier: (value) => ({ identifierType: "username", identifierValue: value }),
+          isUserLocked: () => false,
+          verifyPasswordLogin: async () => true,
+          handleSuccessfulPasswordLogin: async ({ user }) => user,
+          getRequestIp: () => "127.0.0.1",
+          getUserAgent: () => "test-agent",
+          recordLoginAttempt: async () => {}
+        },
+        "../services/mfaFlowService": {
+          getLoginMethods: async () => ["totp", "recovery", "email"],
+          issueLoginChallenge: async ({ user }) => {
+            challengedUser = user;
+            return { token: "challenge-only", expiresAt: "2026-09-07T12:00:00Z" };
+          }
+        },
+        "../services/sessionService": { createAuthSession: async () => {
+          sessionCalls++;
+          throw new Error("A session must not be issued before MFA verification");
+        } }
+      });
+      const { server, baseUrl } = await startServer(router, "/api/auth");
+      try {
+        const response = await fetch(`${baseUrl}/login`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...(bearer ? { "X-Auth-Compatibility": "bearer-v1" } : {}) },
+          body: JSON.stringify({ identifier: "qqq3", password: "test-password" })
+        });
+        assert.equal(response.status, 200);
+        assert.deepEqual(await response.json(), {
+          mfaRequired: true, challengeToken: "challenge-only",
+          expiresAt: "2026-09-07T12:00:00Z", methods: ["totp", "recovery", "email"]
+        });
+        assert.equal(response.headers.get("set-cookie"), null);
+        assert.equal(challengedUser, user);
+        assert.equal(sessionCalls, 0);
+      } finally {
+        await stopServer(server);
+      }
+    });
+  }
+}
+
+test("email MFA login action sends a code for the existing password challenge", async () => {
+  let issuedInput;
+  const router = requireWithMocks("../src/routes/authRoutes.js", {
+    "../config/db": {},
+    "../repositories/tenants": {},
+    "../repositories/authSessions": {},
+    "../repositories/users": {},
+    "../middleware/asyncHandler": buildAsyncHandlerMock(),
+    "../middleware/auth": buildAuthMock(),
+    "../services/authService": {
+      normalizeEmail: (value) => String(value || "").trim().toLowerCase(),
+      getRequestIp: () => "127.0.0.1",
+      getUserAgent: () => "test-agent"
+    },
+    "../services/mfaFlowService": {
+      issueEmailLoginChallenge: async (input) => {
+        issuedInput = input;
+        return { token: "email-challenge", expiresAt: "2026-09-07T12:10:00Z", deliveryTarget: "c***@example.com" };
+      }
+    },
+    "../services/securityRateLimitService": { consume: async () => ({ allowed: true }) },
+    "../services/oauthService": {},
+    "../services/notificationService": {},
+    "../services/passwordResetService": {},
+    "../services/securityEventService": {},
+    "../services/sessionService": {}
+  });
+
+  const { server, baseUrl } = await startServer(router, "/api/auth");
+  try {
+    const response = await fetch(`${baseUrl}/mfa/email/send`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ challengeToken: "password-challenge" })
+    });
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), {
+      token: "email-challenge",
+      expiresAt: "2026-09-07T12:10:00Z",
+      deliveryTarget: "c***@example.com"
+    });
+    assert.deepEqual(issuedInput, {
+      challengeToken: "password-challenge",
+      ipAddress: "127.0.0.1",
+      userAgent: "test-agent",
+      surface: "app"
+    });
+  } finally {
+    await stopServer(server);
+  }
+});
+
 test("login route returns tracked session tokens", async () => {
   const sessionResult = {
     accessToken: "access-token",
@@ -199,6 +265,7 @@ test("login route returns tracked session tokens", async () => {
       findUserByEmail: async () => ({
         _id: "user-1",
         email: "customer@example.com",
+        username: "customer_one",
         passwordHash: "hash",
         failedLoginCount: 0,
         lastFailedLoginAt: null,
@@ -207,12 +274,20 @@ test("login route returns tracked session tokens", async () => {
         roles: ["customer"],
         oauthAccounts: [],
         tenantMemberships: []
-      })
+      }),
+      findUserByUsername: async () => null
     },
     "../middleware/asyncHandler": buildAsyncHandlerMock(),
     "../middleware/auth": buildAuthMock(),
     "../services/authService": {
       normalizeEmail: (value) => String(value || "").trim().toLowerCase(),
+      normalizeLoginIdentifier: (value) => {
+        const identifierValue = String(value || "").trim().toLowerCase();
+        return {
+          identifierType: identifierValue.includes("@") ? "email" : "username",
+          identifierValue
+        };
+      },
       getRequestIp: () => "127.0.0.1",
       getUserAgent: () => "test-agent",
       recordLoginAttempt: async () => {},
@@ -247,7 +322,7 @@ test("login route returns tracked session tokens", async () => {
   try {
     const response = await fetch(`${baseUrl}/login`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "X-Auth-Compatibility": "bearer-v1" },
       body: JSON.stringify({
         email: "customer@example.com",
         password: "secret"
@@ -262,6 +337,107 @@ test("login route returns tracked session tokens", async () => {
     assert.deepEqual(authSessionPayload.authMethod, "password");
     assert.deepEqual(authSessionPayload.ipAddress, "127.0.0.1");
     assert.deepEqual(authSessionPayload.userAgent, "test-agent");
+  } finally {
+    await stopServer(server);
+  }
+});
+
+test("login route accepts a unique username as the sign-in identifier", async () => {
+  const sessionResult = {
+    accessToken: "access-token",
+    refreshToken: "refresh-token",
+    session: { _id: "session-username" }
+  };
+  const lookups = [];
+  let authSessionPayload = null;
+  const router = requireWithMocks("../src/routes/authRoutes.js", {
+    "../config/db": {
+      withTransaction: async (callback) => callback({})
+    },
+    "../repositories/tenants": {
+      findTenantsByIds: async () => []
+    },
+    "../repositories/authSessions": {},
+    "../repositories/users": {
+      findUserByEmail: async (email) => {
+        lookups.push(["email", email]);
+        return null;
+      },
+      findUserByUsername: async (username) => {
+        lookups.push(["username", username]);
+        return {
+          _id: "user-1",
+          email: "customer@example.com",
+          username: "customer_one",
+          passwordHash: "hash",
+          failedLoginCount: 0,
+          lastFailedLoginAt: null,
+          accountLockedUntil: null,
+          lastLoginProvider: "password",
+          roles: ["customer"],
+          oauthAccounts: [],
+          tenantMemberships: []
+        };
+      }
+    },
+    "../middleware/asyncHandler": buildAsyncHandlerMock(),
+    "../middleware/auth": buildAuthMock(),
+    "../services/authService": {
+      normalizeEmail: (value) => String(value || "").trim().toLowerCase(),
+      normalizeLoginIdentifier: (value) => {
+        const identifierValue = String(value || "").trim().toLowerCase();
+        return {
+          identifierType: identifierValue.includes("@") ? "email" : "username",
+          identifierValue
+        };
+      },
+      getRequestIp: () => "127.0.0.1",
+      getUserAgent: () => "test-agent",
+      recordLoginAttempt: async () => {},
+      isUserLocked: () => false,
+      verifyPasswordLogin: async () => true,
+      handleFailedPasswordLogin: async () => ({}),
+      handleSuccessfulPasswordLogin: async ({ user }) => user
+    },
+    "../services/oauthService": {
+      buildAuthorizationUrl: () => "",
+      buildClientCallbackUrl: ({ error }) =>
+        `https://app.example/oauth/callback#error=${encodeURIComponent(error)}`,
+      buildProviderAvailability: () => ({ google: false, facebook: false }),
+      createOAuthState: () => "",
+      exchangeCodeForProfile: async () => ({}),
+      ensureSupportedProvider: () => {},
+      getProviderLabel: (provider) => provider,
+      readOAuthState: () => ({ provider: "google", intent: "login" })
+    },
+    "../services/notificationService": {},
+    "../services/passwordResetService": {},
+    "../services/securityEventService": { logSecurityEvent: async () => {} },
+    "../services/sessionService": {
+      createAuthSession: async (payload) => {
+        authSessionPayload = payload;
+        return sessionResult;
+      }
+    }
+  });
+
+  const { server, baseUrl } = await startServer(router, "/api/auth");
+  try {
+    const response = await fetch(`${baseUrl}/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Auth-Compatibility": "bearer-v1" },
+      body: JSON.stringify({
+        identifier: "Customer_One",
+        password: "secret"
+      })
+    });
+
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.token, "access-token");
+    assert.equal(body.user.username, "customer_one");
+    assert.deepEqual(lookups, [["username", "customer_one"]]);
+    assert.equal(authSessionPayload.user.username, "customer_one");
   } finally {
     await stopServer(server);
   }
@@ -329,7 +505,7 @@ test("refresh route rotates refresh tokens and returns a fresh session payload",
   try {
     const response = await fetch(`${baseUrl}/refresh`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "X-Auth-Compatibility": "bearer-v1" },
       body: JSON.stringify({ refreshToken: "refresh-token" })
     });
 
@@ -341,6 +517,38 @@ test("refresh route rotates refresh tokens and returns a fresh session payload",
     assert.equal(rotatedSessionArgs.user._id, "user-1");
   } finally {
     await stopServer(server);
+  }
+});
+
+test("CSRF bootstrap returns a session-bound token to the Platform origin using the API-host refresh cookie", async () => {
+  const session = { _id: "session-csrf", userId: "user-1", status: "active", surface: "app", expiresAt: new Date(Date.now() + 60000) };
+  const router = requireWithMocks("../src/routes/authRoutes.js", {
+    "../config/db": {},
+    "../middleware/moderatePublicText": { moderatePublicText: (_req, _res, next) => next() },
+    "../services/sessionService": {
+      resolveSessionByRefreshToken: async (token) => token === "refresh-token" ? session : null
+    }
+  });
+  const app = express();
+  app.use(express.json());
+  app.use("/api/auth", router);
+  app.use(buildErrorHandlerMock());
+  const server = app.listen(0, "127.0.0.1");
+  await new Promise((resolve) => server.once("listening", resolve));
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+  const cookieName = require("../src/config/env").authCookieSecure ? "__Host-prio_refresh" : "prio_refresh";
+  try {
+    const response = await fetch(`${baseUrl}/api/auth/csrf`, { headers: { cookie: `${cookieName}=refresh-token` } });
+    const body = await response.json();
+    assert.equal(response.status, 200);
+    assert.match(body.csrfToken, /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/);
+    assert.match(response.headers.get("cache-control"), /no-store/);
+    assert.match(response.headers.get("set-cookie"), /prio_csrf=/);
+
+    const unauthenticated = await fetch(`${baseUrl}/api/auth/csrf`);
+    assert.equal(unauthenticated.status, 401);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
   }
 });
 
@@ -404,7 +612,7 @@ test("logout route revokes the current session", async () => {
   try {
     const response = await fetch(`${baseUrl}/logout`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "X-Auth-Compatibility": "bearer-v1" },
       body: JSON.stringify({})
     });
 
@@ -418,8 +626,150 @@ test("logout route revokes the current session", async () => {
   }
 });
 
+test("customer can disable optional MFA after password and authenticator verification", async () => {
+  let disablePayload = null;
+  const router = requireWithMocks("../src/routes/authRoutes.js", {
+    "../config/db": {},
+    "../repositories/tenants": { findTenantsByIds: async () => [] },
+    "../repositories/authSessions": {},
+    "../repositories/users": {},
+    "../middleware/asyncHandler": buildAsyncHandlerMock(),
+    "../middleware/auth": {
+      authenticate(req, _res, next) {
+        req.user = {
+          _id: "user-1",
+          email: "customer@example.com",
+          passwordHash: "hash",
+          mfaEnabled: true,
+          roles: ["customer"],
+          tenantMemberships: []
+        };
+        req.auth = { sessionId: "session-1", session: { _id: "session-1" } };
+        next();
+      },
+      maybeAuthenticate: buildAuthMock().maybeAuthenticate
+    },
+    "../services/authService": {
+      normalizeEmail: (value) => String(value || "").trim().toLowerCase(),
+      getRequestIp: () => "127.0.0.1",
+      getUserAgent: () => "test-agent",
+      verifyPasswordLogin: async (_user, password) => password === "correct-password"
+    },
+    "../services/mfaFlowService": {
+      disableMfa: async (payload) => {
+        disablePayload = payload;
+        return { success: true };
+      }
+    },
+    "../services/oauthService": {},
+    "../services/notificationService": {},
+    "../services/passwordResetService": {},
+    "../services/securityEventService": { logSecurityEvent: async () => {} },
+    "../services/sessionService": {}
+  });
+
+  const { server, baseUrl } = await startServer(router, "/api/auth");
+  try {
+    const response = await fetch(`${baseUrl}/mfa/disable`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Auth-Compatibility": "bearer-v1" },
+      body: JSON.stringify({ password: "correct-password", code: "123456" })
+    });
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), {
+      success: true,
+      message: "Multi-factor authentication has been removed from your account."
+    });
+    assert.equal(disablePayload.user._id, "user-1");
+    assert.equal(disablePayload.sessionId, "session-1");
+    assert.equal(disablePayload.code, "123456");
+  } finally {
+    await stopServer(server);
+  }
+});
+
+test("provider-only customer can disable Email OTP after recent provider authentication", async () => {
+  let disableCalls = 0;
+  let primaryAuthenticatedAt = new Date();
+  const user = {
+    _id: "user-provider",
+    name: "Provider Customer",
+    username: "provider_customer",
+    email: "customer@example.com",
+    emailVerified: true,
+    passwordHash: null,
+    emailMfaEnabled: true,
+    mfaEnabled: true,
+    roles: ["customer"],
+    tenantMemberships: [],
+    oauthAccounts: []
+  };
+  const router = requireWithMocks("../src/routes/authRoutes.js", {
+    "../config/db": {},
+    "../repositories/tenants": { findTenantsByIds: async () => [] },
+    "../repositories/authSessions": {},
+    "../repositories/users": {},
+    "../middleware/asyncHandler": buildAsyncHandlerMock(),
+    "../middleware/auth": {
+      authenticate(req, _res, next) {
+        req.user = user;
+        req.auth = { session: { authMethod: "google", primaryAuthenticatedAt } };
+        next();
+      },
+      maybeAuthenticate: buildAuthMock().maybeAuthenticate
+    },
+    "../services/authService": {
+      verifyPasswordLogin: async () => { throw new Error("Password verification should not run for provider-only accounts"); }
+    },
+    "../services/mfaFlowService": {
+      disableEmailMfa: async ({ user: currentUser }) => {
+        assert.equal(currentUser, user);
+        disableCalls += 1;
+        user.emailMfaEnabled = false;
+        user.mfaEnabled = false;
+        return user;
+      }
+    },
+    "../services/securityRateLimitService": { consume: async () => ({ allowed: true }) },
+    "../services/oauthService": {},
+    "../services/notificationService": {},
+    "../services/passwordResetService": {},
+    "../services/securityEventService": {},
+    "../services/sessionService": {}
+  });
+
+  const { server, baseUrl } = await startServer(router, "/api/auth");
+  try {
+    const response = await fetch(`${baseUrl}/mfa/email/disable`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}"
+    });
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.user.emailMfaEnabled, false);
+    assert.equal(disableCalls, 1);
+
+    user.emailMfaEnabled = true;
+    user.mfaEnabled = true;
+    primaryAuthenticatedAt = new Date(Date.now() - 6 * 60_000);
+    const staleResponse = await fetch(`${baseUrl}/mfa/email/disable`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}"
+    });
+    assert.equal(staleResponse.status, 403);
+    assert.match((await staleResponse.json()).message, /sign in again with your original provider/i);
+    assert.equal(disableCalls, 1);
+  } finally {
+    await stopServer(server);
+  }
+});
+
 test("password reset request creates a reset token and sends email", async () => {
   let issuedResetToken = null;
+  let issuedArgs = null;
   let sentEmail = null;
   const router = requireWithMocks("../src/routes/authRoutes.js", {
     "../config/db": {
@@ -467,7 +817,8 @@ test("password reset request creates a reset token and sends email", async () =>
       }
     },
     "../services/passwordResetService": {
-      issuePasswordResetToken: async () => {
+      issuePasswordResetToken: async (args) => {
+        issuedArgs = args;
         issuedResetToken = {
           resetUrl: "https://app.example/login?resetToken=reset-token",
           token: "reset-token",
@@ -484,7 +835,7 @@ test("password reset request creates a reset token and sends email", async () =>
   try {
     const response = await fetch(`${baseUrl}/password-reset/request`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "X-Auth-Compatibility": "bearer-v1" },
       body: JSON.stringify({ email: "customer@example.com" })
     });
 
@@ -494,6 +845,16 @@ test("password reset request creates a reset token and sends email", async () =>
     assert.ok(body.message.includes("If an account exists"));
     assert.equal(issuedResetToken.token, "reset-token");
     assert.equal(sentEmail.to, "customer@example.com");
+    assert.equal(issuedArgs.next, undefined);
+    const next = '/dashboard/queue?boardPairing=' + 'a'.repeat(32);
+    const vendorRequest = await fetch(`${baseUrl}/password-reset/request`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: 'customer@example.com', next })
+    });
+    assert.equal(vendorRequest.status, 200);
+    assert.equal(issuedArgs.next, next);
+    assert.equal(sentEmail.emailTemplate.actionUrl, issuedResetToken.resetUrl);
+    assert.deepEqual(await vendorRequest.json(), body);
   } finally {
     await stopServer(server);
   }
@@ -627,7 +988,9 @@ test("oauth start rejects invalid intents and oauth callback rejects provider mi
 test("register customer returns a tracked session and normalized username", async () => {
   let createdUser = null;
   let sessionPayload = null;
+  const welcomeCalls = [];
   const router = requireWithMocks("../src/routes/authRoutes.js", {
+    "../services/welcomeEmailService": { sendWelcomeEmail: async (payload) => { welcomeCalls.push(payload); } },
     "../config/db": {
       withTransaction: async (callback) => callback({})
     },
@@ -689,7 +1052,7 @@ test("register customer returns a tracked session and normalized username", asyn
   try {
     const response = await fetch(`${baseUrl}/register/customer`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "X-Auth-Compatibility": "bearer-v1" },
       body: JSON.stringify({
         name: "Customer One",
         username: "Customer_One",
@@ -706,6 +1069,123 @@ test("register customer returns a tracked session and normalized username", asyn
     assert.equal(createdUser.email, "customer@example.com");
     assert.equal(createdUser.username, "customer_one");
     assert.equal(sessionPayload.authMethod, "password");
+    assert.equal(welcomeCalls.length, 1);
+    assert.equal(welcomeCalls[0].user._id, "user-1");
+    assert.equal(welcomeCalls[0].tenant, undefined);
+  } finally {
+    await stopServer(server);
+  }
+});
+
+test("customer OTP registration verifies email before returning a bearer session", async () => {
+  let startPayload = null;
+  let verifyPayload = null;
+  const welcomeCalls = [];
+  const router = requireWithMocks("../src/routes/authRoutes.js", {
+    "../services/welcomeEmailService": { sendWelcomeEmail: async (payload) => { welcomeCalls.push(payload); } },
+    "../config/db": {},
+    "../repositories/tenants": {
+      findTenantsByIds: async () => []
+    },
+    "../repositories/authSessions": {},
+    "../repositories/users": {
+      findUserByEmail: async () => null,
+      findUserByUsername: async () => null
+    },
+    "../middleware/asyncHandler": buildAsyncHandlerMock(),
+    "../middleware/auth": buildAuthMock(),
+    "../services/authService": {
+      normalizeEmail: (value) => String(value || "").trim().toLowerCase(),
+      getRequestIp: () => "127.0.0.1",
+      getUserAgent: () => "test-agent",
+      recordLoginAttempt: async () => {}
+    },
+    "../services/customerRegistrationOtpService": {
+      assertValidPassword: () => {},
+      start: async (payload) => {
+        startPayload = payload;
+        return {
+          challengeId: "challenge-1",
+          step: "email_otp",
+          deliveryTarget: "j***@example.com",
+          expiresAt: "2026-09-04T10:10:00Z"
+        };
+      },
+      verify: async (payload) => {
+        verifyPayload = payload;
+        return {
+          user: {
+            _id: "user-1",
+            name: "Jane Doe",
+            username: "jane_doe",
+            email: "jane@example.com",
+            roles: ["customer"],
+            emailVerified: true,
+            oauthAccounts: [],
+            tenantMemberships: []
+          },
+          sessionResult: {
+            accessToken: "access-1",
+            refreshToken: "refresh-1",
+            session: { _id: "session-1", expiresAt: new Date("2026-09-04T10:30:00Z") }
+          }
+        };
+      },
+      resend: async () => ({})
+    },
+    "../services/oauthService": {
+      buildAuthorizationUrl: () => "",
+      buildClientCallbackUrl: () => "",
+      buildProviderAvailability: () => ({ google: false, facebook: false }),
+      createOAuthState: () => "",
+      exchangeCodeForProfile: async () => ({}),
+      ensureSupportedProvider: () => {},
+      getProviderLabel: (provider) => provider,
+      readOAuthState: () => ({ provider: "google", intent: "login" })
+    },
+    "../services/notificationService": {},
+    "../services/passwordResetService": {},
+    "../services/securityEventService": {},
+    "../services/sessionService": {}
+  });
+
+  const { server, baseUrl } = await startServer(router, "/api/auth");
+  try {
+    const startResponse = await fetch(`${baseUrl}/register/customer/otp`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: "Jane Doe",
+        username: "Jane_Doe",
+        email: "Jane@Example.com",
+        password: "Upper!12"
+      })
+    });
+    assert.equal(startResponse.status, 201);
+    assert.equal((await startResponse.json()).step, "email_otp");
+    assert.equal(startPayload.email, "jane@example.com");
+    assert.equal(startPayload.username, "jane_doe");
+
+    assert.equal(welcomeCalls.length, 0);
+
+    const verifyResponse = await fetch(`${baseUrl}/register/customer/otp/verify`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Auth-Compatibility": "bearer-v1" },
+      body: JSON.stringify({ challengeId: "challenge-1", code: "123456" })
+    });
+    assert.equal(verifyResponse.status, 200);
+    const body = await verifyResponse.json();
+    assert.equal(body.token, "access-1");
+    assert.equal(body.refreshToken, "refresh-1");
+    assert.deepEqual(verifyPayload, {
+      challengeId: "challenge-1",
+      code: "123456",
+      ipAddress: "127.0.0.1",
+      userAgent: "test-agent"
+    });
+    assert.equal(welcomeCalls.length, 1);
+    assert.equal(welcomeCalls[0].user._id, "user-1");
+    assert.equal(welcomeCalls[0].tenant, undefined);
   } finally {
     await stopServer(server);
   }
@@ -715,7 +1195,11 @@ test("register vendor returns a tracked session and tenant membership", async ()
   let createdTenant = null;
   let createdUser = null;
   let sessionPayload = null;
+  let assignedFreeTenantId = null;
+  const welcomeCalls = [];
   const router = requireWithMocks("../src/routes/authRoutes.js", {
+    "../repositories/businessCategories": { resolve: async () => ({ id: "1", name: "Sports and Recreation" }) },
+    "../services/welcomeEmailService": { sendWelcomeEmail: async (payload) => { welcomeCalls.push(payload); } },
     "../config/db": {
       withTransaction: async (callback) => callback({})
     },
@@ -768,6 +1252,13 @@ test("register vendor returns a tracked session and tenant membership", async ()
     "../services/notificationService": {},
     "../services/passwordResetService": {},
     "../services/securityEventService": { logSecurityEvent: async () => {} },
+    "../services/subscriptionLifecycleService": {
+      assignFreeToApprovedTenant: async (tenantId, _input, options) => {
+        assert.ok(options.client);
+        assignedFreeTenantId = tenantId;
+        return { assigned: true };
+      }
+    },
     "../services/sessionService": {
       createAuthSession: async (payload) => {
         sessionPayload = payload;
@@ -784,10 +1275,11 @@ test("register vendor returns a tracked session and tenant membership", async ()
   try {
     const response = await fetch(`${baseUrl}/register/vendor`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "X-Auth-Compatibility": "bearer-v1" },
       body: JSON.stringify({
         tenantName: "Demo Tenant",
         tenantSlug: "Demo Tenant",
+        category: "sports",
         name: "Vendor One",
         username: "Vendor_One",
         email: "Vendor@Example.com",
@@ -801,8 +1293,138 @@ test("register vendor returns a tracked session and tenant membership", async ()
     assert.equal(body.refreshToken, "refresh-token");
     assert.equal(body.user.username, "vendor_one");
     assert.equal(createdTenant.slug, "demo-tenant");
+    assert.equal(createdTenant.businessCategoryId, "1");
+    assert.equal(createdTenant.publicProfileCategory, "Sports and Recreation");
     assert.equal(createdUser.email, "vendor@example.com");
     assert.equal(sessionPayload.authMethod, "password");
+    assert.equal(assignedFreeTenantId, "tenant-1");
+    assert.equal(welcomeCalls.length, 1);
+    assert.equal(welcomeCalls[0].user._id, "user-1");
+    assert.equal(welcomeCalls[0].tenant._id, "tenant-1");
+  } finally {
+    await stopServer(server);
+  }
+});
+
+test("vendor onboarding completion sends a workspace welcome", async () => {
+  let createdTenant = null;
+  let sessionPayload = null;
+  let assignedFreeTenantId = null;
+  const welcomeCalls = [];
+  const router = requireWithMocks("../src/routes/authRoutes.js", {
+    "../repositories/businessCategories": { resolve: async () => ({ id: "1", name: "Sports and Recreation" }) },
+    "../services/welcomeEmailService": { sendWelcomeEmail: async (payload) => { welcomeCalls.push(payload); } },
+    "../config/db": {
+      withTransaction: async (callback) => callback({})
+    },
+    "../repositories/tenants": {
+      findTenantsByIds: async () => [],
+      findTenantBySlug: async () => null,
+      createTenant: async (data) => {
+        createdTenant = data;
+        return { _id: "tenant-1", ...data };
+      }
+    },
+    "../repositories/authSessions": {},
+    "../repositories/users": {
+      findUserById: async (id, options) => {
+        assert.equal(id, "user-1");
+        assert.ok(options.client);
+        return { _id: id, roles: ["customer"], phone: "09179876543", tenantMemberships: [] };
+      },
+      findUserByEmail: async () => null,
+      findUserByUsername: async () => null,
+      createUser: async (data) => {
+        return {
+          _id: "user-1",
+          ...data,
+          oauthAccounts: [],
+          tenantMemberships: [{ tenantId: "tenant-1", role: "owner", isActive: true }]
+        };
+      },
+      updateUser: async (id, data) => ({ _id: id, ...data, oauthAccounts: [], tenantMemberships: [] }),
+      addTenantMembership: async () => {}
+    },
+    "../middleware/asyncHandler": buildAsyncHandlerMock(),
+    "../middleware/auth": buildAuthMock(),
+    "../services/authService": {
+      normalizeEmail: (value) => String(value || "").trim().toLowerCase(),
+      getRequestIp: () => "127.0.0.1",
+      getUserAgent: () => "test-agent",
+      recordLoginAttempt: async () => {},
+      isUserLocked: () => false,
+      verifyPasswordLogin: async () => true,
+      handleFailedPasswordLogin: async () => ({}),
+      handleSuccessfulPasswordLogin: async () => ({})
+    },
+    "../services/oauthService": {
+      buildAuthorizationUrl: () => "",
+      buildClientCallbackUrl: ({ error }) =>
+        `https://app.example/oauth/callback#error=${encodeURIComponent(error)}`,
+      buildProviderAvailability: () => ({ google: false, facebook: false }),
+      createOAuthState: () => "",
+      exchangeCodeForProfile: async () => ({}),
+      ensureSupportedProvider: () => {},
+      getProviderLabel: (provider) => provider,
+      readOAuthState: () => ({ provider: "google", intent: "login" })
+    },
+    "../services/notificationService": {},
+    "../services/passwordResetService": {},
+    "../services/securityEventService": { logSecurityEvent: async () => {} },
+    "../services/subscriptionLifecycleService": {
+      prepareFreeAssignmentActor: async (id, options) => {
+        assert.equal(id, "user-1");
+        assert.ok(options.client);
+      },
+      assignFreeToApprovedTenant: async (tenantId, _input, options) => {
+        assert.ok(options.client);
+        assignedFreeTenantId = tenantId;
+        return { assigned: true };
+      }
+    },
+    "../services/sessionService": {
+      createAuthSession: async (payload) => {
+        sessionPayload = payload;
+        return {
+          accessToken: "access-token",
+          refreshToken: "refresh-token",
+          session: { _id: "session-1" }
+        };
+      }
+    }
+  });
+
+  const { server, baseUrl } = await startServer(router, "/api/auth");
+  try {
+    const response = await fetch(`${baseUrl}/register/vendor/complete`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Auth-Compatibility": "bearer-v1" },
+      body: JSON.stringify({
+        tenantName: "Demo Tenant",
+        tenantSlug: "Demo Tenant",
+        category: "sports",
+        name: "Vendor One",
+        username: "Vendor_One",
+        email: "Vendor@Example.com",
+        password: "secret"
+      })
+    });
+
+    assert.equal(response.status, 201);
+    const body = await response.json();
+    assert.equal(body.token, "access-token");
+    assert.equal(body.refreshToken, "refresh-token");
+    assert.equal(body.user.username, "vendor_one");
+    assert.equal(createdTenant.slug, "demo-tenant");
+    assert.equal(createdTenant.contactPhone, "09179876543");
+    assert.equal(createdTenant.businessCategoryId, "1");
+    assert.equal(createdTenant.publicProfileCategory, "Sports and Recreation");
+    assert.equal(welcomeCalls[0].user.email, "vendor@example.com");
+    assert.equal(sessionPayload.authMethod, "password");
+    assert.equal(assignedFreeTenantId, "tenant-1");
+    assert.equal(welcomeCalls.length, 1);
+    assert.equal(welcomeCalls[0].user._id, "user-1");
+    assert.equal(welcomeCalls[0].tenant._id, "tenant-1");
   } finally {
     await stopServer(server);
   }
@@ -855,6 +1477,50 @@ test("oauth callback rejects expired state", async () => {
     });
     assert.equal(response.status, 302);
     assert.match(response.headers.get("location") || "", /OAuth%20session%20expired/);
+  } finally {
+    await stopServer(server);
+  }
+});
+
+test("registration username availability ignores unrelated browser authentication", async () => {
+  const jwt = require("jsonwebtoken");
+  const env = require("../src/config/env");
+  const { getSessionCookieNames } = require("../src/services/browserSessionService");
+  const user = { _id: "7", roles: ["vendor"], mfaEnabled: true,
+    tenantMemberships: [{ tenantId: "3", role: "owner", isActive: true }] };
+  const session = { _id: "8", status: "active", expiresAt: new Date(Date.now() + 60_000), mfaVerifiedAt: null };
+  const users = {
+    findUserById: async () => user,
+    findUserByUsername: async (username, options) => {
+      assert.equal(options?.excludeId, undefined, "registration must not exclude the current account");
+      return username === "taken_name" ? user : null;
+    }
+  };
+  const sessions = { findSessionById: async () => session, touchSession: async () => null };
+  const auth = requireWithMocks("../src/middleware/auth.js", {
+    "../repositories/users": users, "../repositories/authSessions": sessions
+  });
+  const router = requireWithMocks("../src/routes/authRoutes.js", {
+    "../repositories/users": users, "../repositories/authSessions": sessions,
+    "../middleware/auth": auth
+  });
+  const { server, baseUrl } = await startServer(router, "/api/auth");
+  const token = jwt.sign({ sub: "7", session_id: "8", roles: user.roles }, env.jwtSecret);
+  const cookieName = getSessionCookieNames(env.authCookieSecure).access;
+  try {
+    for (const headers of [{ cookie: `${cookieName}=${token}` }, { authorization: `Bearer ${token}` },
+      { cookie: `${cookieName}=expired-or-invalid` }, {}]) {
+      const response = await fetch(`${baseUrl}/username-availability?username=new_name`, { headers });
+      const body = await response.json();
+      assert.equal(response.status, 200, body.message);
+      assert.equal(body.available, true);
+      assert.equal(body.message, "Username is available.");
+    }
+    const taken = await fetch(`${baseUrl}/username-availability?username=taken_name`, {
+      headers: { cookie: `${cookieName}=${token}` }
+    });
+    assert.equal(taken.status, 200);
+    assert.equal((await taken.json()).available, false);
   } finally {
     await stopServer(server);
   }

@@ -1,46 +1,61 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
-const { handleListServices, handleCreateService, handleDeleteService } = require("../src/routes/vendorServiceHandlers");
+const { handleListServices, handleCreateService, handleUpdateService, handleDeleteService } = require("../src/routes/vendorServiceHandlers");
 
-test("vendor service handler lists and creates services", async () => {
-  const listResponse = { body: null, json(payload) { this.body = payload; } };
-  await handleListServices({
-    req: { user: {}, params: { tenantSlug: "tenant" } },
-    res: listResponse,
-    getAuthorizedTenant: async () => ({ _id: 1 }),
-    assertTenantPermission: () => {},
-    vendorServiceRepository: {
-      listServicesByTenantId: async () => [{ _id: 7, name: "Consultation", slug: "consultation", durationMinutes: 30, allowBookingQuantity: false, isActive: true }]
-    }
-  });
-  assert.equal(listResponse.body.services[0].slug, "consultation");
-
-  const createResponse = { statusCode: null, body: null, status(code) { this.statusCode = code; return this; }, json(payload) { this.body = payload; } };
+test("vendor service creation forwards authenticated actor and tenant and retains response", async () => {
+  const tenant = { _id: "9007199254740993" };
+  const body = { name: "Consultation", durationMinutes: 45, actorUserId: "spoof", tenantId: "neighbor" };
+  const response = { statusCode: null, body: null, status(code) { this.statusCode = code; return this; }, json(payload) { this.body = payload; } };
   await handleCreateService({
-    req: { user: {}, params: { tenantSlug: "tenant" }, body: { name: "Consultation", durationMinutes: 45 } },
-    res: createResponse,
-    getAuthorizedTenant: async () => ({ _id: 1 }),
-    assertTenantPermission: () => {},
-    vendorServiceRepository: {
-      createService: async (payload) => ({ _id: 8, slug: "consultation", ...payload })
-    }
+    req: { user: { _id: "actor" }, params: { tenantSlug: "tenant" }, body }, res: response,
+    getAuthorizedTenant: async () => tenant,
+    assertTenantPermission: (_user, id, permission) => { assert.equal(id, tenant._id); assert.equal(permission, "tenant.service.manage"); },
+    serviceDeactivationService: { createVendorService: async (selected, payload, options) => {
+      assert.equal(selected, tenant); assert.equal(payload, body); assert.deepEqual(options, { actorUserId: "actor" });
+      return { service: { _id: "8", name: "Consultation", slug: "consultation", durationMinutes: 45, isActive: true }, locationServices: [{ serviceId: "8", locationId: "11" }] };
+    } }
   });
-  assert.equal(createResponse.statusCode, 201);
-  assert.equal(createResponse.body.service.name, "Consultation");
+  assert.equal(response.statusCode, 201); assert.equal(response.body.service.name, "Consultation");
+  assert.deepEqual(response.body.locationServices, [{ serviceId: "8", locationId: "11" }]);
 });
 
-test("vendor service handler deletes services through injected repository", async () => {
+test("vendor service creation stops at denied route access or domain admission", async () => {
+  let called = false;
+  const request = { req: { user: { _id: "actor" }, params: { tenantSlug: "tenant" }, body: {} }, res: {},
+    getAuthorizedTenant: async () => ({ _id: "1" }),
+    assertTenantPermission: () => { throw Object.assign(new Error("Denied"), { statusCode: 403 }); },
+    serviceDeactivationService: { createVendorService: async () => { called = true; throw Object.assign(new Error("Admission denied"), { statusCode: 403 }); } } };
+  await assert.rejects(handleCreateService(request), { statusCode: 403 }); assert.equal(called, false);
+  await assert.rejects(handleCreateService({ ...request, assertTenantPermission: () => {} }), { statusCode: 403 }); assert.equal(called, true);
+});
+
+test("vendor service handler deactivates services through the authenticated domain boundary", async () => {
   const response = { body: null, json(payload) { this.body = payload; } };
   await handleDeleteService({
-    req: { user: {}, params: { tenantSlug: "tenant", serviceSlug: "consultation" } },
+    req: { user: { _id: "actor-1" }, params: { tenantSlug: "tenant", serviceSlug: "consultation" } },
     res: response,
     getAuthorizedTenant: async () => ({ _id: 1 }),
     assertTenantPermission: () => {},
-    vendorServiceRepository: {
-      findServiceByTenantAndSlug: async () => ({ _id: 8, slug: "consultation" }),
-      deactivateService: async () => ({ _id: 8, slug: "consultation", isActive: false })
+    serviceDeactivationService: {
+      deactivateVendorService: async (tenant, slug, options) => {
+        assert.equal(tenant._id, 1); assert.equal(slug, "consultation");
+        assert.deepEqual(options, { actorUserId: "actor-1" });
+        return { _id: 8, slug: "consultation", isActive: false };
+      }
     }
   });
   assert.equal(response.body.service.isActive, false);
+});
+
+test("service PATCH forwards authenticated scope and retains service and mapping response contracts", async () => {
+  const response={json(payload){this.body=payload;}};
+  const body={name:"Updated",isActive:false,actorUserId:"spoofed",tenantId:"foreign"};
+  await handleUpdateService({req:{user:{_id:"actor-1"},params:{tenantSlug:"tenant",serviceSlug:"consultation"},body},res:response,
+    getAuthorizedTenant:async ()=>({_id:"1"}),assertTenantPermission:()=>{},
+    serviceDeactivationService:{updateVendorService:async (tenant,slug,payload,options)=>{
+      assert.equal(tenant._id,"1");assert.equal(slug,"consultation");assert.equal(payload,body);assert.deepEqual(options,{actorUserId:"actor-1"});
+      return {service:{_id:"8",slug,name:payload.name,isActive:false},locationServices:[{locationId:"10",serviceId:"8",capacity:2}]};
+    }}});
+  assert.equal(response.body.service.isActive,false);assert.equal(response.body.service.name,"Updated");assert.equal(response.body.locationServices[0].capacity,2);
 });

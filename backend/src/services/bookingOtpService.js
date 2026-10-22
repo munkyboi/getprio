@@ -1,8 +1,11 @@
+const maintenance = require('./platformMaintenanceService');
 const crypto = require("crypto");
 const env = require("../config/env");
 const db = require("../config/db");
 const bookingOtpRepository = require("../repositories/bookingOtps");
 const notificationService = require("./notificationService");
+const { assertPublicTextFieldsAllowed } = require("./contentModeration");
+const { normalizePhilippineMobileNumber } = require("../utils/phone");
 
 const OTP_TTL_MINUTES = 15;
 const OTP_RESEND_COOLDOWN_MINUTES = 3;
@@ -34,18 +37,42 @@ function sanitizeBookingPayload(payload) {
     throw error;
   }
 
-  return {
+  const sanitized = {
     tenantSlug: String(payload.tenantSlug || "").trim().toLowerCase(),
     locationSlug: String(payload.locationSlug || "").trim().toLowerCase(),
     serviceSlug: String(payload.serviceSlug || "").trim().toLowerCase(),
     scheduledStartAt: String(payload.scheduledStartAt || "").trim(),
     bookingQuantity,
+    executionMode: ["parallel", "sequential"].includes(String(payload.executionMode || "parallel").trim().toLowerCase())
+      ? String(payload.executionMode || "parallel").trim().toLowerCase()
+      : null,
     customerName: String(payload.customerName || "").trim(),
     customerEmail: String(payload.customerEmail || "").trim().toLowerCase(),
-    customerPhone: String(payload.customerPhone || "").trim(),
+    customerPhone: normalizePhilippineMobileNumber(payload.customerPhone),
     notifyBySms: Boolean(payload.notifyBySms),
     notes: String(payload.notes || "").trim()
   };
+  if (!sanitized.executionMode) {
+    const error = new Error("executionMode must be either parallel or sequential.");
+    error.statusCode = 400;
+    throw error;
+  }
+  if (Array.isArray(payload.bundleItems)) {
+    const seen = new Set();
+    sanitized.bundleItems = payload.bundleItems.map((item) => {
+      const serviceSlug = String(item?.serviceSlug || "").trim().toLowerCase();
+      const itemQuantity = Number(item?.bookingQuantity || bookingQuantity);
+      if (!serviceSlug || seen.has(serviceSlug) || !Number.isInteger(itemQuantity) || itemQuantity < 1 || itemQuantity > 24) {
+        const error = new Error("Booking bundle items are invalid.");
+        error.statusCode = 400;
+        throw error;
+      }
+      seen.add(serviceSlug);
+      return { serviceSlug, bookingQuantity: itemQuantity };
+    });
+  }
+  assertPublicTextFieldsAllowed({ "Customer name": sanitized.customerName, "Booking notes": sanitized.notes });
+  return sanitized;
 }
 
 function getDeliveryTarget(payload, requestedChannel) {
@@ -81,6 +108,12 @@ async function deliverOtp({ tenant, channel, target, code }) {
       subject: `${tenant.name}: booking verification code`,
       text: message,
       tenantId: tenant._id,
+      emailTemplate: {
+        message: `Enter this code to verify your booking request with ${tenant.name}.`,
+        illustration: "account-verification",
+        code,
+        expiryText: `This code expires in ${OTP_TTL_MINUTES} minutes.`
+      },
       purpose: "booking_otp"
     });
     return;
@@ -93,17 +126,21 @@ async function deliverOtp({ tenant, channel, target, code }) {
 }
 
 async function requestBookingOtp({ tenant, payload, channel }) {
+  await maintenance.assertNewIntake();
   const sanitizedPayload = sanitizeBookingPayload(payload);
   const delivery = getDeliveryTarget(sanitizedPayload, channel);
   const code = createOtpCode();
   const expiresAt = new Date(Date.now() + OTP_TTL_MINUTES * 60 * 1000);
-  const otp = await bookingOtpRepository.createOtp({
+  const otp = await db.withTransaction(async client => {
+    await maintenance.assertNewIntake({ client });
+    return bookingOtpRepository.createOtp({
     tenantId: tenant._id,
     codeHash: hashSecret(code),
     deliveryChannel: delivery.channel,
     deliveryTarget: delivery.target,
     payload: sanitizedPayload,
     expiresAt
+    }, { client });
   });
 
   await deliverOtp({

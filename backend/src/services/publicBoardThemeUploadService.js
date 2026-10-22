@@ -1,3 +1,5 @@
+const { storeLocalImage } = require("./localImageStorage");
+const { assertImageUploadSize } = require("./imageUploadPolicy");
 const crypto = require("crypto");
 const { PutObjectCommand, S3Client } = require("@aws-sdk/client-s3");
 const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
@@ -5,7 +7,6 @@ const env = require("../config/env");
 const publicBoardThemeRepository = require("../repositories/publicBoardThemes");
 
 const ALLOWED_CONTENT_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
-const MAX_UPLOAD_BYTES = 8 * 1024 * 1024;
 const UPLOAD_EXPIRES_SECONDS = 300;
 
 let s3Client;
@@ -47,8 +48,9 @@ function assertB2Configured() {
     .map(([key]) => key);
 
   if (missing.length) {
-    const error = new Error(`Backblaze B2 uploads are not configured. Missing: ${missing.join(", ")}.`);
+    const error = new Error("Image storage is currently unavailable. Please try again later.");
     error.statusCode = 503;
+    error.code = "IMAGE_UPLOAD_UNAVAILABLE";
     throw error;
   }
 }
@@ -109,11 +111,7 @@ async function createUpload({ tenant, location, user, body }) {
     throw error;
   }
 
-  if (!Number.isFinite(sizeBytes) || sizeBytes <= 0 || sizeBytes > MAX_UPLOAD_BYTES) {
-    const error = new Error("Image must be between 1 byte and 8 MB.");
-    error.statusCode = 400;
-    throw error;
-  }
+  await assertImageUploadSize(sizeBytes);
 
   const objectKey = buildObjectKey({
     tenantId: tenant._id,
@@ -126,10 +124,11 @@ async function createUpload({ tenant, location, user, body }) {
   const command = new PutObjectCommand({
     Bucket: env.b2BucketPublicBoard,
     Key: objectKey,
-    ContentType: contentType
+    ContentType: contentType,
+    ContentLength: sizeBytes
   });
   const uploadUrl = await getSignedUrl(getS3Client(), command, {
-    expiresIn: UPLOAD_EXPIRES_SECONDS
+    expiresIn: UPLOAD_EXPIRES_SECONDS, signableHeaders: new Set(["content-length"])
   });
   const asset = await publicBoardThemeRepository.createAsset({
     tenantId: tenant._id,
@@ -164,12 +163,12 @@ async function createUpload({ tenant, location, user, body }) {
 }
 
 async function uploadBinary({ tenant, location, user, body, fileBuffer }) {
-  assertB2Configured();
+  const uploadBuffer = Buffer.isBuffer(fileBuffer) ? Buffer.from(fileBuffer) : null;
 
   const assetType = body.assetType === "logo" ? "logo" : "background";
   const fileName = normalizeFileName(body.fileName);
   const contentType = String(body.contentType || "").toLowerCase();
-  const sizeBytes = Number(body.sizeBytes || fileBuffer?.length || 0);
+  const sizeBytes = uploadBuffer?.length || 0;
 
   if (!ALLOWED_CONTENT_TYPES.has(contentType)) {
     const error = new Error("Only JPEG, PNG, and WebP images are supported.");
@@ -177,27 +176,30 @@ async function uploadBinary({ tenant, location, user, body, fileBuffer }) {
     throw error;
   }
 
-  if (!Buffer.isBuffer(fileBuffer) || !fileBuffer.length || fileBuffer.length > MAX_UPLOAD_BYTES) {
-    const error = new Error("Image must be between 1 byte and 8 MB.");
-    error.statusCode = 400;
-    throw error;
-  }
+  await assertImageUploadSize(uploadBuffer?.length || 0);
 
-  const objectKey = buildObjectKey({
+  let objectKey = buildObjectKey({
     tenantId: tenant._id,
     location,
     assetType,
     fileName,
     contentType
   });
-  const publicUrl = buildPublicUrl(objectKey);
+  let publicUrl;
+  const local = await storeLocalImage({tenant,location,contentType,body:uploadBuffer});
+  if (local) { objectKey=local.objectKey; publicUrl=local.publicUrl; }
+  else {
+    assertB2Configured();
+    publicUrl=buildPublicUrl(objectKey);
 
-  await getS3Client().send(new PutObjectCommand({
-    Bucket: env.b2BucketPublicBoard,
-    Key: objectKey,
-    ContentType: contentType,
-    Body: fileBuffer
-  }));
+    await getS3Client().send(new PutObjectCommand({
+      Bucket: env.b2BucketPublicBoard,
+      Key: objectKey,
+      ContentType: contentType,
+      Body: uploadBuffer
+    }));
+
+  }
 
   const asset = await publicBoardThemeRepository.createAsset({
     tenantId: tenant._id,

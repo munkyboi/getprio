@@ -135,7 +135,7 @@ async function markFailed(paymentId, data = {}, options = {}) {
 
 async function findPaymentById(paymentId, options = {}) {
   const result = await buildQueryClient(options.client).query(
-    `SELECT ${PAYMENT_COLUMNS} FROM booking_sms_alert_payments WHERE booking_sms_alert_payments.id = $1 LIMIT 1`,
+    `SELECT ${PAYMENT_COLUMNS} FROM booking_sms_alert_payments WHERE booking_sms_alert_payments.id = $1 LIMIT 1${options.forShare ? ' FOR SHARE' : ''}`,
     [Number(paymentId)]
   );
 

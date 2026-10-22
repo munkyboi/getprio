@@ -1,14 +1,33 @@
+const maintenance = require('./platformMaintenanceService');
+const counterDispatchService = require("./counterDispatchService");
+const ticketBarcodeService = require("./ticketBarcodeService");
+const ticketServicePlanService = require("./ticketServicePlanService");
+const {assertLegacyTicket}=require('./queuePlanBoundary');
+const storeHoursService = require("./storeHoursService");
+const { withVendorQueueTransaction, readAuthorizedVendorQueueActor } = require("./vendorQueueTransactionService");
+const { withCustomerTicketCancellation } = require("./customerTicketCancellationService");
+const { withCustomerQueueIssuance } = require("./customerQueueIssuanceService");
+const ticketResourceOutcomeService = require("./ticketResourceOutcomeService");
+const resourceLedger = require("../repositories/resourceLedger");
 const db = require("../config/db");
+const env = require("../config/env");
 const billingRepository = require("../repositories/billing");
 const notificationDeliveryRepository = require("../repositories/notificationDeliveries");
 const queueEventRepository = require("../repositories/queueEvents");
+const waitTimePredictionRepository = require("../repositories/waitTimePredictions");
 const queueDayClosureRepository = require("../repositories/queueDayClosures");
 const queueDayPauseRepository = require("../repositories/queueDayPauses");
+const queueDayRepository = require("../repositories/queueDays");
 const ticketRepository = require("../repositories/tickets");
 const bookingRepository = require("../repositories/bookings");
 const queueEvents = require("./queueEvents");
+const developerWebhookService = require("./developerWebhookService");
 const queueLifecycle = require("./queueLifecycle");
+const queueDayLifecycleService = require("./queueDayLifecycleService");
 const notificationService = require("./notificationService");
+const pushNotificationService = require("./pushNotificationService");
+const mobileTicketLinkService = require("./mobileTicketLinkService");
+const allowanceService = require("./allowanceService");
 const {
   buildQueueEventActor,
   formatTicketNumber,
@@ -27,7 +46,7 @@ const {
 } = require("./queueAutomationHelpers");
 
 async function appendQueueEvent(client, ticket, eventType, options = {}) {
-  return queueEventRepository.createQueueEvent(
+  const event = await queueEventRepository.createQueueEvent(
     {
       ticketId: ticket?._id || null,
       tenantId: ticket.tenantId,
@@ -43,6 +62,12 @@ async function appendQueueEvent(client, ticket, eventType, options = {}) {
     },
     { client }
   );
+  await developerWebhookService.enqueueQueueEvent({
+    event,
+    ticket,
+    developerWebhook: options.developerWebhook
+  }, { client });
+  return event;
 }
 
 async function appendScopedQueueEvent(client, data) {
@@ -87,7 +112,70 @@ async function getTenantUsage(tenantId) {
   };
 }
 
+function getQueueDayBusinessDateKey(resolution) {
+  const businessDate = resolution?.businessDate || resolution?.queueDay?.businessDate;
+  return businessDate ? String(businessDate).replace(/-/g, "") : null;
+}
+
+async function resolveQueueDayForSnapshot(tenant, location) {
+  let resolution = await queueDayLifecycleService.getQueueDayForSnapshot(
+    tenant,
+    location
+  );
+  const queueDay = resolution.queueDay;
+
+  if (
+    queueDay?.state === "open"
+    && queueDay.currentClosesAt
+    && new Date(queueDay.currentClosesAt) <= new Date()
+  ) {
+    await queueDayLifecycleService.closeQueueDay(tenant, location, {
+      source: "request_reconciliation",
+      reason: "effective_hours_ended"
+    });
+    resolution = await queueDayLifecycleService.getQueueDayForSnapshot(
+      tenant,
+      location
+    );
+  }
+
+  return resolution;
+}
+
 async function assertQueueDayOpen(tenant, location, options = {}) {
+  if (location?.queueLifecycleMode === "enforced") {
+    const queueDay = await queueDayLifecycleService.getAuthoritativeQueueDay(
+      tenant._id,
+      location._id,
+      { client: options.client, state: "open", forUpdate: Boolean(options.client) }
+    );
+    const now = options.client
+      ? (await options.client.query("SELECT clock_timestamp() AS now")).rows[0].now
+      : new Date();
+    if (queueDay && new Date(queueDay.currentClosesAt) > now) {
+      return queueDay;
+    }
+    if (queueDay && options.client) {
+      await queueDayLifecycleService.closeLockedQueueDay(
+        options.client,
+        tenant,
+        location,
+        queueDay,
+        { source: "request_reconciliation", reason: "effective_hours_ended" }
+      );
+    } else if (queueDay) {
+      await queueDayLifecycleService.closeQueueDay(tenant, location, {
+        source: "request_reconciliation",
+        reason: "effective_hours_ended"
+      });
+    }
+    throw Object.assign(new Error(queueDay
+      ? "The Queue Day deadline has passed."
+      : "The queue has not been opened by staff."), {
+      statusCode: 409,
+      code: queueDay ? "QUEUE_DAY_OVERDUE" : "QUEUE_DAY_UNOPENED"
+    });
+  }
   const queueDateKey = options.queueDateKey || getDateKey();
   const activeClosure = await queueDayClosureRepository.findActiveClosure(
     tenant._id,
@@ -106,10 +194,72 @@ async function assertQueueDayOpen(tenant, location, options = {}) {
 }
 
 async function getQueueSnapshot(tenant, options = {}) {
-  return buildQueueSnapshot(tenant, options, getTenantUsage);
+  const location = await resolveLocation(tenant, options);
+  const queueDayResolution = location?.queueLifecycleMode === "enforced"
+    ? await resolveQueueDayForSnapshot(tenant, location)
+    : null;
+  const queueDateKey = getQueueDayBusinessDateKey(queueDayResolution);
+  const snapshot = await buildQueueSnapshot(
+    tenant,
+    {
+      ...options,
+      location,
+      ...(
+        queueDateKey && !options.queueDateKey
+          ? { queueDateKey }
+          : {}
+      )
+    },
+    getTenantUsage
+  );
+  if (location?.queueLifecycleMode === "shadow") {
+    await queueDayLifecycleService.recordShadowComparison(
+      tenant,
+      location,
+      snapshot.queueDay
+    );
+    return snapshot;
+  }
+  if (location?.queueLifecycleMode !== "enforced") {
+    return snapshot;
+  }
+  const resolution = queueDayResolution;
+  const queueDay = resolution.queueDay;
+  snapshot.queueDay = queueDayLifecycleService.formatQueueDayStatus(
+    queueDay,
+    location,
+    new Date(),
+    resolution
+  );
+  if (queueDay?.state === "closed") {
+    const closeEvent = await queueEventRepository.findLatestLifecycleEvent(
+      queueDay._id,
+      "queue_day_closed"
+    );
+    snapshot.queueDay.outcomeCounts = closeEvent?.metadata?.outcomes || null;
+  }
+  snapshot.queueIntake = {
+    ...snapshot.queueIntake,
+    state: snapshot.queueDay.intakeMode === "paused"
+      ? "paused"
+      : snapshot.queueDay.state === "open"
+        ? snapshot.queueIntake.state
+        : "closed",
+    stateLabel: snapshot.queueDay.intakeMode === "paused"
+      ? "Paused"
+      : snapshot.queueDay.state === "open"
+        ? snapshot.queueIntake.stateLabel
+        : snapshot.queueDay.state === "unopened"
+          ? "Not opened"
+          : "Closed"
+  };
+  return snapshot;
 }
 
 async function assertQueueIntakeOpen(tenant, location, options = {}) {
+  if (location?.queueLifecycleMode === "enforced") {
+    return queueDayLifecycleService.assertIntakeOpen(tenant, location, options);
+  }
   await assertQueueDayOpen(tenant, location, options);
 
   const queueDateKey = options.queueDateKey || getDateKey();
@@ -133,7 +283,7 @@ async function assertQueueIntakeOpen(tenant, location, options = {}) {
   throw error;
 }
 
-async function assertRestoreCapacityAvailable(tenant, location, options = {}) {
+async function assertWaitingIntakeCapacityAvailable(tenant, location, options = {}) {
   if (!tenant.autoPauseEnabled || !tenant.autoPauseThreshold) {
     return;
   }
@@ -149,18 +299,29 @@ async function assertRestoreCapacityAvailable(tenant, location, options = {}) {
     return;
   }
 
-  const error = new Error(
-    `This queue is already at its intake threshold of ${tenant.autoPauseThreshold} waiting tickets. Resume or clear space before restoring a missed ticket.`
+  const error = new Error(options.issuance
+    ? `This queue is already at its intake threshold of ${tenant.autoPauseThreshold} waiting tickets. Resume or clear space before adding another ticket.`
+    : `This queue is already at its intake threshold of ${tenant.autoPauseThreshold} waiting tickets. Resume or clear space before restoring a missed ticket.`
   );
   error.statusCode = 409;
-  error.code = "QUEUE_RESTORE_THRESHOLD_REACHED";
+  error.code = options.issuance ? "QUEUE_INTAKE_THRESHOLD_REACHED" : "QUEUE_RESTORE_THRESHOLD_REACHED";
   throw error;
 }
 
 async function publishSnapshot(tenant, options = {}) {
-  const snapshot = await getQueueSnapshot(tenant, options);
-  queueEvents.publish(tenant.slug, snapshot);
+  const snapshot = await getQueueSnapshot(tenant, { ...options, includeServiceTiming: true });
+  queueEvents.publish(tenant.slug, snapshot, {
+    locationId: options.location?._id || snapshot.location?.id || null
+  });
   return snapshot;
+}
+
+async function recordCreatedTicketEvent(client, ticket, options = {}) {
+  const actor = buildQueueEventActor(options);
+  return appendQueueEvent(client, ticket, "ticket_created", {
+    toStatus: ticket.status, ...actor,
+    metadata: { joinChannel: ticket.joinChannel }, developerWebhook: options.developerWebhook
+  });
 }
 
 async function createTicket({
@@ -170,35 +331,67 @@ async function createTicket({
   customerName,
   customerEmail,
   customerPhone,
+  developerProjectId,
+  developerEnvironment,
+  externalReference,
   notifyByEmail,
   notifyBySms,
   joinChannel,
   notes,
   actorUserId,
   actorRole,
-  servicePriorityBand
-}) {
-  const resolvedLocation = await resolveLocation(tenant, { location });
-  await assertQueueIntakeOpen(tenant, resolvedLocation);
-  const ticket = await db.withTransaction(async (client) => {
+  source,
+  servicePriorityBand,
+  otpChainId,
+  allowanceReservationKey,
+  developerWebhook,
+  developerMobileLink,
+  serviceId
+}, admission = {}) {
+  let resolvedLocation = await resolveLocation(tenant, { location });
+  await maintenance.assertNewIntake();
+  let operationTenant = tenant;
+  let vendorDateKey;
+  const persist = async (client) => {
+    await maintenance.assertNewIntake({ client });
+    if (admission.admitOtp) await admission.admitOtp(client);
     const createdTicket = await createTicketForTenantInTransaction(client, {
-      tenant,
+      tenant: operationTenant,
       location: resolvedLocation,
+      queueDateKey: vendorDateKey,
       userId,
       customerName,
       customerEmail,
       customerPhone,
+      developerProjectId,
+      developerEnvironment,
+      externalReference,
       notifyByEmail,
       notifyBySms,
       joinChannel,
       notes,
-      servicePriorityBand
+      servicePriorityBand,
+      otpChainId,
+      allowanceReservationKey
     });
+    if (serviceId !== undefined && serviceId !== "") {
+      await ticketServicePlanService.captureStaffPlan(client, {
+        tenant: operationTenant, location: resolvedLocation, ticket: createdTicket, serviceId, actorUserId
+      });
+    }
+    const mobileLink = developerMobileLink
+      ? await mobileTicketLinkService.issuePrivateLink({
+        ticketId: createdTicket._id,
+        developerProjectId: developerMobileLink.projectId,
+        environment: developerMobileLink.environment,
+        client
+      })
+      : null;
 
     const actor = buildQueueEventActor({
       actorUserId,
       actorRole,
-      source: joinChannel === "vendor" ? "vendor" : "public"
+      source: source || (joinChannel === "vendor" ? "vendor" : "public")
     });
     await appendQueueEvent(client, createdTicket, "ticket_created", {
       toStatus: createdTicket.status,
@@ -207,20 +400,60 @@ async function createTicket({
       source: actor.source,
       metadata: {
         joinChannel: createdTicket.joinChannel
-      }
+      },
+      developerWebhook
     });
 
-    return createdTicket;
-  });
+    return { ticket: createdTicket, mobileLink };
+  };
+  let transactionResult;
+  if (joinChannel === "vendor") {
+    transactionResult = await withOpenVendorQueueTransaction(tenant, resolvedLocation, { actorUserId }, "tenant.queue.operate", async (client, scope) => {
+      resolvedLocation = scope.location;
+      vendorDateKey = scope.dateKey;
+      await assertQueueIntakeOpen(tenant, resolvedLocation, { client, queueDateKey: scope.dateKey });
+      await storeHoursService.assertLocationOpenForCustomerJoin(resolvedLocation, { client });
+      const policy = (await client.query("SELECT auto_pause_enabled,auto_pause_threshold,queue_prefix FROM tenants WHERE id=$1", [tenant._id])).rows[0];
+      operationTenant = { ...tenant, autoPauseEnabled: policy.auto_pause_enabled, autoPauseThreshold: policy.auto_pause_threshold, queuePrefix: policy.queue_prefix };
+      await assertWaitingIntakeCapacityAvailable(operationTenant, resolvedLocation, { client, queueDateKey: scope.dateKey, issuance: true });
+      return { ...await persist(client), changed: true };
+    });
+  } else if (developerProjectId == null && ["online", "qr"].includes(joinChannel)) {
+    transactionResult = await withOpenCustomerQueueIssuance(tenant, resolvedLocation, userId, async (client, scope) => {
+      resolvedLocation = scope.location;
+      operationTenant = scope.tenant;
+      vendorDateKey = scope.dateKey;
+      await assertQueueIntakeOpen(operationTenant, resolvedLocation, { client, queueDateKey: scope.dateKey });
+      if (resolvedLocation.queueLifecycleMode !== "enforced") {
+        await storeHoursService.assertLocationOpenForCustomerJoin(resolvedLocation, { client, now: scope.admissionTime });
+      }
+      await assertWaitingIntakeCapacityAvailable(operationTenant, resolvedLocation, { client, queueDateKey: scope.dateKey, issuance: true });
+      return { ...await persist(client), changed: true };
+    });
+  } else {
+    await assertQueueIntakeOpen(tenant, resolvedLocation);
+    transactionResult = await db.withTransaction(persist);
+  }
+  const { ticket, mobileLink } = transactionResult;
 
+  pushNotificationService.notifyCustomerQueueUpdate({ tenant, ticket, action: "joined" }).catch((error) => {
+    console.warn("[push-customer-queue-joined-skipped]", error.message);
+  });
   await maybeNotifyUpcomingTickets(tenant, { location: resolvedLocation });
-  await maybeAutoPauseQueueDay(tenant, { location: resolvedLocation });
+  await maybeAutoPauseQueueDay(operationTenant, { location: resolvedLocation, queueDateKey: vendorDateKey });
   const snapshot = await publishSnapshot(tenant, {
     lookupCode: ticket.lookupCode,
     location: resolvedLocation
   });
 
-  return { ticket, snapshot };
+  if (joinChannel !== "vendor" && tenant.notificationSettings?.queueJoin !== false) {
+    pushNotificationService.notifyVendorQueueJoin({ tenant, ticket }).catch((error) => {
+      console.warn("[web-push-queue-join-skipped]", error.message);
+    });
+  }
+  await notificationService.notifyJourneyLifecycle({ ticket, tenant, slot: "joined", action: "joined" });
+
+  return { ticket, snapshot, ...(mobileLink ? { mobileLink } : {}) };
 }
 
 async function createTicketForTenantInTransaction(client, {
@@ -230,70 +463,250 @@ async function createTicketForTenantInTransaction(client, {
   customerName,
   customerEmail,
   customerPhone,
+  developerProjectId,
+  developerEnvironment,
+  externalReference,
   notifyByEmail,
   notifyBySms,
   joinChannel,
   notes,
-  servicePriorityBand
-}) {
-  const dateKey = getDateKey();
+  servicePriorityBand,
+  otpChainId,
+  allowanceReservationKey,
+  queueDateKey
+}, options = {}) {
+  // Only trusted booking check-in / stored payment fulfillment callers opt in.
+  // Request payloads are deliberately separate from this options argument.
+  if (options.existingWork !== true) await maintenance.assertNewIntake({ client });
   const resolvedLocation = location || (await resolveLocation(tenant));
-  const sequence = await reserveNextSequence(client, tenant._id, resolvedLocation._id, dateKey);
+  let queueDay = null;
+  let dateKey;
+  let sequence;
+  if (resolvedLocation.queueLifecycleMode === "enforced") {
+    queueDay = await assertQueueIntakeOpen(tenant, resolvedLocation, { client, queueDateKey });
+    dateKey = String(queueDay.businessDate).replaceAll("-", "");
+    sequence = await queueDayRepository.allocateSequence(queueDay._id, { client });
+    if (sequence == null) {
+      const error = new Error("Queue intake changed. Refresh and try again.");
+      error.statusCode = 409;
+      error.code = "QUEUE_STATE_CHANGED";
+      throw error;
+    }
+  } else {
+    dateKey = queueDateKey || getDateKey(new Date(), resolvedLocation.timezone);
+    sequence = await reserveNextSequence(client, tenant._id, resolvedLocation._id, dateKey);
+  }
 
-  return createTicketRecord(client, {
+  const ticketNumber = formatTicketNumber(tenant.queuePrefix, sequence);
+  const ticket = await createTicketRecord(client, {
     tenantId: tenant._id,
     locationId: resolvedLocation._id,
     userId,
-    ticketNumber: formatTicketNumber(tenant.queuePrefix, sequence),
+    ticketNumber,
     sequence,
     dateKey,
-    customerName,
+    customerName: customerName || ticketNumber,
     customerEmail,
     customerPhone,
+    developerProjectId,
+    developerEnvironment,
+    externalReference,
     notifyByEmail: Boolean(notifyByEmail && customerEmail),
     notifyBySms: Boolean(notifyBySms && customerPhone),
     joinChannel: joinChannel || "online",
     notes,
-    servicePriorityBand
+    servicePriorityBand,
+    originalQueueDayId: queueDay?._id,
+    currentQueueDayId: queueDay?._id
   });
+  const ticketAllowanceInput = {
+    tenantId: tenant._id,
+    resourceKey: "queueTickets",
+    operationKey: `queue-ticket:${ticket._id}:created`,
+    subjectType: "queue_ticket",
+    subjectId: ticket._id,
+    reason: "Queue Ticket created"
+  };
+  if (allowanceReservationKey) {
+    await allowanceService.commitReservation(
+      { ...ticketAllowanceInput, reservationKey: allowanceReservationKey },
+      { client }
+    );
+  } else {
+    await allowanceService.consumeAllowance({ ...ticketAllowanceInput, units: 1 }, { client });
+  }
+
+  const otpRows = otpChainId
+    ? (await client.query(
+      `SELECT id, resend_ordinal, delivery_channel FROM queue_join_otps
+       WHERE chain_id = $1 ORDER BY resend_ordinal`, [otpChainId]
+    )).rows
+    : [];
+  const emailEligible = Boolean(ticket.notifyByEmail && ticket.customerEmail)
+    || otpRows.some((otp) => otp.delivery_channel === "email");
+  if (emailEligible) {
+    // Journey slots record delivery and deduplicate lifecycle messages, not quota usage.
+    const journeyMode = "unmetered";
+    await client.query(`UPDATE tickets SET email_journey_mode = $2 WHERE id = $1`, [Number(ticket._id), journeyMode]);
+    const journeyResult = await client.query(
+      `INSERT INTO queue_email_journeys (tenant_id, ticket_id, mode, otp_chain_id, email_opted_out_at)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (ticket_id) DO UPDATE SET mode = EXCLUDED.mode, otp_chain_id = COALESCE(queue_email_journeys.otp_chain_id, EXCLUDED.otp_chain_id)
+       RETURNING id`,
+      [Number(tenant._id), Number(ticket._id), journeyMode, otpChainId || null, ticket.notifyByEmail ? null : new Date()]
+    );
+    await client.query(
+      `INSERT INTO queue_email_slots (journey_id, slot_key)
+       SELECT $1, slot_key FROM unnest($2::text[]) AS slot_key
+       ON CONFLICT (journey_id, slot_key) DO NOTHING`,
+      [journeyResult.rows[0].id, ["otp_1","otp_2","otp_3","otp_4","joined","near_turn","called","exception","continuation","final"]]
+    );
+    for (const otp of otpRows.filter((row) => row.delivery_channel === "email")) {
+      await client.query(
+        `UPDATE queue_email_slots SET logical_message_key = $3, status = 'sent', sent_at = NOW()
+         WHERE journey_id = $1 AND slot_key = $2 AND status = 'unused'`,
+        [journeyResult.rows[0].id, `otp_${Number(otp.resend_ordinal) + 1}`, `queue-otp:${otp.id}`]
+      );
+    }
+  }
+  if (queueDay) {
+    await client.query(
+      `INSERT INTO queue_ticket_segments (
+         ticket_id, queue_day_id, display_number, sequence, priority_band
+       )
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (ticket_id, queue_day_id) DO NOTHING`,
+      [
+        Number(ticket._id),
+        Number(queueDay._id),
+        ticket.ticketNumber,
+        ticket.sequence,
+        servicePriorityBand || "normal"
+      ]
+    );
+  }
+  return ticket;
+}
+
+async function reconcileOverdueVendorQueue(client, tenant, location, queueDateKey) {
+  try {
+    await assertQueueDayOpen(tenant, location, { client, queueDateKey });
+    return null;
+  } catch (error) {
+    if (error.code !== "QUEUE_DAY_OVERDUE") throw error;
+    await client.query("UPDATE resource_ledger_scopes SET revision=revision+1 WHERE tenant_id=$1 AND location_id=$2", [tenant._id, location._id]);
+    return error;
+  }
+}
+
+async function executeOpenVendorQueueAction(client, tenant, scope, callback, ledger) {
+  await client.query("SAVEPOINT vendor_queue_action");
+  let outcome;
+  try {
+    outcome = await callback(client, scope, ledger);
+  } catch (error) {
+    if (error.code !== "QUEUE_DAY_OVERDUE") throw error;
+    // Discard the requested action before committing lifecycle reconciliation.
+    await client.query("ROLLBACK TO SAVEPOINT vendor_queue_action");
+    await client.query("RELEASE SAVEPOINT vendor_queue_action");
+    const overdueError = await reconcileOverdueVendorQueue(client, tenant, scope.location, scope.requestedDateKey);
+    if (!overdueError) throw error;
+    return { overdueError };
+  }
+  await client.query("RELEASE SAVEPOINT vendor_queue_action");
+  return { outcome };
+}
+
+async function withOpenVendorQueueTransaction(tenant, location, options, permission, callback, beforeOpen) {
+  let overdueError;
+  const result = await withVendorQueueTransaction({ pool: db.pool, tenant, location, actorUserId: options.actorUserId, permission, lockTenantActivity: true }, async (client, ledger) => {
+    if(beforeOpen){const replay=await beforeOpen(client);if(replay)return replay;}
+    const branch = (await client.query(`SELECT l.is_active,l.queue_lifecycle_mode,l.timezone,t.is_active AS tenant_active
+      FROM store_locations l JOIN tenants t ON t.id=l.tenant_id WHERE l.id=$1 AND l.tenant_id=$2`, [location._id, tenant._id])).rows[0];
+    if (!branch?.is_active || !branch.tenant_active) {
+      throw Object.assign(new Error("This business or location is inactive."), { statusCode: 409 });
+    }
+    const currentLocation = { ...location, queueLifecycleMode: branch.queue_lifecycle_mode || "legacy", timezone: branch.timezone || "Asia/Manila" };
+    const requestedDateKey = options.queueDateKey || getDateKey(new Date(), currentLocation.timezone);
+    let queueDay;
+    try {
+      queueDay = await assertQueueDayOpen(tenant, currentLocation, { client, queueDateKey: requestedDateKey });
+    } catch (error) {
+      if (error.code !== "QUEUE_DAY_OVERDUE") throw error;
+      overdueError = error;
+      await client.query("UPDATE resource_ledger_scopes SET revision=revision+1 WHERE tenant_id=$1 AND location_id=$2", [tenant._id, location._id]);
+      return null;
+    }
+    const dateKey = options.queueDateKey || (queueDay?.businessDate
+      ? String(queueDay.businessDate).replaceAll("-", "") : requestedDateKey);
+    const action = await executeOpenVendorQueueAction(client, tenant, { location: currentLocation, dateKey, queueDay, requestedDateKey }, callback, ledger);
+    if (action.overdueError) {
+      overdueError = action.overdueError;
+      return null;
+    }
+    const outcome = action.outcome;
+    if (outcome?.changed) await client.query("UPDATE resource_ledger_scopes SET revision=revision+1 WHERE tenant_id=$1 AND location_id=$2", [tenant._id, location._id]);
+    return outcome;
+  });
+  if (overdueError) throw overdueError;
+  return result;
+}
+
+async function withOpenCustomerQueueIssuance(tenant, location, userId, callback) {
+  let overdueError;
+  const result = await withCustomerQueueIssuance({ pool: db.pool, tenant, location, userId }, async (client, current) => {
+    const currentLocation = current.location;
+    await client.query("SELECT location_id FROM store_hours WHERE location_id=$1 FOR SHARE", [currentLocation._id]);
+    const admissionTime = new Date();
+    const requestedDateKey = getDateKey(admissionTime, currentLocation.timezone);
+    let queueDay;
+    try {
+      queueDay = await assertQueueDayOpen(current.tenant, currentLocation, { client, queueDateKey: requestedDateKey });
+    } catch (error) {
+      if (error.code !== "QUEUE_DAY_OVERDUE") throw error;
+      overdueError = error;
+      await client.query("UPDATE resource_ledger_scopes SET revision=revision+1 WHERE tenant_id=$1 AND location_id=$2", [tenant._id, location._id]);
+      return null;
+    }
+    const dateKey = queueDay?.businessDate ? String(queueDay.businessDate).replaceAll("-", "") : requestedDateKey;
+    const action = await executeOpenVendorQueueAction(client, current.tenant, {
+      ...current, dateKey, admissionTime, requestedDateKey
+    }, callback);
+    if (action.overdueError) {
+      overdueError = action.overdueError;
+      return null;
+    }
+    if (action.outcome?.changed) await client.query("UPDATE resource_ledger_scopes SET revision=revision+1 WHERE tenant_id=$1 AND location_id=$2", [tenant._id, location._id]);
+    return action.outcome;
+  });
+  if (overdueError) throw overdueError;
+  return result;
 }
 
 async function callNextTicket(tenant, options = {}) {
-  const location = await resolveLocation(tenant, options);
-  await assertQueueDayOpen(tenant, location);
-  const dateKey = options.queueDateKey || getDateKey();
-  const ticket = await db.withTransaction(async (client) => {
-    const activeTicket = await ticketRepository.findCurrentCalledTicket(tenant._id, {
-      client,
-      locationId: location?._id,
-      dateKey
-    });
-    if (activeTicket) {
-      const error = new Error("Serve or skip the current ticket before calling the next one.");
-      error.statusCode = 400;
-      throw error;
+  require("./queueCounterBinding").validate(options,{call:true});
+  const counterReceipts=require("../repositories/queueCounterCommandReceipt"),receipt=counterReceipts.prepare(options);
+  const receiptScope={tenantId:String(tenant._id),locationId:null,actorUserId:String(options.actorUserId)};
+  let location = await resolveLocation(tenant, options);
+  receiptScope.locationId=String(location._id);
+  let dateKey;
+  const result = await withOpenVendorQueueTransaction(tenant, location, options, "tenant.queue.operate", async (client, scope, ledger) => {
+    location = scope.location;
+    dateKey = scope.dateKey;
+    const nextTicket = await counterDispatchService.claimNext(client, {
+      tenantId: tenant._id, locationId: location._id, dateKey
+    }, options);
+    if (!nextTicket) return counterReceipts.write(client,receiptScope,receipt,{ticket:null,reservation:null,changed:false});
+    await assertLegacyTicket(client,nextTicket);
+    if (await resourceLedger.requiresTicketReservation(client, nextTicket)) {
+      await ledger.executeCommand({
+        operationKey: `ticket:${nextTicket._id}:call:${new Date(nextTicket.calledAt).toISOString()}`,
+        command: "reserveTicket",
+        payload: { ticketId: String(nextTicket._id) }
+      });
     }
-
-    const nextWaitingTicket = (await ticketRepository.listWaitingTickets(tenant._id, {
-      client,
-      locationId: location?._id,
-      dateKey,
-      limit: 1
-    }))[0];
-    if (!nextWaitingTicket) {
-      return null;
-    }
-
-    queueLifecycle.assertValidTransition(nextWaitingTicket.status, "called");
-    const nextTicket = await ticketRepository.callNextWaitingTicket(tenant._id, {
-      client,
-      locationId: location?._id,
-      serviceCounterId: options.serviceCounter?._id,
-      dateKey
-    });
-    if (!nextTicket) {
-      return null;
-    }
+    const reservation = await resourceLedger.readTicketReservation(client, nextTicket);
+    queueLifecycle.assertValidTransition("waiting", "called");
 
     const actor = buildQueueEventActor({
       actorUserId: options.actorUserId,
@@ -308,16 +721,24 @@ async function callNextTicket(tenant, options = {}) {
       source: actor.source,
       metadata: {
         serviceCounterId: options.serviceCounter?._id || null
-      }
+      },
+      developerWebhook: options.developerWebhook
     });
+    if (env.waitTimePredictionCaptureEnabled) {
+      await waitTimePredictionRepository.recordOutcome(nextTicket._id, "called", {
+        client,
+        outcomeAt: nextTicket.calledAt
+      });
+    }
 
-    return nextTicket;
-  });
-
+    return counterReceipts.write(client,receiptScope,receipt,{ ticket: nextTicket, reservation, changed: true });
+  },receipt?client=>counterReceipts.read(client,receiptScope,receipt):undefined);
+  const ticket = result?.ticket;
   if (!ticket) {
     return null;
   }
 
+  if(result.replayed)return {ticket,reservation:result.reservation||null,replayed:true,snapshot:await getQueueSnapshot(tenant,{location,includeServiceTiming:true})};
   if (ticket.notifyByEmail || ticket.notifyBySms) {
     await notificationService.notifyCalled({ ticket, tenant });
   }
@@ -325,22 +746,55 @@ async function callNextTicket(tenant, options = {}) {
   await maybeAutoResumeQueueDay(tenant, { location, queueDateKey: dateKey });
   await maybeNotifyUpcomingTickets(tenant, { location });
   const snapshot = await publishSnapshot(tenant, { location });
+  pushNotificationService.notifyCustomerQueueUpdate({
+    tenant,
+    ticket,
+    action: "called"
+  }).catch((error) => {
+    console.warn("[web-push-customer-queue-called-skipped]", error.message);
+  });
 
-  return { ticket, snapshot };
+  return { ticket, reservation: result.reservation || null, snapshot };
 }
 
 async function updateCurrentTicketStatus(tenant, status, options = {}) {
   const location = await resolveLocation(tenant, options);
   queueLifecycle.assertSupportedCurrentTicketResolution(status);
-  const dateKey = options.queueDateKey || getDateKey();
-  const ticket = await db.withTransaction(async (client) => {
-    const currentTicket = await ticketRepository.findCurrentCalledTicket(tenant._id, {
-      client,
-      locationId: location?._id,
-      dateKey
-    });
-    if (!currentTicket) {
+  let dateKey;
+  let overdueError;
+  const ticket = await withVendorQueueTransaction({ pool: db.pool, tenant, location, actorUserId: options.actorUserId }, async (client, ledger, authorizedActor) => {
+    let activeQueueDay;
+    try {
+      activeQueueDay = await assertQueueDayOpen(tenant, location, { client, queueDateKey: options.queueDateKey });
+    } catch (error) {
+      if (error.code !== "QUEUE_DAY_OVERDUE") throw error;
+      // Reconciliation has closed the overdue day. Commit its outcomes/outbox
+      // before rejecting the requested legacy action; no ticket action follows.
+      overdueError = error;
+      await client.query("UPDATE resource_ledger_scopes SET revision=revision+1 WHERE tenant_id=$1 AND location_id=$2", [tenant._id, location._id]);
       return null;
+    }
+    dateKey = options.queueDateKey || (activeQueueDay?.businessDate
+      ? String(activeQueueDay.businessDate).replaceAll("-", "")
+      : getDateKey(new Date(), location.timezone));
+    const currentTicket = await counterDispatchService.lockCurrent(client, {
+      tenantId: tenant._id, locationId: location._id, dateKey
+    }, options);
+    dateKey = currentTicket.dateKey;
+    await assertLegacyTicket(client,currentTicket);
+    if (String(currentTicket.tenantId) !== String(tenant._id)
+      || String(currentTicket.locationId) !== String(location._id)) {
+      throw Object.assign(new Error("Ticket not found."), { statusCode: 404 });
+    }
+
+    const branch = await client.query(`SELECT service_timing_enabled FROM store_locations
+      WHERE id = $1 AND tenant_id = $2`, [location._id, tenant._id]);
+    await ticketResourceOutcomeService.assertLegacyOutcome(client, currentTicket, status, branch.rows[0]?.service_timing_enabled);
+
+    if (status === "served" && !currentTicket.customerConfirmedAt && currentTicket.joinChannel !== "vendor") {
+      const error = new Error("Confirm the called ticket before serving this customer.");
+      error.statusCode = 409;
+      throw error;
     }
 
     queueLifecycle.assertValidTransition(currentTicket.status, status);
@@ -348,16 +802,30 @@ async function updateCurrentTicketStatus(tenant, status, options = {}) {
       client,
       locationId: location?._id,
       dateKey,
+      ticketId: currentTicket._id,
       rejoinDeadlineAt: status === "skipped" ? getRecoveryDeadline() : null
     });
     if (!updatedTicket) {
       return null;
     }
 
-    if (["served", "cancelled"].includes(status)) {
+    if (["cancelled", "unserved"].includes(status)) {
+      await ticketResourceOutcomeService.cancelUnusedProtection(client, ledger, updatedTicket, {
+        operation: `queue-${status}`, cancelBooking: status === "cancelled", actor: authorizedActor
+      });
+    } else if (status === "skipped") {
+      await ticketResourceOutcomeService.cancelTicketReservations(client, ledger, updatedTicket, "queue-skipped");
+    }
+
+    if (status === "served") {
       await bookingRepository.updateBookingByQueueTicketId(
         updatedTicket._id,
-        { status: status === "served" ? "completed" : "canceled" },
+        {
+          status: "completed",
+          fulfillmentOutcomeReason: "ticket_served",
+          refundEligible: false,
+          fulfillmentResolvedAt: new Date()
+        },
         { client }
       );
     }
@@ -379,12 +847,21 @@ async function updateCurrentTicketStatus(tenant, status, options = {}) {
       actorUserId: actor.actorUserId,
       actorRole: actor.actorRole,
       source: actor.source,
-      metadata: {}
+      metadata: {},
+      developerWebhook: options.developerWebhook
     });
+    if (env.waitTimePredictionCaptureEnabled && ["cancelled", "unserved"].includes(status)) {
+      await waitTimePredictionRepository.recordOutcome(updatedTicket._id, "censored", {
+        client,
+        outcomeAt: updatedTicket.updatedAt
+      });
+    }
 
+    await client.query("UPDATE resource_ledger_scopes SET revision=revision+1 WHERE tenant_id=$1 AND location_id=$2", [tenant._id, location._id]);
     return updatedTicket;
   });
 
+  if (overdueError) throw overdueError;
   if (!ticket) {
     return null;
   }
@@ -392,34 +869,147 @@ async function updateCurrentTicketStatus(tenant, status, options = {}) {
   if (status === "served" || status === "cancelled") {
     await maybeAutoResumeQueueDay(tenant, { location, queueDateKey: dateKey });
   }
+  await notificationService.notifyJourneyLifecycle({
+    ticket, tenant,
+    slot: ["served", "cancelled"].includes(status) ? "final" : "exception",
+    action: status
+  });
   await maybeNotifyUpcomingTickets(tenant, { location });
   const snapshot = await publishSnapshot(tenant, { location });
+  pushNotificationService.notifyCustomerQueueUpdate({
+    tenant,
+    ticket,
+    action: status
+  }).catch((error) => {
+    console.warn("[web-push-customer-queue-status-skipped]", error.message);
+  });
 
   return { ticket, snapshot };
+}
+
+async function confirmCurrentTicket(tenant, lookupCode, options = {}) {
+  let location = await resolveLocation(tenant, options);
+  const normalizedLookupCode = String(lookupCode || "").toUpperCase();
+
+  const result = await withOpenVendorQueueTransaction(tenant, location, options, "tenant.ticket.update_state", async (client, scope) => {
+    location = scope.location;
+    const dateKey = scope.dateKey;
+    const currentTicket = await counterDispatchService.lockCurrent(client, {
+      tenantId: tenant._id, locationId: location._id, dateKey
+    }, options);
+
+    await require('./queueTicketConfirmationScope').assertConfirmationScope(client,currentTicket);
+    await ticketBarcodeService.assertConfirmationCredential(client, currentTicket, {
+      lookupCode: normalizedLookupCode, barcodeToken: options.barcodeToken
+    });
+
+    if (currentTicket.customerConfirmedAt) {
+      return { ticket: currentTicket, changed: false };
+    }
+
+    const confirmedTicket = await ticketRepository.confirmCurrentCalledTicket(
+      tenant._id,
+      currentTicket._id,
+      {
+        client,
+        locationId: location?._id,
+        dateKey: currentTicket.dateKey
+      }
+    );
+    if (!confirmedTicket) {
+      return null;
+    }
+
+    const actor = buildQueueEventActor({
+      actorUserId: options.actorUserId,
+      actorRole: options.actorRole,
+      source: options.source || "vendor_barcode_scan"
+    });
+    await appendQueueEvent(client, confirmedTicket, "ticket_confirmed", {
+      fromStatus: "called",
+      toStatus: "called",
+      actorUserId: actor.actorUserId,
+      actorRole: actor.actorRole,
+      source: actor.source,
+      metadata: { confirmationMethod: "barcode" }
+    });
+
+    return { ticket: confirmedTicket, changed: true };
+  });
+  const ticket = result?.ticket;
+  if (!ticket) {
+    return null;
+  }
+
+  const snapshot = await publishSnapshot(tenant, { location });
+  if (result.changed) pushNotificationService.notifyCustomerQueueUpdate({
+    tenant,
+    ticket,
+    action: "confirmed"
+  }).catch((error) => {
+    console.warn("[web-push-customer-queue-confirmed-skipped]", error.message);
+  });
+
+  return { ticket, snapshot };
+}
+
+function getCancellationReason(ticket, options) {
+  if (ticket.status === "pending_carry_over") return "carry_over_declined";
+  return options.vendorTicketId ? "vendor_cancelled" : "customer_cancelled";
 }
 
 async function cancelTicket(tenant, lookupCode, options = {}) {
   const location = options.location || (await resolveLocation(tenant, options));
   const normalizedLookupCode = lookupCode.toUpperCase();
-  const ticket = await db.withTransaction(async (client) => {
-    const existingTicket = await ticketRepository.findTicketByTenantAndLookupCode(
-      tenant._id,
-      normalizedLookupCode,
-      { client }
-    );
+  if (options.vendorTicketId && (!/^[1-9]\d*$/u.test(String(options.vendorTicketId))
+    || !Number.isSafeInteger(Number(options.vendorTicketId)))) {
+    throw Object.assign(new Error("Ticket not found."), { statusCode: 404 });
+  }
+  const runTransaction = options.vendorTicketId
+    ? callback => withVendorQueueTransaction({ pool: db.pool, tenant, location, actorUserId: options.actorUserId }, callback)
+    : callback => withCustomerTicketCancellation({ pool: db.pool, tenant, location, lookupCode: normalizedLookupCode,
+      actorUserId: options.actorUserId, contact: options.customerContact },
+    (client, ledger, existing, customer) => callback(client, ledger, null, existing, customer));
+  const ticket = await runTransaction(async (client, ledger, authorizedActor, authorizedTicket, customer) => {
+    const existingTicket = options.vendorTicketId
+      ? await ticketRepository.findVendorTicketForUpdate(tenant._id, location._id, options.vendorTicketId, { client })
+      : authorizedTicket;
     if (!existingTicket) {
       return null;
     }
+    await assertLegacyTicket(client,existingTicket);
+
+    if (options.vendorTicketId && existingTicket.status !== "waiting") {
+      const error = new Error("Only waiting tickets can be cancelled. Refresh the queue and try again.");
+      error.statusCode = 409;
+      throw error;
+    }
+    if (String(existingTicket.tenantId) !== String(tenant._id)
+      || String(existingTicket.locationId) !== String(location._id)) {
+      throw Object.assign(new Error("Ticket not found."), { statusCode: 404 });
+    }
+    await ticketResourceOutcomeService.assertLegacyOutcome(client, existingTicket, "cancelled", false);
 
     queueLifecycle.assertValidTransition(existingTicket.status, "cancelled");
     const cancelledTicket = await ticketRepository.cancelWaitingTicket(
       tenant._id,
-      normalizedLookupCode,
-      { client }
+      existingTicket.lookupCode,
+      { client, cancelledByVendor: Boolean(options.vendorTicketId) }
     );
     if (!cancelledTicket) {
       return null;
     }
+    await ticketResourceOutcomeService.cancelUnusedProtection(client, ledger, cancelledTicket, {
+      operation: options.vendorTicketId ? "vendor-cancel" : "customer-cancel", cancelBooking: true, actor: authorizedActor, customer
+    });
+    await client.query("UPDATE resource_ledger_scopes SET revision=revision+1 WHERE tenant_id=$1 AND location_id=$2", [tenant._id, location._id]);
+
+    await client.query(
+      `UPDATE queue_ticket_segments
+       SET ended_at = $2, segment_outcome = 'cancelled', outcome_reason = $3
+       WHERE ticket_id = $1 AND ended_at IS NULL`,
+      [cancelledTicket._id, cancelledTicket.updatedAt, getCancellationReason(existingTicket, options)]
+    );
 
     const actor = buildQueueEventActor({
       actorUserId: options.actorUserId,
@@ -433,9 +1023,17 @@ async function cancelTicket(tenant, lookupCode, options = {}) {
       actorRole: actor.actorRole,
       source: actor.source,
       metadata: {
-        lookupCode: cancelledTicket.lookupCode
-      }
+        lookupCode: cancelledTicket.lookupCode,
+        reason: getCancellationReason(existingTicket, options)
+      },
+      developerWebhook: options.developerWebhook
     });
+    if (env.waitTimePredictionCaptureEnabled) {
+      await waitTimePredictionRepository.recordOutcome(cancelledTicket._id, "censored", {
+        client,
+        outcomeAt: cancelledTicket.updatedAt
+      });
+    }
 
     return cancelledTicket;
   });
@@ -444,24 +1042,66 @@ async function cancelTicket(tenant, lookupCode, options = {}) {
     return null;
   }
 
-  await maybeAutoResumeQueueDay(tenant, { location });
-  await maybeNotifyUpcomingTickets(tenant, { location });
-  const snapshot = await publishSnapshot(tenant, { location });
+  const queueOptions = { location, queueDateKey: ticket.dateKey };
+  await maybeAutoResumeQueueDay(tenant, queueOptions);
+  await maybeNotifyUpcomingTickets(tenant, queueOptions);
+  const snapshot = await publishSnapshot(tenant, queueOptions);
+  pushNotificationService.notifyCustomerQueueUpdate({
+    tenant,
+    ticket,
+    action: "cancelled"
+  }).catch((error) => {
+    console.warn("[web-push-customer-queue-cancel-skipped]", error.message);
+  });
 
   return { ticket, snapshot };
 }
 
+async function lockLegacyIntakeLocation(client, tenant, location, options, permission = "tenant.queue.operate") {
+  if (options.actorUserId == null) throw Object.assign(new Error("Vendor authorization is required."), { statusCode: 403 });
+  for (const value of [tenant._id, location._id, options.actorUserId]) {
+    if (!/^[1-9]\d{0,18}$/u.test(String(value)) || !Number.isSafeInteger(Number(value))) {
+      throw Object.assign(new Error("Queue identity requires reconciliation."), { statusCode: 400 });
+    }
+  }
+  const result = await client.query("SELECT id,timezone,queue_lifecycle_mode,is_active FROM store_locations WHERE tenant_id=$1 AND id=$2 FOR NO KEY UPDATE", [tenant._id, location._id]);
+  const current = result.rows[0];
+  if (!current) throw Object.assign(new Error("Queue location not found."), { statusCode: 404 });
+  if (!["legacy", "shadow"].includes(current.queue_lifecycle_mode)) {
+    throw Object.assign(new Error("Queue lifecycle mode changed. Refresh and try again."), { statusCode: 409 });
+  }
+  const business = (await client.query("SELECT is_active FROM tenants WHERE id=$1 FOR SHARE", [tenant._id])).rows[0];
+  if (!current.is_active || !business?.is_active) throw Object.assign(new Error("This business or location is inactive."), { statusCode: 409 });
+  const actor = await readAuthorizedVendorQueueActor(client, {
+    actorUserId: String(options.actorUserId), tenantId: String(tenant._id), locationId: String(location._id)
+  }, permission, { forShare: true });
+  if (!actor) throw Object.assign(new Error("Queue operation is not authorized."), { statusCode: 403 });
+  await client.query("INSERT INTO resource_ledger_scopes(tenant_id,location_id) VALUES($1,$2) ON CONFLICT DO NOTHING", [tenant._id, location._id]);
+  return { ...location, timezone: current.timezone, queueLifecycleMode: current.queue_lifecycle_mode };
+}
+
 async function closeQueueDay(tenant, options = {}) {
-  const location = await resolveLocation(tenant, options);
+  let location = await resolveLocation(tenant, options);
   if (!location) {
     const error = new Error("A location is required to close the queue.");
     error.statusCode = 400;
     throw error;
   }
+  if (location.queueLifecycleMode === "enforced") {
+    await queueDayLifecycleService.closeVendorQueueDay(tenant, location, options);
+    return publishSnapshot(tenant, { location });
+  }
 
-  const queueDateKey = options.queueDateKey || getDateKey();
-  const nextQueueDateKey = options.nextQueueDateKey || getDateKey(new Date(Date.now() + 24 * 60 * 60 * 1000));
+  let queueDateKey;
+  let nextQueueDateKey;
+  let unservedTicketsForPush = [];
+  let carriedTicketsForPush = [];
   await db.withTransaction(async (client) => {
+    location = await lockLegacyIntakeLocation(client, tenant, location, options);
+    const now = new Date();
+    queueDateKey = options.queueDateKey || getDateKey(now, location.timezone);
+    nextQueueDateKey = options.nextQueueDateKey || getDateKey(new Date(now.getTime() + 24 * 60 * 60 * 1000), location.timezone);
+
     const existingClosure = await queueDayClosureRepository.findActiveClosure(
       tenant._id,
       location._id,
@@ -506,6 +1146,8 @@ async function closeQueueDay(tenant, options = {}) {
       toDateKey: nextQueueDateKey,
       ticketIds: waitingTicketIds
     });
+    unservedTicketsForPush = updatedTickets;
+    carriedTicketsForPush = carriedTickets;
     const actor = buildQueueEventActor({
       actorUserId: options.actorUserId,
       actorRole: options.actorRole,
@@ -544,6 +1186,12 @@ async function closeQueueDay(tenant, options = {}) {
           carryOverCount: ticket.carryOverCount
         }
       });
+      if (env.waitTimePredictionCaptureEnabled) {
+        await waitTimePredictionRepository.recordOutcome(ticket._id, "censored", {
+          client,
+          outcomeAt: ticket.updatedAt
+        });
+      }
     }
 
     await queueDayClosureRepository.createClosure(
@@ -577,21 +1225,60 @@ async function closeQueueDay(tenant, options = {}) {
         nextQueueDateKey
       }
     });
+    await client.query("UPDATE resource_ledger_scopes SET revision=revision+1 WHERE tenant_id=$1 AND location_id=$2", [tenant._id, location._id]);
+  });
+
+  for (const ticket of unservedTicketsForPush) {
+    await notificationService.notifyJourneyLifecycle({ ticket, tenant, slot: "exception", action: "unserved" });
+    pushNotificationService.notifyCustomerQueueUpdate({
+      tenant,
+      ticket,
+      action: "unserved"
+    }).catch((error) => {
+      console.warn("[web-push-customer-queue-unserved-skipped]", error.message);
+    });
+  }
+
+  for (const ticket of carriedTicketsForPush) {
+    await notificationService.notifyJourneyLifecycle({ ticket, tenant, slot: "continuation", action: "carried over" });
+    pushNotificationService.notifyCustomerQueueUpdate({
+      tenant,
+      ticket,
+      action: "carried_over"
+    }).catch((error) => {
+      console.warn("[web-push-customer-queue-carried-over-skipped]", error.message);
+    });
+  }
+
+  pushNotificationService.notifyVendorQueueLifecycle({
+    tenant,
+    location,
+    action: "closed"
+  }).catch((error) => {
+    console.warn("[web-push-vendor-queue-closed-skipped]", error.message);
   });
 
   return publishSnapshot(tenant, { location });
 }
 
 async function reopenQueueDay(tenant, options = {}) {
-  const location = await resolveLocation(tenant, options);
+  let location = await resolveLocation(tenant, options);
   if (!location) {
     const error = new Error("A location is required to reopen the queue.");
     error.statusCode = 400;
     throw error;
   }
+  if (location.queueLifecycleMode === "enforced") {
+    await queueDayLifecycleService.reopenQueueDay(tenant, location, options);
+    return publishSnapshot(tenant, { location });
+  }
 
-  const queueDateKey = options.queueDateKey || getDateKey();
+  let queueDateKey;
+  let reopenedTicketsForPush = [];
   await db.withTransaction(async (client) => {
+    location = await lockLegacyIntakeLocation(client, tenant, location, options, "tenant.queue.reopen");
+    queueDateKey = options.queueDateKey || getDateKey(new Date(), location.timezone);
+
     const activeClosure = await queueDayClosureRepository.findActiveClosure(
       tenant._id,
       location._id,
@@ -620,6 +1307,7 @@ async function reopenQueueDay(tenant, options = {}) {
         ticketIds: activeClosure.affectedTicketIds
       }
     );
+    reopenedTicketsForPush = [...reopenedUnservedTickets, ...restoredCarriedTickets];
     const actor = buildQueueEventActor({
       actorUserId: options.actorUserId,
       actorRole: options.actorRole,
@@ -672,22 +1360,46 @@ async function reopenQueueDay(tenant, options = {}) {
         restoredCarriedTicketIds: restoredCarriedTickets.map((ticket) => ticket._id)
       }
     });
+    await client.query("UPDATE resource_ledger_scopes SET revision=revision+1 WHERE tenant_id=$1 AND location_id=$2", [tenant._id, location._id]);
   });
 
   await maybeNotifyUpcomingTickets(tenant, { location });
+  for (const ticket of reopenedTicketsForPush) {
+    pushNotificationService.notifyCustomerQueueUpdate({
+      tenant,
+      ticket,
+      action: "requeued"
+    }).catch((error) => {
+      console.warn("[web-push-customer-queue-reopened-skipped]", error.message);
+    });
+  }
+  pushNotificationService.notifyVendorQueueLifecycle({
+    tenant,
+    location,
+    action: "reopened"
+  }).catch((error) => {
+    console.warn("[web-push-vendor-queue-reopened-skipped]", error.message);
+  });
   return publishSnapshot(tenant, { location });
 }
 
 async function pauseQueueDay(tenant, options = {}) {
-  const location = await resolveLocation(tenant, options);
+  let location = await resolveLocation(tenant, options);
   if (!location) {
     const error = new Error("A location is required to pause queue intake.");
     error.statusCode = 400;
     throw error;
   }
+  if (location.queueLifecycleMode === "enforced") {
+    await queueDayLifecycleService.setQueueIntake(tenant, location, "paused", options);
+    return publishSnapshot(tenant, { location });
+  }
 
-  const queueDateKey = options.queueDateKey || getDateKey();
+  let queueDateKey;
   await db.withTransaction(async (client) => {
+    location = await lockLegacyIntakeLocation(client, tenant, location, options);
+    queueDateKey = options.queueDateKey || getDateKey(new Date(), location.timezone);
+
     const activeClosure = await queueDayClosureRepository.findActiveClosure(
       tenant._id,
       location._id,
@@ -745,21 +1457,37 @@ async function pauseQueueDay(tenant, options = {}) {
         autoPauseThreshold: tenant.autoPauseThreshold || null
       }
     });
+    await client.query("UPDATE resource_ledger_scopes SET revision=revision+1 WHERE tenant_id=$1 AND location_id=$2", [tenant._id, location._id]);
+  });
+
+  pushNotificationService.notifyVendorQueueLifecycle({
+    tenant,
+    location,
+    action: "paused"
+  }).catch((error) => {
+    console.warn("[web-push-vendor-queue-paused-skipped]", error.message);
   });
 
   return publishSnapshot(tenant, { location, queueDateKey });
 }
 
 async function resumeQueueDay(tenant, options = {}) {
-  const location = await resolveLocation(tenant, options);
+  let location = await resolveLocation(tenant, options);
   if (!location) {
     const error = new Error("A location is required to resume queue intake.");
     error.statusCode = 400;
     throw error;
   }
+  if (location.queueLifecycleMode === "enforced") {
+    await queueDayLifecycleService.setQueueIntake(tenant, location, "accepting", options);
+    return publishSnapshot(tenant, { location });
+  }
 
-  const queueDateKey = options.queueDateKey || getDateKey();
+  let queueDateKey;
   await db.withTransaction(async (client) => {
+    location = await lockLegacyIntakeLocation(client, tenant, location, options);
+    queueDateKey = options.queueDateKey || getDateKey(new Date(), location.timezone);
+
     const activePause = await queueDayPauseRepository.findActivePause(
       tenant._id,
       location._id,
@@ -789,60 +1517,66 @@ async function resumeQueueDay(tenant, options = {}) {
         pauseReason: activePause.pauseReason
       }
     });
+    await client.query("UPDATE resource_ledger_scopes SET revision=revision+1 WHERE tenant_id=$1 AND location_id=$2", [tenant._id, location._id]);
+  });
+
+  pushNotificationService.notifyVendorQueueLifecycle({
+    tenant,
+    location,
+    action: "resumed"
+  }).catch((error) => {
+    console.warn("[web-push-vendor-queue-resumed-skipped]", error.message);
   });
 
   return publishSnapshot(tenant, { location, queueDateKey });
 }
 
+function skippedRecoveryPriority(targetTicket, scope, lookupCode) {
+  if (!targetTicket || (lookupCode && String(targetTicket.lookupCode || "").toUpperCase() !== String(lookupCode).toUpperCase())) {
+    throw Object.assign(new Error("Skipped ticket not found."), { statusCode: 404 });
+  }
+  if (targetTicket.terminalAt || String(targetTicket.queueDateKey || targetTicket.dateKey) !== scope.dateKey
+    || (scope.queueDay && String(targetTicket.currentQueueDayId) !== String(scope.queueDay._id))) {
+    throw Object.assign(new Error("Only missed tickets from the current Queue Day can be restored."), { statusCode: 409 });
+  }
+  if (targetTicket.status !== "skipped") {
+    const error = new Error("Only skipped tickets can be restored.");
+    error.statusCode = 409;
+    throw error;
+  }
+
+  if (!targetTicket.skippedAt) {
+    const error = new Error("This skipped ticket is missing recovery metadata.");
+    error.statusCode = 409;
+    throw error;
+  }
+
+  const recoveryDeadline = targetTicket.rejoinDeadlineAt
+    ? new Date(targetTicket.rejoinDeadlineAt)
+    : null;
+  const servicePriorityBand =
+    recoveryDeadline && recoveryDeadline.getTime() > Date.now() ? "recovery" : "normal";
+
+  return servicePriorityBand;
+}
+
 async function restoreSkippedTicket(tenant, ticketId, options = {}) {
-  const location = await resolveLocation(tenant, options);
-  const dateKey = options.queueDateKey || getDateKey();
-
-  const ticket = await db.withTransaction(async (client) => {
+  if (!/^[1-9]\d*$/u.test(String(ticketId)) || !Number.isSafeInteger(Number(ticketId))) {
+    throw Object.assign(new Error("Skipped ticket not found."), { statusCode: 404 });
+  }
+  let location = await resolveLocation(tenant, options);
+  let dateKey;
+  const result = await withOpenVendorQueueTransaction(tenant, location, options, "tenant.ticket.update_state", async (client, scope) => {
+    location = scope.location;
+    dateKey = scope.dateKey;
     await assertQueueIntakeOpen(tenant, location, { client, queueDateKey: dateKey });
-    await assertRestoreCapacityAvailable(tenant, location, { client, queueDateKey: dateKey });
+    const policy = (await client.query("SELECT auto_pause_enabled,auto_pause_threshold FROM tenants WHERE id=$1", [tenant._id])).rows[0];
+    await assertWaitingIntakeCapacityAvailable({ ...tenant, autoPauseEnabled: policy.auto_pause_enabled, autoPauseThreshold: policy.auto_pause_threshold }, location, { client, queueDateKey: dateKey });
 
-    const targetTicket = await ticketRepository.findTicketById(ticketId, { client });
-
-    if (!targetTicket || String(targetTicket.tenantId) !== String(tenant._id)) {
-      const error = new Error("Skipped ticket not found.");
-      error.statusCode = 404;
-      throw error;
-    }
-
-    if (
-      options.lookupCode &&
-      String(targetTicket.lookupCode || "").toUpperCase() !==
-        String(options.lookupCode || "").toUpperCase()
-    ) {
-      const error = new Error("Skipped ticket not found.");
-      error.statusCode = 404;
-      throw error;
-    }
-
-    if (targetTicket.locationId && String(targetTicket.locationId) !== String(location._id)) {
-      const error = new Error("Skipped ticket not found.");
-      error.statusCode = 404;
-      throw error;
-    }
-
-    if (targetTicket.status !== "skipped") {
-      const error = new Error("Only skipped tickets can be restored.");
-      error.statusCode = 409;
-      throw error;
-    }
-
-    if (!targetTicket.skippedAt) {
-      const error = new Error("This skipped ticket is missing recovery metadata.");
-      error.statusCode = 409;
-      throw error;
-    }
-
-    const recoveryDeadline = targetTicket.rejoinDeadlineAt
-      ? new Date(targetTicket.rejoinDeadlineAt)
-      : null;
-    const servicePriorityBand =
-      recoveryDeadline && recoveryDeadline.getTime() > Date.now() ? "recovery" : "normal";
+    const targetTicket = await ticketRepository.findVendorTicketForUpdate(tenant._id, location._id, ticketId, { client });
+    const servicePriorityBand = skippedRecoveryPriority(targetTicket, scope, options.lookupCode);
+    await assertLegacyTicket(client,targetTicket);
+    await ticketResourceOutcomeService.assertRestorable(client, targetTicket);
 
     queueLifecycle.assertValidTransition(targetTicket.status, "waiting");
     const restoredTicket = await ticketRepository.restoreSkippedTicket(tenant._id, ticketId, {
@@ -871,11 +1605,13 @@ async function restoreSkippedTicket(tenant, ticketId, options = {}) {
         reason: servicePriorityBand === "recovery" ? "missed_ticket_recovery" : "missed_ticket_rejoin_expired",
         servicePriorityBand,
         queueDateKey: dateKey
-      }
+      },
+      developerWebhook: options.developerWebhook
     });
 
-    return restoredTicket;
+    return { ticket: restoredTicket, changed: true };
   });
+  const ticket = result?.ticket;
 
   if (!ticket) {
     return null;
@@ -884,8 +1620,49 @@ async function restoreSkippedTicket(tenant, ticketId, options = {}) {
   await maybeNotifyUpcomingTickets(tenant, { location });
   await maybeAutoPauseQueueDay(tenant, { location, queueDateKey: dateKey });
   const snapshot = await publishSnapshot(tenant, { location });
+  pushNotificationService.notifyCustomerQueueUpdate({
+    tenant,
+    ticket,
+    action: "requeued"
+  }).catch((error) => {
+    console.warn("[web-push-customer-queue-requeued-skipped]", error.message);
+  });
 
   return { ticket, snapshot };
+}
+
+async function openQueueDay(tenant, options = {}) {
+  const location = await resolveLocation(tenant, options);
+  if (!location) {
+    const error = new Error("A location is required to open the queue.");
+    error.statusCode = 400;
+    throw error;
+  }
+  if (location.queueLifecycleMode !== "enforced") {
+    const error = new Error("Manual Queue Day opening is not enabled for this location yet.");
+    error.statusCode = 409;
+    error.code = "QUEUE_LIFECYCLE_NOT_ENFORCED";
+    throw error;
+  }
+  await queueDayLifecycleService.openQueueDay(tenant, location, options);
+  return publishSnapshot(tenant, { location });
+}
+
+async function extendQueueDay(tenant, options = {}) {
+  const location = await resolveLocation(tenant, options);
+  if (!location) {
+    const error = new Error("A location is required to extend the queue.");
+    error.statusCode = 400;
+    throw error;
+  }
+  if (location.queueLifecycleMode !== "enforced") {
+    const error = new Error("Queue Day extensions are not enabled for this location yet.");
+    error.statusCode = 409;
+    error.code = "QUEUE_LIFECYCLE_NOT_ENFORCED";
+    throw error;
+  }
+  await queueDayLifecycleService.extendQueueDay(tenant, location, options);
+  return publishSnapshot(tenant, { location });
 }
 
 module.exports = {
@@ -893,11 +1670,17 @@ module.exports = {
   createTicket,
   createTicketForTenantInTransaction,
   assertQueueIntakeOpen,
+  assertQueueDayOpen,
+  assertWaitingIntakeCapacityAvailable,
+  recordCreatedTicketEvent,
   getQueueSnapshot,
   callNextTicket,
+  confirmCurrentTicket,
   updateCurrentTicketStatus,
   cancelTicket,
   closeQueueDay,
+  openQueueDay,
+  extendQueueDay,
   reopenQueueDay,
   pauseQueueDay,
   resumeQueueDay,
