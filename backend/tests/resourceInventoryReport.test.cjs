@@ -68,10 +68,10 @@ for (const historical of [false,true]) {
 test('V4 multi-resource plans reconcile the matching captured item without booking assumptions',()=>{
   const input = fixture();
   const items = [
-    { serviceId:'1000',selectionId:'resource-1',durationMinutes:30,
-      resource:{known:true,poolId:'100',unitsRequired:1,poolRevision:'1',requirementRevision:'1'} },
-    { serviceId:'2000',selectionId:'extra-1',durationMinutes:15,
-      resource:{known:true,poolId:'200',unitsRequired:1,poolRevision:'1',requirementRevision:'1'} },
+    { serviceId:'1000',selectionId:'resource-1',selectionKind:'resource',quantity:3,durationMinutes:30,
+      resource:{poolId:'100',unitsRequired:1,totalUnits:3,poolRevision:'1',requirementRevision:'1'} },
+    { serviceId:'2000',selectionId:'extra-1',selectionKind:'extra',quantity:1,durationMinutes:15,
+      resource:{poolId:'200',unitsRequired:1,totalUnits:1,poolRevision:'1',requirementRevision:'1'} },
   ];
   input.data.pools = [{id:'100',capacity:4,revision:'1',tracking_enabled:true},{id:'200',capacity:4,revision:'1',tracking_enabled:true}];
   input.data.requirements = [{service_id:'1000',pool_id:'100',units_required:1,revision:'1'},{service_id:'2000',pool_id:'200',units_required:1,revision:'1'}];
@@ -88,6 +88,25 @@ test('V4 multi-resource plans reconcile the matching captured item without booki
   assert.ok(!has(report,'ticket_conversion_duration_unknown'));
   assert.ok(!has(report,'ticket_conversion_duration_mismatch'));
   assert.equal(report.readiness,'not_ready');
+
+  input.data.allocations = [];
+  input.data.work[0].service_started_at = null;
+  input.data.bindings = [{id:'10',ticket_id:'1',booking_id:null,booking_item_id:null,state:'protected',pool_id:'100',pool_revision:'1',
+    requirement_revision:'1',units:3,starts_at:input.observedAt,ends_at:'2026-10-12T01:30:00Z',duration_us:'1800000000'}];
+  const protectedReport = buildResourceInventoryReport(input);
+  assert.ok(!has(protectedReport,'ticket_binding_captured_demand_mismatch'));
+
+  input.data.work[0].service_started_at = input.observedAt;
+  input.data.bindings = [{id:'11',ticket_id:'1',booking_id:null,booking_item_id:null,state:'converted',pool_id:'100',pool_revision:'1',
+    requirement_revision:'1',units:3,starts_at:input.observedAt,ends_at:'2026-10-12T01:30:00Z',duration_us:'1800000000'}];
+  input.data.historicalConversions = [{id:'12',ticket_id:'1',reservation_id:'11',pool_id:'100',pool_revision:'1',units:3,
+    started_at:input.observedAt,expected_end_at:'2026-10-12T01:30:00Z',released_at:'2026-10-12T01:30:00Z',reservation_end_matches:true,
+    reservation_start_valid:true,ticket_reservation_start_matches:true,ticket_start_matches:true,binding_ticket_id:'1',binding_booking_id:null,
+    binding_item_id:null,binding_state:'converted',binding_pool_id:'100',binding_pool_revision:'1',binding_units:3,requirement_revision:'1',
+    starts_at:input.observedAt,ends_at:'2026-10-12T01:30:00Z',binding_duration_us:'1800000000',booking_interval_matches:null,
+    work_id:'1',service_started_at:input.observedAt,plan_source:'staff_selection',plan_booking_id:null,plan_items:items}];
+  const releasedReport = buildResourceInventoryReport(input);
+  assert.ok(!has(releasedReport,'allocation_captured_demand_mismatch'));
 });
 test('ambiguous conversion sources remain findings and booking plans cannot adopt ticket bindings',()=>{
   const input=ticketConversionFixture();
