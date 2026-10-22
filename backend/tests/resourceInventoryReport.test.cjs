@@ -65,6 +65,30 @@ for (const historical of [false,true]) {
     assert.ok(has(buildResourceInventoryReport(input),'ticket_conversion_duration_unknown'));
   });
 }
+test('V4 multi-resource plans reconcile the matching captured item without booking assumptions',()=>{
+  const input = fixture();
+  const items = [
+    { serviceId:'1000',selectionId:'resource-1',durationMinutes:30,
+      resource:{known:true,poolId:'100',unitsRequired:1,poolRevision:'1',requirementRevision:'1'} },
+    { serviceId:'2000',selectionId:'extra-1',durationMinutes:15,
+      resource:{known:true,poolId:'200',unitsRequired:1,poolRevision:'1',requirementRevision:'1'} },
+  ];
+  input.data.pools = [{id:'100',capacity:4,revision:'1',tracking_enabled:true},{id:'200',capacity:4,revision:'1',tracking_enabled:true}];
+  input.data.requirements = [{service_id:'1000',pool_id:'100',units_required:1,revision:'1'},{service_id:'2000',pool_id:'200',units_required:1,revision:'1'}];
+  input.data.work = [{id:'1',status:'called',join_channel:'vendor',service_started_at:input.observedAt,
+    items,plan_source:'staff_selection',plan_contract_version:4,plan_captured_at:input.observedAt,execution_mode:'parallel'}];
+  input.data.allocations = [{id:'2',ticket_id:'1',reservation_id:'9',pool_id:'200',pool_revision:'1',units:1,
+    started_at:input.observedAt,expected_end_at:'2026-10-12T01:15:00Z',reservation_end_matches:true,
+    reservation_start_valid:true,ticket_reservation_start_matches:true,ticket_start_matches:true}];
+  input.data.bindings = [{id:'9',ticket_id:'1',booking_id:null,booking_item_id:null,state:'converted',pool_id:'200',pool_revision:'1',
+    requirement_revision:'1',units:1,starts_at:input.observedAt,ends_at:'2026-10-12T01:15:00Z',duration_us:'900000000'}];
+  const report = buildResourceInventoryReport(input);
+  assert.ok(!has(report,'unsupported_composition'));
+  assert.ok(!has(report,'allocation_ticket_conversion_lineage_mismatch'));
+  assert.ok(!has(report,'ticket_conversion_duration_unknown'));
+  assert.ok(!has(report,'ticket_conversion_duration_mismatch'));
+  assert.equal(report.readiness,'not_ready');
+});
 test('ambiguous conversion sources remain findings and booking plans cannot adopt ticket bindings',()=>{
   const input=ticketConversionFixture();
   input.data.bindings[0].booking_id='5';

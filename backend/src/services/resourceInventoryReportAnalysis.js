@@ -116,10 +116,17 @@ function buildResourceInventoryReport({ reportVersion, scope, window, observedAt
   }
   function inspectWorkPlan(row,plan,workRef) {
     if (!plan?.items.length) { finding('missing_captured_plan','work',workRef,'forecast_support_gap'); return; }
-    if (plan.items.length !== 1) { finding('unsupported_composition','work',workRef,'forecast_support_gap'); return; }
-    const item = plan.items[0], raw = row.items[0], current = mappingByService.get(id(raw?.serviceId));
-    if (!item.resource.known || !item.resource.poolRef || !item.resource.units || !item.durationMinutes) finding('unknown_executable_demand','work',workRef,'forecast_support_gap');
-    if (item.resource.known && mappingIsStale(raw,current)) finding('stale_plan_mapping','work',workRef,'forecast_support_gap');
+    if (Number(plan.contractVersion) !== 4 && plan.items.length !== 1) {
+      finding('unsupported_composition','work',workRef,'forecast_support_gap');
+      return;
+    }
+    const rawItems = Array.isArray(plan.rawItems) ? plan.rawItems : [row.items[0]];
+    plan.items.forEach((item,index) => {
+      const raw = rawItems[index], current = mappingByService.get(id(raw?.serviceId));
+      if (!item.resource.known || !item.resource.poolRef || !item.resource.units || !item.durationMinutes)
+        finding('unknown_executable_demand','work',workRef,'forecast_support_gap');
+      if (item.resource.known && mappingIsStale(raw,current)) finding('stale_plan_mapping','work',workRef,'forecast_support_gap');
+    });
   }
   function mappingIsStale(raw,current) {
     if (!current) return true;
@@ -134,7 +141,8 @@ function buildResourceInventoryReport({ reportVersion, scope, window, observedAt
       resource: { known: item?.resource?.known === true, poolRef: reference('pool',item?.resource?.poolId),
         units: integer(item?.resource?.unitsRequired), poolRevision: id(item?.resource?.poolRevision), requirementRevision: id(item?.resource?.requirementRevision) } })) : [];
     const plan = row.plan_source ? { source: choice(row.plan_source,['booking','staff_selection']),
-      executionMode: choice(row.execution_mode,['parallel','sequential']), capturedAt: time(row.plan_captured_at), revision: null, items } : null;
+      contractVersion: id(row.plan_contract_version), executionMode: choice(row.execution_mode,['parallel','sequential']),
+      capturedAt: time(row.plan_captured_at), revision: null, items, rawItems: row.items } : null;
     if (plan) plan.contentFingerprint = createHash('sha256').update(JSON.stringify({ source: plan.source, executionMode: plan.executionMode, items })).digest('hex');
     inventory.work.push({ workRef, queueStatus: choice(row.status,['waiting','called','pending_carry_over','served','cancelled','unserved','skipped','expired']),
       channel: choice(row.join_channel,['vendor','online','qr']), developerLinked: row.developer_linked === true, customerConfirmed: row.customer_confirmed === true,
@@ -143,6 +151,7 @@ function buildResourceInventoryReport({ reportVersion, scope, window, observedAt
       orderEvidence: { priorityBand: choice(row.service_priority_band,['normal','recovery','carry_over','checked_in_booking']),
         carryOverCount: integer(row.carry_over_count,0,2147483647), createdAt: time(row.created_at), currentQueueDayRef: reference('day',row.current_queue_day_id), originalQueueDayRef: reference('day',row.original_queue_day_id) }, plan });
     inspectWorkPlan(row,plan,workRef);
+    if (plan) delete plan.rawItems;
     if (plan?.capturedAt === null) finding('captured_plan_time_unknown','work',workRef,'evidence_gap');
     if (!held && row.service_started_at && !row.service_ended_at) finding('timing_without_allocation','work',workRef,'forecast_support_gap');
     if (row.developer_linked || !['vendor','online','qr'].includes(row.join_channel)) finding('unsupported_channel_provenance','work',workRef,'evidence_gap');
@@ -154,9 +163,22 @@ function buildResourceInventoryReport({ reportVersion, scope, window, observedAt
       finding('captured_resource_evidence_unknown',recordType,allocationRef,'evidence_gap');
     if (work?.plan_source && !['booking','staff_selection'].includes(work.plan_source))
       finding('captured_plan_source_unknown',recordType,allocationRef,'evidence_gap');
-    if (capturedResource?.known === true && (id(capturedResource.poolId) !== row.pool_id || capturedResource.unitsRequired !== row.units
+    if (capturedResource?.known === true && (id(capturedResource.poolId) !== id(row.pool_id) || capturedResource.unitsRequired !== row.units
       || (id(capturedResource.poolRevision) && id(capturedResource.poolRevision) !== row.pool_revision)))
       finding('allocation_captured_demand_mismatch',recordType,allocationRef);
+  }
+  function capturedItemForBinding(capturedItems,binding,row) {
+    const candidates = capturedItems.filter(item => {
+      const resource = item?.resource || {};
+      return resource.known === true
+        && (resource.poolRef || reference('pool',resource.poolId)) === reference('pool',row?.pool_id)
+        && (resource.units ?? resource.unitsRequired) === integer(row?.units);
+    });
+    if (candidates.length === 1) return candidates[0];
+    if (!candidates.length && capturedItems.length === 1) return capturedItems[0];
+    const exact = candidates.filter(item => (!id(row?.pool_revision) || id(item.resource.poolRevision) === id(row.pool_revision))
+      && (!id(binding?.requirement_revision) || id(item.resource.requirementRevision) === id(binding.requirement_revision)));
+    return exact.length === 1 ? exact[0] : null;
   }
   function inspectBookingLineage(row,work,binding,capturedItems,capturedResource,recordType,allocationRef) {
     const capturedItemIds = capturedItems.map(item => id(item?.bookingItemId)).filter(Boolean);
@@ -165,25 +187,26 @@ function buildResourceInventoryReport({ reportVersion, scope, window, observedAt
       finding('allocation_booking_conversion_lineage_mismatch',recordType,allocationRef);
     if (!capturedItemIds.length || !work.booking_id)
       finding('captured_booking_lineage_unknown',recordType,allocationRef,'evidence_gap');
-    const capturedItem = capturedItems.length === 1 ? capturedItems[0] : null;
+    const capturedItem = capturedItemForBinding(capturedItems,binding,row);
     if (!time(capturedItem?.scheduledStartAt) || !time(capturedItem?.scheduledEndAt))
       finding('captured_booking_interval_unknown',recordType,allocationRef,'evidence_gap');
     if (capturedBindingDiffers(binding,capturedItem,capturedResource)) finding('conversion_captured_binding_mismatch',recordType,allocationRef);
   }
   function reconcileConversion(row,work,binding,recordType,allocationRef) {
     const capturedItems = Array.isArray(work?.items) ? work.items : [];
-    const capturedResource = capturedItems.length === 1 ? capturedItems[0]?.resource : null;
+    const capturedItem = capturedItemForBinding(capturedItems,binding,row);
+    const capturedResource = capturedItem?.resource || null;
     inspectCapturedResource(row,work,capturedResource,recordType,allocationRef);
     if (row.reservation_id && conversionDiffers(row,binding)) finding('allocation_conversion_mismatch',recordType,allocationRef);
     if (row.reservation_id && bindingSource(binding) === 'unknown') finding('reservation_source_lineage_unknown',recordType,allocationRef);
     if (work?.plan_source === 'booking') inspectBookingLineage(row,work,binding,capturedItems,capturedResource,recordType,allocationRef);
     if (bindingSource(binding) === 'ticket') {
       if (binding.ticket_id !== row.ticket_id || work?.plan_source !== 'staff_selection' || work?.booking_id
-        || capturedItems.length !== 1 || capturedItems[0]?.bookingItemId)
+        || !capturedItem || capturedItem?.bookingItemId)
         finding('allocation_ticket_conversion_lineage_mismatch',recordType,allocationRef);
       if (row.ticket_reservation_start_matches !== true) finding('ticket_conversion_interval_mismatch',recordType,allocationRef);
-      if (!integer(capturedItems[0]?.durationMinutes,5,480)) finding('captured_ticket_duration_unknown',recordType,allocationRef,'evidence_gap');
-      const durationMatches = ticketDurationMatches(binding,capturedItems[0]);
+      if (!integer(capturedItem?.durationMinutes,5,480)) finding('captured_ticket_duration_unknown',recordType,allocationRef,'evidence_gap');
+      const durationMatches = ticketDurationMatches(binding,capturedItem);
       if (durationMatches === null) finding('ticket_conversion_duration_unknown',recordType,allocationRef,'evidence_gap');
       else if (!durationMatches) finding('ticket_conversion_duration_mismatch',recordType,allocationRef);
       if (!id(capturedResource?.requirementRevision) || id(capturedResource.requirementRevision) !== binding.requirement_revision)
@@ -216,7 +239,8 @@ function buildResourceInventoryReport({ reportVersion, scope, window, observedAt
   }
   function inspectHistoricalConversion(row) {
     const allocationRef = reference('allocation',row.id);
-    const work = row.work_id ? { items:row.plan_items,plan_source:row.plan_source,booking_id:row.plan_booking_id } : null;
+    const work = row.work_id ? { items:row.plan_items,plan_source:row.plan_source,booking_id:row.plan_booking_id,
+      contractVersion:id(row.plan_contract_version) } : null;
     const binding = { state:choice(row.binding_state,['protected','converted','cancelled']),pool_id:row.binding_pool_id,pool_revision:row.binding_pool_revision,units:row.binding_units,
       booking_id:row.binding_booking_id,booking_item_id:row.binding_item_id,ticket_id:row.binding_ticket_id,
       requirement_revision:row.requirement_revision,starts_at:row.starts_at,ends_at:row.ends_at,duration_us:row.binding_duration_us };
@@ -244,7 +268,7 @@ function buildResourceInventoryReport({ reportVersion, scope, window, observedAt
     if (row.state === 'protected' && allocationByBinding.has(row.id)) finding('protected_binding_already_allocated','binding',entry.reservationRef);
     if (bindingSource(row) === 'unknown') finding('reservation_source_lineage_unknown','binding',entry.reservationRef);
     if (row.state === 'protected' && bindingSource(row) === 'ticket') {
-      const work = workById.get(row.ticket_id), item = work?.items?.length === 1 ? work.items[0] : null;
+      const work = workById.get(row.ticket_id), item = capturedItemForBinding(work?.items || [],row,row);
       if (!work) finding('ticket_binding_work_missing','binding',entry.reservationRef);
       else if (work.status !== 'called' || work.service_started_at || work.service_ended_at)
         finding('ticket_binding_lifecycle_mismatch','binding',entry.reservationRef);
