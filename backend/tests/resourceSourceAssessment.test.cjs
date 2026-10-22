@@ -98,7 +98,7 @@ test('PostgreSQL source assessment agrees with dispatch and stays coherent bound
       ALTER TABLE tickets ADD UNIQUE(id,tenant_id,location_id);
       ALTER TABLE tickets ADD queue_date_key TEXT,ADD original_queue_day_id BIGINT,ADD current_queue_day_id BIGINT,ADD status_reason TEXT,
         ADD pending_carry_over_since TIMESTAMPTZ,ADD carry_over_expires_at TIMESTAMPTZ,ADD carry_over_consumed BOOLEAN,ADD terminal_at TIMESTAMPTZ,ADD replacement_for_ticket_id BIGINT,ADD email_journey_mode TEXT;
-      CREATE TABLE ticket_service_plans(ticket_id BIGINT PRIMARY KEY,tenant_id BIGINT,location_id BIGINT,booking_id BIGINT,source TEXT,execution_mode TEXT,items JSONB,created_at TIMESTAMPTZ DEFAULT now());
+      CREATE TABLE ticket_service_plans(ticket_id BIGINT PRIMARY KEY,tenant_id BIGINT,location_id BIGINT,booking_id BIGINT,source TEXT,execution_mode TEXT,contract_version INTEGER,items JSONB,created_at TIMESTAMPTZ DEFAULT now());
       CREATE TABLE queue_days(id BIGINT PRIMARY KEY,tenant_id BIGINT,location_id BIGINT,business_date DATE,state TEXT,intake_mode TEXT,version BIGINT,deadline_version BIGINT,
         last_reconciled_at TIMESTAMPTZ,last_reconciliation_error TEXT,current_closes_at TIMESTAMPTZ);
       CREATE TABLE queue_ticket_segments(id BIGINT PRIMARY KEY,ticket_id BIGINT,queue_day_id BIGINT,sequence INTEGER,priority_band TEXT,activated_at TIMESTAMPTZ,ended_at TIMESTAMPTZ,legacy_inferred BOOLEAN);
