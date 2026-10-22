@@ -12,6 +12,9 @@ const TICKET_COLUMNS = `
   date_key,
   queue_date_key,
   lookup_code,
+  developer_project_id,
+  developer_environment,
+  external_reference,
   customer_name,
   customer_email,
   customer_phone,
@@ -23,7 +26,11 @@ const TICKET_COLUMNS = `
   notified_almost_there_at,
   notified_called_at,
   called_at,
+  customer_confirmed_at,
   served_at,
+  service_started_at,
+  service_ended_at,
+  service_outcome,
   skipped_at,
   cancelled_at,
   unserved_at,
@@ -31,11 +38,22 @@ const TICKET_COLUMNS = `
   carry_over_count,
   service_priority_band,
   rejoin_deadline_at,
+  original_queue_day_id,
+  current_queue_day_id,
+  status_reason,
+  pending_carry_over_since,
+  carry_over_expires_at,
+  carry_over_consumed,
+  terminal_at,
+  replacement_for_ticket_id,
+  email_journey_mode,
   created_at,
   updated_at
 `;
 
-const WAITING_PRIORITY_ORDER = "CASE service_priority_band WHEN 'carry_over' THEN 0 WHEN 'recovery' THEN 1 WHEN 'checked_in_booking' THEN 2 ELSE 3 END ASC, carry_over_count DESC, created_at ASC";
+const { bookingCallNotReady, waitingPriorityOrder } = require("../services/queueDispatchRules");
+const BOOKING_CALL_NOT_READY = bookingCallNotReady();
+const WAITING_PRIORITY_ORDER = waitingPriorityOrder();
 
 function mapTicket(row) {
   if (!row) {
@@ -53,7 +71,11 @@ function mapTicket(row) {
     dateKey: row.date_key,
     queueDateKey: row.queue_date_key,
     lookupCode: row.lookup_code,
+    developerProjectId: row.developer_project_id ? String(row.developer_project_id) : null,
+    developerEnvironment: row.developer_environment || null,
+    externalReference: row.external_reference || null,
     customerName: row.customer_name,
+    customerDisplayName: row.customer_display_name || "",
     customerEmail: row.customer_email,
     customerPhone: row.customer_phone,
     notifyByEmail: row.notify_by_email,
@@ -64,15 +86,34 @@ function mapTicket(row) {
     notifiedAlmostThereAt: row.notified_almost_there_at,
     notifiedCalledAt: row.notified_called_at,
     calledAt: row.called_at,
+    customerConfirmedAt: row.customer_confirmed_at,
     servedAt: row.served_at,
+    serviceStartedAt: row.service_started_at || null,
+    serviceEndedAt: row.service_ended_at || null,
+    serviceOutcome: row.service_outcome || null,
     skippedAt: row.skipped_at,
     cancelledAt: row.cancelled_at,
     unservedAt: row.unserved_at,
     carriedOverAt: row.carried_over_at,
     carryOverCount: row.carry_over_count || 0,
     servicePriorityBand: row.service_priority_band || "normal",
-    linkedBookingReference: row.linked_booking_reference || null,
+    linkedBookingReference: row.linked_booking_reference || row.linked_booking_estimation?.reference || null,
+    linkedBookingEstimation: row.linked_booking_estimation || null,
     rejoinDeadlineAt: row.rejoin_deadline_at,
+    originalQueueDayId: row.original_queue_day_id ? String(row.original_queue_day_id) : null,
+    currentQueueDayId: row.current_queue_day_id ? String(row.current_queue_day_id) : null,
+    statusReason: row.status_reason || null,
+    pendingCarryOverSince: row.pending_carry_over_since,
+    carryOverExpiresAt: row.carry_over_expires_at,
+    carryOverConsumed: Boolean(row.carry_over_consumed),
+    terminalAt: row.terminal_at,
+    replacementForTicketId: row.replacement_for_ticket_id
+      ? String(row.replacement_for_ticket_id)
+      : null,
+    emailJourneyMode: row.email_journey_mode || "not_eligible",
+    journeySegments: Array.isArray(row.queue_journey_segments)
+      ? row.queue_journey_segments
+      : [],
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };
@@ -80,13 +121,42 @@ function mapTicket(row) {
 
 function withLinkedBookingReferenceSelect() {
   return `
-    ${TICKET_COLUMNS},
+    ${withCustomerDisplayNameSelect()},
     (
-      SELECT bookings.reference
+      SELECT json_build_object(
+        'reference', bookings.reference,
+        'scheduledStartAt', bookings.scheduled_start_at,
+        'scheduledEndAt', bookings.scheduled_end_at,
+        'executionMode', bookings.execution_mode,
+        'serviceItems', COALESCE((
+          SELECT json_agg(json_build_object(
+            'scheduledStartAt', items.scheduled_start_at,
+            'scheduledEndAt', items.scheduled_end_at
+          ) ORDER BY items.sort_order, items.id)
+          FROM booking_bundle_items items
+          WHERE items.booking_id = bookings.id
+            AND items.tenant_id = tickets.tenant_id
+            AND items.location_id = tickets.location_id
+        ), '[]'::json)
+      )
       FROM bookings
       WHERE bookings.queue_ticket_id = tickets.id
+        AND bookings.tenant_id = tickets.tenant_id
+        AND bookings.location_id = tickets.location_id
       LIMIT 1
-    ) AS linked_booking_reference
+    ) AS linked_booking_estimation
+  `;
+}
+
+function withCustomerDisplayNameSelect() {
+  return `
+    ${TICKET_COLUMNS},
+    (
+      SELECT NULLIF(BTRIM(users.display_name), '')
+      FROM users
+      WHERE users.id = tickets.user_id
+      LIMIT 1
+    ) AS customer_display_name
   `;
 }
 
@@ -107,6 +177,9 @@ async function createTicket(data, options = {}) {
         date_key,
         queue_date_key,
         lookup_code,
+        developer_project_id,
+        developer_environment,
+        external_reference,
         customer_name,
         customer_email,
         customer_phone,
@@ -118,9 +191,11 @@ async function createTicket(data, options = {}) {
         carried_over_at,
         carry_over_count,
         service_priority_band,
-        rejoin_deadline_at
+        rejoin_deadline_at,
+        original_queue_day_id,
+        current_queue_day_id
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)
       RETURNING ${TICKET_COLUMNS}
     `,
     [
@@ -132,6 +207,9 @@ async function createTicket(data, options = {}) {
       data.dateKey,
       data.dateKey,
       data.lookupCode,
+      data.developerProjectId || null,
+      data.developerEnvironment || null,
+      data.externalReference || null,
       data.customerName,
       data.customerEmail || null,
       data.customerPhone || null,
@@ -143,7 +221,9 @@ async function createTicket(data, options = {}) {
       data.carriedOverAt || null,
       Number(data.carryOverCount || 0),
       data.servicePriorityBand || "normal",
-      data.rejoinDeadlineAt || null
+      data.rejoinDeadlineAt || null,
+      data.originalQueueDayId ? Number(data.originalQueueDayId) : null,
+      data.currentQueueDayId ? Number(data.currentQueueDayId) : null
     ]
   );
 
@@ -170,13 +250,183 @@ async function findTicketById(ticketId, options = {}) {
   return mapTicket(result.rows[0]);
 }
 
+async function findMobileTicketForUser(ticketId, userId, options = {}) {
+  const result = await buildQueryClient(options.client).query(
+    `SELECT tickets.*, tenants.name AS tenant_name, tenants.slug AS tenant_slug,
+            store_locations.name AS location_name, store_locations.slug AS location_slug
+       FROM tickets
+       INNER JOIN tenants ON tenants.id = tickets.tenant_id
+       INNER JOIN store_locations ON store_locations.id = tickets.location_id
+      WHERE tickets.id = $1 AND tickets.user_id = $2
+      LIMIT 1`,
+    [Number(ticketId), Number(userId)]
+  );
+  const row = result.rows[0];
+  return row ? {
+    ...mapTicket(row),
+    tenantName: row.tenant_name,
+    tenantSlug: row.tenant_slug,
+    locationName: row.location_name,
+    locationSlug: row.location_slug
+  } : null;
+}
+
+async function listMobileTicketsForUser(userId, options = {}) {
+  const queryClient = buildQueryClient(options.client);
+  const values = [Number(userId)];
+  const conditions = ["tickets.user_id = $1"];
+  if (options.environment === "sandbox") {
+    conditions.push("tickets.developer_project_id IS NOT NULL", "tickets.developer_environment = 'sandbox'");
+  } else if (options.environment === "production") {
+    conditions.push("tickets.developer_environment IS DISTINCT FROM 'sandbox'");
+  }
+  if (options.view === "active") {
+    conditions.push("tickets.status IN ('waiting', 'called', 'skipped', 'pending_carry_over')");
+  } else {
+    conditions.push("tickets.status NOT IN ('waiting', 'called', 'skipped', 'pending_carry_over')");
+  }
+  if (options.cursor) {
+    values.push(options.cursor.createdAt, Number(options.cursor.id));
+    conditions.push(`(tickets.created_at, tickets.id) < ($${values.length - 1}, $${values.length})`);
+  }
+  const limit = Math.min(Math.max(Number(options.limit) || 20, 1), 50);
+  values.push(limit + 1);
+  const result = await queryClient.query(
+    `SELECT tickets.*, tenants.name AS tenant_name, tenants.slug AS tenant_slug,
+            store_locations.name AS location_name, store_locations.slug AS location_slug
+       FROM tickets
+       INNER JOIN tenants ON tenants.id = tickets.tenant_id
+       INNER JOIN store_locations ON store_locations.id = tickets.location_id
+      WHERE ${conditions.join(" AND ")}
+      ORDER BY tickets.created_at DESC, tickets.id DESC
+      LIMIT $${values.length}`,
+    values
+  );
+  const rows = result.rows;
+  const hasMore = rows.length > limit;
+  const page = rows.slice(0, limit).map((row) => ({
+    ...mapTicket(row),
+    tenantName: row.tenant_name,
+    tenantSlug: row.tenant_slug,
+    locationName: row.location_name,
+    locationSlug: row.location_slug
+  }));
+  const last = page[page.length - 1];
+  return {
+    tickets: page,
+    nextCursor: hasMore && last ? { createdAt: last.createdAt, id: last._id } : null
+  };
+}
+
+function mapDeveloperMobileTicket(row) {
+  if (!row) return null;
+  return {
+    _id: String(row.id),
+    tenantId: null,
+    locationId: null,
+    userId: row.linked_user_id ? String(row.linked_user_id) : null,
+    ticketNumber: row.ticket_number,
+    sequence: row.sequence,
+    displayLabel: row.display_label || row.ticket_number,
+    status: row.status,
+    statusReason: row.status_reason || null,
+    developerProjectId: row.developer_project_id ? String(row.developer_project_id) : null,
+    developerEnvironment: row.environment,
+    queueId: row.developer_api_queue_id ? String(row.developer_api_queue_id) : null,
+    externalReference: row.external_reference || null,
+    verificationCode: row.verification_code || null,
+    customerConfirmedAt: row.customer_confirmed_at || null,
+    profileName: row.profile_display_name || null,
+    queueName: row.queue_display_name || null,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    isDeveloperApiTicket: true
+  };
+}
+
+async function listDeveloperTicketsForUser(userId, options = {}) {
+  const statusClause = options.view === "history"
+    ? "ticket.status NOT IN ('waiting', 'called', 'skipped')"
+    : "ticket.status IN ('waiting', 'called', 'skipped')";
+  const result = await buildQueryClient(options.client).query(
+    `SELECT ticket.id, ticket.developer_project_id, ticket.environment,
+            ticket.developer_api_queue_id,
+            ticket.ticket_number, ticket.sequence, ticket.display_label,
+            ticket.external_reference, ticket.verification_code, ticket.customer_confirmed_at,
+            ticket.status, ticket.status_reason,
+            ticket.linked_user_id, ticket.created_at, ticket.updated_at,
+            profile.display_name AS profile_display_name,
+            queue.display_name AS queue_display_name
+       FROM developer_api_tickets AS ticket
+       INNER JOIN developer_api_profiles AS profile ON profile.id = ticket.developer_api_profile_id
+       INNER JOIN developer_api_queues AS queue ON queue.id = ticket.developer_api_queue_id
+      WHERE ticket.linked_user_id = $1
+        AND ticket.environment = $2
+        AND ${statusClause}
+      ORDER BY ticket.created_at DESC, ticket.id DESC
+      LIMIT $3`,
+    [Number(userId), options.environment === "sandbox" ? "sandbox" : "production", Math.min(Math.max(Number(options.limit) || 20, 1), 50)]
+  );
+  return { tickets: result.rows.map(mapDeveloperMobileTicket), nextCursor: null };
+}
+
+async function findDeveloperTicketForUser(ticketId, userId, options = {}) {
+  const result = await buildQueryClient(options.client).query(
+    `SELECT ticket.id, ticket.developer_project_id, ticket.environment,
+            ticket.developer_api_queue_id,
+            ticket.ticket_number, ticket.sequence, ticket.display_label,
+            ticket.external_reference, ticket.verification_code, ticket.customer_confirmed_at,
+            ticket.status, ticket.status_reason,
+            ticket.linked_user_id, ticket.created_at, ticket.updated_at,
+            profile.display_name AS profile_display_name,
+            queue.display_name AS queue_display_name
+       FROM developer_api_tickets AS ticket
+       INNER JOIN developer_api_profiles AS profile ON profile.id = ticket.developer_api_profile_id
+       INNER JOIN developer_api_queues AS queue ON queue.id = ticket.developer_api_queue_id
+      WHERE ticket.id = $1 AND ticket.linked_user_id = $2
+      LIMIT 1`,
+    [String(ticketId), Number(userId)]
+  );
+  return mapDeveloperMobileTicket(result.rows[0]);
+}
+
+async function findTicketByIdForUpdate(ticketId, options = {}) {
+  const queryClient = buildQueryClient(options.client);
+  const result = await queryClient.query(
+    `SELECT ${TICKET_COLUMNS} FROM tickets WHERE id = $1 LIMIT 1 FOR UPDATE`,
+    [Number(ticketId)]
+  );
+
+  return mapTicket(result.rows[0]);
+}
+
 async function findTicketByTenantAndLookupCode(tenantId, lookupCode, options = {}) {
   const queryClient = buildQueryClient(options.client);
   const result = await queryClient.query(
-    `SELECT ${TICKET_COLUMNS} FROM tickets WHERE tenant_id = $1 AND lookup_code = $2 LIMIT 1`,
+    `SELECT ${withLinkedBookingReferenceSelect()}, EXISTS(SELECT 1 FROM queue_ticket_barcodes WHERE ticket_id=tickets.id) AS barcode_rotation_enabled FROM tickets WHERE tenant_id = $1 AND lookup_code = $2 LIMIT 1`,
     [Number(tenantId), lookupCode]
   );
 
+  const row = result.rows[0];
+  return row ? { ...mapTicket(row), barcodeRotationEnabled: Boolean(row.barcode_rotation_enabled) } : null;
+}
+
+async function findVendorTicketForUpdate(tenantId, locationId, ticketId, options = {}) {
+  const result = await buildQueryClient(options.client).query(
+    `SELECT ${TICKET_COLUMNS} FROM tickets
+     WHERE tenant_id = $1 AND location_id = $2 AND id = $3
+     LIMIT 1 FOR UPDATE`,
+    [Number(tenantId), Number(locationId), Number(ticketId)]
+  );
+  return mapTicket(result.rows[0]);
+}
+
+async function findTicketByScopedLookupCodeForUpdate(tenantId, locationId, lookupCode, options = {}) {
+  const result = await buildQueryClient(options.client).query(
+    `SELECT ${TICKET_COLUMNS} FROM tickets
+     WHERE tenant_id=$1 AND location_id=$2 AND lookup_code=$3 LIMIT 1 FOR UPDATE`,
+    [tenantId, locationId, lookupCode]
+  );
   return mapTicket(result.rows[0]);
 }
 
@@ -203,14 +453,50 @@ async function listWaitingTickets(tenantId, options = {}) {
     carryOverFilter = "AND carried_over_at IS NULL AND COALESCE(carry_over_count, 0) = 0";
   }
 
-  let query = `SELECT ${withLinkedBookingReferenceSelect()} FROM tickets WHERE tenant_id = $1 ${locationFilter} ${dateFilter} ${carryOverFilter} AND status = 'waiting' ORDER BY ${WAITING_PRIORITY_ORDER}`;
+  let query = `SELECT ${withLinkedBookingReferenceSelect()} FROM tickets WHERE tenant_id = $1 ${locationFilter} ${dateFilter} ${carryOverFilter} AND status = 'waiting' ORDER BY CASE WHEN ${BOOKING_CALL_NOT_READY} THEN 1 ELSE 0 END ASC, ${WAITING_PRIORITY_ORDER}`;
 
   if (options.limit) {
     values.push(Number(options.limit));
     query += ` LIMIT $${values.length}`;
   }
 
+  if (options.offset) {
+    values.push(Number(options.offset));
+    query += ` OFFSET $${values.length}`;
+  }
+
   const result = await queryClient.query(query, values);
+  return result.rows.map(mapTicket);
+}
+
+async function listPendingCarryOverTickets(tenantId, options = {}) {
+  const queryClient = buildQueryClient(options.client);
+  const values = [Number(tenantId)];
+  let locationFilter = "";
+
+  if (options.locationId) {
+    values.push(Number(options.locationId));
+    locationFilter = `AND location_id = $${values.length}`;
+  }
+
+  const limit = Number(options.limit || 50);
+  values.push(limit);
+
+  const result = await queryClient.query(
+    `
+      SELECT ${withCustomerDisplayNameSelect()}
+      FROM tickets
+      WHERE tenant_id = $1
+        ${locationFilter}
+        AND status = 'pending_carry_over'
+        AND carry_over_consumed = FALSE
+        AND carry_over_expires_at > NOW()
+      ORDER BY pending_carry_over_since ASC, id ASC
+      LIMIT $${values.length}
+    `,
+    values
+  );
+
   return result.rows.map(mapTicket);
 }
 
@@ -349,22 +635,81 @@ async function listTicketsByUserId(userId, options = {}) {
   }));
 }
 
+async function getCustomerTicketStats(userId, options = {}) {
+  const result = await buildQueryClient(options.client).query(
+    `SELECT COUNT(*)::int AS joined,
+            COUNT(*) FILTER (WHERE status = 'served')::int AS served
+     FROM tickets
+     WHERE user_id = $1`,
+    [Number(userId)]
+  );
+  return { joined: result.rows[0].joined, served: result.rows[0].served };
+}
+
 async function listTicketsForCustomerAccount(user, options = {}) {
   const queryClient = buildQueryClient(options.client);
-  const limit = Number(options.limit || 50);
   const values = [Number(user._id)];
-  const identityFilters = [`tickets.user_id = $1`];
+  const whereClause = "tickets.user_id = $1";
 
-  if (user.email) {
-    values.push(String(user.email).trim().toLowerCase());
-    identityFilters.push(`LOWER(COALESCE(tickets.customer_email, '')) = $${values.length}`);
+  if (options.page || options.pageSize || options.offset !== undefined) {
+    const pageSize = Math.min(Math.max(Number(options.pageSize || options.limit || 10) || 10, 1), 100);
+    const offset = Math.max(Number(options.offset || 0) || 0, 0);
+    const countResult = await queryClient.query(
+      `
+        SELECT COUNT(*)::int AS count
+        FROM tickets
+        WHERE ${whereClause}
+      `,
+      values
+    );
+    const listValues = [...values, pageSize, offset];
+    const result = await queryClient.query(
+      `
+        SELECT
+          tickets.*,
+          tenants.name AS tenant_name,
+          tenants.slug AS tenant_slug,
+          store_locations.name AS location_name,
+          store_locations.slug AS location_slug,
+          journey.segments AS queue_journey_segments
+        FROM tickets
+        INNER JOIN tenants ON tenants.id = tickets.tenant_id
+        INNER JOIN store_locations ON store_locations.id = tickets.location_id
+        LEFT JOIN LATERAL (
+          SELECT json_agg(json_build_object(
+            'id', segment.id::text,
+            'queueDayId', segment.queue_day_id::text,
+            'displayNumber', segment.display_number,
+            'sequence', segment.sequence,
+            'priorityBand', segment.priority_band,
+            'activatedAt', segment.activated_at,
+            'endedAt', segment.ended_at,
+            'outcome', segment.segment_outcome,
+            'outcomeReason', segment.outcome_reason
+          ) ORDER BY segment.activated_at, segment.id) AS segments
+          FROM queue_ticket_segments AS segment
+          WHERE segment.ticket_id = tickets.id
+        ) AS journey ON TRUE
+        WHERE ${whereClause}
+        ORDER BY tickets.created_at DESC
+        LIMIT $${listValues.length - 1} OFFSET $${listValues.length}
+      `,
+      listValues
+    );
+
+    return {
+      tickets: result.rows.map((row) => ({
+        ...mapTicket(row),
+        tenantName: row.tenant_name,
+        tenantSlug: row.tenant_slug,
+        locationName: row.location_name,
+        locationSlug: row.location_slug
+      })),
+      totalItems: Number(countResult.rows[0]?.count || 0)
+    };
   }
 
-  if (user.phone) {
-    values.push(String(user.phone).trim());
-    identityFilters.push(`tickets.customer_phone = $${values.length}`);
-  }
-
+  const limit = Number(options.limit || 50);
   values.push(limit);
 
   const result = await queryClient.query(
@@ -374,11 +719,27 @@ async function listTicketsForCustomerAccount(user, options = {}) {
         tenants.name AS tenant_name,
         tenants.slug AS tenant_slug,
         store_locations.name AS location_name,
-        store_locations.slug AS location_slug
+        store_locations.slug AS location_slug,
+        journey.segments AS queue_journey_segments
       FROM tickets
       INNER JOIN tenants ON tenants.id = tickets.tenant_id
       INNER JOIN store_locations ON store_locations.id = tickets.location_id
-      WHERE ${identityFilters.map((filter) => `(${filter})`).join(" OR ")}
+      LEFT JOIN LATERAL (
+        SELECT json_agg(json_build_object(
+          'id', segment.id::text,
+          'queueDayId', segment.queue_day_id::text,
+          'displayNumber', segment.display_number,
+          'sequence', segment.sequence,
+          'priorityBand', segment.priority_band,
+          'activatedAt', segment.activated_at,
+          'endedAt', segment.ended_at,
+          'outcome', segment.segment_outcome,
+          'outcomeReason', segment.outcome_reason
+        ) ORDER BY segment.activated_at, segment.id) AS segments
+        FROM queue_ticket_segments AS segment
+        WHERE segment.ticket_id = tickets.id
+      ) AS journey ON TRUE
+      WHERE ${whereClause}
       ORDER BY tickets.created_at DESC
       LIMIT $${values.length}
     `,
@@ -416,34 +777,39 @@ async function countServedToday(tenantId, dateKey, options = {}) {
   return result.rows[0]?.count || 0;
 }
 
-async function findCurrentCalledTicket(tenantId, options = {}) {
-  const queryClient = buildQueryClient(options.client);
+// Unscoped reads are summaries only. Mutations supply an explicit counter lane.
+async function listCalledTickets(tenantId, options = {}) {
   const values = [Number(tenantId)];
-  let locationFilter = "";
-  let dateFilter = "";
-
-  if (options.locationId) {
-    values.push(Number(options.locationId));
-    locationFilter = `AND location_id = $${values.length}`;
+  const filters = ["tenant_id = $1", "status = 'called'"];
+  for (const [key, column] of [["locationId", "location_id"], ["dateKey", "date_key"], ["ticketId", "id"]]) {
+    if (options[key] != null) {
+      values.push(options[key]);
+      filters.push(`${column} = $${values.length}`);
+    }
   }
-
-  if (options.dateKey) {
-    values.push(String(options.dateKey));
-    dateFilter = `AND date_key = $${values.length}`;
+  if (Object.hasOwn(options, "serviceCounterId")) {
+    values.push(options.serviceCounterId ?? null);
+    filters.push(`service_counter_id IS NOT DISTINCT FROM $${values.length}::bigint`);
   }
+  const result = await buildQueryClient(options.client).query(`
+    SELECT ${withLinkedBookingReferenceSelect()} FROM tickets
+    WHERE ${filters.join(" AND ")}
+    ORDER BY called_at ASC NULLS LAST, created_at ASC, id ASC
+    ${options.limit === 1 ? "LIMIT 1" : ""} ${options.forUpdate ? "FOR UPDATE" : ""}`, values);
+  return result.rows.map(mapTicket);
+}
 
-  const result = await queryClient.query(
-    `
-      SELECT ${withLinkedBookingReferenceSelect()}
-      FROM tickets
-      WHERE tenant_id = $1 ${locationFilter} ${dateFilter} AND status = 'called'
-      ORDER BY called_at ASC NULLS LAST, created_at ASC
-      LIMIT 1
-    `,
-    values
-  );
+async function findCurrentCalledTicket(tenantId, options = {}) {
+  return (await listCalledTickets(tenantId, { ...options, limit: 1 }))[0] || null;
+}
 
-  return mapTicket(result.rows[0]);
+// Read and claim share the booking readiness predicate and database clock.
+async function countReadyWaitingTickets(tenantId, options = {}) {
+  const result = await buildQueryClient(options.client).query(`
+    SELECT COUNT(*)::int AS count FROM tickets
+    WHERE tenant_id=$1 AND location_id=$2 AND date_key=$3 AND status='waiting'
+      AND NOT ${BOOKING_CALL_NOT_READY}`, [tenantId, options.locationId, options.dateKey]);
+  return result.rows[0].count;
 }
 
 async function callNextWaitingTicket(tenantId, options = {}) {
@@ -454,12 +820,17 @@ async function callNextWaitingTicket(tenantId, options = {}) {
         SELECT id
         FROM tickets
         WHERE tenant_id = $1 AND location_id = $2 AND date_key = $4 AND status = 'waiting'
+          AND NOT ${BOOKING_CALL_NOT_READY}
         ORDER BY ${WAITING_PRIORITY_ORDER}
         LIMIT 1
         FOR UPDATE SKIP LOCKED
       )
       UPDATE tickets
-      SET status = 'called', called_at = NOW(), notified_called_at = NOW(), service_counter_id = $3
+      SET status = 'called',
+          called_at = clock_timestamp(),
+          notified_called_at = clock_timestamp(),
+          customer_confirmed_at = NULL,
+          service_counter_id = $3
       WHERE id IN (SELECT id FROM next_ticket)
       RETURNING ${TICKET_COLUMNS}
     `,
@@ -491,6 +862,7 @@ async function updateCurrentCalledTicketStatus(tenantId, status, options = {}) {
         SELECT id
         FROM tickets
         WHERE tenant_id = $1 AND location_id = $3 AND date_key = $4 AND status = 'called'
+          AND ($6::bigint IS NULL OR id = $6)
         ORDER BY called_at ASC NULLS LAST, created_at ASC
         LIMIT 1
         FOR UPDATE SKIP LOCKED
@@ -516,7 +888,33 @@ async function updateCurrentCalledTicketStatus(tenantId, status, options = {}) {
       status,
       Number(options.locationId),
       String(options.dateKey),
-      options.rejoinDeadlineAt || null
+      options.rejoinDeadlineAt || null,
+      options.ticketId ? Number(options.ticketId) : null
+    ]
+  );
+
+  return mapTicket(result.rows[0]);
+}
+
+async function confirmCurrentCalledTicket(tenantId, ticketId, options = {}) {
+  const queryClient = buildQueryClient(options.client);
+  const result = await queryClient.query(
+    `
+      UPDATE tickets
+      SET customer_confirmed_at = COALESCE(customer_confirmed_at, clock_timestamp()),
+          updated_at = clock_timestamp()
+      WHERE id = $1
+        AND tenant_id = $2
+        AND location_id = $3
+        AND date_key = $4
+        AND status = 'called'
+      RETURNING ${TICKET_COLUMNS}
+    `,
+    [
+      Number(ticketId),
+      Number(tenantId),
+      Number(options.locationId),
+      String(options.dateKey)
     ]
   );
 
@@ -530,16 +928,43 @@ async function cancelWaitingTicket(tenantId, lookupCode, options = {}) {
       WITH cancellable_ticket AS (
         SELECT id
         FROM tickets
-        WHERE tenant_id = $1 AND lookup_code = $2 AND status = 'waiting'
+        WHERE tenant_id = $1
+          AND lookup_code = $2
+          AND status IN ('waiting', 'pending_carry_over')
         LIMIT 1
         FOR UPDATE SKIP LOCKED
       )
       UPDATE tickets
-      SET status = 'cancelled', cancelled_at = NOW()
+      SET status = 'cancelled',
+          status_reason = CASE
+            WHEN status = 'pending_carry_over' THEN 'carry_over_declined'
+            ELSE $3
+          END,
+          cancelled_at = NOW(),
+          current_queue_day_id = NULL,
+          terminal_at = NOW(),
+          updated_at = NOW()
       WHERE id IN (SELECT id FROM cancellable_ticket)
       RETURNING ${TICKET_COLUMNS}
     `,
-    [Number(tenantId), lookupCode]
+    [Number(tenantId), lookupCode, options.cancelledByVendor ? "vendor_cancelled" : "customer_cancelled"]
+  );
+
+  return mapTicket(result.rows[0]);
+}
+
+async function claimTicketForUser(ticketId, userId, options = {}) {
+  const queryClient = buildQueryClient(options.client);
+  const result = await queryClient.query(
+    `
+      UPDATE tickets
+      SET user_id = $2,
+          updated_at = NOW()
+      WHERE id = $1
+        AND user_id IS NULL
+      RETURNING ${TICKET_COLUMNS}
+    `,
+    [Number(ticketId), Number(userId)]
   );
 
   return mapTicket(result.rows[0]);
@@ -729,9 +1154,10 @@ async function restoreSkippedTicket(tenantId, ticketId, options = {}) {
           service_counter_id = NULL,
           called_at = NULL,
           notified_called_at = NULL,
+          customer_confirmed_at = NULL,
           service_priority_band = $4,
           rejoin_deadline_at = NULL,
-          updated_at = NOW()
+          updated_at = clock_timestamp()
       WHERE tenant_id = $1
         AND location_id = $2
         AND id = $3
@@ -753,19 +1179,32 @@ module.exports = {
   mapTicket,
   createTicket,
   findTicketById,
+  findMobileTicketForUser,
+  listMobileTicketsForUser,
+  listDeveloperTicketsForUser,
+  findDeveloperTicketForUser,
+  findTicketByIdForUpdate,
   findTicketByLookupCode,
   findTicketByTenantAndLookupCode,
+  findVendorTicketForUpdate,
+  findTicketByScopedLookupCodeForUpdate,
   listWaitingTickets,
+  listPendingCarryOverTickets,
   listHistoryTickets,
   listSkippedTickets,
   listClientTickets,
   listTicketsByUserId,
   listTicketsForCustomerAccount,
+  getCustomerTicketStats,
   countServedToday,
   findCurrentCalledTicket,
+  listCalledTickets,
+  countReadyWaitingTickets,
+  confirmCurrentCalledTicket,
   callNextWaitingTicket,
   updateCurrentCalledTicketStatus,
   cancelWaitingTicket,
+  claimTicketForUser,
   markTicketNotifiedAlmostThere,
   listTicketsForQueueClosure,
   markTicketsUnservedForClosure,

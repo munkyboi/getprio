@@ -32,7 +32,7 @@ async function listCountersByLocationId(locationId, options = {}) {
       GROUP BY service_counters.id
       ORDER BY service_counters.created_at ASC
     `,
-    [Number(locationId)]
+    [String(locationId)]
   );
   return result.rows.map(mapCounter);
 }
@@ -44,7 +44,7 @@ async function createCounter(data, options = {}) {
       VALUES ($1, $2, $3, $4, $5)
       RETURNING *
     `,
-    [Number(data.tenantId), Number(data.locationId), data.name, data.slug, Boolean(data.isActive)]
+    [String(data.tenantId), String(data.locationId), data.name, data.slug, Boolean(data.isActive)]
   );
   return mapCounter({ ...result.rows[0], assigned_user_ids: [] });
 }
@@ -65,9 +65,66 @@ async function findCounterByLocationAndSlug(locationId, slug, options = {}) {
       GROUP BY service_counters.id
       LIMIT 1
     `,
-    [Number(locationId), slug]
+    [String(locationId), slug]
   );
-  return mapCounter(result.rows[0]);
+  return result.rows[0] ? mapCounter(result.rows[0]) : null;
+}
+
+async function findCounterById(counterId, options = {}) {
+  const result = await buildQueryClient(options.client).query(
+    `SELECT * FROM service_counters WHERE id = $1 LIMIT 1`,
+    [String(counterId)]
+  );
+  return result.rows[0] ? mapCounter({ ...result.rows[0], assigned_user_ids: [] }) : null;
+}
+
+async function isCounterSlugAvailable(locationId, slug, excludeCounterId = null, options = {}) {
+  const source = String(slug || "").trim().toLowerCase();
+  let normalizedSlug = "";
+  let previousWasDash = false;
+
+  for (const char of source) {
+    const isAlphaNumeric = (char >= "a" && char <= "z") || (char >= "0" && char <= "9");
+    if (isAlphaNumeric) {
+      normalizedSlug += char;
+      previousWasDash = false;
+    } else if (!previousWasDash && normalizedSlug.length > 0) {
+      normalizedSlug += "-";
+      previousWasDash = true;
+    }
+  }
+
+  if (normalizedSlug.endsWith("-")) {
+    normalizedSlug = normalizedSlug.slice(0, -1);
+  }
+
+  normalizedSlug = normalizedSlug.slice(0, 80);
+
+  if (!normalizedSlug) {
+    return { available: false, valid: false, message: "Enter a counter slug." };
+  }
+
+  const queryClient = buildQueryClient(options.client);
+  const values = [String(locationId), normalizedSlug];
+  let query = `
+    SELECT id
+    FROM service_counters
+    WHERE location_id = $1 AND slug = $2
+  `;
+
+  if (excludeCounterId) {
+    values.push(String(excludeCounterId));
+    query += ` AND id <> $${values.length}`;
+  }
+
+  query += " LIMIT 1";
+
+  const result = await queryClient.query(query, values);
+  return {
+    available: result.rows.length === 0,
+    valid: Boolean(normalizedSlug),
+    message: result.rows.length === 0 ? "Slug is available." : "That counter slug is already taken."
+  };
 }
 
 async function updateCounter(counterId, changes, options = {}) {
@@ -79,7 +136,7 @@ async function updateCounter(counterId, changes, options = {}) {
       WHERE id = $1
       RETURNING *
     `,
-    [Number(counterId), changes.name, changes.slug, Boolean(changes.isActive)]
+    [String(counterId), changes.name, changes.slug, Boolean(changes.isActive)]
   );
   return mapCounter({ ...result.rows[0], assigned_user_ids: [] });
 }
@@ -87,7 +144,7 @@ async function updateCounter(counterId, changes, options = {}) {
 async function deleteCounter(counterId, options = {}) {
   await buildQueryClient(options.client).query(
     `DELETE FROM service_counters WHERE id = $1`,
-    [Number(counterId)]
+    [String(counterId)]
   );
 }
 
@@ -104,7 +161,7 @@ async function listAssignedCounterIdsByUserIds(userIds, options = {}) {
       WHERE user_id = ANY($1::bigint[])
       GROUP BY user_id
     `,
-    [userIds.map(Number)]
+    [userIds.map(String)]
   );
 
   return new Map(result.rows.map((row) => [String(row.user_id), row.counter_ids || []]));
@@ -112,21 +169,37 @@ async function listAssignedCounterIdsByUserIds(userIds, options = {}) {
 
 async function replaceAssignments(counterId, userIds, options = {}) {
   const queryClient = buildQueryClient(options.client);
-  await queryClient.query(`DELETE FROM service_counter_assignments WHERE counter_id = $1`, [Number(counterId)]);
+  await queryClient.query(`DELETE FROM service_counter_assignments WHERE counter_id = $1`, [String(counterId)]);
   for (const userId of userIds || []) {
     await queryClient.query(
       `INSERT INTO service_counter_assignments (counter_id, user_id) VALUES ($1, $2)`,
-      [Number(counterId), Number(userId)]
+      [String(counterId), String(userId)]
     );
   }
+}
+
+async function removeAssignmentsForUserAndTenant(userId, tenantId, options = {}) {
+  const result = await buildQueryClient(options.client).query(
+    `DELETE FROM service_counter_assignments assignments
+     USING service_counters counters
+     WHERE assignments.counter_id = counters.id
+       AND assignments.user_id = $1
+       AND counters.tenant_id = $2
+     RETURNING counters.location_id::text AS location_id`,
+    [String(userId), String(tenantId)]
+  );
+  return [...new Set(result.rows.map(row => row.location_id))];
 }
 
 module.exports = {
   listCountersByLocationId,
   findCounterByLocationAndSlug,
+  findCounterById,
+  isCounterSlugAvailable,
   createCounter,
   updateCounter,
   deleteCounter,
   replaceAssignments,
+  removeAssignmentsForUserAndTenant,
   listAssignedCounterIdsByUserIds
 };

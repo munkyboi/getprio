@@ -1,0 +1,16 @@
+import type { StoreLocationWithHours } from "@shared";
+import { IconCheck, IconEdit, IconPalette, IconQrcode, IconMapPin } from "@tabler/icons-react";
+import { Badge } from "./components/ui/badge";
+import { Switch } from "./components/ui/switch";
+import { EntityGrid, EntityCard, EntityIconAction } from "./EntityCards";
+export function LocationsGrid({items,selectedSlug,canManage,busyAction,errors,onToggle,onEdit,onSelect,onQr,onTheme,formatHours}:{
+ items:StoreLocationWithHours[];selectedSlug:string;canManage:boolean;busyAction:string;errors:Record<string,string>;
+ onToggle:(item:StoreLocationWithHours,enabled:boolean)=>void;onEdit:(item:StoreLocationWithHours)=>void;
+ onSelect:(slug:string)=>void;onQr:(item:StoreLocationWithHours)=>void;onTheme?: (item:StoreLocationWithHours)=>void;
+ formatHours:(hours:StoreLocationWithHours['openStatus']['today'])=>string;
+}){
+ return <EntityGrid label="Locations">{items.map(item=>{
+ const saving=busyAction===`location-status:${item.slug}`;
+ return <EntityCard key={item.id} title={item.name} selected={item.slug===selectedSlug} badges={<>{item.isPrimary?<Badge variant="info">Primary</Badge>:null}<Badge variant={item.isActive&&item.openStatus.isOpen?'success':'warning'}>{item.isActive&&item.openStatus.isOpen?'Open':'Closed'}</Badge>{item.paymentQrActive?<Badge variant="info">Manual payment</Badge>:null}</>} footer={<><div className="location-toggle"><Switch aria-label={`Enable ${item.name}`} checked={item.isActive} disabled={!canManage||Boolean(busyAction)} aria-busy={saving} aria-describedby={errors[item.id]?`location-error-${item.id}`:undefined} onCheckedChange={enabled=>onToggle(item,enabled)}/><span role="status">{saving?'Saving…':item.isActive?'On':'Off'}</span></div>{errors[item.id]?<p className="location-row-error" id={`location-error-${item.id}`} role="alert">{errors[item.id]}</p>:null}<div className="location-icon-actions"><EntityIconAction label={`Edit ${item.name} location`} disabled={!canManage||Boolean(busyAction)} onClick={()=>onEdit(item)}><IconEdit aria-hidden="true"/></EntityIconAction><EntityIconAction label={item.slug===selectedSlug?`${item.name} is selected`:`Select ${item.name}`} disabled={item.slug===selectedSlug||Boolean(busyAction)} onClick={()=>onSelect(item.slug)}>{item.slug===selectedSlug?<IconCheck aria-hidden="true"/>:<IconMapPin aria-hidden="true"/>}</EntityIconAction><EntityIconAction label={`Regenerate queue QR for ${item.name}`} disabled={!canManage||Boolean(busyAction)} onClick={()=>onQr(item)}><IconQrcode aria-hidden="true"/></EntityIconAction>{onTheme?<EntityIconAction label={`Set up theme for ${item.name}`} disabled={!canManage||Boolean(busyAction)} onClick={()=>onTheme(item)}><IconPalette aria-hidden="true"/></EntityIconAction>:null}</div></>}> <p className="ops-muted">{[item.addressLine1,item.city,item.province].filter(Boolean).join(', ')||`/${item.slug}`}</p><p className="ops-muted">{item.timezone} · Today{item.openStatus.today ? `, ${["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"][item.openStatus.today.weekday]}` : ""} · {formatHours(item.openStatus.today)}</p>{item.paymentQrActive?<p className="ops-muted">{item.paymentMethodLabel} · {item.paymentAccountDisplayName}</p>:null}</EntityCard>;
+ })}</EntityGrid>;
+}

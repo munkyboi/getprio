@@ -32,7 +32,7 @@ function requireWithMocks(targetPath, mocks) {
   const originals = new Map();
 
   try {
-    for (const [requestPath, mockExports] of Object.entries(mocks)) {
+    for (const [requestPath, mockExports] of Object.entries({ "../services/welcomeEmailService": { sendWelcomeEmail: async () => true }, ...mocks })) {
       const resolvedDependency = resolveMockPath(requestPath, path.dirname(resolvedTarget));
       originals.set(resolvedDependency, require.cache[resolvedDependency]);
       require.cache[resolvedDependency] = {
@@ -62,6 +62,11 @@ function createMockRes() {
     statusCode: 200,
     jsonBody: null,
     redirectUrl: null,
+    cookies: [],
+    append(name, value) {
+      if (name === "Set-Cookie") this.cookies.push(value);
+      return this;
+    },
     status(code) {
       this.statusCode = code;
       return this;
@@ -92,6 +97,7 @@ function getRouteHandlers(router, method, routePath) {
 test("oauth start route redirects to the provider authorization URL", () => {
   let capturedProvider = "";
   let capturedState = "";
+  let capturedPayload;
   const authRoutes = requireWithMocks("../src/routes/authRoutes.js", {
     "../config/db": {},
     "../repositories/tenants": {},
@@ -120,7 +126,7 @@ test("oauth start route redirects to the provider authorization URL", () => {
       },
       buildClientCallbackUrl: () => "",
       buildProviderAvailability: () => ({ google: true, facebook: false }),
-      createOAuthState: (payload) => `state:${payload.provider}:${payload.intent}`,
+      createOAuthState: (payload) => { capturedPayload = payload; return `state:${payload.provider}:${payload.intent}`; },
       exchangeCodeForProfile: async () => ({}),
       ensureSupportedProvider: () => {},
       getProviderLabel: (provider) => provider,
@@ -144,6 +150,11 @@ test("oauth start route redirects to the provider authorization URL", () => {
   assert.equal(capturedProvider, "google");
   assert.equal(capturedState, "state:google:register_vendor");
   assert.equal(res.redirectUrl, "https://oauth.example/google?state=state%3Agoogle%3Aregister_vendor");
+  const next = "/dashboard/queue?boardPairing=" + "a".repeat(32);
+  handler({params: {provider: "google"}, query: {intent: "login", next}}, createMockRes());
+  assert.equal(capturedPayload.next, next);
+  handler({params: {provider: "facebook"}, query: {intent: "login", next: "https://attacker.example"}}, createMockRes());
+  assert.equal(capturedPayload.next, null);
 });
 
 test("oauth callback route completes login and redirects with tokens", async () => {
@@ -152,6 +163,10 @@ test("oauth callback route completes login and redirects with tokens", async () 
     refreshToken: "refresh-token",
     session: { _id: "session-1" }
   };
+  const welcomeCalls = [];
+  let existing = false;
+  let intent = "login";
+  let next = null;
   let receivedProfile = null;
   let receivedCallbackArgs = null;
   const oauthUser = {
@@ -167,13 +182,14 @@ test("oauth callback route completes login and redirects with tokens", async () 
     tenantMemberships: []
   };
   const authRoutes = requireWithMocks("../src/routes/authRoutes.js", {
+    "../services/welcomeEmailService": { sendWelcomeEmail: async (payload) => { welcomeCalls.push(payload); } },
     "../config/db": { withTransaction: async (callback) => callback({}) },
     "../repositories/tenants": {
       findTenantsByIds: async () => []
     },
     "../repositories/authSessions": {},
     "../repositories/users": {
-      findUserByOauthAccount: async () => null,
+      findUserByOauthAccount: async () => existing ? oauthUser : null,
       findUserByEmail: async () => null,
       findUserByUsername: async () => null,
       createUser: async () => oauthUser,
@@ -199,7 +215,7 @@ test("oauth callback route completes login and redirects with tokens", async () 
       buildAuthorizationUrl: () => "",
       buildClientCallbackUrl: (payload) => {
         receivedCallbackArgs = payload;
-        return "https://app.example/oauth/callback#token=ok";
+        return "https://app.example/oauth/callback";
       },
       buildProviderAvailability: () => ({ google: true, facebook: false }),
       createOAuthState: () => "",
@@ -215,7 +231,7 @@ test("oauth callback route completes login and redirects with tokens", async () 
       },
       ensureSupportedProvider: () => {},
       getProviderLabel: (provider) => provider,
-      readOAuthState: () => ({ provider: "google", intent: "login" })
+      readOAuthState: () => ({ provider: "google", intent, next })
     },
     "../services/notificationService": {},
     "../services/passwordResetService": {},
@@ -244,10 +260,22 @@ test("oauth callback route completes login and redirects with tokens", async () 
     code: "auth-code",
     requestBody: {}
   });
-  assert.deepEqual(receivedCallbackArgs, {
-    token: "access-token",
-    refreshToken: "refresh-token",
-    next: "/"
-  });
-  assert.equal(res.redirectUrl, "https://app.example/oauth/callback#token=ok");
+  assert.deepEqual(receivedCallbackArgs, { next: "/" });
+  assert.equal(res.redirectUrl, "https://app.example/oauth/callback");
+  assert.deepEqual(welcomeCalls, [{ user: oauthUser }]);
+  existing = true;
+  next = "/dashboard/queue?boardPairing=" + "b".repeat(32);
+  await handler(req, createMockRes());
+  assert.equal(receivedCallbackArgs.next, next);
+  next = "//attacker.example";
+  await handler(req, createMockRes());
+  assert.equal(receivedCallbackArgs.next, "/");
+  next = null;
+  existing = true;
+  await handler(req, createMockRes());
+  assert.equal(welcomeCalls.length, 1, "ordinary login does not send another welcome");
+  existing = false;
+  intent = "register_vendor";
+  await handler(req, createMockRes());
+  assert.equal(welcomeCalls.length, 1, "vendor OAuth waits for workspace completion");
 });

@@ -1,0 +1,3 @@
+/* Shared prototype visual contract. Keep the canonical implementation in the frontend package. */
+@import url("/fonts/aleo/aleo.css");
+@import "../../frontend/src/pages/prototypes/DeveloperPortalPrototype.css";

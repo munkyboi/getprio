@@ -1,0 +1,23 @@
+.developer-reference { min-height: 100vh; background: #0d1421; color: #f8fafc; }
+.developer-reference-header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 1rem 1.25rem; border-bottom: 1px solid #273852; font: 700 .9rem/1.4 Inter, system-ui, sans-serif; }
+.developer-reference-header a { color: #fff; text-decoration: none; }
+.developer-reference-header span { color: #aebbd0; font-weight: 500; }
+.developer-reference-content { max-width: 72rem; margin: 0 auto; padding: 4rem 1.25rem; }
+.developer-reference-eyebrow { color: #83a1ff; font: 800 .72rem/1.4 Inter, system-ui, sans-serif; letter-spacing: .14em; }
+.developer-reference h1 { margin: .7rem 0 1rem; font: 700 clamp(2.4rem, 7vw, 4.5rem)/1 Inter, system-ui, sans-serif; letter-spacing: -.05em; }
+.developer-reference h2 { margin-top: 3rem; font: 700 1.5rem/1.2 Inter, system-ui, sans-serif; }
+.developer-reference-note, .developer-reference-content > p { max-width: 42rem; color: #aebbd0; font: 1rem/1.65 Inter, system-ui, sans-serif; }
+.developer-reference-content a { color: #b8c4ff; text-underline-offset: .2em; }
+.developer-reference-endpoints { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; margin-top: 2rem; }
+.developer-reference-endpoints article { min-width: 0; overflow-wrap: anywhere; border: 1px solid #273852; background: #111c2e; border-radius: .8rem; padding: 1.25rem; }
+.developer-reference-endpoints span { color: #7de2c1; font: 800 .8rem/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.developer-reference-endpoints code { display: block; margin: .6rem 0; color: #fff; font: 700 1.1rem/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.developer-reference-endpoints p { margin: 0; color: #aebbd0; font: .95rem/1.5 Inter, system-ui, sans-serif; }
+.developer-reference pre { max-width: 42rem; overflow-x: auto; margin: 1rem 0; padding: 1rem; border-radius: .6rem; background: #070b12; color: #d8e1f2; }
+.developer-reference pre code { font: .9rem/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+@media (max-width: 48rem) {
+  .developer-reference-header { align-items: flex-start; flex-direction: column; }
+}
+@media (min-width: 48.0625em) {
+  .developer-reference-endpoints { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

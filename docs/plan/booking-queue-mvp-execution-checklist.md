@@ -92,7 +92,7 @@ Current status:
 - Slice 3: complete
 - Slice 4: complete
 - Slice 5: backend done
-- Slice 6: vendor dashboard/live queue done; customer ticket UI pending
+- Slice 6: vendor dashboard/live queue done; booking-linked customer ticket details implemented; runtime verification pending
 - Slice 7: automated verification passed; manual smoke tests pending
 
 Recent booking/payment additions already in scope for the MVP deployment:
@@ -209,6 +209,8 @@ Recommended first implementation milestone: **Slice 1 + Slice 2 backend tests pa
 - [x] Preserve notification preference state on the booking.
 - [x] Add platform dashboard follow-up item if notification management UI needs a new section.
 
+Note: this section covers booking-flow permission and preference handling only. The true OS/browser Web Push delivery pipeline is tracked separately in `docs/plan/web-push-notifications-execution-checklist.md`.
+
 ### 5.3 Update booking creation
 
 - [x] Accept verified booking payload or verification token.
@@ -309,9 +311,20 @@ Recommended first implementation milestone: **Slice 1 + Slice 2 backend tests pa
 
 ### 8.3 Queue ticket customer UI
 
-- [ ] Show inherited email/browser notification settings as enabled and read-only.
-- [ ] Add inline browser notification copy.
-- [ ] Do not show booking notification prompts after check-in.
+- [x] Show the linked booking reference and a Booking badge on the customer ticket page.
+- [x] Show the saved ticket email preference as read-only, including the email-allowance pause state.
+- [x] Explain that browser alerts use account settings and browser permission; do not infer delivery from permission alone.
+- [x] Do not show booking notification prompts after check-in.
+
+Implementation evidence only: authenticated booking-to-ticket navigation and alert delivery remain runtime verification gates. Email preferences come from the ticket created at check-in; browser alerts remain account-managed. The public queue board continues to omit the focused ticket.
+
+### 8.4 Vendor operational alert overlay
+
+- [x] Keep live in-app alerts for new queue joins while the vendor dashboard is open.
+- [x] Keep live in-app alerts for new pending bookings while the vendor dashboard is open.
+- [x] Stack queue and booking alerts in the same bottom-center dashboard overlay.
+- [x] Persist dismissed queue and booking alert IDs per tenant/location for the browser session.
+- [ ] Keep this in-app overlay active after true Web Push delivery is added.
 
 ---
 

@@ -2,11 +2,14 @@ import { useEffect, useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
-import { Alert, Button, Paper, PasswordInput, SimpleGrid, Stack, Text, TextInput, Title } from "@mantine/core";
+import { Alert, Button, Paper, PasswordInput, Stack, Text, TextInput, Title } from "@mantine/core";
 import { Navigate, useLocation, useNavigate } from "react-router-dom";
 import type { RegisterCustomerRequest, UsernameAvailabilityResponse } from "@shared";
+import PhilippineMobileInput from "../components/PhilippineMobileInput";
+import SignupFieldLabel from "../components/SignupFieldLabel";
 import SocialAuthButtons from "../components/SocialAuthButtons";
 import { apiRequest } from "../api/client";
+import { customerAccountApi } from "../api/customerAccount";
 import { useAuth } from "../context/AuthContext";
 import { getErrorMessage } from "../utils/errors";
 import { buildUsernameFromName, isUsernameFormatValid, normalizeUsernameInput } from "../utils/usernames";
@@ -15,7 +18,10 @@ const customerSchema = z.object({
   name: z.string().trim().min(2, "Enter your name."),
   username: z.string().trim().min(3, "Enter a username."),
   email: z.string().trim().email("Enter a valid email address."),
-  phone: z.string().trim().optional().or(z.literal("")),
+  phone: z.string().trim().optional().or(z.literal("")).refine(
+    (value) => !value || /^09\d{9}$/.test(value.replace(/\D/g, "")),
+    "Use a Philippine mobile number like (0917) 123-4567."
+  ),
   password: z.string().min(8, "Use at least 8 characters.")
 });
 
@@ -28,18 +34,21 @@ export default function RegisterCustomerPage() {
   const registrationState = (location.state as {
     prefill?: Partial<RegisterCustomerRequest>;
     redirectTo?: string;
+    claimLookupCode?: string;
   } | null) || null;
   const redirectTo = registrationState?.redirectTo || "/";
+  const claimLookupCode = registrationState?.claimLookupCode || "";
   const [usernameMessage, setUsernameMessage] = useState("");
   const [usernameAvailable, setUsernameAvailable] = useState(false);
   const [checkingUsername, setCheckingUsername] = useState(false);
+  const [usernameManuallyEdited, setUsernameManuallyEdited] = useState(Boolean(registrationState?.prefill?.username));
   const [error, setError] = useState("");
 
   const form = useForm<CustomerFormValues>({
     resolver: zodResolver(customerSchema),
     defaultValues: {
       name: registrationState?.prefill?.name || "",
-      username: buildUsernameFromName(registrationState?.prefill?.name || ""),
+      username: registrationState?.prefill?.username || buildUsernameFromName(registrationState?.prefill?.name || ""),
       email: registrationState?.prefill?.email || "",
       phone: registrationState?.prefill?.phone || "",
       password: ""
@@ -108,12 +117,13 @@ export default function RegisterCustomerPage() {
   }, [username]);
 
   useEffect(() => {
-    if (form.formState.isDirty) {
+    if (usernameManuallyEdited) {
       return;
     }
 
-    form.setValue("username", buildUsernameFromName(name), { shouldDirty: false, shouldValidate: true });
-  }, [name]);
+    const nextUsername = buildUsernameFromName(name);
+    form.setValue("username", nextUsername, { shouldDirty: false, shouldValidate: Boolean(nextUsername) });
+  }, [form, name, usernameManuallyEdited]);
 
   if (loading) {
     return <Paper className="finazze-auth-card" p="xl">Loading session...</Paper>;
@@ -131,10 +141,13 @@ export default function RegisterCustomerPage() {
     }
 
     try {
-      await registerCustomer({
+      const authResponse = await registerCustomer({
         ...values,
         phone: values.phone || ""
       });
+      if (claimLookupCode) {
+        await customerAccountApi.claimTicket(authResponse.token || "cookie-session", claimLookupCode);
+      }
       navigate(redirectTo, { replace: true });
     } catch (submitError) {
       setError(getErrorMessage(submitError));
@@ -143,13 +156,13 @@ export default function RegisterCustomerPage() {
 
   return (
     <Paper className="finazze-auth-card finazze-auth-card-wide onboarding-shell" p={{ base: "xl", md: 44 }}>
-      <SimpleGrid cols={{ base: 1, md: 2 }} spacing={{ base: "xl", md: 36 }}>
+      <div className="onboarding-layout">
         <Stack gap="lg">
           <div>
-            <Text className="finazze-section-label">Customer account</Text>
-            <Title order={1}>Queue remotely with saved contact details.</Title>
+            <Text className="finazze-section-label">Your customer account</Text>
+            <Title order={1}>Make every booking easier.</Title>
             <Text c="dimmed" mt="sm">
-              Create your profile once, then use it when joining vendor queues online.
+              Save your details once, then book services and join queues faster next time.
             </Text>
           </div>
           <form onSubmit={handleSubmit}>
@@ -158,14 +171,7 @@ export default function RegisterCustomerPage() {
                 label="Name"
                 required
                 error={form.formState.errors.name?.message}
-                {...form.register("name", {
-                  onChange: (event) => {
-                    const nextName = event.target.value;
-                    if (!form.formState.dirtyFields.username) {
-                      form.setValue("username", buildUsernameFromName(nextName), { shouldValidate: true });
-                    }
-                  }
-                })}
+                {...form.register("name")}
               />
               <TextInput
                 description={checkingUsername ? "Checking username..." : usernameMessage}
@@ -174,7 +180,10 @@ export default function RegisterCustomerPage() {
                 placeholder="customer_name"
                 required
                 {...form.register("username", {
-                  onChange: (event) => form.setValue("username", normalizeUsernameInput(event.target.value), { shouldValidate: true })
+                  onChange: (event) => {
+                    setUsernameManuallyEdited(true);
+                    form.setValue("username", normalizeUsernameInput(event.target.value), { shouldValidate: true });
+                  }
                 })}
               />
               <TextInput
@@ -184,10 +193,12 @@ export default function RegisterCustomerPage() {
                 error={form.formState.errors.email?.message}
                 {...form.register("email")}
               />
-              <TextInput
-                label="Phone"
+              <PhilippineMobileInput
+                label={<SignupFieldLabel label="Phone" tooltip="Add a Philippine mobile number for queue and booking updates." />}
+                description=""
                 error={form.formState.errors.phone?.message}
-                {...form.register("phone")}
+                value={form.watch("phone")}
+                onChange={(nextValue) => form.setValue("phone", nextValue, { shouldValidate: true })}
               />
               <PasswordInput
                 label="Password"
@@ -196,12 +207,12 @@ export default function RegisterCustomerPage() {
                 {...form.register("password")}
               />
               {error ? <Alert color="red">{error}</Alert> : null}
-              <Button color="dark" loading={form.formState.isSubmitting || checkingUsername || !usernameAvailable} type="submit">
+              <Button className="auth-primary-action" color="dark" fullWidth loading={form.formState.isSubmitting || checkingUsername} size="lg" type="submit">
                 Create account
               </Button>
             </Stack>
           </form>
-          <SocialAuthButtons intent="register_customer" />
+          <SocialAuthButtons iconOnly intent="register_customer" />
         </Stack>
         <Stack className="onboarding-art-panel" justify="space-between" gap="lg">
           <img
@@ -210,13 +221,14 @@ export default function RegisterCustomerPage() {
             src="/illustrations/generated/customer-onboarding.png"
           />
           <div>
-            <Text className="finazze-section-label">Wait on your terms</Text>
+            <Text className="finazze-section-label">Less waiting, more doing</Text>
+            <Title order={2}>Your time, back in your hands.</Title>
             <Text c="dimmed">
-              Save your details once, join faster next time, and get alerted when your turn is near.
+              Follow bookings, join queues online, and get an alert when it is nearly your turn.
             </Text>
           </div>
         </Stack>
-      </SimpleGrid>
+      </div>
     </Paper>
   );
 }

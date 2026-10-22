@@ -1,9 +1,17 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
+process.env.APP_BASE_URL = "https://getprio.online/";
 require("tsx/cjs");
 
 const queueSnapshotHelpers = require("../src/services/queueSnapshotHelpers");
+const snapshotTickets = require("../src/repositories/tickets");
+snapshotTickets.listCalledTickets = async (...args) => {
+  const current = await snapshotTickets.findCurrentCalledTicket(...args);
+  return current ? [current] : [];
+};
+snapshotTickets.countReadyWaitingTickets = async () => 0;
+require("../src/repositories/serviceCounters").listCountersByLocationId = async () => [];
 
 test("queue snapshot helpers resolve primary locations when none are specified", async () => {
   const originalRepo = require("../src/repositories/storeLocations");
@@ -19,7 +27,7 @@ test("queue snapshot helpers resolve primary locations when none are specified",
 
   originalRepo.findPrimaryLocationByTenantId = async () => {
     primaryCalls += 1;
-    return { _id: 1, tenantId: 10, slug: "main", timezone: "Asia/Manila", isPrimary: true, isActive: true };
+    return { queueBoardId: "063b7899-ffbe-482c-9564-91a5a6c79be0", _id: 1, tenantId: 10, slug: "main", timezone: "Asia/Manila", isPrimary: true, isActive: true };
   };
   originalRepo.findLocationByTenantAndSlug = async () => null;
   originalRepo.findLocationById = async () => null;
@@ -28,8 +36,9 @@ test("queue snapshot helpers resolve primary locations when none are specified",
     lookupCalls += 1;
     return null;
   };
-  originalTickets.findCurrentCalledTicket = async () => null;
+  originalTickets.findCurrentCalledTicket = async () => ({ _id: 42, joinChannel: "vendor", customerConfirmedAt: null });
   originalTickets.listWaitingTickets = async () => [];
+  originalTickets.listPendingCarryOverTickets = async () => [];
   originalTickets.listSkippedTickets = async () => [];
   originalTickets.listHistoryTickets = async () => [];
   originalTickets.countServedToday = async () => 0;
@@ -46,9 +55,14 @@ test("queue snapshot helpers resolve primary locations when none are specified",
     async () => ({ emailsSentThisPeriod: 0 })
   );
 
+  assert.equal(result.tenant.monitorUrl, "https://getprio.online/queue-board/063b7899-ffbe-482c-9564-91a5a6c79be0");
+  assert.equal(result.location.monitorUrl, result.tenant.monitorUrl);
   assert.equal(primaryCalls, 1);
   assert.equal(lookupCalls, 0);
   assert.equal(result.location.slug, "main");
+  assert.equal(result.current.joinChannel, "vendor");
+  assert.equal(result.current.customerConfirmedAt, null);
+  assert.equal(result.emailQuotaPolicy, "unmetered");
 });
 
 test("queue snapshot helpers prefer a ticket location when lookup code resolves", async () => {
@@ -76,6 +90,7 @@ test("queue snapshot helpers prefer a ticket location when lookup code resolves"
   storeLocations.listHoursByLocationId = async () => [];
   tickets.findTicketByTenantAndLookupCode = async () => ({
     _id: 99,
+    userId: "1",
     tenantId: 10,
     locationId: 2,
     dateKey: "20260630",
@@ -83,10 +98,17 @@ test("queue snapshot helpers prefer a ticket location when lookup code resolves"
     ticketNumber: "Q001",
     customerName: "Jane",
     status: "waiting",
+    customerConfirmedAt: new Date("2026-06-30T00:05:00Z"),
+    serviceStartedAt: new Date("2026-06-30T00:06:00Z"),
+    serviceEndedAt: new Date("2026-06-30T00:16:00Z"),
+    serviceOutcome: "interrupted",
+    servicePriorityBand: "carry_over",
+    carryOverCount: 1,
     createdAt: new Date("2026-06-30T00:00:00Z")
   });
   tickets.findCurrentCalledTicket = async () => null;
   tickets.listWaitingTickets = async () => [];
+  tickets.listPendingCarryOverTickets = async () => [];
   tickets.listSkippedTickets = async () => [];
   tickets.listHistoryTickets = async () => [];
   tickets.countServedToday = async () => 0;
@@ -105,5 +127,200 @@ test("queue snapshot helpers prefer a ticket location when lookup code resolves"
 
   assert.equal(result.location.slug, "branch");
   assert.equal(result.focusTicket.lookupCode, "ABC123");
+  assert.equal(result.focusTicket.barcodeRotationRequired, true);
   assert.equal(result.focusTicket.position, null);
+  assert.equal(result.focusTicket.serviceStartedAt.toISOString(), "2026-06-30T00:06:00.000Z");
+  assert.equal(result.focusTicket.serviceEndedAt.toISOString(), "2026-06-30T00:16:00.000Z");
+  assert.equal(result.focusTicket.serviceOutcome, "interrupted");
+  assert.equal(result.focusTicket.isCarriedOver, true);
+  assert.equal(result.focusTicket.carryOverCount, 1);
+  assert.equal(result.focusTicket.servicePriorityBand, "carry_over");
+  assert.equal(result.focusTicket.customerConfirmedAt.toISOString(), "2026-06-30T00:05:00.000Z");
+});
+
+test("queue snapshot overflow includes tickets saved for future carry-over", async () => {
+  const storeLocations = require("../src/repositories/storeLocations");
+  const tickets = require("../src/repositories/tickets");
+  const closures = require("../src/repositories/queueDayClosures");
+  const pauses = require("../src/repositories/queueDayPauses");
+  const theme = require("../src/repositories/publicBoardThemes");
+  const queueFeeService = require("../src/services/queueFeeService");
+  const hours = require("../src/services/storeHoursService");
+
+  storeLocations.findPrimaryLocationByTenantId = async () => ({
+    _id: 1,
+    tenantId: 10,
+    slug: "main",
+    timezone: "Asia/Manila",
+    isPrimary: true,
+    isActive: true
+  });
+  storeLocations.findLocationByTenantAndSlug = async () => null;
+  storeLocations.findLocationById = async () => null;
+  storeLocations.listHoursByLocationId = async () => [];
+  tickets.findTicketByTenantAndLookupCode = async () => null;
+  tickets.findCurrentCalledTicket = async () => null;
+  tickets.listWaitingTickets = async (_tenantId, options = {}) => options.onlyCarriedOver ? [{
+    _id: 10,
+    tenantId: 10,
+    locationId: 1,
+    ticketNumber: "VD003",
+    customerName: "Activated Customer",
+    status: "waiting",
+    carriedOverAt: new Date("2026-08-01T01:00:00.000Z"),
+    carryOverCount: 1,
+    servicePriorityBand: "carry_over",
+    createdAt: new Date("2026-07-31T10:00:00.000Z")
+  }] : [];
+  tickets.listPendingCarryOverTickets = async () => [{
+    _id: 9,
+    tenantId: 10,
+    locationId: 1,
+    lookupCode: "3912FF7E",
+    ticketNumber: "VD002",
+    customerName: "Alex Boyer",
+    status: "pending_carry_over",
+    carryOverExpiresAt: new Date("2026-08-07T17:00:06.389Z"),
+    createdAt: new Date("2026-07-31T09:51:13.885Z")
+  }];
+  tickets.listSkippedTickets = async () => [];
+  tickets.listHistoryTickets = async () => [];
+  tickets.countServedToday = async () => 0;
+  closures.findActiveClosure = async () => null;
+  pauses.findActivePause = async () => null;
+  theme.getResolvedTheme = async () => null;
+  queueFeeService.getQueueFeeForTenant = async () => ({ amount: 0 });
+  queueFeeService.getActiveTenantSubscription = async () => null;
+  hours.getOpenStatus = async () => ({ isOpen: false, timezone: "Asia/Manila", summary: "Closed", today: null, nextOpenAt: null });
+
+  const result = await queueSnapshotHelpers.buildQueueSnapshot(
+    { _id: 10, name: "Tenant", slug: "tenant", averageServiceMinutes: 10 },
+    {},
+    async () => ({ emailsSentThisPeriod: 0 })
+  );
+
+  assert.equal(result.overflow.length, 2);
+  assert.equal(result.overflow[0].lookupCode, undefined);
+  assert.equal(result.overflow[0].ticketNumber, "VD002");
+  assert.equal(result.overflow[0].status, "pending_carry_over");
+  assert.equal(result.overflow[0].isCarriedOver, false);
+  assert.equal(result.overflow[0].position, null);
+  assert.equal(result.overflow[0].carryOverExpiresAt.toISOString(), "2026-08-07T17:00:06.389Z");
+  assert.equal(result.overflow[1].ticketNumber, "VD003");
+  assert.equal(result.overflow[1].status, "waiting");
+  assert.equal(result.overflow[1].isCarriedOver, true);
+  assert.equal(result.overflow[1].position, 1);
+});
+
+test("wait-time prediction features use the lookup ticket Queue Day", async (t) => {
+  const storeLocations = require("../src/repositories/storeLocations");
+  const tickets = require("../src/repositories/tickets");
+  const closures = require("../src/repositories/queueDayClosures");
+  const pauses = require("../src/repositories/queueDayPauses");
+  const themes = require("../src/repositories/publicBoardThemes");
+  const queueFeeService = require("../src/services/queueFeeService");
+  const hours = require("../src/services/storeHoursService");
+  const waitTimePredictor = require("../src/services/waitTimePredictor");
+  const originalPredictWaitTime = waitTimePredictor.predictWaitTime;
+  const originalSnapshotHelpers = require.cache[
+    require.resolve("../src/services/queueSnapshotHelpers")
+  ];
+  const predictedFeatures = [];
+  waitTimePredictor.predictWaitTime = (input) => {
+    const prediction = originalPredictWaitTime(input);
+    predictedFeatures.push(prediction.features);
+    return prediction;
+  };
+  delete require.cache[require.resolve("../src/services/queueSnapshotHelpers")];
+  const snapshotHelpersWithPredictorSpy = require("../src/services/queueSnapshotHelpers");
+  const location = {
+    _id: 4,
+    tenantId: 10,
+    slug: "main",
+    timezone: "Asia/Manila",
+    isPrimary: true,
+    isActive: true
+  };
+  const lookupTicket = {
+    _id: 102,
+    tenantId: 10,
+    locationId: 4,
+    dateKey: "20260928",
+    lookupCode: "LOOKUP102",
+    ticketNumber: "Q102",
+    customerName: "Test Customer",
+    status: "waiting",
+    servicePriorityBand: "normal",
+    createdAt: new Date("2026-09-28T09:00:00.000Z")
+  };
+
+  storeLocations.findPrimaryLocationByTenantId = async () => location;
+  storeLocations.findLocationByTenantAndSlug = async () => null;
+  storeLocations.findLocationById = async () => null;
+  storeLocations.listHoursByLocationId = async () => [];
+  tickets.findTicketByTenantAndLookupCode = async () => lookupTicket;
+  tickets.findCurrentCalledTicket = async (_tenantId, options = {}) => ({
+    _id: options.dateKey === lookupTicket.dateKey ? 50 : 60,
+    calledAt: new Date(Date.now() - (options.dateKey === lookupTicket.dateKey ? 120_000 : 30_000))
+  });
+  tickets.listCalledTickets = async () => [
+    { _id: 60, ticketNumber: "Q060", serviceCounterId: "1", status: "called", dateKey: "20260928" },
+    { _id: 61, ticketNumber: "Q061", serviceCounterId: "2", status: "called", dateKey: "20260929" }
+  ];
+  tickets.countReadyWaitingTickets = async () => 1;
+  require("../src/repositories/serviceCounters").listCountersByLocationId = async () => [
+    { _id: "1", slug: "one", name: "One", isActive: true },
+    { _id: "2", slug: "two", name: "Two", isActive: true },
+    { _id: "3", slug: "three", name: "Three", isActive: true }
+  ];
+  tickets.listWaitingTickets = async (_tenantId, options = {}) => {
+    if (options.onlyCarriedOver) return [];
+    if (options.dateKey === lookupTicket.dateKey) {
+      return [{ _id: 101 }, lookupTicket];
+    }
+    return [{ _id: 201 }];
+  };
+  tickets.listPendingCarryOverTickets = async () => [];
+  tickets.listSkippedTickets = async () => [];
+  tickets.listHistoryTickets = async () => [];
+  tickets.countServedToday = async () => 0;
+  closures.findActiveClosure = async () => null;
+  pauses.findActivePause = async (_tenantId, _locationId, queueDateKey) =>
+    queueDateKey === lookupTicket.dateKey ? { _id: 91 } : null;
+  themes.getResolvedTheme = async () => null;
+  queueFeeService.getQueueFeeForTenant = async () => ({ amount: 0 });
+  queueFeeService.getActiveTenantSubscription = async () => null;
+  hours.getOpenStatus = async () => ({
+    isOpen: true,
+    timezone: "Asia/Manila",
+    summary: "Open",
+    today: null,
+    nextOpenAt: null
+  });
+  t.after(() => {
+    waitTimePredictor.predictWaitTime = originalPredictWaitTime;
+    delete require.cache[require.resolve("../src/services/queueSnapshotHelpers")];
+    require.cache[require.resolve("../src/services/queueSnapshotHelpers")] = originalSnapshotHelpers;
+  });
+
+  const result = await snapshotHelpersWithPredictorSpy.buildQueueSnapshot(
+    { _id: 10, name: "Tenant", slug: "tenant", averageServiceMinutes: 10 },
+    { lookupCode: lookupTicket.lookupCode, queueDateKey: "20260929" },
+    async () => ({ emailsSentThisPeriod: 0 })
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(result.focusTicket.id, "102");
+  assert.equal(result.current.id, "60");
+  assert.equal(result.stats.currentTicketNumber, "Q060");
+  assert.deepEqual(result.calledTickets.map(ticket => ticket.id), ["60", "61"]);
+  assert.equal(result.counterDispatch[0].canCallNext, false);
+  assert.equal(result.counterDispatch[1].currentTicketId, "61");
+  assert.equal(result.counterDispatch[2].canCallNext, true);
+  assert.equal(result.readyWaitingCount, 1);
+  assert.equal(result.focusTicket.position, 2);
+  assert.equal(predictedFeatures[0].waitingCount, 2);
+  assert.equal(predictedFeatures[0].position, 2);
+  assert.equal(predictedFeatures[0].queuePaused, true);
+  assert.ok(predictedFeatures[0].currentTicketElapsedMinutes >= 2);
 });

@@ -1,0 +1,6 @@
+BEGIN;
+
+ALTER TABLE tickets
+  ADD COLUMN IF NOT EXISTS customer_confirmed_at TIMESTAMPTZ;
+
+COMMIT;

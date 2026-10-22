@@ -1,0 +1,13 @@
+# Vendor availability deletion writer
+
+Weekly-rule and date-exception DELETE routes pass their authenticated actor and server-resolved tenant to a dedicated deletion service. The service discovers only a tenant-owned entry, enters the location-first transaction, and rechecks current `tenant.availability.manage` access with accepted user/membership grants held through commit. Assigned staff, revoked membership, deleted/suspended users and cross-tenant entries are denied. Inactive tenant/branch administration remains supported.
+
+After taking the branch lock, the service locks and rereads the entry by tenant and ID. A removed entry returns the existing 404; a moved branch returns 409 and requires reload. The entry lock prevents subsequent edits/moves before deletion. The deletion and one branch ledger revision commit together. Competing/repeated deletes remove once and only successful deletion advances the revision. Failures roll back the entry and scope changes together. The weekly response still returns deleted-entry metadata; exception deletion still returns an empty 204.
+
+Existing ordinary availability behavior remains authoritative: deleting the last weekly rule can restore business-hours fallback, and date exceptions retain their existing interpretation. This slice changes no capacity policy or stored booking outcome. Booking protection, active allocations and explicit service timing remain intact; no ledger reservation/allocation command is issued.
+
+Disposable PostgreSQL tests use the real availability repository and actual ledger migration with minimal application tables. They cover current grants, contention, entry movement, held branch/entry/grant locks, atomic rollback, competing deletes, scoped revisions, inactive administration, invalid identities and preservation of linked bookings/protection/occupancy. Handler tests verify authenticated actor forwarding and existing response contracts. Authenticated live vendor form execution remains a separate acceptance gate.
+
+Availability creation/editing, catalog/settings/default-hours writers, protection cleanup and activation reconciliation remain uncovered. Tracking and writer coverage remain false; the producer stays `not_ready`. No migration, dashboard/mobile UI, customer estimate, inference, capture/export or activation change is included.
+
+Local validation: full isolated PostgreSQL backend coverage suite passed 1,107 tests with seven opt-in skips (1,114 total), zero failures. The initial focused service/handler/repository suite passed 140 tests. Changed source ESLint, backend typecheck and diff checks passed.

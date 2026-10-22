@@ -1,5 +1,11 @@
+const tenantQueueSettings = require("../services/tenantQueueSettingsService");
+const counterConfiguration = require("../services/counterConfigurationService");
+const businessCategories = require("../repositories/businessCategories");
 const PDFDocument = require("pdfkit");
+const sanitizeHtml = require("sanitize-html");
 const { normalizeCounterSlug, normalizeTenantNotificationSettings } = require("./vendorRouteHelpers");
+const { assertPublicTextFieldsAllowed } = require("../services/contentModeration");
+const { normalizePhilippineMobileNumber } = require("../utils/phone");
 
 const HISTORY_RANGE_DAYS = {
   today: 0,
@@ -13,31 +19,91 @@ function toCsvValue(value) {
   return `"${String(value ?? "").replace(/"/g, '""')}"`;
 }
 
-async function handleUpdateSettings({ req, res, getAuthorizedTenant, assertTenantPermission, getLocationForTenant, tenantRepository, getQueueSnapshot }) {
+function normalizeBusinessDescription(value) {
+  const richText = sanitizeHtml(String(value || "").trim(), {
+    allowedAttributes: {},
+    allowedTags: ["p", "br", "strong", "em", "s", "ul", "ol", "li", "blockquote"],
+    disallowedTagsMode: "discard"
+  }).trim();
+  const plainText = sanitizeHtml(richText, { allowedAttributes: {}, allowedTags: [] })
+    .replace(/\s+/g, " ")
+    .trim();
+  if (plainText.length > 1000) {
+    const error = new Error("Business description must be 1000 characters or fewer.");
+    error.statusCode = 400;
+    throw error;
+  }
+  if (richText.length > 20000) {
+    const error = new Error("Business description formatting is too complex. Simplify it and try again.");
+    error.statusCode = 400;
+    throw error;
+  }
+  assertPublicTextFieldsAllowed({ "Business description": plainText });
+  return richText;
+}
+
+async function handleUpdateSettings({ req, res, getAuthorizedTenant, assertTenantPermission, getLocationForTenant, getQueueSnapshot, categoryRepository = businessCategories, settingsService = tenantQueueSettings }) {
   const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
   assertTenantPermission(req.user, tenant._id, "tenant.settings.manage");
   await getLocationForTenant(tenant, req.query.location);
-  const { queuePrefix, averageServiceMinutes, notificationThreshold, autoPauseEnabled, autoPauseThreshold, autoResumeEnabled, autoResumeVacancyPercent, contactEmail, contactPhone } = req.body;
-  const wantsToChangeContactDetails = typeof contactEmail === "string" || typeof contactPhone === "string";
-  if (wantsToChangeContactDetails) {
+  const { name, publicProfileDisplayName, publicProfileDescription, publicProfileCategory, ownerName, ownerDisplayName, queuePrefix, averageServiceMinutes, notificationThreshold, autoPauseEnabled, autoPauseThreshold, autoResumeEnabled, autoResumeVacancyPercent, contactEmail, contactPhone } = req.body;
+  const normalizedPublicProfileDescription = typeof publicProfileDescription === "string"
+    ? normalizeBusinessDescription(publicProfileDescription)
+    : undefined;
+  const wantsToChangeBusinessProfile = [
+    name,
+    publicProfileDisplayName,
+    publicProfileDescription,
+    publicProfileCategory,
+    req.body.businessCategoryId,
+    ownerName,
+    ownerDisplayName,
+    contactEmail,
+    contactPhone
+  ].some((value) => typeof value === "string");
+  if (wantsToChangeBusinessProfile || req.body.businessCategoryId !== undefined) {
     assertTenantPermission(req.user, tenant._id, "tenant.settings.manage_contact");
   }
+  assertPublicTextFieldsAllowed({
+    "Business name": name,
+    "Business category": publicProfileCategory,
+    "Business display name": publicProfileDisplayName,
+    "Owner name": ownerName,
+    "Owner display name": ownerDisplayName
+  });
   const normalizedAutoPauseEnabled = Boolean(autoPauseEnabled);
   const normalizedAutoPauseThreshold = normalizedAutoPauseEnabled ? Math.max(1, Number(autoPauseThreshold || 1)) : null;
   const normalizedAutoResumeEnabled = normalizedAutoPauseEnabled && Boolean(autoResumeEnabled);
   const normalizedAutoResumeVacancyPercent = normalizedAutoResumeEnabled ? Math.max(5, Math.min(50, Number(autoResumeVacancyPercent || 20))) : null;
-  const updatedTenant = await tenantRepository.updateTenant(tenant._id, {
-    queuePrefix: queuePrefix ? String(queuePrefix).slice(0, 4).toUpperCase() : tenant.queuePrefix,
-    averageServiceMinutes: averageServiceMinutes ? Number(averageServiceMinutes) : tenant.averageServiceMinutes,
-    notificationThreshold: notificationThreshold ? Number(notificationThreshold) : tenant.notificationThreshold,
-    autoPauseEnabled: normalizedAutoPauseEnabled,
-    autoPauseThreshold: normalizedAutoPauseThreshold,
-    autoResumeEnabled: normalizedAutoResumeEnabled,
-    autoResumeVacancyPercent: normalizedAutoResumeVacancyPercent,
-    contactEmail: typeof contactEmail === "string" ? contactEmail : tenant.contactEmail,
-    contactPhone: typeof contactPhone === "string" ? contactPhone : tenant.contactPhone
+  const { tenant: updatedTenant, owner } = await settingsService.update({
+    tenantId: tenant._id, actorId: req.user._id, locationSlug: req.query.location,
+    requiresContactPermission: wantsToChangeBusinessProfile || req.body.businessCategoryId !== undefined,
+    resolveLocation: getLocationForTenant,
+    prepare: async (currentTenant, currentActor, client) => {
+      const selectedCategory = await categoryRepository.resolve({ id: req.body.businessCategoryId, label: publicProfileCategory,
+        currentId: currentTenant.businessCategoryId, currentLabel: currentTenant.publicProfileCategory }, client);
+      return { tenantChanges: {
+        name: typeof name === "string" && name.trim() ? name.trim().slice(0, 120) : currentTenant.name,
+        publicProfileDisplayName: typeof publicProfileDisplayName === "string" ? publicProfileDisplayName.trim().slice(0, 120) : currentTenant.publicProfileDisplayName,
+        publicProfileDescription: normalizedPublicProfileDescription ?? currentTenant.publicProfileDescription,
+        publicProfileCategory: selectedCategory?.name ?? currentTenant.publicProfileCategory,
+        businessCategoryId: selectedCategory?.id ?? currentTenant.businessCategoryId,
+        queuePrefix: queuePrefix ? String(queuePrefix).slice(0, 4).toUpperCase() : currentTenant.queuePrefix,
+        averageServiceMinutes: averageServiceMinutes ? Number(averageServiceMinutes) : currentTenant.averageServiceMinutes,
+        notificationThreshold: notificationThreshold ? Number(notificationThreshold) : currentTenant.notificationThreshold,
+        autoPauseEnabled: normalizedAutoPauseEnabled,
+        autoPauseThreshold: normalizedAutoPauseThreshold,
+        autoResumeEnabled: normalizedAutoResumeEnabled,
+        autoResumeVacancyPercent: normalizedAutoResumeVacancyPercent,
+        contactEmail: typeof contactEmail === "string" ? contactEmail : currentTenant.contactEmail,
+        contactPhone: typeof contactPhone === "string" ? normalizePhilippineMobileNumber(contactPhone) : currentTenant.contactPhone
+      }, ownerChanges: {
+        name: typeof ownerName === "string" && ownerName.trim() ? ownerName.trim().slice(0, 120) : currentActor.name,
+        displayName: typeof ownerDisplayName === "string" ? ownerDisplayName.trim().slice(0, 60) || null : currentActor.displayName || null
+      } };
+    }
   });
-  res.json({ tenant: { id: String(updatedTenant._id), name: updatedTenant.name, slug: updatedTenant.slug, queuePrefix: updatedTenant.queuePrefix, averageServiceMinutes: updatedTenant.averageServiceMinutes, notificationThreshold: updatedTenant.notificationThreshold, autoPauseEnabled: updatedTenant.autoPauseEnabled, autoPauseThreshold: updatedTenant.autoPauseThreshold, autoResumeEnabled: updatedTenant.autoResumeEnabled, autoResumeVacancyPercent: updatedTenant.autoResumeVacancyPercent, contactEmail: updatedTenant.contactEmail, contactPhone: updatedTenant.contactPhone }, snapshot: await getQueueSnapshot(updatedTenant, { location: await getLocationForTenant(updatedTenant, req.query.location) }) });
+  res.json({ tenant: { id: String(updatedTenant._id), name: updatedTenant.name, slug: updatedTenant.slug, publicProfileDisplayName: updatedTenant.publicProfileDisplayName, publicProfileDescription: updatedTenant.publicProfileDescription, publicProfileCategory: updatedTenant.publicProfileCategory, businessCategoryId: updatedTenant.businessCategoryId, queuePrefix: updatedTenant.queuePrefix, averageServiceMinutes: updatedTenant.averageServiceMinutes, notificationThreshold: updatedTenant.notificationThreshold, autoPauseEnabled: updatedTenant.autoPauseEnabled, autoPauseThreshold: updatedTenant.autoPauseThreshold, autoResumeEnabled: updatedTenant.autoResumeEnabled, autoResumeVacancyPercent: updatedTenant.autoResumeVacancyPercent, contactEmail: updatedTenant.contactEmail, contactPhone: updatedTenant.contactPhone }, owner: { id: String(owner._id), name: owner.name, displayName: owner.displayName || "" }, snapshot: await getQueueSnapshot(updatedTenant, { location: await getLocationForTenant(updatedTenant, req.query.location), includeServiceTiming: true }) });
 }
 
 async function handleGetNotificationSettings({ req, res, getAuthorizedTenant, assertTenantPermission }) {
@@ -98,61 +164,75 @@ async function handleListCounters({ req, res, getAuthorizedTenant, assertTenantP
   res.json({ counterLimit: entitlements.counters || 0, counters: counters.map((counter) => ({ id: counter._id, tenantId: counter.tenantId, locationId: counter.locationId, name: counter.name, slug: counter.slug, isActive: counter.isActive, assignedUserIds: counter.assignedUserIds })) });
 }
 
-async function handleUpdateCounter({ req, res, getAuthorizedTenant, assertTenantPermission, getLocationForTenant, billingService, serviceCounterRepository, getCounterForLocation }) {
+async function handleCreateCounter({ req, res, getAuthorizedTenant, assertTenantPermission, getLocationForTenant, counterService = counterConfiguration }) {
   const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
   assertTenantPermission(req.user, tenant._id, "tenant.counter.manage");
   const location = await getLocationForTenant(tenant, req.query.location);
-  const counter = await getCounterForLocation(location, req.params.counterSlug);
-  const entitlements = await billingService.getTenantEntitlements(tenant._id);
-  const counters = await serviceCounterRepository.listCountersByLocationId(location._id);
-  if (req.body.isActive === true && !counter.isActive && counters.filter((item) => item.isActive).length >= Number(entitlements.counters || 0)) {
-    const error = new Error("Counter limit exceeded for this subscription plan.");
-    error.statusCode = 403;
-    throw error;
-  }
-  const slug = normalizeCounterSlug(req.body.slug || req.body.name);
-  const updatedCounter = await serviceCounterRepository.updateCounter(counter._id, { name: req.body.name, slug, isActive: req.body.isActive !== false });
-  await serviceCounterRepository.replaceAssignments(updatedCounter._id, req.body.assignedUserIds || []);
-  res.json({ counter: updatedCounter });
+  const slug = String(req.body.slug || req.body.name).trim().toLowerCase().replace(/\s+/g, "-");
+  const counter = await counterService.mutate({ tenantId: tenant._id, locationId: location._id,
+    actorUserId: req.user._id, action: "create", data: { ...req.body, slug } });
+  res.status(201).json({ counter });
 }
 
-async function handleDeleteCounter({ req, res, getAuthorizedTenant, assertTenantPermission, getLocationForTenant, serviceCounterRepository, getCounterForLocation }) {
+async function handleUpdateCounter({ req, res, getAuthorizedTenant, assertTenantPermission, getLocationForTenant, counterService = counterConfiguration }) {
   const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
   assertTenantPermission(req.user, tenant._id, "tenant.counter.manage");
   const location = await getLocationForTenant(tenant, req.query.location);
-  const counter = await getCounterForLocation(location, req.params.counterSlug);
-  await serviceCounterRepository.deleteCounter(counter._id);
+  const slug = normalizeCounterSlug(req.body.slug || req.body.name);
+  assertPublicTextFieldsAllowed({ "Counter name": req.body.name, "Counter slug": slug });
+  const counter = await counterService.mutate({ tenantId: tenant._id, locationId: location._id,
+    actorUserId: req.user._id, action: "update", counterSlug: normalizeCounterSlug(req.params.counterSlug),
+    data: { ...req.body, slug } });
+  res.json({ counter });
+}
+
+async function handleDeleteCounter({ req, res, getAuthorizedTenant, assertTenantPermission, getLocationForTenant, counterService = counterConfiguration }) {
+  const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+  assertTenantPermission(req.user, tenant._id, "tenant.counter.manage");
+  const location = await getLocationForTenant(tenant, req.query.location);
+  await counterService.mutate({ tenantId: tenant._id, locationId: location._id,
+    actorUserId: req.user._id, action: "delete", counterSlug: normalizeCounterSlug(req.params.counterSlug) });
   res.status(204).send();
 }
 
-async function handleListStaff({ req, res, getAuthorizedTenant, assertTenantPermission, billingService, userRepository, serviceCounterRepository }) {
+async function handleCheckCounterSlugAvailability({ req, res, getAuthorizedTenant, assertTenantPermission, getLocationForTenant, serviceCounterRepository }) {
+  const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+  assertTenantPermission(req.user, tenant._id, "tenant.counter.manage");
+  const location = await getLocationForTenant(tenant, req.query.location);
+  const counterSlug = req.query.counterSlug || req.query.slug || "";
+  const excludeCounterId = req.query.excludeCounterId || req.query.counterId || null;
+  const result = await serviceCounterRepository.isCounterSlugAvailable(
+    location._id,
+    counterSlug,
+    excludeCounterId
+  );
+  res.json({ counterSlug: String(counterSlug || ""), ...result });
+}
+
+async function handleListStaff({ req, res, getAuthorizedTenant, assertTenantPermission, billingService, userRepository, serviceCounterRepository, tenantMembershipLocationRepository }) {
   const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
   assertTenantPermission(req.user, tenant._id, "tenant.staff.read");
   const entitlements = await billingService.getTenantEntitlements(tenant._id);
   const staff = await userRepository.listUsersByTenantId(tenant._id);
   const assignedCountersByUserId = await serviceCounterRepository.listAssignedCounterIdsByUserIds(staff.map((user) => user._id));
-  res.json({ staffSeatLimit: entitlements.staffSeats || 0, staff: staff.map((user) => { const membership = user.tenantMemberships.find((item) => String(item.tenantId) === String(tenant._id)); return { id: user._id, name: user.name, email: user.email, phone: user.phone, role: membership?.role || "staff", isActive: membership?.isActive !== false, assignedCounterIds: assignedCountersByUserId.get(String(user._id)) || [] }; }) });
+  const assignedLocationsByUserId = tenantMembershipLocationRepository
+    ? await tenantMembershipLocationRepository.listAssignedLocationIdsByUserIds(
+        tenant._id,
+        staff.map((user) => user._id)
+      )
+    : new Map();
+  res.json({ staffSeatLimit: entitlements.staffSeats || 0, staff: staff.map((user) => { const membership = user.tenantMemberships.find((item) => String(item.tenantId) === String(tenant._id)); return { id: user._id, name: user.name, email: user.email, phone: user.phone, role: membership?.role || "staff", isActive: membership?.isActive !== false, assignedCounterIds: assignedCountersByUserId.get(String(user._id)) || [], assignedLocationIds: assignedLocationsByUserId.get(String(user._id)) || [] }; }) });
 }
 
-async function handleInviteStaff({ req, res, getAuthorizedTenant, assertTenantPermission, billingService, userRepository }) {
+async function handleInviteStaff({ req, res, getAuthorizedTenant, assertTenantPermission, userRepository, staffInvitationResourceService }) {
   const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
   assertTenantPermission(req.user, tenant._id, "tenant.staff.invite");
-  const entitlements = await billingService.getTenantEntitlements(tenant._id);
-  const staff = await userRepository.listUsersByTenantId(tenant._id);
-  if (staff.length >= Number(entitlements.staffSeats || 0)) { const error = new Error("Staff seat limit exceeded for this subscription plan."); error.statusCode = 403; throw error; }
   const email = String(req.body.email || "").trim().toLowerCase();
   if (!email) { const error = new Error("email is required."); error.statusCode = 400; throw error; }
   const user = await userRepository.findUserByEmail(email);
   if (!user) { const error = new Error("Staff must already have a GetPrio account before being added."); error.statusCode = 404; throw error; }
-  const nextRole = ["owner", "admin", "staff"].includes(req.body.role) ? req.body.role : "staff";
-  const requesterMembership = req.user.tenantMemberships?.find((item) => String(item.tenantId) === String(tenant._id) && item.isActive !== false);
-  const requesterRole = requesterMembership?.role || null;
-  const ownerCount = staff.filter((member) => member.tenantMemberships.some((item) => String(item.tenantId) === String(tenant._id) && item.role === "owner" && item.isActive !== false)).length;
-  if (requesterRole === "admin" && nextRole !== "staff") { const error = new Error("Tenant admins can only invite staff members."); error.statusCode = 403; throw error; }
-  if ((nextRole === "admin" || nextRole === "owner") && requesterRole !== "owner") { const error = new Error("Only tenant owners can assign admin or owner roles."); error.statusCode = 403; throw error; }
-  if (nextRole === "owner" && ownerCount >= 1) { const error = new Error("Only one tenant owner is allowed per vendor."); error.statusCode = 400; throw error; }
-  await userRepository.addTenantMembership(user._id, tenant._id, nextRole);
+  await staffInvitationResourceService.invite({ tenant, userId: user._id, actorId: req.user._id, email, role: req.body.role });
   res.status(201).json({ userId: user._id });
 }
 
-module.exports = { handleUpdateSettings, handleGetNotificationSettings, handleUpdateNotificationSettings, handleListHistory, handleListClients, handleListCounters, handleUpdateCounter, handleDeleteCounter, handleListStaff, handleInviteStaff, toCsvValue, HISTORY_RANGE_DAYS, PDFDocument };
+module.exports = { handleUpdateSettings, handleGetNotificationSettings, handleUpdateNotificationSettings, handleListHistory, handleListClients, handleListCounters, handleCreateCounter, handleUpdateCounter, handleDeleteCounter, handleCheckCounterSlugAvailability, handleListStaff, handleInviteStaff, toCsvValue, HISTORY_RANGE_DAYS, PDFDocument };

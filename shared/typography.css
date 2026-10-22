@@ -1,0 +1,16 @@
+@font-face {
+  font-family: "Aleo";
+  src: url("./fonts/aleo/aleo-variable.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+}
+
+:root {
+  --prio-heading-font: "Aleo", Georgia, serif;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--prio-heading-font);
+  font-weight: 600;
+}

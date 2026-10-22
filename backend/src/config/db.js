@@ -1,14 +1,17 @@
 const { Pool } = require("pg");
 const env = require("./env");
+const { createDatabasePoolConfig } = require("./databaseSsl");
 
 let activePool;
 
 function getPool() {
   if (!activePool) {
-    activePool = new Pool({
+    activePool = new Pool(createDatabasePoolConfig({
       connectionString: env.databaseUrl,
-      ssl: env.databaseSsl ? { rejectUnauthorized: false } : false
-    });
+      enabled: env.databaseSsl,
+      ca: env.databaseSslCa,
+      caFile: env.databaseSslCaFile
+    }));
   }
 
   return activePool;
