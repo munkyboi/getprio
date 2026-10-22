@@ -141,7 +141,19 @@ test('draft resource configuration writer under PostgreSQL constraints', { skip:
       assert.equal(await revision(),before);
       await assert.rejects(save(await body({action:'requirement',serviceId:'1000',poolId:'1',unitsRequired:1})),{statusCode:400});
       await assert.rejects(save(await body()),{statusCode:409});
-      await assert.rejects(pool.query('DELETE FROM location_resource_pools WHERE id=1'),{code:'23001'});
+      const referencedRows = () => pool.query(`SELECT to_jsonb(p) AS pool,
+        (SELECT jsonb_agg(to_jsonb(r) ORDER BY r.service_id) FROM service_resource_requirements r WHERE r.pool_id=p.id AND r.tenant_id=p.tenant_id AND r.location_id=p.location_id) AS requirements,
+        (SELECT revision::text FROM resource_ledger_scopes WHERE tenant_id=p.tenant_id AND location_id=p.location_id) AS revision
+        FROM location_resource_pools p WHERE p.id=1`);
+      const beforeDelete = (await referencedRows()).rows;
+      // PostgreSQL 16 reports foreign_key_violation; 18 reports restrict_violation.
+      await assert.rejects(pool.query('DELETE FROM location_resource_pools WHERE id=1'), error => {
+        assert.ok(['23001','23503'].includes(error.code), 'only referential-integrity rejection is accepted');
+        assert.equal(error.constraint,'resource_requirements_pool_scope_fkey');
+        assert.equal(error.table,'service_resource_requirements');
+        return true;
+      });
+      assert.deepEqual((await referencedRows()).rows,beforeDelete,'rejected SQL deletion preserves the archived pool, service mapping and ledger revision');
     });
     await t.test('nested draft JSON pool references block deletion without cross-branch disclosure', async () => {
       await reset();
