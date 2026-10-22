@@ -301,7 +301,7 @@ test('real PostgreSQL scoped inventory, reconciliation, authorization and read b
       CREATE TABLE booking_bundle_items(id BIGINT PRIMARY KEY,booking_id BIGINT,tenant_id BIGINT,location_id BIGINT,service_id BIGINT,
         booking_quantity INTEGER DEFAULT 1,scheduled_start_at TIMESTAMPTZ,scheduled_end_at TIMESTAMPTZ);
       CREATE TABLE ticket_service_plans(ticket_id BIGINT PRIMARY KEY,tenant_id BIGINT,location_id BIGINT,booking_id BIGINT,
-        source TEXT,execution_mode TEXT,items JSONB,created_at TIMESTAMPTZ DEFAULT now());
+        source TEXT,execution_mode TEXT,contract_version INTEGER,items JSONB,created_at TIMESTAMPTZ DEFAULT now());
       CREATE TABLE queue_days(id BIGINT PRIMARY KEY,tenant_id BIGINT,location_id BIGINT,business_date DATE,state TEXT,intake_mode TEXT,
         version BIGINT,deadline_version BIGINT,last_reconciled_at TIMESTAMPTZ,last_reconciliation_error TEXT);
       CREATE TABLE queue_ticket_segments(id BIGINT PRIMARY KEY,ticket_id BIGINT,queue_day_id BIGINT,sequence INTEGER,
