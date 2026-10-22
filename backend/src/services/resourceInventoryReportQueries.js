@@ -41,6 +41,7 @@ const CONTEXT = `WITH scope_tickets AS MATERIALIZED (
     ((r.state='protected' AND ((r.starts_at<$4::timestamptz AND r.ends_at>$3::timestamptz)
       OR r.starts_at IS NULL OR r.ends_at IS NULL OR NOT isfinite(r.starts_at) OR NOT isfinite(r.ends_at)))
       OR r.booking_item_id IN (SELECT id FROM relevant_items)
+      OR to_jsonb(r)->>'ticket_id' IN (SELECT id::text FROM work_scope)
       OR r.id IN (SELECT reservation_id FROM held_allocations))
 ), relevant_days AS MATERIALIZED (
   SELECT q.* FROM queue_days q WHERE q.tenant_id=$1 AND q.location_id=$2 AND
@@ -70,12 +71,15 @@ const COLLECTIONS = {
   work: { maximum: 10000, count: 'SELECT COUNT(*) FROM work_scope', rows: `SELECT w.id::text,w.status,w.join_channel,
     (w.developer_project_id IS NOT NULL) AS developer_linked,w.customer_confirmed,w.created_at,w.service_started_at,w.service_ended_at,
     w.service_priority_band,w.carry_over_count,w.current_queue_day_id::text,w.original_queue_day_id::text,
-    p.source AS plan_source,p.booking_id::text,p.execution_mode,p.items,p.created_at AS plan_captured_at
+    p.source AS plan_source,p.booking_id::text,p.execution_mode,
+    CASE WHEN to_jsonb(p)->>'contract_version' ~ '^[1-9][0-9]*$' THEN (to_jsonb(p)->>'contract_version')::integer END AS plan_contract_version,
+    p.items,p.created_at AS plan_captured_at
     FROM work_scope w LEFT JOIN ticket_service_plans p ON (p.ticket_id,p.tenant_id,p.location_id)=(w.id,$1,$2) ORDER BY w.id` },
   allocations: { maximum: 10000, count: 'SELECT COUNT(*) FROM held_allocations', rows: `SELECT id::text,ticket_id::text,pool_id::text,
     pool_revision::text,units,reservation_id::text,started_at,expected_end_at,
     (SELECT a.expected_end_at IS NOT DISTINCT FROM r.ends_at FROM relevant_bindings r WHERE r.id=a.reservation_id) AS reservation_end_matches,
     (SELECT a.started_at>=r.starts_at AND a.started_at<r.ends_at FROM relevant_bindings r WHERE r.id=a.reservation_id) AS reservation_start_valid,
+    (SELECT a.started_at IS NOT DISTINCT FROM r.starts_at FROM relevant_bindings r WHERE r.id=a.reservation_id) AS ticket_reservation_start_matches,
     (SELECT a.started_at IS NOT DISTINCT FROM w.service_started_at FROM work_scope w WHERE w.id=a.ticket_id) AS ticket_start_matches
     FROM held_allocations a ORDER BY id` },
   historicalConversions: { maximum: 10000, count: `SELECT COUNT(*) ${HISTORICAL_CONVERSIONS}`,
@@ -86,20 +90,29 @@ const COLLECTIONS = {
       r.pool_id::text AS binding_pool_id,r.pool_revision::text AS binding_pool_revision,r.units AS binding_units,
       r.state AS binding_state,
       r.booking_id::text AS binding_booking_id,r.booking_item_id::text AS binding_item_id,
+      to_jsonb(r)->>'ticket_id' AS binding_ticket_id,
+      (a.started_at IS NOT DISTINCT FROM r.starts_at) AS ticket_reservation_start_matches,
       r.requirement_revision::text,r.starts_at,r.ends_at,
+      CASE WHEN isfinite(r.starts_at) AND isfinite(r.ends_at)
+        THEN (EXTRACT(EPOCH FROM (r.ends_at-date_trunc('milliseconds',r.starts_at)))*1000000)::bigint::text END AS binding_duration_us,
       (r.starts_at=i.scheduled_start_at AND r.ends_at=i.scheduled_end_at) AS booking_interval_matches,
       b.status AS booking_status,t.id::text AS work_id,t.service_started_at,
       (t.service_started_at IS NOT DISTINCT FROM a.started_at) AS ticket_start_matches,
-      p.source AS plan_source,p.booking_id::text AS plan_booking_id,p.items AS plan_items
+      p.source AS plan_source,p.booking_id::text AS plan_booking_id,p.execution_mode,
+      CASE WHEN to_jsonb(p)->>'contract_version' ~ '^[1-9][0-9]*$' THEN (to_jsonb(p)->>'contract_version')::integer END AS plan_contract_version,
+      p.items AS plan_items
       ${HISTORICAL_CONVERSIONS} ORDER BY a.id` },
   bookingItems: { maximum: 20000, count: 'SELECT COUNT(*) FROM relevant_items', rows: `SELECT id::text,booking_id::text,service_id::text,
     booking_quantity,scheduled_start_at,scheduled_end_at,booking_scheduled_start_at,booking_status,pending_expires_at,proof_present,item_count,
     pending_expired,interval_not_elapsed,duration_minutes
     FROM relevant_items ORDER BY id` },
   bindings: { maximum: 20000, count: 'SELECT COUNT(*) FROM relevant_bindings', rows: `SELECT id::text,booking_id::text,booking_item_id::text,
+    to_jsonb(r)->>'ticket_id' AS ticket_id,
     pool_id::text,pool_revision::text,requirement_revision::text,units,starts_at,ends_at,state,
     CASE WHEN isfinite(starts_at) THEN (EXTRACT(EPOCH FROM starts_at)*1000000)::bigint::text END AS starts_at_us,
     CASE WHEN isfinite(ends_at) THEN (EXTRACT(EPOCH FROM ends_at)*1000000)::bigint::text END AS ends_at_us,
+    CASE WHEN isfinite(starts_at) AND isfinite(ends_at)
+      THEN (EXTRACT(EPOCH FROM (ends_at-date_trunc('milliseconds',starts_at)))*1000000)::bigint::text END AS duration_us,
     (starts_at<$4::timestamptz AND ends_at>$3::timestamptz) AS overlaps_window,
     (SELECT r.starts_at=i.scheduled_start_at AND r.ends_at=i.scheduled_end_at FROM relevant_items i WHERE i.id=r.booking_item_id) AS booking_interval_matches
     FROM relevant_bindings r ORDER BY id` },
