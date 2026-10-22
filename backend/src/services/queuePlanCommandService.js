@@ -26,7 +26,7 @@ function canonical(value) {
   if (value && typeof value === "object")
     return Object.fromEntries(
       Object.keys(value)
-        .sort()
+        .sort((left, right) => left < right ? -1 : Number(left > right))
         .map((key) => [key, canonical(value[key])]),
     );
   return value;

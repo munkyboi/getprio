@@ -69,7 +69,10 @@ jobs:
         run: npm run test:platform
 
       - name: Post-deploy smoke runner tests
-        run: node --test scripts/smoke-test.test.cjs scripts/prepare-test-database.test.cjs scripts/migration-order.test.cjs scripts/deployment-workflow-policy.test.cjs scripts/static-release.test.cjs
+        run: node --test scripts/smoke-test.test.cjs scripts/prepare-test-database.test.cjs scripts/migration-order.test.cjs scripts/private-evidence.test.cjs scripts/docker-migrate.test.cjs scripts/deployment-workflow-policy.test.cjs scripts/static-release.test.cjs
+
+      - name: Verify fresh isolated Docker database bootstrap
+        run: sh scripts/test-docker-bootstrap.sh
 
       - name: Frontend coverage
         run: npm run test:frontend:coverage

@@ -83,9 +83,9 @@ assert.ok(refilled.activeSessions.some(s=>s.ticketId===sixth));
 const seventh=await call(); await command(seventh,'start',409);
 const final=capture('visible_demo_four_active_one_capacity_blocked',await read());
 assert.equal(final.activeSessions.length,4);
-const output='/tmp/getprio-local-pooled-http-evidence.json';
-fs.writeFileSync(output,JSON.stringify({localOnly:true,fixtureDatabase:fixture.databaseName,
-  authenticatedWithPasswordAndTotp:true,evidence},null,2),{mode:0o600});
+const { writePrivateEvidence } = require('./helpers/private-evidence.cjs');
+const output=writePrivateEvidence({localOnly:true,fixtureDatabase:fixture.databaseName,
+  authenticatedWithPasswordAndTotp:true,evidence});
 console.log(JSON.stringify({passed:true,steps:evidence.length,activeSessions:4,fifthStartRejected:true,
   independentCompleteInterrupt:true,reassignment:true,evidence:output,
   evidenceSha256:createHash('sha256').update(fs.readFileSync(output)).digest('hex')}));

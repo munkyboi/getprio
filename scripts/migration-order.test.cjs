@@ -23,3 +23,11 @@ test('missing prerequisite, cycle and duplicate names fail before producing an a
   assert.throws(()=>orderMigrationNames(['a.sql','b.sql'],{'a.sql':['b.sql'],'b.sql':['a.sql']}),/dependency cycle/);
   assert.throws(()=>orderMigrationNames(['a.sql','a.sql']),/Duplicate migration/);
 });
+
+test('UTF-16 filename order and tracked Docker manifest match the shared planner', () => {
+  assert.deepEqual(orderMigrationNames(['é.sql','a.sql','2.sql','😀.sql','A.sql','10.sql','\uE000.sql','_.sql'], {}),
+    ['10.sql','2.sql','A.sql','_.sql','a.sql','é.sql','😀.sql','\uE000.sql']);
+  const directory=path.join(__dirname,'../database/migrations');
+  assert.equal(fs.readFileSync(path.join(directory,'migration-order.txt'),'utf8'),
+    orderedMigrationFiles(directory).map(file=>path.basename(file)).join('\n')+'\n', 'regenerate Docker manifest with the shared dependency planner after adding migrations');
+});

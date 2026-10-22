@@ -20,7 +20,7 @@ const DEPENDENCIES = Object.freeze({
 });
 
 function orderMigrationNames(names, dependencies = DEPENDENCIES) {
-  const pending = [...names].sort();
+  const pending = [...names].sort((left, right) => left < right ? -1 : Number(left > right));
   if (new Set(pending).size !== pending.length) throw new Error('Duplicate migration filename.');
   const available = new Set(pending), applied = new Set(), result = [];
   for (const name of pending) {

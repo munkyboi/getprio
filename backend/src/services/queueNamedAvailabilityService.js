@@ -94,7 +94,7 @@ async function evaluate(client,scope,body){
     expected.push({selectionId:resource.resourceSelectionId,serviceId:root.serviceId,quantity:resource.quantity,durationCount:resource.durationCount,durationPolicyRevision:resource.durationPolicyRevision,resourceMemberIds:resource.resourceMemberId?[resource.resourceMemberId]:[]});
     for(const extra of resource.extras)expected.push({selectionId:extra.extraSelectionId,serviceId:extra.serviceId,parentServiceId:root.serviceId,quantity:extra.quantity,durationCount:extra.durationCount,durationPolicyRevision:extra.durationPolicyRevision,resourceMemberIds:extra.resourceMemberIds||[]});
   }
-  const sameRequest=(a,b)=>['selectionId','serviceId','parentServiceId','quantity','durationCount','durationPolicyRevision'].every(k=>a[k]===b[k])&&JSON.stringify([...a.resourceMemberIds].sort())===JSON.stringify([...(b.resourceMemberIds||[])].sort());
+  const sameRequest=(a,b)=>['selectionId','serviceId','parentServiceId','quantity','durationCount','durationPolicyRevision'].every(k=>a[k]===b[k])&&JSON.stringify([...a.resourceMemberIds].sort((left, right) => left < right ? -1 : Number(left > right)))===JSON.stringify([...(b.resourceMemberIds||[])].sort((left, right) => left < right ? -1 : Number(left > right)));
   const completeBatch=body.serviceSelections!==undefined&&expected.length===body.requests.length&&expected.every(e=>body.requests.some(r=>sameRequest(e,r)));
   const contextIncomplete=!completeBatch||selections.some(s=>s.issue);
   const output=selections.map(selection=>{
