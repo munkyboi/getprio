@@ -9331,6 +9331,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       <p className="ops-strong">Business description</p>
                       <CampaignDescriptionEditor
                         label="Business description"
+                        key={selectedTenantSlug}
                         disabled={profileDisabled || settingsBusy}
                         maxCharacters={1000}
                         value={settings.publicProfileDescription || ""}

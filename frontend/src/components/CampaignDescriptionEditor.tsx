@@ -1,5 +1,5 @@
 import { $generateHtmlFromNodes, $generateNodesFromDOM } from "@lexical/html";
-import { $getRoot, FORMAT_TEXT_COMMAND, REDO_COMMAND, UNDO_COMMAND, type LexicalCommand } from "lexical";
+import { $getRoot, $setSelection, CLEAR_HISTORY_COMMAND, FORMAT_TEXT_COMMAND, REDO_COMMAND, UNDO_COMMAND, type LexicalCommand } from "lexical";
 import { HeadingNode, QuoteNode } from "@lexical/rich-text";
 import { ListItemNode, ListNode, INSERT_ORDERED_LIST_COMMAND, INSERT_UNORDERED_LIST_COMMAND } from "@lexical/list";
 import { LexicalComposer } from "@lexical/react/LexicalComposer";
@@ -43,10 +43,32 @@ type CampaignDescriptionEditorProps = { disabled?: boolean; maxCharacters?: numb
 export default function CampaignDescriptionEditor({ disabled = false, maxCharacters = DEFAULT_MAX_CHARACTERS, onChange, value, label = "Description" }: CampaignDescriptionEditorProps) {
   const [initialConfig] = useState(() => ({ namespace: "CampaignDescriptionEditor", editable: !disabled, theme: { paragraph: "campaign-description-paragraph", quote: "campaign-description-quote", text: { bold: "campaign-description-bold", italic: "campaign-description-italic", underline: "campaign-description-underline" } }, nodes: [HeadingNode, QuoteNode, ListNode, ListItemNode], editorState: (editor: LexicalEditor) => editor.update(() => { const dom = new DOMParser().parseFromString(toEditorHtml(value), "text/html"); $getRoot().clear().append(...$generateNodesFromDOM(editor, dom)); }), onError: (error: Error) => { throw error; } }));
   const characterCount = useMemo(() => getPlainText(value).length, [value]);
-  return <Stack gap={4}><LexicalComposer initialConfig={{ ...initialConfig, editable: !disabled }}><DescriptionEditorInner disabled={disabled} label={label} maxCharacters={maxCharacters} onChange={onChange} /></LexicalComposer><Text c="dimmed" size="xs" ta="right">{characterCount} / {maxCharacters}</Text></Stack>;
+  return <Stack gap={4}><LexicalComposer initialConfig={{ ...initialConfig, editable: !disabled }}><DescriptionEditorInner value={value} disabled={disabled} label={label} maxCharacters={maxCharacters} onChange={onChange} /></LexicalComposer><Text c="dimmed" size="xs" ta="right">{characterCount} / {maxCharacters}</Text></Stack>;
 }
-function DescriptionEditorInner({ disabled = false, label = "Description", maxCharacters = DEFAULT_MAX_CHARACTERS, onChange }: Omit<CampaignDescriptionEditorProps, "value">) {
+function DescriptionEditorInner({ value, disabled = false, label = "Description", maxCharacters = DEFAULT_MAX_CHARACTERS, onChange }: CampaignDescriptionEditorProps) {
   const [editor] = useLexicalComposerContext();
   useEffect(() => { editor.setEditable(!disabled); }, [disabled, editor]);
-  return <div className="campaign-description-editor"><EditorToolbar editor={editor} disabled={disabled} /><RichTextPlugin contentEditable={<ContentEditable className="campaign-description-content" aria-label={label} />} placeholder={<div className="campaign-description-placeholder">Write a description…</div>} ErrorBoundary={({ children }) => <>{children}</>} /><HistoryPlugin /><ListPlugin /><OnChangePlugin ignoreSelectionChange onChange={(editorState: EditorState, currentEditor: LexicalEditor) => { const html = editorState.read(() => $generateHtmlFromNodes(currentEditor)); if (getPlainText(html).length <= maxCharacters) onChange(html); }} /></div>;
+  return <div className="campaign-description-editor"><EditorToolbar editor={editor} disabled={disabled} /><RichTextPlugin contentEditable={<ContentEditable className="campaign-description-content" aria-label={label} />} placeholder={<div className="campaign-description-placeholder">Write a description…</div>} ErrorBoundary={({ children }) => <>{children}</>} /><HistoryPlugin /><ListPlugin /><DescriptionValueSync value={value} /><OnChangePlugin ignoreSelectionChange onChange={(editorState: EditorState, currentEditor: LexicalEditor, tags: Set<string>) => { if (tags.has(DESCRIPTION_EXTERNAL_VALUE_TAG)) return; const html = editorState.read(() => $generateHtmlFromNodes(currentEditor)); if (getPlainText(html).length <= maxCharacters) onChange(html); }} /></div>;
+}
+
+export const DESCRIPTION_EXTERNAL_VALUE_TAG = "description-external-value";
+
+/** Parent echoes leave selection/history intact; genuine external values replace the document. */
+export function DescriptionValueSync({ value }: { value: string }) {
+  const [editor] = useLexicalComposerContext();
+  useEffect(() => {
+    const html = toEditorHtml(value);
+    if (editor.getEditorState().read(() => $generateHtmlFromNodes(editor)) === html) return;
+    editor.update(() => {
+      const dom = new DOMParser().parseFromString(html, "text/html");
+      $getRoot().clear().append(...$generateNodesFromDOM(editor, dom));
+      $setSelection(null);
+    }, {
+      tag: DESCRIPTION_EXTERNAL_VALUE_TAG,
+      discrete: true,
+      // Undo must not restore a document loaded for a different business.
+      onUpdate: () => { editor.dispatchCommand(CLEAR_HISTORY_COMMAND, undefined); },
+    });
+  }, [editor, value]);
+  return null;
 }
