@@ -1250,8 +1250,10 @@ async function createCustomerBooking({ user, body }) {
     }
   }, async (client, ledger) => {
     if(isV4){const replay=await v4.readReceipt(client,v4Scope,String(user._id),body.requestKey,v4Hash);if(replay)return{...replay.booking,_v4Replay:true};}
-    if(isV4){const lockedVerification=await bookingOtpService.getVerifiedBookingPayload({tenant:lockedTenant,token:bookingVerificationToken,client});assertVerifiedPayloadMatchesRequest(lockedVerification.payload,body);if(lockedVerification.otpId!==verifiedBooking.otpId)throw Object.assign(new Error('Please verify this booking again.'),{statusCode:409});}
-    if(isV4)await entitlementAdmissionService.admit({tenantId:tenant._id,featureKey:'booking',client,lockPolicy:true});
+    const lockedVerification=await bookingOtpService.getVerifiedBookingPayload({tenant:lockedTenant,token:bookingVerificationToken,client});
+    assertVerifiedPayloadMatchesRequest(lockedVerification.payload,body);
+    if(lockedVerification.otpId!==verifiedBooking.otpId)throw Object.assign(new Error('Please verify this booking again.'),{statusCode:409});
+    await entitlementAdmissionService.admit({tenantId:tenant._id,featureKey:'booking',client,lockPolicy:true});
     const lockedSelectionCapture=isV4?await v4.capturePlan(client,v4Scope,body):null;
     const lockedComposed=await loadComposedBookingPlan({tenant:lockedTenant,location:lockedLocation,items:requestedBundleItems,executionMode,client,resourceSelectionV4:isV4});
     const lockedPlan = materializeComposedPlanAt({plan:lockedSelectionCapture?applySelectionDurations(lockedComposed,lockedSelectionCapture):lockedComposed,scheduledStartAt});
@@ -1320,12 +1322,12 @@ async function createCustomerBooking({ user, body }) {
     else await bookingResourceReservationService.reserveCreatedBooking({ client, ledger, booking: createdBooking });
     await client.query(`UPDATE resource_ledger_scopes SET revision=revision+1
       WHERE tenant_id=$1 AND location_id=$2`, [tenant._id, location._id]);
-    if(isV4){await bookingOtpService.consumeBookingVerificationToken(verifiedBooking.otpId,{client});await v4.writeReceipt(client,v4Scope,String(user._id),body.requestKey,v4Hash,{booking:createdBooking});}
+    await bookingOtpService.consumeBookingVerificationToken(verifiedBooking.otpId,{client});
+    if(isV4)await v4.writeReceipt(client,v4Scope,String(user._id),body.requestKey,v4Hash,{booking:createdBooking});
     return createdBooking;
   });
 
   if(booking._v4Replay){delete booking._v4Replay;return booking;}
-  if(!isV4)await bookingOtpService.consumeBookingVerificationToken(verifiedBooking.otpId);
   await sendBookingSubmittedNotification({ tenant, booking });
   await publishBookingSnapshot(tenant, location);
   if (tenant.notificationSettings?.bookingIntake !== false) {
