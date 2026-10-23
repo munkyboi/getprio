@@ -19,6 +19,7 @@ import {
 } from "../utils/phones";
 
 type Props = {
+  linearMode?: boolean;
   opened: boolean;
   busy: boolean;
   unavailable: boolean;
@@ -33,6 +34,7 @@ type Props = {
 };
 export function WalkInDialog({
   opened,
+  linearMode=false,
   busy,
   unavailable,
   closed,
@@ -44,6 +46,7 @@ export function WalkInDialog({
   onClose,
   onSubmit,
 }: Props) {
+  const selectedService=options.find(service=>service.id===form.serviceId);
   return (
     <TaskDialog
       opened={opened}
@@ -63,7 +66,7 @@ export function WalkInDialog({
             disabled={unavailable || busy}
             aria-busy={busy}
           >
-            {busy ? "Issuing…" : "Issue ticket"}
+            {busy ? "Issuing…" : linearMode && selectedService ? "Publish ticket" : "Issue ticket"}
           </Button>
         </>
       }
@@ -163,6 +166,7 @@ export function WalkInDialog({
               })
             }
           />
+          {linearMode && selectedService ? <Field><FieldLabel>Service review</FieldLabel><p>{selectedService.name} · {selectedService.durationMinutes} minutes</p><FieldDescription>The configured service duration is captured when you publish. The ticket joins Waiting; calling and starting service check resource availability.</FieldDescription></Field> : null}
           <Field orientation="horizontal">
             <Checkbox
               id="walk-in-alerts"

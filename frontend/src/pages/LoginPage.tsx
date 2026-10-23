@@ -18,6 +18,45 @@ function getSafeRedirectPath(value: string | null): string | null {
   return value;
 }
 
+export function resolveVendorNextPath(value: string | null): string {
+  const candidate = getSafeRedirectPath(value);
+  if (!candidate || /[\\\u0000-\u001f\u007f]/.test(candidate)) return "/dashboard";
+
+  try {
+    const url = new URL(candidate, "https://vendor-return.invalid");
+    if (url.origin !== "https://vendor-return.invalid" || !isVendorLoginContext(url.pathname)) {
+      return "/dashboard";
+    }
+
+    let decodedPath = url.pathname;
+    for (let pass = 0; pass < 3; pass += 1) {
+      const next = decodeURIComponent(decodedPath);
+      if (next === decodedPath) break;
+      decodedPath = next;
+    }
+    if (
+      /[\\\u0000-\u001f\u007f]/.test(decodedPath) ||
+      decodedPath.includes("//") ||
+      /(?:^|\/)\.\.?(?:\/|$)/.test(decodedPath) ||
+      !isVendorLoginContext(decodedPath)
+    ) {
+      return "/dashboard";
+    }
+    return `${url.pathname}${url.search}${url.hash}`;
+  } catch {
+    return "/dashboard";
+  }
+}
+
+export function getAuthRegistrationLinks(vendorLogin: boolean): Array<{ label: string; to: string }> {
+  return vendorLogin
+    ? [{ label: "Create a vendor workspace", to: "/register/vendor" }]
+    : [
+        { label: "Create a vendor workspace", to: "/register/vendor" },
+        { label: "register as a customer", to: "/register/customer" },
+      ];
+}
+
 const signInSchema = z.object({
   identifier: z.string().trim().min(1, "Enter your email address or username."),
   password: z.string().min(1, "Enter your password.")
@@ -43,8 +82,10 @@ export default function LoginPage() {
   const resetToken = searchParams.get("resetToken") || "";
   const passwordChanged = searchParams.get("passwordChanged") === "1";
   const passwordResetSuccess = searchParams.get("reset") === "success";
-  const nextPath = getSafeRedirectPath(searchParams.get("next"));
-  const vendorLogin = isVendorLoginContext(nextPath);
+  const isVendorSurface = import.meta.env.VITE_APP_SURFACE === "vendor";
+  const requestedNextPath = getSafeRedirectPath(searchParams.get("next"));
+  const nextPath = isVendorSurface ? resolveVendorNextPath(requestedNextPath) : requestedNextPath;
+  const vendorLogin = isVendorSurface || isVendorLoginContext(nextPath);
   const mfaEnrollmentPath = nextPath ? `/dashboard/account?next=${encodeURIComponent(nextPath)}` : "/dashboard/account";
   const [showResetRequest, setShowResetRequest] = useState(false);
   const [error, setError] = useState("");
@@ -123,7 +164,7 @@ export default function LoginPage() {
   }
 
   if (user && !user.tenants?.length) {
-    return <Navigate to={nextPath || "/"} replace />;
+    return <Navigate to={vendorLogin ? "/register/vendor" : nextPath || "/"} replace />;
   }
 
   const handleSignIn = signInForm.handleSubmit(async (values) => {
@@ -366,9 +407,13 @@ export default function LoginPage() {
           </>
         )}
         <Text c="dimmed" size="sm">
-          New here?{" "}
-          <Anchor component={Link} to="/register/vendor">Create a vendor workspace</Anchor> or{" "}
-          <Anchor component={Link} to="/register/customer">register as a customer</Anchor>.
+          {vendorLogin ? "Need a workspace? " : "New here? "}
+          {getAuthRegistrationLinks(vendorLogin).map((link, index) => (
+            <span key={link.to}>
+              {index > 0 ? " or " : null}
+              <Anchor component={Link} to={link.to}>{link.label}</Anchor>
+            </span>
+          ))}.
         </Text>
       </Stack>
     </Paper>

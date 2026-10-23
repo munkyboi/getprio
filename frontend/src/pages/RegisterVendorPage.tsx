@@ -373,6 +373,7 @@ export default function RegisterVendorPage() {
               <form onSubmit={handleSubmit}>
                 <FieldGroup className="config-form-grid">
                   <TextInput
+                    autoComplete="organization"
                     label="Business name"
                     required
                     error={form.formState.errors.tenantName?.message}
@@ -415,6 +416,7 @@ export default function RegisterVendorPage() {
                   />
                   <TextInput
                     label="Your full name"
+                    autoComplete="name"
                     required
                     error={form.formState.errors.name?.message}
                     {...form.register("name")}
@@ -432,6 +434,7 @@ export default function RegisterVendorPage() {
                         : undefined)
                     }
                     label="Username"
+                    autoComplete="username"
                     placeholder="owner_name"
                     required
                     {...form.register("username", {
@@ -454,6 +457,7 @@ export default function RegisterVendorPage() {
                     {...form.register("email")}
                   />
                   <ConfigurationPhone
+                    autoComplete="tel"
                     label="Phone (optional)"
                     description="Add a Philippine mobile number for account and booking updates."
                     error={form.formState.errors.phone?.message}

@@ -200,10 +200,10 @@ export function uploadThemeAsset(token: string, tenantSlug: string, locationSlug
   );
 }
 
-export function uploadLocationPaymentQr(token: string, tenantSlug: string, locationSlug: string, file: File) {
+export function uploadLocationPaymentQr(token: string, tenantSlug: string, locationSlug: string, file: File, onPreparedImage?: (blob: Blob) => void) {
   return apiUpload<import("@shared").LocationPaymentQrUploadResponse>(
     `/vendor/tenant/${tenantSlug}/location-payment-qrs/uploads/direct?locationSlug=${encodeURIComponent(locationSlug)}&fileName=${encodeURIComponent(file.name)}`,
-    { token, body: file, contentType: file.type }
+    { token, body: file, contentType: file.type, onPreparedImage }
   );
 }
 

@@ -34,6 +34,7 @@ import DeveloperReferencePage from "./pages/DeveloperReferencePage";
 import DeveloperPortalPrototype from "./pages/prototypes/DeveloperPortalPrototype";
 import SiteFooter from "./components/SiteFooter";
 import MaintenanceBoundary from "./components/MaintenanceBoundary";
+import { VendorAuthLayout } from "./vendor/VendorAuthLayout";
 
 import {
   JOINED_QUEUE_ROUTE_PATH,
@@ -264,7 +265,7 @@ function DashboardRedirect() {
   return (
     <Navigate
       replace
-      to={workspacePath(workspace === "administration" ? "settings" : "queue", workspace, location.search, location.hash)}
+      to={workspacePath(workspace === "administration" ? "settings" : "overview", workspace, location.search, location.hash)}
     />
   );
 }
@@ -277,6 +278,31 @@ function VendorDashboardRoute() {
     new URLSearchParams(location.search).get("queueClosePrototype") === "1";
 
   return prototypeEnabled ? <QueueAutoClosePrototype /> : <VendorDashboardPage />;
+}
+
+function VendorEntryRoute() {
+  const { user, loading } = useAuth();
+  const hasVendorMembership = activeMemberships(user?.tenants || []).length > 0;
+
+  if (loading) {
+    return (
+      <VendorAuthLayout>
+        <p className="ops-muted" role="status" aria-busy="true">
+          Loading workspace...
+        </p>
+      </VendorAuthLayout>
+    );
+  }
+
+  if (hasVendorMembership) {
+    return <Navigate replace to="/dashboard" />;
+  }
+
+  return user ? (
+    <Navigate replace to="/register/vendor" />
+  ) : (
+    <Navigate replace to="/login?next=%2Fdashboard" />
+  );
 }
 
 function getVendorBookingTabRoute(pathname: string) {
@@ -345,6 +371,7 @@ function ScrollToTop() {
 }
 
 export default function App() {
+  const isVendorSurface = import.meta.env.VITE_APP_SURFACE === "vendor";
   const isDeveloperHostname = typeof window !== "undefined" && ["developers.getprio.online"].includes(window.location.hostname);
   const isLocalPrototypePreview = import.meta.env.DEV && typeof window !== "undefined" && window.location.pathname === "/prototype";
 
@@ -371,15 +398,15 @@ export default function App() {
         <Route path={MONITOR_ROUTE_PATH} element={<LegacyMonitorRedirect />} />
         <Route path={JOINED_QUEUE_ROUTE_PATH} element={<AppShell><JoinedQueuePage /></AppShell>} />
         <Route path={LEGACY_MONITOR_ROUTE_PATH} element={<LegacyMonitorRedirect />} />
-        <Route path="/" element={<AppShell><LandingPage /></AppShell>} />
-        <Route path="/login" element={<AppShell><LoginPage /></AppShell>} />
-        <Route path="/oauth/callback" element={<AppShell><OAuthCallbackPage /></AppShell>} />
+        <Route path="/" element={isVendorSurface ? <VendorEntryRoute /> : <AppShell><LandingPage /></AppShell>} />
+        <Route path="/login" element={isVendorSurface ? <LoginPage /> : <AppShell><LoginPage /></AppShell>} />
+        <Route path="/oauth/callback" element={isVendorSurface ? <OAuthCallbackPage /> : <AppShell><OAuthCallbackPage /></AppShell>} />
         <Route path="/payment/return" element={<AppShell><PaymentReturnPage /></AppShell>} />
         <Route path="/privacy-policy" element={<AppShell><PrivacyPolicyPage /></AppShell>} />
         <Route path="/help" element={<AppShell><HelpPage /></AppShell>} />
         <Route path="/contact" element={<AppShell><ContactPage /></AppShell>} />
         <Route path="/terms" element={<AppShell><TermsPage /></AppShell>} />
-        <Route path="/register/vendor" element={<AppShell><RegisterVendorPage /></AppShell>} />
+        <Route path="/register/vendor" element={isVendorSurface ? <RegisterVendorPage /> : <AppShell><RegisterVendorPage /></AppShell>} />
         <Route path="/register/customer" element={<AppShell><RegisterCustomerPage /></AppShell>} />
         <Route path="/account" element={<Navigate to="/account/dashboard" replace />} />
         <Route path="/account/dashboard" element={<AppShell><CustomerDashboardPage /></AppShell>} />
@@ -400,6 +427,8 @@ export default function App() {
 
         <Route path="/vendors/:tenantSlug" element={<AppShell><VendorProfilePage /></AppShell>} />
         <Route path="/dashboard" element={<DashboardRedirect />} />
+        <Route path="/dashboard/services/:routeServiceSlug/edit" element={<AppShell><VendorDashboardRoute /></AppShell>} />
+        <Route path="/dashboard/locations/:locationSlug/edit" element={<AppShell><VendorDashboardRoute /></AppShell>} />
         <Route path="/dashboard/:section" element={<AppShell><VendorDashboardRoute /></AppShell>} />
         <Route path="/join/:tenantSlug/:locationSlug?" element={<AppShell><JoinQueuePage /></AppShell>} />
         <Route path="*" element={<AppShell><NotFoundPage /></AppShell>} />

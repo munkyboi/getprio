@@ -236,11 +236,15 @@ export function CounterTickets({
   disabled,
   onSelect,
   onEnd,
+  onStart,
+  onEdit,
 }: {
   snapshot: QueueSnapshot | null;
   selectedTicketId?: string;
   disabled: boolean;
   onSelect: (counterSlug: string) => void;
+  onEdit?: (ticketId:string) => void;
+  onStart: (ticket: NonNullable<QueueSnapshot["calledTickets"]>[number]) => void;
   onEnd: (
     ticket: NonNullable<QueueSnapshot["calledTickets"]>[number],
     action: "complete" | "interrupt",
@@ -299,6 +303,12 @@ export function CounterTickets({
                   >
                     Manage ticket
                   </Button>
+                  {!started && onEdit ? <Button variant="outline" disabled={disabled} onClick={()=>onEdit(ticket.id)}>Edit queue details<span className="v:sr-only"> for {ticket.ticketNumber}</span></Button> : null}
+                  {!started && snapshot?.location?.serviceTimingEnabled ? (
+                    <Button disabled={disabled || !(ticket.customerConfirmedAt || ticket.joinChannel === "vendor")} onClick={() => onStart(ticket)}>
+                      Start service<span className="v:sr-only"> for {ticket.ticketNumber}</span>
+                    </Button>
+                  ) : null}
                   {started ? (
                     <>
                       <Button

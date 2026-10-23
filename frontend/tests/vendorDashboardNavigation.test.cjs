@@ -49,3 +49,10 @@ test("Ratings controls require an active paid plan, including direct navigation"
   }
   assert.equal(canAccessVendorSection('ratings', {}, { planSlug: 'economical', subscriptionStatus: 'active' }), true);
 });
+
+test('Dashboard uses basic dashboard access without enabling queue commands', () => {
+  assert.equal(canAccessVendorSection('overview', {basicDashboard:true,queueSystemAccess:false}), true);
+  assert.equal(canAccessVendorSection('queue', {basicDashboard:true,queueSystemAccess:false}), false);
+  assert.equal(canAccessVendorSection('overview', {basicDashboard:false}), false);
+  assert.equal(canAccessVendorSection('overview', null), false);
+});

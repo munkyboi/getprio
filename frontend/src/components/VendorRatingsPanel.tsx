@@ -1,3 +1,4 @@
+import { ManagedCollection } from "../vendor/ManagedCollection";
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "../api/client";
@@ -99,53 +100,20 @@ export function VendorRatingsPanel({
                 text="Customer reviews of your business appear here."
               />
             ) : null}
-            {query.data.reviews.map((review) => (
-              <OperationPanel key={review.id}>
-                <div className="queue-stack">
-                  <div className="ops-row ops-between">
-                    <time dateTime={review.created_at}>
-                      {new Date(review.created_at).toLocaleDateString("en-GB", {
-                        day: "numeric",
-                        month: "short",
-                        year: "numeric",
-                      })}
-                    </time>
-                    <span aria-label={`${review.stars} out of 5 stars`}>
-                      {"★".repeat(review.stars)}
-                      {"☆".repeat(5 - review.stars)}
-                    </span>
-                  </div>
-                  <p className="rating-comment">
-                    {review.comment || "No comment"}
-                  </p>
-                  <div className="ops-row ops-between">
-                    <Badge variant="secondary">
-                      {review.moderation_status}
-                    </Badge>
-                    <OperationScope
-                      busy={locked || review.moderation_status !== "active"}
-                    >
-                      <OperationCheckbox
-                        label={`Show review from ${new Date(review.created_at).toLocaleDateString("en-GB")} publicly`}
-                        checked={review.public_visible}
-                        onCheckedChange={() => void toggle(review)}
-                      />
-                    </OperationScope>
-                  </div>
-                  {review.moderation_status !== "active" ? (
-                    <p className="ops-muted">
-                      Public visibility is controlled by moderation for this
-                      review.
-                    </p>
-                  ) : null}
-                  {busy === review.id ? (
-                    <p role="status" className="ops-muted">
-                      Saving visibility…
-                    </p>
-                  ) : null}
-                </div>
-              </OperationPanel>
-            ))}
+            {query.data.reviews.length ? <OperationPanel>
+              <div className="ops-list-heading"><div><h2 className="ops-heading">Customer reviews</h2><p className="ops-muted">Page {page} · Filters apply to this loaded page.</p></div></div>
+              <ManagedCollection key={page} items={query.data.reviews} label="reviews on this page" searchText={(review) => review.comment || ""} statusOf={(review) => review.public_visible ? "public" : "hidden"} statuses={[{value:"public",label:"Public"},{value:"hidden",label:"Hidden"}]}>{(reviews) => (
+                <div className="ops-table"><table className="ops-data-table" aria-label="Customer reviews"><thead><tr><th scope="col">Date</th><th scope="col">Rating</th><th scope="col">Review</th><th scope="col">Moderation</th><th scope="col">Public visibility</th></tr></thead><tbody>
+                  {reviews.map((review) => <tr key={review.id}>
+                    <td data-label="Date"><time dateTime={review.created_at}>{new Date(review.created_at).toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"})}</time></td>
+                    <td data-label="Rating"><span aria-label={`${review.stars} out of 5 stars`}>{"★".repeat(review.stars)}{"☆".repeat(5-review.stars)}</span></td>
+                    <td data-label="Review"><p className="rating-comment">{review.comment || "No comment"}</p></td>
+                    <td data-label="Moderation"><Badge variant="secondary">{review.moderation_status}</Badge></td>
+                    <td data-label="Public visibility"><OperationScope busy={locked || review.moderation_status !== "active"}><OperationCheckbox label={`Show review from ${new Date(review.created_at).toLocaleDateString("en-GB")} publicly`} checked={review.public_visible} onCheckedChange={() => void toggle(review)} /></OperationScope>{review.moderation_status !== "active" ? <p className="ops-muted">Public visibility is controlled by moderation.</p> : null}{busy === review.id ? <p role="status" className="ops-muted">Saving visibility…</p> : null}</td>
+                  </tr>)}
+                </tbody></table></div>
+              )}</ManagedCollection>
+            </OperationPanel> : null}
             <nav aria-label="Review pages" className="ops-row ops-between">
               <OperationButton
                 variant="outline"
