@@ -1109,7 +1109,7 @@ async function createCustomerBooking({ user, body }) {
     throw error;
   }
 
-  if (!scheduledStartAt || scheduledStartAt.getTime() <= Date.now()) {
+  if (!scheduledStartAt || (!isV4 && scheduledStartAt.getTime() <= Date.now())) {
     const error = new Error("scheduledStartAt must be a future date and time.");
     error.statusCode = 400;
     throw error;
@@ -1137,6 +1137,13 @@ async function createCustomerBooking({ user, body }) {
     if(actor.rows.length!==1)throw Object.assign(new Error('Booking access is unavailable.'),{statusCode:403});
     const replay=await v4.readReceipt(db.pool,v4Scope,String(user._id),body.requestKey,v4Hash);
     if(replay)return replay.booking;
+    // An exact completed command remains replayable after its original start.
+    // Only fresh resource bookings must still have a future scheduled time.
+    if(scheduledStartAt.getTime()<=Date.now()) {
+      const error=new Error("scheduledStartAt must be a future date and time.");
+      error.statusCode=400;
+      throw error;
+    }
   }
   const service = await vendorServiceRepository.findServiceByTenantAndSlug(tenant._id, serviceSlug);
   if (!service || !service.isActive) {

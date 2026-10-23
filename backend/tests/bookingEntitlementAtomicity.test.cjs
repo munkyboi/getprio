@@ -8,15 +8,16 @@ function fixture({version=1,deny=false,quota=false,failAt=null}={}){
  const scheduledStartAt=new Date(Date.now()+86400000).toISOString().slice(0,10)+'T01:00:00.000Z';
  const body={tenantSlug:'club',locationSlug:'main',serviceSlug:'court',scheduledStartAt,bookingQuantity:1,executionMode:'parallel',customerName:'Customer',customerEmail:'',customerPhone:'09171234567',notes:'',bookingVerificationToken:'verified',...(version===4?{selectionContractVersion:4,requestKey:'create:1',catalogVersion:'a'.repeat(64),serviceSelections:[]}: {})};
  const user={_id:'35',name:'Customer',phone:'09171234567'},calls=[];
+ let actorActive=true,tenantActive=true,locationActive=true,capabilityEnabled=true;
  let state={bookings:[],allowance:0,consumed:false,captures:[],receipts:[]},tail=Promise.resolve();
- const pool={query:async()=>({rows:[{id:'35'}]})};
+ const pool={query:async()=>({rows:actorActive?[{id:'35'}]:[]})};
  const write=client=>{assert.ok(client?.state,'all durable work needs the scoped transaction');return client.state;};
  const mocks={
  '../config/db':{pool},
  './platformMaintenanceService':{assertNewIntake:async()=>{}},
  './contentModeration':{assertPublicTextFieldsAllowed(){}},
- '../repositories/tenants':{findTenantBySlug:async()=>tenant},
- '../repositories/storeLocations':{findLocationByTenantAndSlug:async()=>location},
+ '../repositories/tenants':{findTenantBySlug:async()=>tenantActive?tenant:null},
+ '../repositories/storeLocations':{findLocationByTenantAndSlug:async()=>({...location,isActive:locationActive})},
  '../repositories/vendorServices':{normalizeServiceSlug:v=>v,findServiceByTenantAndSlug:async()=>catalog},
  '../repositories/locationServices':{findLocationServiceByLocationAndServiceId:async()=>({isActive:true,capacity:99})},
  '../repositories/vendorAvailability':{listAvailabilityByLocation:async()=>({blocks:Array.from({length:7},(_,weekday)=>({weekday,isActive:true,startsAt:'00:00',endsAt:'23:59',capacity:99})),exceptions:[]})},
@@ -30,14 +31,14 @@ function fixture({version=1,deny=false,quota=false,failAt=null}={}){
  './entitlementAdmissionService':{admit:async({client,lockPolicy,featureKey})=>{calls.push('admit');assert.ok(client?.state);assert.equal(lockPolicy,true);assert.equal(featureKey,'booking');if(deny)throw Object.assign(new Error('Not included'),{statusCode:403,code:'FEATURE_BOOKING_NOT_INCLUDED'});return{allowed:true,enforced:true};}},
  './allowanceService':{consumeAllowance:async(_data,{client})=>{calls.push('allowance');if(quota)throw Object.assign(new Error('Quota'),{statusCode:409,code:'ALLOWANCE_SERVICE_BOOKINGS_EXHAUSTED'});write(client).allowance++;}},
  './bookingResourceReservationService':{reserveCreatedBooking:async()=>{}},
- './bookingSelectionServiceV4':{enabled:()=>false,assertEnabled(){},assertVerifiedSelections(){},capturePlan:async()=>({paymentRequired:false,captured:{serviceSelections:[{serviceId:'9',serviceSelectionId:'s'}],items:[{serviceSelectionId:'s',selectionKind:'resource',durationMinutes:60}]}}),persist:async(client)=>{calls.push('capture');write(client).captures.push('capture');},commandHash:v4actual.commandHash,readReceipt:async(client,_scope,_actor,key,hash)=>{const row=(client.state||state).receipts.find(r=>r.key===key);if(row&&row.hash!==hash)throw Error('Key conflict');return row?.result;},writeReceipt:async(client,_scope,_actor,key,hash,result)=>{calls.push('receipt');write(client).receipts.push({key,hash,result});if(failAt==='receipt')throw Error('receipt failure');}},
+ './bookingSelectionServiceV4':{enabled:()=>false,assertEnabled(){if(!capabilityEnabled)throw Object.assign(new Error('Resource bookings are not enabled.'),{code:'BOOKING_V4_NOT_ENABLED',statusCode:409});},assertVerifiedSelections(){},capturePlan:async()=>({paymentRequired:false,captured:{serviceSelections:[{serviceId:'9',serviceSelectionId:'s'}],items:[{serviceSelectionId:'s',selectionKind:'resource',durationMinutes:60}]}}),persist:async(client)=>{calls.push('capture');write(client).captures.push('capture');},commandHash:v4actual.commandHash,readReceipt:async(client,_scope,_actor,key,hash)=>{const row=(client.state||state).receipts.find(r=>r.key===key);if(row&&row.hash!==hash)throw Object.assign(new Error('Key conflict'),{code:'IDEMPOTENCY_CONFLICT',statusCode:409});return row?.result;},writeReceipt:async(client,_scope,_actor,key,hash,result)=>{calls.push('receipt');write(client).receipts.push({key,hash,result:structuredClone(result)});if(failAt==='receipt')throw Error('receipt failure');}},
  './bookingSmsAlertPaymentService':{getBookingSmsFeeForTenant:async()=>({}),shouldChargeBookingSmsFee:()=>false},
  './notificationService':{sendEmail:async()=>{},sendSms:async()=>{}},
  './queueService':{publishSnapshot:async()=>{}}
  };
  require.cache[v4id]={id:v4id,filename:v4id,loaded:true,exports:mocks['./bookingSelectionServiceV4']};
  const service=loadModuleWithMocks(require.resolve('../src/services/bookingService'),mocks);service._setQueueServiceForTest({publishSnapshot:async()=>{}});
- return{run:()=>service.createCustomerBooking({user,body}),calls,state:()=>state};
+ return{run:(overrides={})=>service.createCustomerBooking({user,body:{...body,...overrides}}),calls,state:()=>state,body,complete(){state.bookings=state.bookings.map(booking=>({...booking,status:'completed'}));},revoke(kind){if(kind==='actor')actorActive=false;else if(kind==='tenant')tenantActive=false;else if(kind==='location')locationActive=false;else if(kind==='capability')capabilityEnabled=false;}};
 }
 for(const version of [1,4]){
  test(`V${version} denied admission leaves booking/quota/OTP/capture/receipt unchanged`,async()=>{const f=fixture({version,deny:true});await assert.rejects(f.run(),{code:'FEATURE_BOOKING_NOT_INCLUDED'});assert.deepEqual(f.state(),{bookings:[],allowance:0,consumed:false,captures:[],receipts:[]});assert.ok(f.calls.includes('admit'));assert.ok(!f.calls.includes('create'));});
@@ -53,4 +54,21 @@ test('existing rollout OFF and legacy-authority admission semantics remain delib
  const admission=loadModuleWithMocks(require.resolve('../src/services/entitlementAdmissionService'),{'./entitlementResolver':{resolveTenantPolicy:async()=>{reads++;return{lifecycle:{state:'active'},authority:{served:'legacy'},features:{booking:{enabled:false}}};},assertFeature:()=>{assertions++;throw Error('Feature denied');}}});
  assert.deepEqual(await admission.admit({tenantId:'7',featureKey:'booking',controls:{entitlementBookingEnforcement:false}}),{allowed:true,enforced:false});assert.equal(reads,0);
  const legacy=await admission.admit({tenantId:'7',featureKey:'booking',controls:{entitlementBookingEnforcement:true},client:{},lockPolicy:true});assert.equal(legacy.bypassed,'legacy_authority');assert.equal(legacy.enforced,false);assert.equal(reads,1);assert.equal(assertions,0);
+});
+
+async function afterScheduledTime(f,run){const original=Date.now;Date.now=()=>Date.parse(f.body.scheduledStartAt)+7200000;try{return await run();}finally{Date.now=original;}}
+test('completed V4 exact receipt replays after its scheduled start without OTP, admission, writes or charge',async()=>{
+ const f=fixture({version:4}),first=structuredClone(await f.run());f.complete();const before=structuredClone(f.state()),count=f.calls.length;
+ await afterScheduledTime(f,async()=>assert.deepEqual(await f.run(),first));assert.deepEqual(f.state(),before);assert.deepEqual(f.calls.slice(count),[]);assert.equal(f.state().bookings[0].status,'completed');
+});
+test('fresh V4 past time and invalid timestamp reject without durable work, while V1 past error is unchanged',async()=>{
+ for(const version of [1,4]){const f=fixture({version}),before=structuredClone(f.state());await afterScheduledTime(f,async()=>assert.rejects(f.run(),{statusCode:400,message:'scheduledStartAt must be a future date and time.'}));assert.deepEqual(f.state(),before);assert.ok(!f.calls.includes('create'));await assert.rejects(f.run({scheduledStartAt:'invalid'}),{statusCode:400,message:'scheduledStartAt must be a future date and time.'});assert.deepEqual(f.state(),before);}
+});
+test('changed payload remains an idempotency conflict after scheduled start instead of a fresh-date error',async()=>{
+ const f=fixture({version:4});await f.run();const before=structuredClone(f.state()),count=f.calls.length;
+ await afterScheduledTime(f,async()=>assert.rejects(f.run({notes:'Changed request'}),{statusCode:409,code:'IDEMPOTENCY_CONFLICT'}));assert.deepEqual(f.state(),before);assert.deepEqual(f.calls.slice(count),[]);
+});
+test('late replay still requires current actor, active tenant/location and enabled capability',async()=>{
+ for(const [kind,statusCode,code] of [['actor',403],['tenant',404],['location',404],['capability',409,'BOOKING_V4_NOT_ENABLED']]){const f=fixture({version:4});await f.run();f.revoke(kind);const before=structuredClone(f.state()),count=f.calls.length;
+ await afterScheduledTime(f,async()=>assert.rejects(f.run(),{statusCode,...(code?{code}:{})}));assert.deepEqual(f.state(),before);assert.deepEqual(f.calls.slice(count),[]);}
 });
