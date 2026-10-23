@@ -29,7 +29,9 @@ export default defineConfig(({ mode }) => {
     server: {
       host: "0.0.0.0",
       port,
-      strictPort: true
+      strictPort: true,
+      fs: { allow: [fileURLToPath(new URL(".", import.meta.url)),
+        ...["typography.css", "fonts/aleo/aleo-variable.ttf", "modalWheel.ts", "timezones.ts"].map(file => fileURLToPath(new URL(`../shared/${file}`, import.meta.url)))] }
     }
   };
 });

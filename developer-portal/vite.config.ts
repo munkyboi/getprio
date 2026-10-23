@@ -16,7 +16,7 @@ export default defineConfig({
       },
     },
     fs: {
-      allow: [resolve(__dirname, "..")],
+      allow: [resolve(__dirname)],
     },
   },
 });
