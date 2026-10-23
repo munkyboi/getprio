@@ -48,7 +48,7 @@ const {
 const router = express.Router();
 const authHttpLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  limit: 100,
+  limit: Math.max(1, env.authHttpRateLimit || 100),
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: (req) => ipKeyGenerator(req.ip || req.socket?.remoteAddress || "unknown"),
@@ -60,7 +60,7 @@ const OAUTH_INTENTS = new Set(["login", "register_customer", "register_vendor"])
 const normalizeEmail = authService.normalizeEmail;
 const authAttemptLimiter = asyncHandler(async (req, _res, next) => {
   const key = crypto.createHash("sha256").update(String(req.ip || req.socket?.remoteAddress || "unknown")).digest("hex");
-  await securityRateLimitService.consume({ bucketKey: `auth-attempt:${key}`, limit: 100, windowSeconds: 15 * 60, blockedMessage: "Too many authentication attempts. Please try again later." });
+  await securityRateLimitService.consume({ bucketKey: `auth-attempt:${key}`, limit: Math.max(1, env.authAttemptRateLimit || 100), windowSeconds: 15 * 60, blockedMessage: "Too many authentication attempts. Please try again later." });
   next();
 });
 const customerRegistrationOtpLimiter = rateLimit({

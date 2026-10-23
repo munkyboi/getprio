@@ -63,7 +63,10 @@ const { createRequestContextMiddleware } = requestContextModule;
 const { createCsrfProtection } = csrfProtectionModule;
 const apiRateLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  limit: 1_000,
+  // The disposable local preview may have several browser tabs open while
+  // validating the dashboard. Keep production protection unchanged, but do
+  // not let the preview throttle its own read-only polling.
+  limit: localPoolDemoScopeModule.localPoolDemoConfiguration() ? 10_000 : 1_000,
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: (req) => ipKeyGenerator(req.ip || req.socket.remoteAddress || "unknown"),

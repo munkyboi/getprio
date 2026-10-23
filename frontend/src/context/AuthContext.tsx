@@ -18,7 +18,7 @@ import type {
   RegisterVendorRequest,
   UserSummary
 } from "@shared";
-import { API_BASE_URL, apiRequest, setAuthHandlers } from "../api/client";
+import { ApiError, API_BASE_URL, apiRequest, setAuthHandlers } from "../api/client";
 import type { AuthContextValue } from "./AuthContext.types";
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -58,21 +58,42 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     localStorage.removeItem("prio-auth");
-    apiRequest<{ user: UserSummary; sessionExpiresAt?: string | Date | null }>("/auth/me", { skipAuthRefresh: true })
-      .then((data) => {
-        setUser(data.user);
-        setToken(COOKIE_SESSION);
-        setRefreshToken(COOKIE_SESSION);
-        setSessionExpiresAt(data.sessionExpiresAt ? new Date(data.sessionExpiresAt).getTime() : null);
-      })
-      .catch(() => {
-        setToken("");
-        setRefreshToken("");
-        setUser(null);
-      })
-      .finally(() => {
-        setLoading(false);
-      });
+    let disposed = false;
+    let retryTimer: number | undefined;
+    let sessionRetries = 0;
+    const loadSession = () => {
+      void apiRequest<{ user: UserSummary; sessionExpiresAt?: string | Date | null }>("/auth/me", { skipAuthRefresh: true })
+        .then((data) => {
+          if (disposed) return;
+          setUser(data.user);
+          setToken(COOKIE_SESSION);
+          setRefreshToken(COOKIE_SESSION);
+          setSessionExpiresAt(data.sessionExpiresAt ? new Date(data.sessionExpiresAt).getTime() : null);
+          setLoading(false);
+        })
+        .catch((error) => {
+          if (disposed) return;
+          if (error instanceof ApiError && (error.status === 429 || error.status >= 500)) {
+            if (sessionRetries < 1) {
+              sessionRetries += 1;
+              const delay = error.retryAt ? Math.max(1000, Math.min(5000, error.retryAt - Date.now())) : 3000;
+              retryTimer = window.setTimeout(() => { retryTimer = undefined; loadSession(); }, delay);
+              return;
+            }
+            setLoading(false);
+            return;
+          }
+          setToken("");
+          setRefreshToken("");
+          setUser(null);
+          setLoading(false);
+        });
+    };
+    loadSession();
+    return () => {
+      disposed = true;
+      if (retryTimer !== undefined) window.clearTimeout(retryTimer);
+    };
   }, []);
 
   useEffect(() => {
@@ -110,7 +131,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setSessionExpiresAt(data.sessionExpiresAt ? new Date(data.sessionExpiresAt).getTime() : null);
         setExpiryWarningOpen(false);
         return COOKIE_SESSION;
-      } catch {
+      } catch (error) {
+        if (error instanceof ApiError && (error.status === 429 || error.status >= 500)) {
+          throw error;
+        }
         clearAuthState();
         return null;
       }

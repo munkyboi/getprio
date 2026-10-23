@@ -59,6 +59,12 @@ const refreshTokenTtlDaysPlatformAdmin = Number(
 const loginLockoutThreshold = Number(process.env.LOGIN_LOCKOUT_THRESHOLD || 5);
 const loginLockoutWindowMinutes = Number(process.env.LOGIN_LOCKOUT_WINDOW_MINUTES || 15);
 const loginLockoutDurationMinutes = Number(process.env.LOGIN_LOCKOUT_DURATION_MINUTES || 15);
+const authHttpRateLimit = Number(
+  process.env.AUTH_HTTP_RATE_LIMIT || (nodeEnv === "production" ? 100 : 1000)
+);
+const authAttemptRateLimit = Number(
+  process.env.AUTH_ATTEMPT_RATE_LIMIT || (nodeEnv === "production" ? 100 : 1000)
+);
 const passwordResetTtlMinutes = Number(process.env.PASSWORD_RESET_TTL_MINUTES || 30);
 const googleClientId = process.env.GOOGLE_CLIENT_ID || "";
 const googleClientSecret = process.env.GOOGLE_CLIENT_SECRET || "";
@@ -186,6 +192,8 @@ const env = {
   loginLockoutThreshold,
   loginLockoutWindowMinutes,
   loginLockoutDurationMinutes,
+  authHttpRateLimit,
+  authAttemptRateLimit,
   passwordResetTtlMinutes,
   googleClientId,
   googleClientSecret,
