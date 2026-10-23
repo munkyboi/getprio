@@ -14,7 +14,7 @@ export function validateLocalSurfaceArtifact(artifact) {
   let database;
   try { database = new URL(env.DATABASE_URL); } catch { throw new Error("Invalid isolated local database configuration."); }
   const databaseName = decodeURIComponent(database.pathname.slice(1));
-  if (!['postgres:', 'postgresql:'].includes(database.protocol) || !['127.0.0.1', 'localhost', '[::1]'].includes(database.hostname)
+  if (!['postgres:', 'postgresql:'].includes(database.protocol) || database.search || database.hash || !['127.0.0.1', 'localhost', '[::1]'].includes(database.hostname)
     || !new RegExp(`^getprio_local_pool_demo_surfaces_${profile}_[a-z0-9_]+$`).test(databaseName)) throw new Error('New isolated local surface database required.');
   const secrets = [env.JWT_SECRET, env.CSRF_SECRET, env.DEVELOPER_API_KEY_PEPPER];
   if (secrets.some(value => typeof value !== 'string' || value.length < 32) || new Set(secrets).size !== secrets.length) throw new Error('Distinct generated local signing secrets required.');
