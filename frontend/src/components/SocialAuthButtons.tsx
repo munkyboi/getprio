@@ -36,32 +36,31 @@ export default function SocialAuthButtons({
     Boolean(oauthProviders[id]),
   );
 
-  if (vendor)
+  if (vendor) {
+    if (!hasConfiguredProvider) return null;
     return (
       <div className="queue-stack">
         <Separator />
         <p className="ops-muted">Or continue with a connected account</p>
         <div className="ops-grid ops-grid-2">
-          {PROVIDER_OPTIONS.map(({ id, label, Icon }) => (
-            <OperationButton
-              key={id}
-              variant="outline"
-              disabled={disabled || oauthLoading || !oauthProviders[id]}
-              data-provider={id}
-              onClick={() => startOAuth(id, intent, returnPath)}
-            >
-              <Icon aria-hidden data-icon="inline-start" />
-              Continue with {label}
-            </OperationButton>
-          ))}
+          {PROVIDER_OPTIONS.filter(({ id }) => Boolean(oauthProviders[id])).map(
+            ({ id, label, Icon }) => (
+              <OperationButton
+                key={id}
+                variant="outline"
+                disabled={disabled || oauthLoading || !oauthProviders[id]}
+                data-provider={id}
+                onClick={() => startOAuth(id, intent, returnPath)}
+              >
+                <Icon aria-hidden data-icon="inline-start" />
+                Continue with {label}
+              </OperationButton>
+            ),
+          )}
         </div>
-        {!oauthLoading && !hasConfiguredProvider ? (
-          <p className="ops-muted">
-            Social sign-in is currently unavailable. Use the account form.
-          </p>
-        ) : null}
       </div>
     );
+  }
   return (
     <Stack gap="md">
       <Divider label="Or continue with" labelPosition="center" />

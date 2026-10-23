@@ -249,7 +249,7 @@ export default function LoginPage() {
       <Stack gap="lg">
         <div>
           <Text className="finazze-section-label">{resetToken || vendorResetRequest ? "Reset password" : vendorLogin && mfaChallengeToken ? "Verification" : "Sign in"}</Text>
-          <Title order={1}>{resetToken ? "Set a new password." : vendorResetRequest ? "Get a reset link." : vendorLogin && mfaChallengeToken ? "Verify your sign-in." : "Access your workspace."}</Title>
+          <Title order={1}>{resetToken ? "Set a new password." : vendorResetRequest ? "Get a reset link." : vendorLogin && mfaChallengeToken ? "Verify your sign-in." : vendorLogin ? "Sign in to your workspace" : "Access your workspace."}</Title>
           <Text c="dimmed" mt="sm">
             {resetToken
               ? "Choose a new password for your account, then sign back in with the updated credentials."

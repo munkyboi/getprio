@@ -14,9 +14,13 @@ import {
   OperationButton,
   OperationPanel,
 } from "../vendor/OperationsUi";
-import { FieldGroup } from "../vendor/components/ui/field";
+import {
+  FieldGroup,
+  FieldSet,
+  FieldLegend,
+} from "../vendor/components/ui/field";
 import { VendorAuthLayout } from "../vendor/VendorAuthLayout";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import type {
   OAuthProviderId,
   TenantSlugAvailabilityResponse,
@@ -132,9 +136,14 @@ export default function RegisterVendorPage() {
     form.setValue("email", form.getValues("email") || user.email || "", {
       shouldValidate: true,
     });
-    form.setValue("phone", form.getValues("phone") || normalizePhilippineMobileNumber(user.phone || ""), {
-      shouldValidate: true,
-    });
+    form.setValue(
+      "phone",
+      form.getValues("phone") ||
+        normalizePhilippineMobileNumber(user.phone || ""),
+      {
+        shouldValidate: true,
+      },
+    );
   }, [form, user]);
 
   useEffect(() => {
@@ -283,7 +292,7 @@ export default function RegisterVendorPage() {
 
   if (loading) {
     return (
-      <VendorAuthLayout>
+      <VendorAuthLayout wide>
         <p role="status" className="ops-muted">
           Loading session…
         </p>
@@ -337,9 +346,9 @@ export default function RegisterVendorPage() {
   });
 
   return (
-    <VendorAuthLayout>
+    <VendorAuthLayout wide>
       <ConfigurationScope busy={form.formState.isSubmitting || oauthLoading}>
-        <div className="vendor-auth-layout">
+        <OperationPanel className="vendor-auth-card vendor-auth-register-card">
           <div className="queue-stack">
             <div>
               <p className="vendor-eyebrow">
@@ -369,154 +378,154 @@ export default function RegisterVendorPage() {
                 intent="register_vendor"
               />
             ) : null}
-            <OperationPanel>
-              <form onSubmit={handleSubmit}>
-                <FieldGroup className="config-form-grid">
-                  <TextInput
-                    autoComplete="organization"
-                    label="Business name"
-                    required
-                    error={form.formState.errors.tenantName?.message}
-                    {...form.register("tenantName")}
-                  />
-                  <BusinessCategorySelect
-                    vendor
-                    required
-                    value={category || null}
-                    error={form.formState.errors.category?.message}
-                    onChange={(id) =>
-                      form.setValue("category", id, { shouldValidate: true })
-                    }
-                  />
-                  <TextInput
-                    description={
-                      checkingTenantSlug
-                        ? "Checking business link..."
-                        : tenantSlugMessage
-                    }
-                    error={
-                      form.formState.errors.tenantSlug?.message ||
-                      (tenantSlug && tenantSlugMessage && !tenantSlugAvailable
-                        ? tenantSlugMessage
-                        : undefined)
-                    }
-                    label="Business link"
-                    placeholder="acme-clinic"
-                    required
-                    {...form.register("tenantSlug", {
-                      onChange: (event) => {
-                        setTenantSlugManuallyEdited(true);
-                        form.setValue(
-                          "tenantSlug",
-                          normalizeTenantSlugInput(event.target.value),
-                          { shouldValidate: true },
-                        );
-                      },
-                    })}
-                  />
-                  <TextInput
-                    label="Your full name"
-                    autoComplete="name"
-                    required
-                    error={form.formState.errors.name?.message}
-                    {...form.register("name")}
-                  />
-                  <TextInput
-                    description={
-                      checkingUsername
-                        ? "Checking username..."
-                        : usernameMessage
-                    }
-                    error={
-                      form.formState.errors.username?.message ||
-                      (username && usernameMessage && !usernameAvailable
-                        ? usernameMessage
-                        : undefined)
-                    }
-                    label="Username"
-                    autoComplete="username"
-                    placeholder="owner_name"
-                    required
-                    {...form.register("username", {
-                      onChange: (event) => {
-                        setUsernameManuallyEdited(true);
-                        form.setValue(
-                          "username",
-                          normalizeUsernameInput(event.target.value),
-                          { shouldValidate: true },
-                        );
-                      },
-                    })}
-                  />
-                  <TextInput
-                    label="Email"
-                    autoComplete="email"
-                    required
-                    type="email"
-                    error={form.formState.errors.email?.message}
-                    {...form.register("email")}
-                  />
-                  <ConfigurationPhone
-                    autoComplete="tel"
-                    label="Phone (optional)"
-                    description="Add a Philippine mobile number for account and booking updates."
-                    error={form.formState.errors.phone?.message}
-                    value={phone}
-                    onChange={(nextValue) =>
-                      form.setValue("phone", nextValue, {
-                        shouldValidate: true,
-                      })
-                    }
-                  />
-                  {!isAuthenticatedFlow ? (
-                    <PasswordInput
-                      label="Password"
-                      autoComplete="new-password"
+            <form onSubmit={handleSubmit}>
+              <FieldGroup>
+                <FieldSet>
+                  <FieldLegend>Your business</FieldLegend>
+                  <FieldGroup>
+                    <TextInput
+                      autoComplete="organization"
+                      label="Business name"
                       required
-                      error={form.formState.errors.password?.message}
-                      {...form.register("password")}
+                      error={form.formState.errors.tenantName?.message}
+                      {...form.register("tenantName")}
                     />
-                  ) : null}
-                </FieldGroup>
-                <div className="queue-stack vendor-auth-actions">
-                  {error ? (
-                    <OperationAlert
-                      color="red"
-                      title="Workspace was not created"
-                    >
-                      {error}
-                    </OperationAlert>
-                  ) : null}
-                  <OperationButton
-                    loading={
-                      form.formState.isSubmitting ||
-                      checkingUsername ||
-                      checkingTenantSlug
-                    }
-                    type="submit"
-                  >
-                    {isAuthenticatedFlow
-                      ? hasTenantMemberships
-                        ? "Create workspace"
-                        : "Finish workspace setup"
-                      : "Create workspace"}
-                  </OperationButton>
-                </div>
-              </form>
-            </OperationPanel>
-          </div>
-          <aside className="vendor-auth-guide">
-            <img
-              alt="Illustration of a vendor setting up a GetPrio workspace"
-              src="/illustrations/generated/vendor-onboarding.png"
-            />
-            <h2>Everything in one place</h2>
-            <p className="ops-muted">
-              Manage your business profile, services, availability, team and
-              bookings from your workspace.
+                    <BusinessCategorySelect
+                      vendor
+                      required
+                      value={category || null}
+                      error={form.formState.errors.category?.message}
+                      onChange={(id) =>
+                        form.setValue("category", id, { shouldValidate: true })
+                      }
+                    />
+                    <TextInput
+                      description={
+                        checkingTenantSlug
+                          ? "Checking business link..."
+                          : tenantSlugMessage
+                      }
+                      error={
+                        form.formState.errors.tenantSlug?.message ||
+                        (tenantSlug && tenantSlugMessage && !tenantSlugAvailable
+                          ? tenantSlugMessage
+                          : undefined)
+                      }
+                      label="Business link"
+                      placeholder="acme-clinic"
+                      required
+                      {...form.register("tenantSlug", {
+                        onChange: (event) => {
+                          setTenantSlugManuallyEdited(true);
+                          form.setValue(
+                            "tenantSlug",
+                            normalizeTenantSlugInput(event.target.value),
+                            { shouldValidate: true },
+                          );
+                        },
+                      })}
+                    />
+                  </FieldGroup>
+                </FieldSet>
+                <FieldSet>
+                  <FieldLegend>Your account</FieldLegend>
+                  <FieldGroup>
+                    <TextInput
+                      label="Your full name"
+                      autoComplete="name"
+                      required
+                      error={form.formState.errors.name?.message}
+                      {...form.register("name")}
+                    />
+                    <TextInput
+                      description={
+                        checkingUsername
+                          ? "Checking username..."
+                          : usernameMessage
+                      }
+                      error={
+                        form.formState.errors.username?.message ||
+                        (username && usernameMessage && !usernameAvailable
+                          ? usernameMessage
+                          : undefined)
+                      }
+                      label="Username"
+                      autoComplete="username"
+                      placeholder="owner_name"
+                      required
+                      {...form.register("username", {
+                        onChange: (event) => {
+                          setUsernameManuallyEdited(true);
+                          form.setValue(
+                            "username",
+                            normalizeUsernameInput(event.target.value),
+                            { shouldValidate: true },
+                          );
+                        },
+                      })}
+                    />
+                    <TextInput
+                      label="Email"
+                      autoComplete="email"
+                      required
+                      type="email"
+                      error={form.formState.errors.email?.message}
+                      {...form.register("email")}
+                    />
+                    <ConfigurationPhone
+                      autoComplete="tel"
+                      label="Phone (optional)"
+                      description="Add a Philippine mobile number for account and booking updates."
+                      error={form.formState.errors.phone?.message}
+                      value={phone}
+                      onChange={(nextValue) =>
+                        form.setValue("phone", nextValue, {
+                          shouldValidate: true,
+                        })
+                      }
+                    />
+                    {!isAuthenticatedFlow ? (
+                      <PasswordInput
+                        label="Password"
+                        autoComplete="new-password"
+                        required
+                        error={form.formState.errors.password?.message}
+                        {...form.register("password")}
+                      />
+                    ) : null}
+                  </FieldGroup>
+                </FieldSet>
+              </FieldGroup>
+              <div className="queue-stack vendor-auth-actions">
+                {error ? (
+                  <OperationAlert color="red" title="Workspace was not created">
+                    {error}
+                  </OperationAlert>
+                ) : null}
+                <OperationButton
+                  loading={
+                    form.formState.isSubmitting ||
+                    checkingUsername ||
+                    checkingTenantSlug
+                  }
+                  type="submit"
+                >
+                  {isAuthenticatedFlow
+                    ? hasTenantMemberships
+                      ? "Create workspace"
+                      : "Finish workspace setup"
+                    : "Create workspace"}
+                </OperationButton>
+              </div>
+            </form>
+            <p className="ops-muted vendor-auth-account-link">
+              Already have a workspace?{" "}
+              <Link className="vendor-auth-link" to="/login">
+                Sign in
+              </Link>
             </p>
-          </aside>
-        </div>
+          </div>
+        </OperationPanel>
       </ConfigurationScope>
     </VendorAuthLayout>
   );

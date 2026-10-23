@@ -27,20 +27,24 @@ export function LoginPresentation({
   children: ReactNode;
 }) {
   return (
-    <VendorLogin.Provider value={vendor}><LoginBusy.Provider value={busy}>
-      {vendor ? (
-        <div className="vendor-login-container"><VendorAuthLayout>
-          <ConfigurationScope busy={busy}><div className="vendor-auth-layout vendor-login-layout">{children}<aside className="vendor-auth-guide vendor-login-guide"><img src="/illustrations/generated/vendor-onboarding.png" alt="GetPrio business workspace illustration" /><h2>Your business, in one place</h2><p className="ops-muted">Manage bookings, your queue, services and your team from your workspace.</p></aside></div></ConfigurationScope>
-        </VendorAuthLayout></div>
-      ) : (
-        children
-      )}
-    </LoginBusy.Provider></VendorLogin.Provider>
+    <VendorLogin.Provider value={vendor}>
+      <LoginBusy.Provider value={busy}>
+        {vendor ? (
+          <VendorAuthLayout>
+            <ConfigurationScope busy={busy}>{children}</ConfigurationScope>
+          </VendorAuthLayout>
+        ) : (
+          children
+        )}
+      </LoginBusy.Provider>
+    </VendorLogin.Provider>
   );
 }
 export function Paper(props: Mantine.PaperProps & { children: ReactNode }) {
   return useContext(VendorLogin) ? (
-    <OperationPanel>{props.children}</OperationPanel>
+    <OperationPanel className="vendor-auth-card">
+      {props.children}
+    </OperationPanel>
   ) : (
     <Mantine.Paper {...props} />
   );
@@ -82,6 +86,7 @@ export function Button(
 ) {
   return useContext(VendorLogin) ? (
     <OperationButton
+      className={props.className}
       type={props.type || "button"}
       loading={props.loading}
       disabled={props.disabled}
@@ -103,15 +108,20 @@ type AnchorProps = Mantine.AnchorProps & {
   onClick?: () => void;
 };
 export function Anchor(props: AnchorProps) {
-  const busy=useContext(LoginBusy);
+  const busy = useContext(LoginBusy);
   if (!useContext(VendorLogin)) {
-    const {component, ...rest} = props;
-    if(component === "button") return <Mantine.Anchor component="button" {...rest}/>;
-    if(component === Link) return <Mantine.Anchor component={Link} {...rest} to={props.to || "/login"}/>;
-    return <Mantine.Anchor {...rest}/>;
+    const { component, ...rest } = props;
+    if (component === "button")
+      return <Mantine.Anchor component="button" {...rest} />;
+    if (component === Link)
+      return (
+        <Mantine.Anchor component={Link} {...rest} to={props.to || "/login"} />
+      );
+    return <Mantine.Anchor {...rest} />;
   }
   return props.component === "button" ? (
     <OperationButton
+      className="vendor-auth-text-action"
       type="button"
       variant="ghost"
       disabled={props.disabled}
@@ -120,7 +130,15 @@ export function Anchor(props: AnchorProps) {
       {props.children}
     </OperationButton>
   ) : (
-    <Link className="vendor-auth-link" aria-disabled={busy} tabIndex={busy ? -1 : undefined} onClick={event=>{if(busy)event.preventDefault();}} to={props.to || "/login"}>
+    <Link
+      className="vendor-auth-link"
+      aria-disabled={busy}
+      tabIndex={busy ? -1 : undefined}
+      onClick={(event) => {
+        if (busy) event.preventDefault();
+      }}
+      to={props.to || "/login"}
+    >
       {props.children}
     </Link>
   );
