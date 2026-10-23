@@ -1,3 +1,4 @@
+const { surfaceOrigins } = require("./browserSurfaceUrls");
 const counterDispatchService = require("./counterDispatchService");
 const { customerQueueLifecycle } = require('./customerQueueLifecycle');
 const { EMAIL_QUOTA_POLICY } = require("./queueEmailJourneyService");
@@ -295,8 +296,8 @@ async function buildQueueSnapshot(tenant, options = {}, getTenantUsage) {
       autoPauseThreshold: tenant.autoPauseThreshold ?? null,
       autoResumeEnabled: Boolean(tenant.autoResumeEnabled),
       autoResumeVacancyPercent: tenant.autoResumeVacancyPercent ?? null,
-      joinUrl: buildJoinUrl(env.appBaseUrl, tenant.slug, locationToUse?.slug),
-      monitorUrl: locationToUse?.queueBoardId ? `${env.appBaseUrl.replace(/\/+$/, "")}/queue-board/${locationToUse.queueBoardId}` : "",
+      joinUrl: buildJoinUrl(surfaceOrigins(env).customer, tenant.slug, locationToUse?.slug),
+      monitorUrl: locationToUse?.queueBoardId ? `${surfaceOrigins(env).vendor}/queue-board/${locationToUse.queueBoardId}` : "",
       isActive: Boolean(activeSubscription),
       queueFee
     }),
@@ -317,8 +318,8 @@ async function buildQueueSnapshot(tenant, options = {}, getTenantUsage) {
             serviceTimingEnabled: locationToUse.serviceTimingEnabled === true,
             isPrimary: locationToUse.isPrimary,
             isActive: locationToUse.isActive,
-            joinUrl: buildJoinUrl(env.appBaseUrl, tenant.slug, locationToUse.slug),
-            monitorUrl: locationToUse.queueBoardId ? `${env.appBaseUrl.replace(/\/+$/, "")}/queue-board/${locationToUse.queueBoardId}` : "",
+            joinUrl: buildJoinUrl(surfaceOrigins(env).customer, tenant.slug, locationToUse.slug),
+            monitorUrl: locationToUse.queueBoardId ? `${surfaceOrigins(env).vendor}/queue-board/${locationToUse.queueBoardId}` : "",
             openStatus,
             hours: hours.map((hour) => ({
               weekday: hour.weekday,

@@ -1,3 +1,4 @@
+import { appUrl } from "../surfaces/surfaceConfig";
 import {apiRequest} from "../api/client";
 import { ResourceReadStatus } from '../vendor/ResourceReadStatus';
 import { clearQueueReview, initialQueueLocation } from '../vendor/queueReviewRoute';
@@ -10652,7 +10653,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       workspace={workspace} canAdmin={canSwitchWorkspace} items={workspaceNavItems}
       businessName={activeTenants.find((tenant) => tenant.slug === selectedTenantSlug)?.name || "Your business"}
       locationName={selectedLocation?.name || ""}
-      publicVendorUrl={selectedTenantSlug ? `/vendors/${selectedTenantSlug}` : undefined}
+      publicVendorUrl={selectedTenantSlug ? appUrl("customer", `/vendors/${selectedTenantSlug}`) : undefined}
       title={pageTitle}
       eyebrow={routeServiceSlug && !requiresMfaEnrollment ? "SERVICE EDITOR" : undefined}
       description={pageDescription}

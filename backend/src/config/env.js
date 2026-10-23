@@ -33,6 +33,11 @@ const jwtSecret = process.env.JWT_SECRET || "change-me";
 const serverUrl = process.env.SERVER_URL || `http://localhost:${port}`;
 const clientUrl = process.env.CLIENT_URL || `http://localhost:${frontendPort}`;
 const appBaseUrl = process.env.APP_BASE_URL || `http://localhost:${frontendPort}`;
+const customerAppUrl = process.env.CUSTOMER_APP_URL || "";
+const vendorAppUrl = process.env.VENDOR_APP_URL || "";
+const marketingUrl = process.env.MARKETING_URL || "";
+const localApiProfile = process.env.LOCAL_API_PROFILE || "";
+const localApiOrigin = process.env.LOCAL_API_ORIGIN || "";
 const emailAssetBaseUrl = process.env.EMAIL_ASSET_BASE_URL || appBaseUrl;
 const mobileQrBaseUrl = resolveMobileQrBaseUrl(process.env, appBaseUrl, frontendPort);
 const mobilePaymentReturnUrl = process.env.MOBILE_PAYMENT_RETURN_URL || "";
@@ -174,6 +179,7 @@ const env = {
   jwtSecret,
   serverUrl,
   clientUrl,
+  customerAppUrl, vendorAppUrl, marketingUrl, localApiProfile, localApiOrigin,
   appBaseUrl,
   emailAssetBaseUrl,
   mobileQrBaseUrl,

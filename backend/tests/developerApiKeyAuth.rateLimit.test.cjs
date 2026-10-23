@@ -1,3 +1,6 @@
+const runtimeEnv = require("../src/config/env");
+const previousApiEnvironment = runtimeEnv.apiEnvironment;
+runtimeEnv.apiEnvironment = "sandbox";
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const developerProjects = require("../src/repositories/developerProjects");
@@ -22,7 +25,7 @@ test("developer API auth emits project-wide read rate-limit headers", async () =
   developerApiRateLimits.consume = async (input) => { assert.deepEqual(input, { projectId: "project-1", environment: "sandbox", kind: "read" }); return { limit: 600, remaining: 599, windowSeconds: 60 }; };
   const headers = {};
   let nextError;
-  await authenticateDeveloperApiKey({ hostname: "sandbox-api.getprio.online", method: "GET", headers: { "x-api-key": "gpk_sbx_test" } }, { setHeader(name, value) { headers[name] = value; } }, (error) => { nextError = error; });
+  await authenticateDeveloperApiKey({ hostname: "sandbox-api.getprio.online", method: "GET", headers: { host: "sandbox-api.getprio.online", "x-api-key": "gpk_sbx_test" } }, { setHeader(name, value) { headers[name] = value; } }, (error) => { nextError = error; });
   assert.equal(nextError, undefined);
   assert.equal(headers["RateLimit-Limit"], "600");
   assert.equal(headers["RateLimit-Remaining"], "599");
@@ -33,8 +36,10 @@ test("developer API auth propagates Retry-After when the project budget is exhau
   developerApiRateLimits.consume = async () => { const error = new Error("rate limited"); error.statusCode = 429; error.code = "RATE_LIMITED"; error.retryAfterSeconds = 17; error.rateLimit = { limit: 120, windowSeconds: 60 }; throw error; };
   const headers = {};
   let nextError;
-  await authenticateDeveloperApiKey({ hostname: "sandbox-api.getprio.online", method: "POST", headers: { "x-api-key": "gpk_sbx_test" } }, { setHeader(name, value) { headers[name] = value; } }, (error) => { nextError = error; });
+  await authenticateDeveloperApiKey({ hostname: "sandbox-api.getprio.online", method: "POST", headers: { host: "sandbox-api.getprio.online", "x-api-key": "gpk_sbx_test" } }, { setHeader(name, value) { headers[name] = value; } }, (error) => { nextError = error; });
   assert.equal(nextError.code, "RATE_LIMITED");
   assert.equal(headers["Retry-After"], "17");
   assert.equal(headers["RateLimit-Remaining"], "0");
 });
+
+test.after(() => { runtimeEnv.apiEnvironment = previousApiEnvironment; });

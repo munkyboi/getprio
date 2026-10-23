@@ -28,9 +28,10 @@ function resolveApiBaseUrl(
 const API_BASE_URL = resolveApiBaseUrl(
   import.meta.env?.VITE_API_URL,
   typeof window === "undefined" ? undefined : window.location.hostname,
-  Boolean(import.meta.env?.DEV)
+  Boolean(import.meta.env?.DEV || import.meta.env?.VITE_LOCAL_SURFACES === "1")
 );
-const CSRF_STORAGE_KEY = "prio_csrf";
+const publicMarketing = import.meta.env?.VITE_APP_SURFACE === "marketing";
+const CSRF_STORAGE_KEY = `${import.meta.env?.VITE_BROWSER_COOKIE_PREFIX ? `${import.meta.env.VITE_BROWSER_COOKIE_PREFIX}_` : ""}prio_csrf`;
 
 type RefreshTokenHandler = () => Promise<string | null>;
 type AuthFailureHandler = () => void;
@@ -66,7 +67,7 @@ function readCookie(name: string): string {
 }
 
 function readCsrfToken(): string {
-  return readStoredCsrfToken() || readCookie("prio_csrf");
+  return readStoredCsrfToken() || readCookie(CSRF_STORAGE_KEY);
 }
 
 export class ApiError extends Error {
@@ -116,17 +117,17 @@ export async function apiRequest<TResponse, TBody = unknown>(
   const makeRequest = async (authToken?: string) =>
     fetch(`${API_BASE_URL}${path}`, {
       method,
-      credentials: "include",
+      credentials: publicMarketing ? "omit" : "include",
       headers: {
         "Content-Type": "application/json",
-        ...(unsafe && readCsrfToken()
+        ...(!publicMarketing && unsafe && readCsrfToken()
           ? { "X-CSRF-Token": readCsrfToken() }
           : {}),
         ...(idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {}),
-        ...(authToken && authToken !== "cookie-session"
+        ...(!publicMarketing && authToken && authToken !== "cookie-session"
           ? { Authorization: `Bearer ${authToken}` }
           : {}),
-        ...headers
+        ...Object.fromEntries(Object.entries(headers).filter(([name]) => !publicMarketing || !["authorization", "x-csrf-token"].includes(name.toLowerCase())))
       },
       body: body ? JSON.stringify(body) : undefined,
       signal
@@ -184,14 +185,14 @@ export async function apiUpload<TResponse>(
   const makeRequest = async (authToken?: string) =>
     fetch(`${API_BASE_URL}${path}`, {
       method: "POST",
-      credentials: "include",
+      credentials: publicMarketing ? "omit" : "include",
       headers: {
         "Content-Type": contentType,
-        ...(readCsrfToken() ? { "X-CSRF-Token": readCsrfToken() } : {}),
-        ...(authToken && authToken !== "cookie-session"
+        ...(!publicMarketing && readCsrfToken() ? { "X-CSRF-Token": readCsrfToken() } : {}),
+        ...(!publicMarketing && authToken && authToken !== "cookie-session"
           ? { Authorization: `Bearer ${authToken}` }
           : {}),
-        ...headers
+        ...Object.fromEntries(Object.entries(headers).filter(([name]) => !publicMarketing || !["authorization", "x-csrf-token"].includes(name.toLowerCase())))
       },
       body,
       signal

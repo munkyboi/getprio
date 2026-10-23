@@ -2,6 +2,7 @@ const crypto = require("crypto");
 const bcrypt = require("bcryptjs");
 const db = require("../config/db");
 const env = require("../config/env");
+const { surfaceOrigins, authSurface, safeReturnPath } = require("./browserSurfaceUrls");
 const passwordResetTokenRepository = require("../repositories/passwordResetTokens");
 const sessionService = require("./sessionService");
 const securityEventService = require("./securityEventService");
@@ -36,9 +37,10 @@ function getVendorResetReturnPath(value) {
   } catch { return null; }
 }
 
-function buildPasswordResetUrl(token, next) {
-  const baseUrl = String(env.clientUrl || "").replace(/\/$/, "");
-  const returnPath = getVendorResetReturnPath(next);
+function buildPasswordResetUrl(token, next, surface) {
+  const selectedSurface = authSurface(surface);
+  const baseUrl = selectedSurface ? surfaceOrigins(env)[selectedSurface] : String(env.clientUrl || "").replace(/\/$/, "");
+  const returnPath = selectedSurface ? safeReturnPath(next, selectedSurface) : getVendorResetReturnPath(next);
   const nextQuery = returnPath ? `&next=${encodeURIComponent(returnPath)}` : "";
   return `${baseUrl}/login?resetToken=${encodeURIComponent(token)}${nextQuery}`;
 }
@@ -47,7 +49,7 @@ function getPasswordResetExpiry() {
   return new Date(Date.now() + Math.max(1, Number(env.passwordResetTtlMinutes) || 30) * 60 * 1000);
 }
 
-async function issuePasswordResetToken({ user, req, client, next }) {
+async function issuePasswordResetToken({ user, req, client, next, surface }) {
   const token = createResetTokenValue();
   const tokenHash = hashResetToken(token);
   const expiresAt = getPasswordResetExpiry();
@@ -80,7 +82,7 @@ async function issuePasswordResetToken({ user, req, client, next }) {
   return {
     token,
     expiresAt,
-    resetUrl: buildPasswordResetUrl(token, next)
+    resetUrl: buildPasswordResetUrl(token, next, surface)
   };
 }
 

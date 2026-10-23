@@ -27,38 +27,12 @@ import errorHandler from "./middleware/errorHandler";
 import requestContextModule from "./middleware/requestContext";
 import csrfProtectionModule from "./middleware/csrfProtection";
 import requestLogPathModule from "./middleware/requestLogPath";
+import browserSurfaceUrlsModule from "./services/browserSurfaceUrls";
+import developerApiEnvironmentModule from "./services/developerApiEnvironment";
 
-function normalizeOrigin(origin?: string): string {
-  return String(origin || "").replace(/\/$/, "");
-}
-
-function buildAllowedOrigins(): Set<string> {
-  const origins = new Set<string>();
-  const configuredOrigins = [env.clientUrl, env.appBaseUrl, env.platformDashboardUrl, env.developerPortalUrl]
-    .filter(Boolean)
-    .map((origin) => normalizeOrigin(origin));
-
-  for (const origin of configuredOrigins) {
-    origins.add(origin);
-
-    try {
-      const url = new URL(origin);
-      if (!url.port) {
-        continue;
-      }
-
-      origins.add(`${url.protocol}//localhost:${url.port}`);
-      origins.add(`${url.protocol}//127.0.0.1:${url.port}`);
-    } catch {
-      // Ignore invalid URLs and keep the configured value only.
-    }
-  }
-
-  return origins;
-}
-
-const allowedOrigins = buildAllowedOrigins();
+const allowedOrigins = browserSurfaceUrlsModule.browserAllowedOrigins(env);
 const app = express();
+app.use(developerApiEnvironmentModule.localApiRequestGuard());
 const { createRequestContextMiddleware } = requestContextModule;
 const { createCsrfProtection } = csrfProtectionModule;
 const apiRateLimiter = rateLimit({
@@ -75,20 +49,7 @@ const apiRateLimiter = rateLimit({
 
 app.use(createRequestContextMiddleware({ rolloutCohort: env.rolloutCohort }));
 
-app.use(
-  cors({
-    origin(origin, callback) {
-      if (!origin || allowedOrigins.has(normalizeOrigin(origin))) {
-        callback(null, true);
-        return;
-      }
-
-      callback(new Error("Origin not allowed by CORS."));
-    },
-    credentials: true,
-    exposedHeaders: ["Retry-After", "RateLimit-Limit", "RateLimit-Remaining", "RateLimit-Reset"]
-  })
-);
+app.use(browserSurfaceUrlsModule.createBrowserCorsMiddleware(env, cors));
 // Allowed browser clients must be able to read throttling responses and honor
 // Retry-After. CORS also completes preflights without consuming API quota.
 app.use("/api", apiRateLimiter);

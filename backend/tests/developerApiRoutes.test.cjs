@@ -1,3 +1,5 @@
+const runtimeEnv = require("../src/config/env");
+const previousApiEnvironment = runtimeEnv.apiEnvironment;
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const http = require("node:http");
@@ -10,6 +12,9 @@ const developerApiOperations = require("../src/repositories/developerApiOperatio
 const developerWebhookService = require("../src/services/developerWebhookService");
 const pushNotificationService = require("../src/services/pushNotificationService");
 const developerApiRateLimits = require("../src/repositories/developerApiRateLimits");
+
+test.beforeEach(() => { runtimeEnv.apiEnvironment = "sandbox"; });
+test.after(() => { runtimeEnv.apiEnvironment = previousApiEnvironment; });
 
 async function startServer() {
   const app = express();
@@ -51,6 +56,7 @@ test("developer API metadata identifies sandbox and production hosts", async () 
   const { server, baseUrl } = await startServer();
   try {
     const sandbox = await request("GET", `${baseUrl}/`, "sandbox-api.getprio.online");
+    runtimeEnv.apiEnvironment = "production";
     const production = await request("GET", `${baseUrl}/health`, "api.getprio.online");
     assert.equal(sandbox.status, 200); assert.equal(sandbox.body.data.environment, "sandbox");
     assert.equal(production.status, 200); assert.equal(production.body.data.environment, "production");
@@ -117,6 +123,7 @@ test("developer API generates a Sandbox ticket QR data URL for a scoped ticket",
 
 test("developer API keeps ticket QR generation Sandbox-only", async () => {
   const originals = []; stubKey(originals, ["queues:read"], "production");
+  runtimeEnv.apiEnvironment = "production";
   replace(developerQueues, "findProfile", async () => profile(), originals);
   replace(developerQueues, "findFirstQueue", async () => queue(), originals);
   const { server, baseUrl } = await startServer();

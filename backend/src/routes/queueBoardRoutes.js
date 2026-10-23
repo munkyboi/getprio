@@ -1,3 +1,4 @@
+const { surfaceOrigins, surfaceOriginSet } = require("../services/browserSurfaceUrls");
 const express = require("express");
 const crypto = require("node:crypto");
 const { rateLimit, ipKeyGenerator } = require("express-rate-limit");
@@ -57,7 +58,7 @@ publicRouter.get("/:boardId/access", accessLimiter, asyncHandler(async (req, res
 }));
 publicRouter.post("/:boardId/pairing", pairingLimiter, asyncHandler(async (req, res) => {
   // Pairing is anonymous but only our first-party origin may initialize its cookie.
-  if (req.headers.origin !== new URL(env.appBaseUrl).origin) throw Object.assign(new Error("Pairing origin rejected."), { statusCode: 403 });
+  if (!surfaceOriginSet(env, "vendor").has(req.headers.origin)) throw Object.assign(new Error("Pairing origin rejected."), { statusCode: 403 });
   const board = await boardForRequest(req);
   const existing = browserSecret(req, board.queue_board_id);
   const secret = /^[a-f0-9]{64}$/.test(existing) ? existing : crypto.randomBytes(32).toString("hex");
@@ -65,7 +66,7 @@ publicRouter.post("/:boardId/pairing", pairingLimiter, asyncHandler(async (req, 
   res.cookie(cookieName(board.queue_board_id), encryptDisplayCookie(secret, board.queue_board_id), { httpOnly: true, secure: env.authCookieSecure,
     sameSite: "strict", path: "/", maxAge: 30 * 86400000 });
   res.status(201).json({ ...pairing, locationName: board.name,
-    approvalUrl: `${env.appBaseUrl.replace(/\/$/, "")}/dashboard/queue?boardPairing=${pairing.code}` });
+    approvalUrl: `${surfaceOrigins(env).vendor}/dashboard/queue?boardPairing=${pairing.code}` });
 }));
 publicRouter.get("/:boardId/queue", readLimiter, asyncHandler(async (req, res) => {
   const board = await boardForRequest(req);

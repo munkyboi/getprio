@@ -1,3 +1,6 @@
+const runtimeEnv = require("../src/config/env");
+const previousApiEnvironment = runtimeEnv.apiEnvironment;
+runtimeEnv.apiEnvironment = "sandbox";
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const developerProjects = require("../src/repositories/developerProjects");
@@ -36,7 +39,7 @@ test("developer API auth accepts the Bearer transport", async () => {
   const request = {
     hostname: "sandbox-api.getprio.online",
     method: "GET",
-    headers: { authorization: "Bearer gpk_sbx_test" }
+    headers: { host: "sandbox-api.getprio.online", authorization: "Bearer gpk_sbx_test" }
   };
   const headers = {};
   let nextError;
@@ -54,7 +57,7 @@ test("developer API auth rejects ambiguous Bearer and legacy credentials", async
   const request = {
     hostname: "sandbox-api.getprio.online",
     method: "GET",
-    headers: {
+    headers: { host: "sandbox-api.getprio.online",
       authorization: "Bearer gpk_sbx_test",
       "x-api-key": "gpk_sbx_legacy"
     }
@@ -72,7 +75,7 @@ test("developer API auth rejects malformed Bearer credentials", async () => {
   const request = {
     hostname: "sandbox-api.getprio.online",
     method: "GET",
-    headers: { authorization: "Basic gpk_sbx_test" }
+    headers: { host: "sandbox-api.getprio.online", authorization: "Basic gpk_sbx_test" }
   };
   let nextError;
   await authenticateDeveloperApiKey(request, { setHeader() {} }, (error) => {
@@ -82,3 +85,5 @@ test("developer API auth rejects malformed Bearer credentials", async () => {
   assert.equal(nextError.code, "API_KEY_INVALID");
   assert.equal(nextError.statusCode, 401);
 });
+
+test.after(() => { runtimeEnv.apiEnvironment = previousApiEnvironment; });

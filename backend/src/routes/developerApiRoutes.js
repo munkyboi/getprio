@@ -10,8 +10,7 @@ const { authenticateDeveloperApiKey, requireApiScope } = require("../middleware/
 const { normalizeDeveloperQueueSettings } = require("../utils/developerQueueSettings");
 
 const router = express.Router();
-const PRODUCTION_HOSTS = new Set(["api.getprio.online"]);
-const SANDBOX_HOSTS = new Set(["sandbox-api.getprio.online"]);
+const { resolveDeveloperApiEnvironment: getEnvironment } = require("../services/developerApiEnvironment");
 const INTERNAL_TICKET = Symbol("developerApiInternalTicket");
 const QUEUE_MOVING_EVENT_TYPES = new Set([
   "ticket.called",
@@ -24,12 +23,6 @@ const QUEUE_MOVING_EVENT_TYPES = new Set([
 ]);
 const SANDBOX_ENVIRONMENT = "sandbox";
 
-function getEnvironment(req) {
-  const hostname = String(req.hostname || req.headers.host || "").trim().toLowerCase().split(":")[0];
-  if (SANDBOX_HOSTS.has(hostname)) return "sandbox";
-  if (PRODUCTION_HOSTS.has(hostname)) return "production";
-  return "unknown";
-}
 function requestId(req) { return req.context?.correlationId || req.headers["x-request-id"] || "unknown"; }
 function envelope(req, data) { return { data, request_id: requestId(req) }; }
 function send(req, res, data, status = 200) {

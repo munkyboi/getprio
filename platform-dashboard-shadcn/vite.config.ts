@@ -7,6 +7,7 @@ import { defineConfig, loadEnv } from 'vite'
 export default defineConfig(({ mode }) => {
   const deploymentSha = process.env.VITE_DEPLOY_SHA || loadEnv(mode, process.cwd(), 'VITE_').VITE_DEPLOY_SHA || 'local'
   return {
+    cacheDir: "../.cache/vite-platform-surfaces",
     plugins: [react(), tailwindcss(), {
       name: 'getprio-deployment-sha',
       transformIndexHtml: {
@@ -21,8 +22,10 @@ export default defineConfig(({ mode }) => {
     },
     server: {
       host: '0.0.0.0',
-      port: 5176,
+      port: Number(process.env.PLATFORM_DASHBOARD_PORT || 5176),
       strictPort: true,
+      fs: { allow: [fileURLToPath(new URL('.', import.meta.url)),
+        ...['types.ts', 'planPolicyPayload.ts', 'tenantCapacityDisplay.ts', 'helpCenterSeed.json'].map(file => fileURLToPath(new URL(`../shared/${file}`, import.meta.url)))] },
     },
   }
 })

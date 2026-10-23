@@ -1,3 +1,5 @@
+import { AuthAppLinks } from "../surfaces/AuthAppLinks";
+import { currentSurface, safeSurfaceNext } from "../surfaces/surfaceConfig";
 import { useEffect, useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
@@ -36,7 +38,7 @@ export default function RegisterCustomerPage() {
     redirectTo?: string;
     claimLookupCode?: string;
   } | null) || null;
-  const redirectTo = registrationState?.redirectTo || "/";
+  const redirectTo = currentSurface === "customer" ? safeSurfaceNext(registrationState?.redirectTo, "customer") : registrationState?.redirectTo || "/";
   const claimLookupCode = registrationState?.claimLookupCode || "";
   const [usernameMessage, setUsernameMessage] = useState("");
   const [usernameAvailable, setUsernameAvailable] = useState(false);
@@ -59,7 +61,7 @@ export default function RegisterCustomerPage() {
   const name = form.watch("name");
 
   useEffect(() => {
-    if (user && !user.tenants?.length) {
+    if (user && (currentSurface === "customer" || !user.tenants?.length)) {
       navigate(redirectTo, { replace: true });
     }
   }, [navigate, redirectTo, user]);
@@ -129,7 +131,7 @@ export default function RegisterCustomerPage() {
     return <Paper className="finazze-auth-card" p="xl">Loading session...</Paper>;
   }
 
-  if (user && !user.tenants?.length) {
+  if (user && (currentSurface === "customer" || !user.tenants?.length)) {
     return <Navigate to={redirectTo} replace />;
   }
 
@@ -212,7 +214,8 @@ export default function RegisterCustomerPage() {
               </Button>
             </Stack>
           </form>
-          <SocialAuthButtons iconOnly intent="register_customer" />
+          <SocialAuthButtons iconOnly intent="register_customer" returnPath={redirectTo} />
+          <AuthAppLinks surface="customer" showOwnLogin />
         </Stack>
         <Stack className="onboarding-art-panel" justify="space-between" gap="lg">
           <img

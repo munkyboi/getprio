@@ -29,18 +29,19 @@ const EMPTY_OAUTH_PROVIDERS: OAuthProviderAvailability = {
   apple: false
 };
 
-export function AuthProvider({ children }: { children: ReactNode }) {
+export function AuthProvider({ children, publicOnly = false }: { children: ReactNode; publicOnly?: boolean }) {
   const [token, setToken] = useState("");
   const [refreshToken, setRefreshToken] = useState("");
   const [user, setUser] = useState<UserSummary | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!publicOnly);
   const [oauthProviders, setOauthProviders] =
     useState<OAuthProviderAvailability>(EMPTY_OAUTH_PROVIDERS);
-  const [oauthLoading, setOauthLoading] = useState(true);
+  const [oauthLoading, setOauthLoading] = useState(!publicOnly);
   const [sessionExpiresAt, setSessionExpiresAt] = useState<number | null>(null);
   const [expiryWarningOpen, setExpiryWarningOpen] = useState(false);
 
   useEffect(() => {
+    if (publicOnly) return;
     apiRequest<OAuthProvidersResponse>("/auth/oauth/providers")
       .then((data) => {
         setOauthProviders({
@@ -54,9 +55,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .finally(() => {
         setOauthLoading(false);
       });
-  }, []);
+  }, [publicOnly]);
 
   useEffect(() => {
+    if (publicOnly) return;
     localStorage.removeItem("prio-auth");
     let disposed = false;
     let retryTimer: number | undefined;
@@ -94,7 +96,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       disposed = true;
       if (retryTimer !== undefined) window.clearTimeout(retryTimer);
     };
-  }, []);
+  }, [publicOnly]);
 
   useEffect(() => {
     if (!sessionExpiresAt || !user) { setExpiryWarningOpen(false); return; }
@@ -278,6 +280,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       const startUrl = new URL(`${API_BASE_URL}/auth/oauth/${provider}/start`);
       startUrl.searchParams.set("intent", intent);
+      const surface = import.meta.env.VITE_APP_SURFACE;
+      if (surface === "vendor" || surface === "customer") startUrl.searchParams.set("surface", surface);
       if (returnPath) startUrl.searchParams.set("next", returnPath);
       window.location.assign(startUrl.toString());
     },

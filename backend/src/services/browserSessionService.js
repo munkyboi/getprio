@@ -1,15 +1,16 @@
 const crypto = require("node:crypto");
+const localPrefix = require("./localBrowserCookieProfile").localBrowserCookiePrefix();
 
 const ACCESS_COOKIE = "__Host-prio_access";
 const REFRESH_COOKIE = "__Host-prio_refresh";
 const DEVELOPER_ACCESS_COOKIE = "__Host-prio_developer_access";
 const DEVELOPER_REFRESH_COOKIE = "__Host-prio_developer_refresh";
-const LOCAL_ACCESS_COOKIE = "prio_access";
-const LOCAL_REFRESH_COOKIE = "prio_refresh";
-const LOCAL_DEVELOPER_ACCESS_COOKIE = "prio_developer_access";
-const LOCAL_DEVELOPER_REFRESH_COOKIE = "prio_developer_refresh";
-const CSRF_COOKIE = "prio_csrf";
-const DEVELOPER_CSRF_COOKIE = "prio_developer_csrf";
+const LOCAL_ACCESS_COOKIE = localPrefix + "prio_access";
+const LOCAL_REFRESH_COOKIE = localPrefix + "prio_refresh";
+const LOCAL_DEVELOPER_ACCESS_COOKIE = localPrefix + "prio_developer_access";
+const LOCAL_DEVELOPER_REFRESH_COOKIE = localPrefix + "prio_developer_refresh";
+const CSRF_COOKIE = localPrefix + "prio_csrf";
+const DEVELOPER_CSRF_COOKIE = localPrefix + "prio_developer_csrf";
 
 function getSessionCookieNames(secure, surface = "app") {
   const developer = surface === "developer";

@@ -1,0 +1,4 @@
+.surface-auth-links { margin-top: 1rem; font-size: .875rem; color: var(--muted-foreground, #686868); }
+.surface-auth-links p { margin: 0; display: flex; align-items: center; flex-wrap: wrap; gap: .5rem; }
+.surface-auth-links a { color: inherit; text-underline-offset: .2em; min-height: 44px; display: inline-flex; align-items: center; padding-block: .5rem; }
+.surface-auth-links a:focus-visible { outline: 2px solid currentColor; outline-offset: 4px; border-radius: 3px; }

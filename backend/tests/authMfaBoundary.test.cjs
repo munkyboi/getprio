@@ -92,3 +92,9 @@ test("release observer accounts must enroll and verify MFA before using the rele
   const verified = await authenticate(verifiedAuth, enrolled, "/api/platform/release-readiness/read-model");
   assert.equal(verified.error, undefined);
 });
+
+test('fresh Platform bootstrap can enroll normally but cannot access privileged writes before MFA',async()=>{
+ const user={_id:'77',roles:['platform_admin'],tenantMemberships:[],mfaEnabled:false};const auth=loadAuth({user,session:baseSession});
+ const denied=await authenticate(auth,user,'/api/platform/plans');assert.equal(denied.error?.code,'MFA_ENROLLMENT_REQUIRED');
+ for(const path of ['/api/auth/me','/api/auth/mfa/enrollment/start','/api/auth/mfa/enrollment/confirm']) assert.equal((await authenticate(auth,user,path)).error,undefined,path);
+});

@@ -93,7 +93,7 @@ test("oauth service exposes configured provider availability and callback URLs",
 
   assert.equal(
     callbackUrl,
-    "https://app.example.com/oauth/callback#token=access-token&refreshToken=refresh-token&next=%2Fdashboard"
+    "https://app.example.com/oauth/callback#next=%2Fdashboard"
   );
 
   const state = oauthService.createOAuthState({
@@ -295,4 +295,17 @@ test("oauth service verifies Apple identity and exchanges the authorization code
   } finally {
     global.fetch = originalFetch;
   }
+});
+
+test('signed surface selects its configured callback and never transports credentials in URL', () => {
+  const service = requireWithMocks('../src/services/oauthService.js', {
+    '../config/env': { appBaseUrl:'http://127.0.0.1:5191',clientUrl:'http://127.0.0.1:5191',customerAppUrl:'http://127.0.0.1:5191',vendorAppUrl:'http://127.0.0.1:5192',oauthCallbackPath:'/oauth/callback',jwtSecret:'test-signature',oauthStateTtlMinutes:10 }
+  });
+  const signed=service.createOAuthState({surface:'customer',intent:'login',next:'/account/bookings?tab=active#today'});
+  const state=service.readOAuthState(signed);const url=new URL(service.buildClientCallbackUrl({...state,token:'secret-access',refreshToken:'secret-refresh'}));
+  assert.equal(url.origin,'http://127.0.0.1:5191');assert.equal(new URLSearchParams(url.hash.slice(1)).get('next'),'/account/bookings?tab=active#today');assert.ok(!url.href.includes('secret'));
+  assert.equal(new URL(service.buildClientCallbackUrl({surface:'vendor',next:'/dashboard/queue?boardPairing=ABC'})).origin,'http://127.0.0.1:5192');
+  assert.equal(new URLSearchParams(new URL(service.buildClientCallbackUrl({surface:'customer',next:'https://evil.example'})).hash.slice(1)).has('next'),false);
+  assert.throws(()=>service.buildClientCallbackUrl({surface:'https://evil.example'}));
+  const parts=signed.split('.');parts[1]=Buffer.from(JSON.stringify({...state,surface:'vendor'})).toString('base64url');assert.throws(()=>service.readOAuthState(parts.join('.')));
 });

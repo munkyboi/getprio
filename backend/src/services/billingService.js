@@ -1,3 +1,4 @@
+const { browserAllowedOrigins, surfaceOrigins } = require("./browserSurfaceUrls");
 const { activeEntitlements } = require("../domain/activePlanQuotas");
 const crypto = require("crypto");
 const db = require("../config/db");
@@ -28,30 +29,7 @@ function buildBasicAuth(secretKey) {
   return Buffer.from(`${secretKey}:`).toString("base64");
 }
 
-function buildAllowedReturnOrigins() {
-  const origins = new Set();
-  const configuredOrigins = [env.clientUrl, env.appBaseUrl, env.platformDashboardUrl]
-    .filter(Boolean)
-    .map((origin) => normalizeOrigin(origin));
-
-  for (const origin of configuredOrigins) {
-    origins.add(origin);
-
-    try {
-      const url = new URL(origin);
-      if (!url.port) {
-        continue;
-      }
-
-      origins.add(`${url.protocol}//localhost:${url.port}`);
-      origins.add(`${url.protocol}//127.0.0.1:${url.port}`);
-    } catch {
-      // Ignore invalid URLs and keep the configured value only.
-    }
-  }
-
-  return origins;
-}
+function buildAllowedReturnOrigins() { return browserAllowedOrigins(env); }
 
 const allowedReturnOrigins = buildAllowedReturnOrigins();
 
@@ -61,7 +39,7 @@ function resolveReturnOrigin(requestOrigin) {
     return normalizedOrigin;
   }
 
-  return normalizeOrigin(env.clientUrl);
+  return surfaceOrigins(env).vendor;
 }
 
 function getTenantBillingUrl(path, requestOrigin) {

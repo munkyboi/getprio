@@ -1,3 +1,4 @@
+import { coreApiBase, sandboxApiBase, marketingOrigin } from "./surfaceUrls";
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Badge, Button, Paper, PasswordInput, Select, Tabs, TextInput } from "@mantine/core";
 import QRCodeStyling from "qr-code-styling";
@@ -27,7 +28,7 @@ import "./DeveloperPortalPage.css";
 const faqs = [
   [
     "Which API base URL should I use?",
-    "Use https://sandbox-api.getprio.online/v1 with a Sandbox key or https://api.getprio.online/v1 with a Production key. Keys are environment-bound, so a key issued for one host will not authorize requests on the other.",
+    `Use ${sandboxApiBase} with a Sandbox key or ${coreApiBase} with a Production key. Keys are environment-bound, so a key issued for one host will not authorize requests on the other.`,
   ],
   [
     "How do I authenticate API requests?",
@@ -1030,7 +1031,7 @@ export default function DeveloperPortalPage() {
                 </p>
                 <a
                   className="developer-portal-primary"
-                  href="https://getprio.online/contact"
+                  href={`${marketingOrigin}/contact`}
                 >
                   Contact GetPrio →
                 </a>
@@ -1046,7 +1047,7 @@ export default function DeveloperPortalPage() {
                     account setup and project management through queue
                     integration, usage history, and Sandbox testing. The
                     published{" "}
-                    <a href="https://api.getprio.online/v1/openapi.json">
+                    <a href={`${coreApiBase}/openapi.json`}>
                       OpenAPI document
                     </a>{" "}
                     describes the current API contract.

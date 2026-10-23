@@ -1,6 +1,7 @@
 const crypto = require("node:crypto");
 const jwt = require("jsonwebtoken");
 const env = require("../config/env");
+const { surfaceOrigins, authSurface, safeReturnPath } = require("./browserSurfaceUrls");
 
 const OAUTH_PROVIDERS = {
   google: { id: "google", label: "Google" },
@@ -53,26 +54,19 @@ function buildServerCallbackUrl(provider, callbackPath = "/api/auth/oauth") {
   return `${getServerOrigin()}${callbackPath}/${provider}/callback`;
 }
 
-function buildClientCallbackUrl({ token, refreshToken, next, error }) {
+function buildClientCallbackUrl({ next, error, surface }) {
   const hash = new URLSearchParams();
 
-  if (token) {
-    hash.set("token", token);
-  }
-
-  if (refreshToken) {
-    hash.set("refreshToken", refreshToken);
-  }
-
-  if (next) {
-    hash.set("next", next);
-  }
+  const selectedSurface = authSurface(surface);
+  const returnPath = selectedSurface ? safeReturnPath(next, selectedSurface, { allowOnboarding: true }) : next;
+  if (returnPath) hash.set("next", returnPath);
 
   if (error) {
     hash.set("error", error);
   }
 
-  return `${getAppOrigin()}${env.oauthCallbackPath}#${hash.toString()}`;
+  const destination = selectedSurface ? surfaceOrigins(env)[selectedSurface] : getAppOrigin();
+  return `${destination}${env.oauthCallbackPath}#${hash.toString()}`;
 }
 
 function createOAuthState(payload) {

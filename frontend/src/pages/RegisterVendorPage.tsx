@@ -1,3 +1,4 @@
+import { AuthAppLinks } from "../surfaces/AuthAppLinks";
 import { normalizePhilippineMobileNumber } from "../utils/phones";
 import { useEffect, useMemo, useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -296,7 +297,7 @@ export default function RegisterVendorPage() {
         <p role="status" className="ops-muted">
           Loading session…
         </p>
-      </VendorAuthLayout>
+      <AuthAppLinks surface="vendor" /></VendorAuthLayout>
     );
   }
 
@@ -527,6 +528,6 @@ export default function RegisterVendorPage() {
           </div>
         </OperationPanel>
       </ConfigurationScope>
-    </VendorAuthLayout>
+    <AuthAppLinks surface="vendor" /></VendorAuthLayout>
   );
 }

@@ -1,3 +1,4 @@
+import { appUrl } from "../surfaces/surfaceConfig";
 import { Anchor, Box, Container, Group, Stack, Text } from "@mantine/core";
 import { IconChevronRight, IconBrandFacebook, IconBrandInstagram, IconBrandLinkedin, IconBrandX, IconBrandYoutube } from "@tabler/icons-react";
 import { Link } from "react-router-dom";
@@ -6,20 +7,20 @@ const footerGroups = [
   {
     title: "Platform",
     links: [
-      { label: "Browse Services", to: "/vendors" },
+      { label: "Browse Services", href: appUrl("customer", "/vendors") },
       { label: "How It Works", to: "/#workflow" },
-      { label: "For Customers", to: "/register/customer" },
-      { label: "For Providers", to: "/register/vendor" },
+      { label: "For Customers", href: appUrl("customer", "/register") },
+      { label: "For Providers", href: appUrl("vendor", "/register") },
       { label: "Pricing", to: "/#pricing" },
-      { label: "Become a Provider", to: "/register/vendor" }
+      { label: "Become a Provider", href: appUrl("vendor", "/register") }
     ]
   },
   {
     title: "Developers",
     links: [
-      { label: "Developer Platform", href: "https://developers.getprio.online" },
-      { label: "Guides", href: "https://developers.getprio.online/guides" },
-      { label: "API Reference", href: "https://developers.getprio.online/reference" }
+      { label: "Developer Platform", href: appUrl("developers") },
+      { label: "Guides", href: appUrl("developers", "/guides") },
+      { label: "API Reference", href: appUrl("developers", "/reference") }
     ]
   },
   {
@@ -124,10 +125,10 @@ export default function SiteFooter() {
         <Group className="site-footer-bottom" justify="space-between" wrap="wrap">
           <Text c="rgba(255,255,255,0.7)">© 2026 MNK-Labs Software Development Services</Text>
           <Group gap="xl">
-            <Anchor className="site-footer-bottom-link" component={Link} to="/privacy-policy">
+            <Anchor className="site-footer-bottom-link" href={appUrl("marketing", "/privacy-policy")}>
               Privacy Policy
             </Anchor>
-            <Anchor className="site-footer-bottom-link" component={Link} to="/terms">
+            <Anchor className="site-footer-bottom-link" href={appUrl("marketing", "/terms")}>
               Terms of Service
             </Anchor>
           </Group>

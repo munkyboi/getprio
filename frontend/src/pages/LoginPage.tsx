@@ -1,3 +1,5 @@
+import { AuthAppLinks } from "../surfaces/AuthAppLinks";
+import { currentSurface, safeSurfaceNext } from "../surfaces/surfaceConfig";
 import { isVendorLoginContext, vendorPasswordResetRequest } from "../vendor/authContext";
 import { useEffect, useState, type FormEvent } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -84,8 +86,8 @@ export default function LoginPage() {
   const passwordResetSuccess = searchParams.get("reset") === "success";
   const isVendorSurface = import.meta.env.VITE_APP_SURFACE === "vendor";
   const requestedNextPath = getSafeRedirectPath(searchParams.get("next"));
-  const nextPath = isVendorSurface ? resolveVendorNextPath(requestedNextPath) : requestedNextPath;
-  const vendorLogin = isVendorSurface || isVendorLoginContext(nextPath);
+  const nextPath = isVendorSurface ? resolveVendorNextPath(requestedNextPath) : currentSurface === "customer" ? safeSurfaceNext(requestedNextPath, "customer") : requestedNextPath;
+  const vendorLogin = isVendorSurface || (currentSurface !== "customer" && isVendorLoginContext(nextPath));
   const mfaEnrollmentPath = nextPath ? `/dashboard/account?next=${encodeURIComponent(nextPath)}` : "/dashboard/account";
   const [showResetRequest, setShowResetRequest] = useState(false);
   const [error, setError] = useState("");
@@ -116,7 +118,9 @@ export default function LoginPage() {
   });
 
   useEffect(() => {
-    if (user?.tenants?.length) {
+    if (user && currentSurface === "customer") {
+      navigate(nextPath || "/account/dashboard", { replace: true });
+    } else if (user?.tenants?.length) {
       navigate(user.mfaRequired && !user.mfaEnabled ? mfaEnrollmentPath : nextPath || "/dashboard", { replace: true });
     }
   }, [navigate, nextPath, mfaEnrollmentPath, user]);
@@ -160,7 +164,7 @@ export default function LoginPage() {
   const vendorResetRequest = vendorLogin && showResetRequest && !mfaChallengeToken;
 
   if (loading) {
-    return <LoginPresentation vendor={vendorLogin} busy={false}><Paper className="finazze-auth-card" p="xl">Loading session...</Paper></LoginPresentation>;
+    return <LoginPresentation vendor={vendorLogin} busy={false}><Paper className="finazze-auth-card" p="xl">Loading session...</Paper><AuthAppLinks surface={vendorLogin ? "vendor" : "customer"} /></LoginPresentation>;
   }
 
   if (user && !user.tenants?.length) {
@@ -184,7 +188,7 @@ export default function LoginPage() {
         return;
       }
       navigate(
-        result.user.mfaRequired && !result.user.mfaEnabled
+        currentSurface !== "customer" && result.user.mfaRequired && !result.user.mfaEnabled
           ? mfaEnrollmentPath
           : nextPath || (result.user.tenants.length ? "/dashboard" : "/"),
         { replace: true }
@@ -206,7 +210,7 @@ export default function LoginPage() {
         ...(emailMfaActive ? { method: "email" as const } : {})
       });
       navigate(
-        result.user.mfaRequired && !result.user.mfaEnabled
+        currentSurface !== "customer" && result.user.mfaRequired && !result.user.mfaEnabled
           ? mfaEnrollmentPath
           : nextPath || (result.user.tenants.length ? "/dashboard" : "/"),
         { replace: true }
@@ -222,7 +226,7 @@ export default function LoginPage() {
     setError("");
     setResetRequestMessage("");
     try {
-      const result = await requestPasswordReset(vendorPasswordResetRequest(values.email, nextPath));
+      const result = await requestPasswordReset({ ...vendorPasswordResetRequest(values.email, nextPath), ...(currentSurface ? { surface: currentSurface } : {}) });
       setResetRequestMessage(result.message);
     } catch (submitError) {
       setError(getErrorMessage(submitError));
@@ -408,7 +412,7 @@ export default function LoginPage() {
         )}
         <Text c="dimmed" size="sm">
           {vendorLogin ? "Need a workspace? " : "New here? "}
-          {getAuthRegistrationLinks(vendorLogin).map((link, index) => (
+          {(currentSurface === "customer" ? [{ label: "Create a customer account", to: "/register" }] : getAuthRegistrationLinks(vendorLogin)).map((link, index) => (
             <span key={link.to}>
               {index > 0 ? " or " : null}
               <Anchor component={Link} to={link.to}>{link.label}</Anchor>
@@ -417,6 +421,6 @@ export default function LoginPage() {
         </Text>
       </Stack>
     </Paper>
-    </LoginPresentation>
+    <AuthAppLinks surface={vendorLogin ? "vendor" : "customer"} /></LoginPresentation>
   );
 }
