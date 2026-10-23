@@ -61,10 +61,10 @@ async function validateDemand(client, scope, state, children) {
     if (
       !pool?.tracking_enabled ||
       !requirement ||
-      String(requirement.pool_id) !== String(child.pool_id) ||
-      pool.revision !== frozen.resource.poolRevision ||
-      requirement.revision !== frozen.resource.requirementRevision ||
-      requirement.units_required !== frozen.resource.unitsRequired ||
+      (!frozen.bookingId && String(requirement.pool_id) !== String(child.pool_id)) ||
+      (!frozen.bookingId && pool.revision !== frozen.resource.poolRevision) ||
+      (!frozen.bookingId && requirement.revision !== frozen.resource.requirementRevision) ||
+      (!frozen.bookingId && requirement.units_required !== frozen.resource.unitsRequired) ||
       child.units !== frozen.resource.totalUnits
     )
       fail(
@@ -82,7 +82,7 @@ async function validateDemand(client, scope, state, children) {
       if (member?.archived_at) fail("RESOURCE_MEMBER_ARCHIVED","This named resource is archived. Amend to a non-archived enabled resource before calling or starting work.");
       if (
         !member?.is_active ||
-        String(member.revision) !== String(frozen.resourceMemberRevision)
+        (!frozen.bookingId && String(member.revision) !== String(frozen.resourceMemberRevision))
       )
         fail(
           "STALE_REVISION",
@@ -127,6 +127,7 @@ async function capacity(client, scope, state, child, excludedGroup = null) {
       [...scope, child.pool_id, start, end, excludedGroup],
     )
   ).rows;
+  held.push(...await require('../services/bookingScheduledCapacityV4').readFuturePromises(client,{tenantId:scope[0],locationId:scope[1]},String(child.pool_id),start,end,{ticketId:String(state.p.ticket_id),selectionId:child.selection_id}));
   // Anonymous occupancy cannot prove that a particular physical resource is free.
   if (
     child.resource_member_id &&
@@ -377,6 +378,7 @@ async function allocateState(
         ],
       )
     ).rows[0];
+    if(p.source==='booking'&&p.booking_id)await require('../services/bookingSelectionServiceV4').convertChild(client,{tenantId:scope[0],locationId:scope[1]},String(ticketId),child.selection_id,row.id);
     await client.query(
       "UPDATE resource_ledger_reservations SET state='converted',starts_at=$2,ends_at=$3 WHERE id=$1",
       [binding.id, p.observed_at, end],
@@ -508,6 +510,7 @@ async function releaseChild(client, scope, ticketId, body) {
       `UPDATE resource_allocations SET released_at=$2,outcome=$3,reason=$4 WHERE id=$1`,
       [allocation.id, p.observed_at, body.outcome, body.reason?.trim() || null],
     );
+    if(p.source==='booking'&&p.booking_id)await require('../services/bookingSelectionServiceV4').resolveChild(client,{tenantId:scope[0],locationId:scope[1]},String(ticketId),target.selection_id,body.outcome);
     await client.query(
       `UPDATE queue_child_attempts SET state=$2,ended_at=$3,revision=revision+1 WHERE id=$1`,
       [

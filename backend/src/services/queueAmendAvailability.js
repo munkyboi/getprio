@@ -53,6 +53,7 @@ async function assertAvailable(client, scope, ticketId, previous, next) {
     const held=(await client.query(`SELECT units,resource_member_id,starts_at,ends_at FROM resource_ledger_reservations
       WHERE tenant_id=$1 AND location_id=$2 AND pool_id=$3 AND state='protected'
       AND ticket_id IS DISTINCT FROM $4::bigint AND starts_at<$6 AND ends_at>$5 LIMIT 5001`,[...tuple,poolId,ticketId,new Date(now),latest])).rows;
+    held.push(...await require('./bookingScheduledCapacityV4').readFuturePromises(client,scope,poolId,new Date(now),latest));
     if(active.length>5000||held.length>5000) unavailable();
     for(const change of changes) {
       const start=now+change.start,end=now+change.end;

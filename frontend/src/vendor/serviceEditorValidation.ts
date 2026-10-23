@@ -4,10 +4,12 @@ type State = {quantityError:string;checkingSlug:boolean;slugAvailable:boolean;sl
 /** Select through the real tab control, then focus only after the kept panel is shown. */
 export function revealServiceEditorField(form:HTMLFormElement, control:EditorControl) {
   const tab=control.closest<HTMLElement>('[data-service-tab]')?.dataset.serviceTab;
-  if(tab==='general'||tab==='booking'||tab==='locations')
+  if(tab==='general'||tab==='booking'||tab==='locations'||tab==='advanced')
     form.querySelector<HTMLButtonElement>(`[data-service-tab-trigger="${tab}"]`)?.click();
   window.requestAnimationFrame(()=>{
     if(!control.isConnected)return;
+    let detail=control.closest<HTMLDetailsElement>('details');
+    while(detail){detail.open=true;detail=detail.parentElement?.closest<HTMLDetailsElement>('details')||null;}
     control.focus();
     control.reportValidity?.();
   });

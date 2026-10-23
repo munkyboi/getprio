@@ -434,11 +434,16 @@ async function assertIntakeOpen(tenant, location, options = {}) {
   return result;
 }
 
-async function closeTicketOutcomes(client, queueDay) {
+async function closeTicketOutcomes(client, queueDay, options = {}) {
   const result = await client.query(
     `SELECT ticket.id, ticket.status, ticket.carry_over_consumed,
             ticket.notify_by_email, ticket.user_id,
-            segment.priority_band
+            segment.priority_band,
+            EXISTS(SELECT 1 FROM bookings b WHERE b.queue_ticket_id=ticket.id
+              AND (b.tenant_id,b.location_id)=(ticket.tenant_id,ticket.location_id)
+              AND to_jsonb(b)->>'selection_contract_version'='4') AS resource_booking,
+            EXISTS(SELECT 1 FROM resource_allocations a WHERE a.ticket_id=ticket.id
+              AND (a.tenant_id,a.location_id)=(ticket.tenant_id,ticket.location_id) AND a.released_at IS NULL) AS live_allocation
      FROM tickets AS ticket
      LEFT JOIN queue_ticket_segments AS segment
        ON segment.ticket_id = ticket.id
@@ -452,6 +457,17 @@ async function closeTicketOutcomes(client, queueDay) {
   const counts = { pendingCarryOver: 0, expired: 0, unserved: 0, skipped: 0 };
 
   for (const ticket of result.rows) {
+    if (ticket.resource_booking) {
+      // Closing a queue is neither a service outcome nor permission to break a future promise.
+      if (!ticket.live_allocation && options.closeSource === "manual") {
+        throw stateError("Resolve checked-in resource bookings before closing: reschedule or cancel the booking explicitly.", "BOOKING_CLOSE_RESOLUTION_REQUIRED");
+      }
+      await recordLifecycleEvent(client, queueDay, "booking_staff_resolution_required", {
+        ticketId: ticket.id, source: options.source || "system", reasonCode: "queue_closed_booking_retained",
+        eventKey: `ticket:${ticket.id}:queue-day:${queueDay._id}:booking-retained`
+      });
+      continue;
+    }
     let nextStatus = ticket.status;
     let reasonCode;
     let bookingStatus;
@@ -581,7 +597,7 @@ async function closeLockedQueueDay(client, tenant, location, queueDay, options =
   if (queueDay.state === "closed") {
     return { queueDay, outcomes: null, idempotent: true };
   }
-  const outcomes = await closeTicketOutcomes(client, queueDay);
+  const outcomes = await closeTicketOutcomes(client, queueDay, options);
   const closed = await queueDays.close(queueDay._id, {
     actorUserId: options.actorUserId,
     reason: options.reason || "effective_hours_ended",

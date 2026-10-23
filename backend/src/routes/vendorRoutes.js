@@ -181,6 +181,8 @@ function formatVendorBooking(booking) {
     : null;
 
   return {
+    selectionContractVersion: booking.selectionContractVersion,
+    resourceSelection: booking.resourceSelection||null,
     id: booking._id,
     reference: booking.reference,
     tenantId: booking.tenantId,
@@ -639,6 +641,11 @@ router.patch(
   })
 );
 
+router.get("/tenant/:tenantSlug/booking-configuration",asyncHandler(async(req,res)=>{
+ const tenant=await getAuthorizedTenant(req.user,req.params.tenantSlug);
+ assertTenantPermission(req.user,tenant._id,'tenant.service.manage');
+ res.json(await require('../services/bookingSelectionServiceV4').configurationSummary(require('../config/db').pool,tenant._id));
+}));
 router.get("/tenant/:tenantSlug/services", asyncHandler((req, res) => handleListServices({ req, res, getAuthorizedTenant, assertTenantPermission, vendorServiceRepository, locationServiceRepository })));
 router.get(
   "/tenant/:tenantSlug/location-services",
@@ -709,6 +716,7 @@ router.get(
       throw error;
     }
 
+    booking.resourceSelection=await require('../services/bookingSelectionServiceV4').publicDetails(require('../config/db').pool,booking);
     res.json({
       booking: {
         ...(canManageBookings ? formatVendorBooking(booking) : projectOperationalBooking(formatVendorBooking(booking))),
@@ -750,7 +758,8 @@ router.patch(
           tenant,
           user: req.user,
           bookingId: req.params.bookingId,
-          status: String(req.body.status || "").trim()
+          status: String(req.body.status || "").trim(),
+          operationKey: req.get("Idempotency-Key") || req.body.requestKey
         })
     })
   )
@@ -860,7 +869,8 @@ router.patch(
           tenant,
           user: req.user,
           bookingId: req.params.bookingId,
-          scheduledStartAt: req.body.scheduledStartAt
+          scheduledStartAt: req.body.scheduledStartAt,
+          operationKey: req.get("Idempotency-Key") || req.body.requestKey
         })
     })
   )

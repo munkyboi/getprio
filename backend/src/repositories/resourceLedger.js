@@ -50,6 +50,7 @@ async function assertCapacity(client, scope, pool, startsAt, endsAt, excludedRes
     WHERE tenant_id=$1 AND location_id=$2 AND pool_id=$3 AND state='protected'
       AND starts_at < $5 AND ends_at > $4 AND ($6::bigint IS NULL OR id <> $6)
     ORDER BY starts_at,id`, [...scope, pool.id, startsAt, endsAt, excludedReservation]);
+  reservations.rows.push(...await require('../services/bookingScheduledCapacityV4').readFuturePromises(client,{tenantId:scope[0],locationId:scope[1]},pool.id,startsAt,endsAt));
   const events = [[new Date(startsAt).getTime(), pool.units_required]];
   for (const reservation of reservations.rows) {
     events.push([Math.max(new Date(startsAt).getTime(), new Date(reservation.starts_at).getTime()), reservation.units],

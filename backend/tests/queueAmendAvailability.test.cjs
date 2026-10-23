@@ -3,10 +3,12 @@ const assert=require('node:assert/strict');
 const {assertAvailable,addedIntervals}=require('../src/services/queueAmendAvailability');
 const scope={tenantId:'1',locationId:'2'},now=new Date('2026-10-21T10:00:00Z');
 const item=(member=null,units=1,durationMinutes=60,extra={})=>({selectionId:crypto.randomUUID(),stageId:'stage',resourceMemberId:member,durationMinutes,resource:{poolId:'3',totalUnits:units},...extra});
-function client({capacity=4,active=[],held=[]}={}) {
+function client({capacity=4,active=[],held=[],future=[]}={}) {
  const calls=[];
  return {calls,async query(sql,args){calls.push({sql,args});
   assert.doesNotMatch(sql,/\b(INSERT|UPDATE|DELETE)\s+(?!OF)/u);
+  if(sql.includes('to_regclass'))return {rows:[{available:true}]};
+  if(sql.includes('FROM booking_v4_reservations'))return {rows:future};
   if(sql.includes('FROM location_resource_pools'))return {rows:[{id:args[2],capacity,tracking_enabled:true}]};
   if(sql==='SELECT clock_timestamp() AS at')return {rows:[{at:now}]};
   if(sql.includes('FROM resource_allocations'))return {rows:active};
@@ -64,6 +66,7 @@ test('affected pool locks are numeric ordered and terminal reservations are excl
  const db=client();
  // This query client intentionally does not return reservations for this case.
  db.query=async function(sql,args){this.calls.push({sql,args});
+  if(sql.includes('to_regclass'))return {rows:[{available:false}]};
   if(sql.includes('FROM location_resource_pools'))return {rows:[{id:args[2],capacity:4,tracking_enabled:true}]};
   if(sql==='SELECT clock_timestamp() AS at')return {rows:[{at:now}]};
   assert.match(sql,/released_at IS NULL|state='protected'/u);return {rows:[]};
@@ -75,10 +78,18 @@ test('affected pool locks are numeric ordered and terminal reservations are excl
 test('two independent one-unit pools do not count each other\'s simultaneous additions',async()=>{
  const db=client();
  db.query=async function(sql,args){this.calls.push({sql,args});
+  if(sql.includes('to_regclass'))return {rows:[{available:false}]};
   if(sql.includes('FROM location_resource_pools'))return {rows:[{id:args[2],capacity:1,tracking_enabled:true}]};
   if(sql==='SELECT clock_timestamp() AS at')return {rows:[{at:now}]};
   assert.ok(['2','10'].includes(args[2]));return {rows:[]};
  };
  const court=row('court'),equipment=row('equipment');equipment.resource.poolId='2';
  await assertAvailable(db,scope,'ticket',[],[court,equipment]);
+});
+
+test('published addition respects confirmed future promise even with intake flag off; adjacent interval remains free',async()=>{
+ const before=process.env.BOOKING_SELECTION_V4_ENABLED;delete process.env.BOOKING_SELECTION_V4_ENABLED;
+ try{await assert.rejects(assertAvailable(client({future:[hold('B',1,30,90)]}),scope,'ticket',[],[row('B')]),conflict);
+ await assertAvailable(client({future:[hold('B',1,60,90)]}),scope,'ticket',[],[row('B')]);}
+ finally{if(before!==undefined)process.env.BOOKING_SELECTION_V4_ENABLED=before;}
 });

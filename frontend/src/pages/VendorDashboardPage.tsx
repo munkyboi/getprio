@@ -1,3 +1,4 @@
+import {apiRequest} from "../api/client";
 import { ResourceReadStatus } from '../vendor/ResourceReadStatus';
 import { clearQueueReview, initialQueueLocation } from '../vendor/queueReviewRoute';
 import { SkippedQueueRequests } from "../vendor/SkippedQueueRequests";
@@ -1329,6 +1330,11 @@ function VendorDashboardContent() {
       canAccessVendorSection("services", effectiveEntitlements)
     )
   });
+  const bookingConfigurationQuery=useQuery({
+    queryKey:['vendor-booking-configuration',token,selectedTenantSlug],
+    queryFn:()=>apiRequest<{locations:Array<{locationSlug:string;serviceId:string;contractVersion:4;capabilityEnabled:boolean;resourceConfigured:boolean;ready:boolean;assignment:string|null;duration:{baseMinutes:number;defaultCount:number}|null;extrasCount:number;workflowSupported:boolean}>}>(`/vendor/tenant/${selectedTenantSlug}/booking-configuration`,{token}),
+    enabled:Boolean(canLoadProtectedDashboard&&token&&selectedTenantSlug&&(isOwner||isAdmin)&&(serviceDialogOpen||routeServiceSlug)),
+  });
   const availabilityQuery = useQuery({
     queryKey: ["vendor-dashboard-availability", token, selectedTenantSlug, selectedLocationSlug, isOwner, isAdmin],
     queryFn: async () => {
@@ -1482,6 +1488,15 @@ function VendorDashboardContent() {
       active = false;
     };
   }, [bookingDetailModalId, bookingDetailOpen, bookingDetailRetry, selectedLocationSlug, selectedTenantSlug, token]);
+
+  useEffect(()=>{
+    if(!bookingDetailOpen||!bookingDetailModalId||!token||!selectedTenantSlug)return;
+    let active=true;
+    const refresh=()=>{void vendorDashboardBookings.getBookingDetail(token,selectedTenantSlug,bookingDetailModalId,selectedLocationSlug||undefined).then(response=>{if(active)setBookingDetailBooking(response.booking);}).catch(error=>{if(active)setBookingDetailError(getErrorMessage(error));});};
+    window.addEventListener('vendor-queue-snapshot-updated',refresh);
+    const timer=window.setInterval(refresh,15000);
+    return()=>{active=false;window.removeEventListener('vendor-queue-snapshot-updated',refresh);window.clearInterval(timer);};
+  },[bookingDetailOpen,bookingDetailModalId,token,selectedTenantSlug,selectedLocationSlug]);
 
   useEffect(() => {
     if (!rescheduleDialogOpen || !reschedulingBooking || !rescheduleDate || !token || !selectedTenantSlug) {
@@ -3070,7 +3085,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       navigate(serviceEditorPath(service.slug,`?${params}`));
       return;
     }
-    if (!locationServicesQuery.data || locationServicesQuery.isError || servicesQuery.isError) {
+    if (!dashboardBootstrapQuery.data || dashboardBootstrapQuery.isError || !locationServicesQuery.data || locationServicesQuery.isError || servicesQuery.isError) {
       setError("Branch service settings are still loading. Please try again once they are available.");
       return;
     }
@@ -3100,7 +3115,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       priceDisplay: service?.priceDisplay || "",
       isActive: service?.isActive ?? true,
       sortOrder: service?.sortOrder || 0,
-      locationServices: locations.map((location) => {
+      locationServices: dashboardBootstrapQuery.data.locationsResponse.locations.map((location) => {
         const existing = locationServices.find((entry) => entry.locationId === location.id);
         return {
           locationSlug: location.slug,
@@ -3114,18 +3129,18 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       })
     });
     setServiceDialogOpen(true);
-  },[location.search,selectedTenantSlug,navigate,locationServicesQuery.data,locationServicesQuery.isError,servicesQuery.isError,locations,selectedLocationSlug]);
+  },[location.search,selectedTenantSlug,navigate,locationServicesQuery.data,locationServicesQuery.isError,servicesQuery.isError,dashboardBootstrapQuery.data,dashboardBootstrapQuery.isError,locations,selectedLocationSlug]);
 
   useEffect(()=>{
     if (!routeServiceSlug) { if(serviceEditorScopeRef.current)setServiceDialogOpen(false);serviceEditorScopeRef.current="";return; }
-    if (!selectedTenantSlug || !servicesQuery.data || servicesQuery.isError || !locationServicesQuery.data || locationServicesQuery.isError) return;
+    if (!selectedTenantSlug || !dashboardBootstrapQuery.data || dashboardBootstrapQuery.isError || !servicesQuery.data || servicesQuery.isError || !locationServicesQuery.data || locationServicesQuery.isError) return;
     const item=resolveServiceEditor(routeServiceSlug,services,new Set(servicesQuery.data.services.map(item=>item.id)));
     if (!item) return;
     const scope=`${selectedTenantSlug}:${item.id}`;
     if (routeServiceSlug!==item.slug) navigate(serviceEditorPath(item.slug,location.search),{replace:true});
     if(serviceEditorScopeRef.current===scope)return;
-    serviceEditorScopeRef.current=scope;openServiceDialog(item,true);
-  },[routeServiceSlug,selectedTenantSlug,services,servicesQuery.data,servicesQuery.isError,locationServicesQuery.data,locationServicesQuery.isError,navigate,location.search,openServiceDialog]);
+    openServiceDialog(item,true);serviceEditorScopeRef.current=scope;
+  },[routeServiceSlug,selectedTenantSlug,services,servicesQuery.data,servicesQuery.isError,locationServicesQuery.data,locationServicesQuery.isError,dashboardBootstrapQuery.data,dashboardBootstrapQuery.isError,navigate,location.search,openServiceDialog]);
 
   useEffect(() => {
     if (!serviceDialogOpen || serviceSlugManuallyEdited) {
@@ -3186,6 +3201,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
   async function handleSaveService(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const submittedForm = event.currentTarget;
+    if(!dashboardBootstrapQuery.data||dashboardBootstrapQuery.isError||!locationServicesQuery.data||locationServicesQuery.isError||servicesQuery.isError||!serviceForm.locationServices||serviceForm.locationServices.length!==dashboardBootstrapQuery.data.locationsResponse.locations.length||dashboardBootstrapQuery.data.locationsResponse.locations.some(location=>!serviceForm.locationServices?.some(assignment=>assignment.locationSlug===location.slug))){setError('Location settings are not ready. Retry loading locations before saving.');return;}
     const validationError = validateServiceEditor(submittedForm, {
       quantityError: serviceQuantityError(serviceForm), checkingSlug: checkingServiceSlug,
       slugAvailable: serviceSlugAvailable, slugMessage: serviceSlugMessage,
@@ -6594,7 +6610,19 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     );
   }
 
+  function openServiceResourceSettings(locationSlug:string,kind:'policy'|'resources'){
+    requestServiceLeave(()=>{
+      const params=new URLSearchParams(location.search);params.set('business',selectedTenantSlug);params.set('location',locationSlug);
+      setSelectedLocationSlug(locationSlug);
+      if(kind==='policy')setServicesTab('queue-policy');else setLocationsTab('resources');
+      navigate(workspacePath(kind==='policy'?'services':'tenants','administration',`?${params.toString()}`));
+    });
+  }
   function renderServiceDialog() {
+    const bookingConfigurationReady=Boolean(bookingConfigurationQuery.data&&!bookingConfigurationQuery.isPending&&!bookingConfigurationQuery.isError);
+    const resourceSettings=(bookingConfigurationQuery.data?.locations||[]).filter(item=>item.serviceId===editingServiceId);
+    const enabledAssignments=(serviceForm.locationServices||[]).filter(item=>item.isActive!==false);
+    const resourceOnly=enabledAssignments.length>0&&enabledAssignments.every(item=>resourceSettings.some(setting=>setting.locationSlug===item.locationSlug&&setting.capabilityEnabled&&setting.ready));
     const EditorSurface = routeServiceSlug ? TaskPage : TaskDialog;
     const close = () => {
       if(routeServiceSlug)requestServiceLeave(()=>navigate(workspacePath("services","administration",location.search)));
@@ -6658,17 +6686,6 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     disabled={busyAction === "service-image-upload"}
                     onChange={(file) => uploadServiceImage(file)}
                   />
-                  <ConfigurationInput
-                    label="Image link (optional)"
-                    description="Paste an image link, or upload an image above."
-                    value={serviceForm.imageUrl || ""}
-                    onChange={(event) =>
-                      setServiceForm((current) => ({
-                        ...current,
-                        imageUrl: event.target.value,
-                      }))
-                    }
-                  />
                   {serviceForm.imageUrl ? (
                     <img
                       className="config-image"
@@ -6690,6 +6707,75 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                           : buildServiceSlug(nextName),
                       }));
                     }}
+                  />
+                </ConfigurationSection>
+              <ConfigurationSection
+                title="Description and availability"
+                description=""
+              >
+                <ConfigurationTextarea
+                  label="Service description"
+                  description="Tell customers what is included and what they should know before booking."
+                  value={serviceForm.description || ""}
+                  onChange={(event) =>
+                    setServiceForm((current) => ({
+                      ...current,
+                      description: event.target.value,
+                    }))
+                  }
+                />
+                <ConfigurationCheck
+                  checked={serviceForm.isActive !== false}
+                  label="Available across the business"
+                  description="Turn off to stop new bookings. Existing bookings stay in your records."
+                  onChange={(event) =>
+                    setServiceForm((current) => ({
+                      ...current,
+                      isActive: event.currentTarget.checked,
+                    }))
+                  }
+                />
+              </ConfigurationSection><ConfigurationSection title="Price and payment" description="Base service price; resource booking amounts are confirmed by the vendor.">                  <ConfigurationNumber
+                    step={0.01}
+                    label={
+                      serviceForm.allowBookingQuantity
+                        ? "Price per unit (PHP)"
+                        : "Service price (PHP)"
+                    }
+                    min={0}
+                    value={(serviceForm.priceAmountCents || 0) / 100}
+                    onChange={(value) =>
+                      setServiceForm((current) => ({
+                        ...current,
+                        priceAmountCents: Math.max(
+                          0,
+                          Math.round((Number(value) || 0) * 100),
+                        ),
+                      }))
+                    }
+                  />
+                  <ConfigurationCheck
+                    checked={serviceForm.manualPaymentRequired === true}
+                    label="Require proof of payment"
+                    description="Customers pay separately, then submit a receipt and payment reference. Review their payment before confirming the booking."
+                    onChange={(event) =>
+                      setServiceForm((current) => ({
+                        ...current,
+                        manualPaymentRequired: event.currentTarget.checked,
+                      }))
+                    }
+                  />
+</ConfigurationSection></FieldGroup>}
+                advanced={<FieldGroup><ConfigurationSection title="Advanced details" description="Optional link, image and display settings.">                  <ConfigurationInput
+                    label="Image link (optional)"
+                    description="Paste an image link, or upload an image above."
+                    value={serviceForm.imageUrl || ""}
+                    onChange={(event) =>
+                      setServiceForm((current) => ({
+                        ...current,
+                        imageUrl: event.target.value,
+                      }))
+                    }
                   />
                   <ConfigurationInput
                     data-service-field="slug"
@@ -6728,36 +6814,21 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       }))
                     }
                   />
-                </ConfigurationSection>
-              <ConfigurationSection
-                title="Description and availability"
-                description=""
-              >
-                <ConfigurationTextarea
-                  label="Service description"
-                  description="Tell customers what is included and what they should know before booking."
-                  value={serviceForm.description || ""}
-                  onChange={(event) =>
-                    setServiceForm((current) => ({
-                      ...current,
-                      description: event.target.value,
-                    }))
-                  }
-                />
-                <ConfigurationCheck
-                  checked={serviceForm.isActive !== false}
-                  label="Offer this service for booking"
-                  description="Turn off to stop new bookings. Existing bookings stay in your records."
-                  onChange={(event) =>
-                    setServiceForm((current) => ({
-                      ...current,
-                      isActive: event.currentTarget.checked,
-                    }))
-                  }
-                />
-              </ConfigurationSection></FieldGroup>}
-                booking={<FieldGroup>                <ConfigurationSection
-                  title="Duration, price, and quantity"
+                  <ConfigurationInput
+                    label="Price text shown to customers (optional)"
+                    description="Use custom text instead of the formatted price. The booking total uses the price above, or the branch price below."
+                    placeholder="For example, PHP 500 per session"
+                    value={serviceForm.priceDisplay || ""}
+                    onChange={(event) =>
+                      setServiceForm((current) => ({
+                        ...current,
+                        priceDisplay: event.target.value,
+                      }))
+                    }
+                  />
+</ConfigurationSection></FieldGroup>}
+                booking={<FieldGroup><p className="ops-muted">Resource bookings use the location’s queue policy for duration and resource assignment. These settings are for ordinary bookings and existing legacy records.</p><details data-service-advanced open={!resourceOnly}><summary>Ordinary booking settings</summary><ConfigurationSection
+                  title="Ordinary booking duration and limits"
                   description=""
                 >
                   <ConfigurationNumber
@@ -6779,48 +6850,6 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       setServiceForm((current) => ({
                         ...current,
                         durationMinutes: Number(value) || 30,
-                      }))
-                    }
-                  />
-                  <ConfigurationNumber
-                    step={0.01}
-                    label={
-                      serviceForm.allowBookingQuantity
-                        ? "Price per unit (PHP)"
-                        : "Service price (PHP)"
-                    }
-                    min={0}
-                    value={(serviceForm.priceAmountCents || 0) / 100}
-                    onChange={(value) =>
-                      setServiceForm((current) => ({
-                        ...current,
-                        priceAmountCents: Math.max(
-                          0,
-                          Math.round((Number(value) || 0) * 100),
-                        ),
-                      }))
-                    }
-                  />
-                  <ConfigurationInput
-                    label="Price text shown to customers (optional)"
-                    description="Use custom text instead of the formatted price. The booking total uses the price above, or the branch price below."
-                    placeholder="For example, PHP 500 per session"
-                    value={serviceForm.priceDisplay || ""}
-                    onChange={(event) =>
-                      setServiceForm((current) => ({
-                        ...current,
-                        priceDisplay: event.target.value,
-                      }))
-                    }
-                  />
-                  <ConfigurationCheck
-                    checked={serviceForm.manualPaymentRequired === true}
-                    label="Require proof of payment"
-                    description="Customers pay separately, then submit a receipt and payment reference. Review their payment before confirming the booking."
-                    onChange={(event) =>
-                      setServiceForm((current) => ({
-                        ...current,
-                        manualPaymentRequired: event.currentTarget.checked,
                       }))
                     }
                   />
@@ -6863,7 +6892,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       },
                     ]}
                     label="Booking limit applies to"
-                    description="Choose which services count toward the booking limit. Weekly schedules covering all services always share one limit."
+                    description="For ordinary bookings only. Resource bookings use their location pool capacity and queue duration policy."
                     value={serviceForm.bookingCapacityScope || "service"}
                     onChange={(value) =>
                       setServiceForm((current) => ({
@@ -6873,15 +6902,21 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       }))
                     }
                   />
-                </ConfigurationSection></FieldGroup>}
+                </ConfigurationSection></details></FieldGroup>}
                 locations={<ConfigurationSection title="Locations offering this service" description="">
                   <div>
-                    <p className="ops-muted">Branches offering this service</p>
                     <p className="ops-muted">
                       Turn on each branch where customers can book this service.
-                      Set how many service bookings can run at the same time.
+                      Ordinary bookings use the limits below. Resource bookings use the configured pool capacity.
                     </p>
                   </div>
+                  <OperationQueryState loading={bookingConfigurationQuery.isPending} error={bookingConfigurationQuery.error} onRetry={()=>void bookingConfigurationQuery.refetch()}/>
+                  {(bookingConfigurationQuery.data?.locations||[]).filter(item=>item.serviceId===editingServiceId).map(item=><OperationAlert key={item.locationSlug} color={item.ready?'blue':'yellow'} title={locations.find(location=>location.slug===item.locationSlug)?.name||item.locationSlug}>
+                    {item.capabilityEnabled?(item.ready?`Resource bookings use ${item.assignment==='named'?'selected named resources':'pool quantities'} and the existing location duration policy. Pool capacity controls simultaneous bookings.`:'Resource bookings need setup before they can be offered.'):'Resource booking configuration is prepared; the new booking flow is not enabled.'}
+                    {item.duration?` Default duration: ${item.duration.defaultCount} × ${item.duration.baseMinutes} minutes.`:''}
+                    <OperationButton variant="outline" onClick={()=>openServiceResourceSettings(item.locationSlug,'policy')}>Open queue policies</OperationButton>
+                    <OperationButton variant="outline" onClick={()=>openServiceResourceSettings(item.locationSlug,'resources')}>Open resource pools</OperationButton>
+                  </OperationAlert>)}
                   {(serviceForm.locationServices || []).map(
                     (assignment, index) => (
                       <FieldGroup
@@ -6909,7 +6944,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                             }));
                           }}
                         />
-                        <ConfigurationNumber
+                        {!bookingConfigurationReady?<p className="ops-muted">Booking configuration is unavailable until location settings finish loading. Retry above to review limits.</p>:resourceSettings.some(setting=>setting.locationSlug===assignment.locationSlug&&setting.capabilityEnabled&&setting.ready)?<p className="ops-muted">Pool capacity controls resource bookings at this location.</p>:<>                        <ConfigurationNumber
                           label={`${locations.find((location) => location.slug === assignment.locationSlug)?.name || assignment.locationSlug} bookings allowed at the same time`}
                           description="Counts service bookings, rather than the number of guests."
                           min={1}
@@ -6928,6 +6963,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                             }))
                           }
                         />
+                        </>}
                         <ConfigurationNumber
                           step={0.01}
                           label="Price at this branch (PHP, optional)"
@@ -6962,7 +6998,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                             }))
                           }
                         />
-                        <ConfigurationInput
+                        <details data-service-advanced><summary>Advanced price display</summary>                        <ConfigurationInput
                           label="Price text for this branch (optional)"
                           description="Custom text shown to customers at this branch. It does not change the amount charged."
                           disabled={assignment.isActive === false}
@@ -6980,12 +7016,12 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                             }));
                           }}
                         />
+</details>
                       </FieldGroup>
                     ),
                   )}
                   <p className="ops-muted">
-                    If a weekly schedule or special date allows more bookings at
-                    the same time, the higher limit applies.
+                    For ordinary bookings, a higher weekly or special-date limit still applies. Resource bookings always follow pool capacity; operating hours and exceptions apply to both.
                   </p>
 </ConfigurationSection>}
               />
@@ -9995,6 +10031,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
           title={detailBooking ? detailBooking.reference : "Loading booking"}
           footer={
             <OperationScope busy={Boolean(busyAction)}>
+              {detailBooking?.resourceSelection?<div className="space-y-2">{detailBooking.resourceSelection.warning?<OperationAlert color="yellow">{detailBooking.resourceSelection.warning}</OperationAlert>:null}{detailBooking.resourceSelection.services.map((service,index)=><div key={index}><p className="font-semibold">{service.name}</p>{service.resources.map((resource,i)=><p key={i} className="text-sm">{resource.name} · {resource.quantity} × {resource.durationMinutes} minutes{resource.extras.map(extra=>` · ${extra.name}: ${extra.quantity} × ${extra.durationMinutes} minutes`).join('')}</p>)}</div>)}</div>:null}
               {detailBooking && !bookingDetailLoading && !bookingDetailError ? (
                 <div className="ops-row ops-between">
                   <OperationButton
@@ -10473,8 +10510,8 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     if (currentSection === "services") {
       if(routeServiceSlug) {
         if(!isOwner && !isAdmin)return <OperationAlert color="red" title="Service access required">You do not have permission to edit this service.</OperationAlert>;
-        if(servicesQuery.isPending || locationServicesQuery.isPending)return <OperationQueryState loading error={null} onRetry={()=>{void servicesQuery.refetch();void locationServicesQuery.refetch();}}/>;
-        if(servicesQuery.isError || locationServicesQuery.isError)return <OperationQueryState loading={false} error={servicesQuery.error || locationServicesQuery.error} onRetry={()=>{void servicesQuery.refetch();void locationServicesQuery.refetch();}}/>;
+        if(dashboardBootstrapQuery.isPending || servicesQuery.isPending || locationServicesQuery.isPending)return <OperationQueryState loading error={null} onRetry={()=>{void servicesQuery.refetch();void locationServicesQuery.refetch();void dashboardBootstrapQuery.refetch();}}/>;
+        if(dashboardBootstrapQuery.isError || servicesQuery.isError || locationServicesQuery.isError)return <OperationQueryState loading={false} error={dashboardBootstrapQuery.error || servicesQuery.error || locationServicesQuery.error} onRetry={()=>{void servicesQuery.refetch();void locationServicesQuery.refetch();void dashboardBootstrapQuery.refetch();}}/>;
         if(!servicesQuery.data || !resolveServiceEditor(routeServiceSlug,services,new Set(servicesQuery.data.services.map(item=>item.id))))return <OperationAlert color="red" title="Service unavailable">This service is unavailable in the selected business.</OperationAlert>;
         return renderServiceDialog();
       }

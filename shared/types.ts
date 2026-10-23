@@ -1,3 +1,4 @@
+import type { BookingServiceSelectionV4, BookingSelectionDisplayV4 } from "./bookingSelectionV4";
 export type OAuthProviderId = "google" | "facebook" | "apple";
 export type AuthIntent = "login" | "register_customer" | "register_vendor";
 export type UserRole = "customer" | "vendor" | "platform_admin";
@@ -488,7 +489,8 @@ export interface BookingManualPaymentDestination {
   accountDisplayName: string;
   accountIdentifierDisplay: string;
   qrImageUrl?: string;
-  amountCents: number;
+  amountCents: number | null;
+  amountPendingConfirmation?: boolean;
   currency: "PHP";
   unitPriceDisplay: string;
 }
@@ -529,6 +531,8 @@ export interface BookingGroupFundedCampaignSummary {
 }
 
 export interface CustomerBookingSummary {
+  selectionContractVersion?: 1 | 4;
+  resourceSelection?: BookingSelectionDisplayV4 | null;
   id: string;
   reference: string;
   tenantId: string;
@@ -588,6 +592,10 @@ export interface CustomerBookingsResponse {
 }
 
 export interface CreateCustomerBookingRequest {
+  selectionContractVersion?: 4;
+  catalogVersion?: string;
+  serviceSelections?: BookingServiceSelectionV4[];
+  requestKey?: string;
   tenantSlug: string;
   locationSlug: string;
   serviceSlug: string;
@@ -1155,10 +1163,12 @@ export interface VendorBookingsResponse {
 }
 
 export interface UpdateVendorBookingStatusRequest {
+  requestKey?: string;
   status: Extract<BookingStatus, "confirmed" | "canceled">;
 }
 
 export interface RescheduleVendorBookingRequest {
+  requestKey?: string;
   scheduledStartAt: string;
 }
 

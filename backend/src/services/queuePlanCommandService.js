@@ -507,6 +507,7 @@ async function execute(
             if (String(serviceCounter?._id) !== body.expectedCounterId) fail("COUNTER_CONTEXT_CHANGED","The selected counter changed. Refresh before continuing.");
           } else await require("./queueCounterBinding").assert(client,scope,ticket,body,{status:action === "recall" ? "skipped" : "called"});
         }
+        if(p.contract_version===4&&p.source==='booking'&&p.booking_id&&['call','start','retry'].includes(action))await require('./bookingSelectionServiceV4').assertLinkedAdmission(client,scope,String(ticket._id),{required:true});
         const before = await projection.read(client, scope, draft);
         if (p.workflow_mode === "multi_station")
           await stages.assertActor(
@@ -746,6 +747,7 @@ async function execute(
             "UPDATE resource_ledger_scopes SET revision=revision+1 WHERE tenant_id=$1 AND location_id=$2",
             [scope.tenantId, scope.locationId],
           );
+        if(p.contract_version===4&&p.source==='booking'&&p.booking_id&&['complete','interrupt'].includes(action))await require('./bookingSelectionServiceV4').completeLinkedBooking(client,scope,String(ticket._id));
         const result = { plan: await projection.read(client, scope, draft) };
         await client.query(
           `INSERT INTO queue_plan_events(tenant_id,location_id,actor_user_id,draft_id,event_type,old_revision,new_revision,snapshot,actor_role,old_snapshot)

@@ -83,6 +83,12 @@ async function evaluate(client,scope,body){
     const endsAt=duration?new Date(checkedAt.getTime()+duration.durationMinutes*60000):null;
     return {request,service,pool,stageId,issue,endsAt,duration};
   });
+  for(const poolId of pools){
+    const ends=selections.filter(selection=>selection.pool?.pool_id===poolId&&selection.endsAt).map(selection=>selection.endsAt.getTime());
+    if(!ends.length)continue;
+    const promises=await require('./bookingScheduledCapacityV4').readFuturePromises(client,scope,poolId,checkedAt,new Date(Math.max(...ends)));
+    reservations.push(...promises.map(row=>({...row,pool_id:poolId,group_id:null})));
+  }
   for(const selection of selections){
     if(!selection.issue&&selections.some(other=>other.stageId===selection.stageId&&other.pool?.pool_id===selection.pool?.pool_id&&other.service?.assignmentPolicy.mode!==selection.service.assignmentPolicy.mode))
       selection.issue={code:'EXTRA_RESOURCE_CONFLICT',message:'Anonymous and named demand cannot prove distinct physical members in the same simultaneous pool.'};

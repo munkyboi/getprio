@@ -23,7 +23,7 @@ async function assertRestorable(client, ticket) {
 async function cancelUnusedProtection(client, ledger, ticket, { operation, cancelBooking = false, actor, customer }) {
   const scope = [ticket.tenantId, ticket.locationId, ticket._id];
   // Location and ticket locks precede booking/binding locks, as for service start.
-  const bookings = await client.query(`SELECT id::text,status,customer_user_id::text,customer_email,customer_phone FROM bookings
+  const bookings = await client.query(`SELECT id::text,status,customer_user_id::text,customer_email,customer_phone,to_jsonb(bookings)->>'selection_contract_version' AS selection_contract_version FROM bookings
     WHERE tenant_id=$1 AND location_id=$2 AND queue_ticket_id=$3 ORDER BY id FOR UPDATE`, scope);
   if (customer) {
     for (const booking of bookings.rows) assertOwnership(customer, {
@@ -41,6 +41,9 @@ async function cancelUnusedProtection(client, ledger, ticket, { operation, cance
       await ledger.executeCommand({ operationKey: `ticket:${ticket._id}:reservation:${binding.id}:${operation}`,
         command: "cancelReservation", payload: { reservationId: binding.id } });
     }
+  }
+  if (cancelBooking && bookings.rows.some(booking => booking.selection_contract_version === "4")) {
+    await require("./bookingSelectionServiceV4").resolveUnstartedTicket(client, {tenantId:ticket.tenantId,locationId:ticket.locationId}, ticket._id, "staff_or_customer_cancelled");
   }
   await cancelTicketReservations(client, ledger, ticket, operation);
   if (cancelBooking) {

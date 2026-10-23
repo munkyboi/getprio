@@ -108,6 +108,7 @@ async function capacity(
       [...scope, demand.pool.id, start, end, excludedGroup],
     )
   ).rows;
+  held.push(...await require('../services/bookingScheduledCapacityV4').readFuturePromises(client,{tenantId:scope[0],locationId:scope[1]},String(demand.pool.id),start,end));
   const events = [[start.getTime(), demand.units]];
   for (const r of held)
     events.push(

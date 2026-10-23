@@ -226,7 +226,8 @@ function formatManualPaymentDestination(booking) {
     accountDisplayName: booking.locationPaymentAccountDisplayName,
     accountIdentifierDisplay: booking.locationPaymentAccountIdentifierDisplay,
     qrImageUrl: isBankTransfer ? "" : booking.locationPaymentQrImageUrl,
-    amountCents: bundleItems.reduce((total, item) => total + Number(item.priceAmountCents || 0), 0),
+    amountCents: booking.selectionContractVersion===4 ? null : bundleItems.reduce((total, item) => total + Number(item.priceAmountCents || 0), 0),
+    amountPendingConfirmation: booking.selectionContractVersion===4,
     currency: booking.serviceCurrency || "PHP",
     unitPriceDisplay: booking.servicePriceDisplay
   };
@@ -269,6 +270,8 @@ function formatCustomerBooking(booking) {
     : null;
 
   return {
+    selectionContractVersion: booking.selectionContractVersion,
+    resourceSelection: booking.resourceSelection||null,
     id: booking._id,
     reference: booking.reference,
     tenantId: booking.tenantId,
@@ -667,6 +670,18 @@ router.get(
   })
 );
 
+// Authenticated customer-safe resource catalog. Vendor administration commands are never exposed here.
+router.get("/bookings/resource-catalog", asyncHandler(async(req,res)=>{
+ const v4=require('../services/bookingSelectionServiceV4');
+ if(!v4.enabled())return res.json({contractVersion:4,enabled:false,services:[]});
+ const scope=await v4.resolvePublicScope(String(req.query.tenantSlug||''),String(req.query.locationSlug||''));
+ res.json(await v4.catalog(require('../config/db').pool,scope));
+}));
+router.post("/bookings/resource-slots", asyncHandler(async(req,res)=>{
+ const v4=require('../services/bookingSelectionServiceV4'),scope=await v4.resolvePublicScope(String(req.body.tenantSlug||''),String(req.body.locationSlug||''));
+ res.json(await v4.slots(require('../config/db').pool,scope,req.body));
+}));
+
 router.get(
   "/bookings",
   asyncHandler(async (req, res) => {
@@ -706,7 +721,7 @@ router.get(
       throw error;
     }
 
-    res.json({ booking: { ...formatCustomerBooking(booking), organizerCampaign: null } });
+    res.json({ booking: { ...formatCustomerBooking(booking), resourceSelection: await require('../services/bookingSelectionServiceV4').publicDetails(require('../config/db').pool,booking), organizerCampaign: null } });
   })
 );
 

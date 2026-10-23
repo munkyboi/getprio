@@ -1,0 +1,37 @@
+# Scheduled resource booking V4 candidate
+
+Status: source candidate, local/staging only, capability OFF. No production, merge or deployment. The standalone first-tracer foundation remains separate historical evidence; the integrated implementation uses the actual Queue V4 capture contracts and `location_resource_pools` / `resource_pool_members` model.
+
+## Configuration and consumers
+
+`BOOKING_SELECTION_V4_ENABLED=1` enables new scheduled resource intake. Existing confirmed promises remain enforced even if intake is subsequently disabled. Do not enable until the additive migration, runtime composition and independent QA gate pass. The migration is additive and appears last in migration-order.txt; no old booking or global Queue member uniqueness constraint is removed. No configuration data is silently enabled.
+
+The authenticated customer `/account/bookings/resource-catalog` and `/account/bookings/resource-slots` contracts are separate customer-safe projections. They expose member choices, count bounds, opaque duration/catalog acceptance hashes and names, never reservation IDs or private policy revisions. The server resolves active public tenant/location and actual booking entitlement. Location resource requirement plus queue policy supplies assignment, duration, extras and pool capacity. Mapped services missing configuration produce setup guidance; they cannot silently fall back to the legacy capacity of one. Ordinary unmapped services retain the old booking flow and count limits. Free accounts whose effective policy disables bookings must receive server denial; no test fixture upgrade is authorized.
+
+Customer V4 authoring supports simultaneous roots, exact named members, pooled quantities, independent duration counts, flat named/pooled extras and any selected leaf's manual payment requirement. Sequential/multistage resource booking is explicitly rejected, never reinterpreted. The slot list is provisional; authoritative confirmation uses a location-first locked transaction. Store windows use the selected scheduled date, location timezone, overnight/split store hours, service schedules and exceptions. Slot previews use the same checks without mutating reservations.
+
+## Atomic commands and immutable lineage
+
+Creation stores an immutable V4 selection version/leaves and consumes the exact verified booking OTP in the same transaction as booking, allowance and actor-scoped command receipt. It creates no future resource promise or Queue hold. Exact payload changes with a reused command key fail; OTP verification binds members/counts/quantities/extras/catalog/date/location/contact. Unknown command results can replay the original response without recreating or reconfirming canceled work. Legacy V1 remains a separate immutable compatibility path.
+
+Confirmation rechecks enabled resources/hours and half-open scheduled intervals under location-first then ordered pool locks, creates exact per-leaf promises, and requires staff-verified proof for any payment-required leaf. Pending payment expiry has no confirmed resource promise to release. Manual amount is confirmed by the vendor; there is no newly invented duration/price multiplication.
+
+Future capacity uses scheduled overlaps plus projected current allocation windows, so a currently busy court can be booked for a free future time. Actual service Start always checks every unreleased allocation, regardless of its expected end. A late overrun cannot auto-release another service, substitute members or move a booking silently. Call/Start inspect upcoming promises; the original schedule remains immutable and normal explicit staff late-arrival permissions remain required.
+
+Arrival reuses normal customer ownership/opt-in/check-in window/payment or assigned staff authorization, creates exactly one linked V4 plan from frozen accepted selections/workflow, and no Queue hold. Policy revision edits do not recapture existing guarantees. Call obtains ordinary Queue protection; explicit Start binds the exact booking leaf/version to actual allocation. Completion/interruption resolves only that allocation's own binding; retry remains a fresh admission. Generic published Queue amendment cannot mutate a V4 booking guarantee: use booking reschedule/cancel.
+
+Reschedule atomically excludes only the current owned version, validates its replacement, releases that exact old promise and creates the next immutable version. Staff may detach an unstarted checked-in ticket through existing permission-checked reschedule/cancel; active service requires an explicit service outcome. Hours/configuration changes retain protection and show staff-review guidance until explicit resolution. Automatic Queue close retains linked V4 tickets and promises with staff-resolution events, and never auto-carries them over. Manual close blocks unresolved unstarted V4 bookings; active service may close then explicitly Complete. Other-day bookings never enter the closing-day ticket loop. Expected end never itself releases capacity.
+
+## Service form follow-on
+
+General retains identity, upload, description, business availability, base price and payment requirement. Advanced keeps generated booking link, list order, manual image URL and custom price display; branch custom price display is optional and retains null versus explicit zero. Native invalid fields reveal their kept-mounted tab/details before focus.
+
+An authenticated administration-only descriptor reports actual per-location mapping/readiness and capability state. Resource-ready enabled locations display pool/policy ownership instead of an ordinary simultaneous-count editor. Unknown/loading configuration does not classify a location as ordinary; retry is explicit. Flag OFF is labeled as prepared configuration with the new flow disabled. Mixed/ordinary locations retain legacy duration/quantity/capacity settings. Links target the clicked location/business through the existing leave guard. No duplicate pool/member/count/extras editor or new capacity override was added.
+
+Editor initialization waits for authoritative location and assignment queries and builds assignments from bootstrap rows, never lagging local location state. Same scoped draft is initialized once; SSE updates do not overwrite edits. Saving unknown/error/incomplete location sets is blocked, preventing an empty deep-link payload from disabling branches.
+
+## Evidence and outstanding gates
+
+Focused deterministic tests exercise real sanitization, policy/date/capacity logic, SQL query contracts, close retention, Advanced reveal, scope/hydration, immutable input retention and legacy neighbors. These are not actual PostgreSQL writer or browser acceptance evidence.
+
+Independent scratch PostgreSQL validation of migration b62ed002a21a957cab8e86afd187ab5c20701f624e8a7fac18879121c78763aa was reported PASS by the coordination Head, including generated-column trigger fix, restricted-role constraints and bounded receipt/same-leaf uniqueness. Implementation owner did not execute SQL. Actual multi-writer races, rollback/allowance/audit, confirmation/reschedule/arrival/Start and ordinary Queue regressions require the independent isolated runtime QA gate. Free/Pro/customer/staff normal auth, real write/payment proof, hours/SSE retention, service editor save/reload and full rendered regression remain UNTESTED by this source-only candidate. No end-to-end completion claim is made here.

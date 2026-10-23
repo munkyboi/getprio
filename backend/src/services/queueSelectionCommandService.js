@@ -11,6 +11,7 @@ function fail(code, message) {
 }
 
 async function amend(client, { scope, ticket, p, stage, body, draft }) {
+  if(p.contract_version===4&&p.source==='booking'&&p.booking_id)fail('BOOKING_RESCHEDULE_REQUIRED','These resources belong to a confirmed booking. Use the booking’s reschedule or cancel action to change them.');
   const tuple = [scope.tenantId, scope.locationId, ticket._id];
   if (
     !["waiting", "called"].includes(ticket.status) ||

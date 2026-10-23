@@ -24,6 +24,8 @@ function formatVendorBooking(booking) {
     : null;
 
   return {
+    selectionContractVersion: booking.selectionContractVersion,
+    resourceSelection: booking.resourceSelection||null,
     id: booking._id,
     reference: booking.reference,
     tenantId: booking.tenantId,

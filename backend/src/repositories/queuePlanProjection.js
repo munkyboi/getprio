@@ -1,5 +1,12 @@
 async function read(client, scope, draft, options = {}) {
-  if(Array.isArray(draft.service_selections))return require('./queueSelectionProjection').read(client,scope,draft,options);
+  if(Array.isArray(draft.service_selections)){
+    const result=await require('./queueSelectionProjection').read(client,scope,draft,options);
+    const linked=(await client.query(`SELECT p.booking_id::text,to_jsonb(b)->>'selection_revision' AS selection_revision FROM ticket_service_plans p JOIN bookings b
+      ON(b.id,b.tenant_id,b.location_id)=(p.booking_id,p.tenant_id,p.location_id)
+      WHERE p.tenant_id=$1 AND p.location_id=$2 AND p.ticket_id=$3 AND p.source='booking' AND p.contract_version=4
+        AND b.queue_ticket_id=p.ticket_id AND (to_jsonb(b)->>'selection_contract_version')='4'`,[scope.tenantId,scope.locationId,draft.published_ticket_id])).rows[0];
+    return linked?{...result,allowedActions:result.allowedActions.filter(action=>action!=='amend'),booking:{id:linked.booking_id,selectionRevision:linked.selection_revision,guidance:'Use the booking’s reschedule or cancel action to change its reserved resources.'}}:result;
+  }
   const result = await client.query(
     `SELECT t.id::text,t.ticket_number,t.status,t.service_started_at,t.service_ended_at,
       p.revision::text,p.ticket_revision::text,p.items,p.workflow_mode,p.workflow_configuration_revision::text,p.stage_id,a.revision::text AS stage_revision,p.resource_wait,

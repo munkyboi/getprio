@@ -34,7 +34,7 @@ test('actual submit handler blocks invalid off-tab data before the save endpoint
  const fs=require('node:fs'),ts=require('typescript'),vm=require('node:vm');const source=fs.readFileSync('src/pages/VendorDashboardPage.tsx','utf8');
  const start=source.indexOf('  async function handleSaveService('),end=source.indexOf('  async function handleToggleServiceActive(',start);let saves=0,error='';
  const f=fixture([{slug:true},{tab:'locations',valid:false}]);
- const context={validateServiceEditor,serviceQuantityError:()=>'',serviceForm:{name:'Kept'},checkingServiceSlug:false,serviceSlugAvailable:true,serviceSlugMessage:'',setError:value=>{error=value;},setBusyAction:()=>assert.fail('invalid data must not start save'),vendorDashboardCatalog:{saveService:async()=>{saves++;}}};
+ const context={dashboardBootstrapQuery:{data:{locationsResponse:{locations:[]}}},locationServicesQuery:{data:{}},servicesQuery:{},validateServiceEditor,serviceQuantityError:()=>'',serviceForm:{locationServices:[],name:'Kept'},checkingServiceSlug:false,serviceSlugAvailable:true,serviceSlugMessage:'',setError:value=>{error=value;},setBusyAction:()=>assert.fail('invalid data must not start save'),vendorDashboardCatalog:{saveService:async()=>{saves++;}}};
  vm.runInNewContext(ts.transpileModule(source.slice(start,end),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText,context);
  try{await context.handleSaveService({preventDefault(){},currentTarget:f.form});assert.equal(saves,0);assert.equal(error,'Invalid locations');f.flush();assert.equal(f.events[0],'tab:locations');}finally{f.restore();}
 });
