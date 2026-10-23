@@ -256,6 +256,7 @@ async function capture(
     leafPolicies = new Map(),
     rootPolicies = new Map(),
     eligibilityByLeaf = new Map(),
+    validatedV4Extras = new Map(),
     namedGroups = new Map(),groupForLeaf = new Map();
   const normalized = input.map((service) => {
     const p = d.policies.get(service.serviceId);
@@ -337,12 +338,23 @@ async function capture(
       }),
     };
   });
+  // Only normalized leaves accepted by the authoritative V4 policy can cross
+  // the legacy eligibility boundary. Bind each leaf to its exact parent scope.
+  for (const service of normalized)
+    for (const resource of service.resources)
+      for (const extra of resource.extras)
+        validatedV4Extras.set(extra.extraSelectionId, {
+          serviceSelectionId: service.serviceSelectionId,
+          parentServiceId: service.serviceId,
+          resourceSelectionId: resource.resourceSelectionId,
+          serviceId: extra.serviceId,
+        });
   const result = await legacy.capture(
     client,
     scope,
     normalized,
     d.options.catalogRevision,
-    { workflowOverride, allowConfiguredV4: true, allowNamedExtrasV1: true },
+    { workflowOverride, allowConfiguredV4: true, allowNamedExtrasV1: true, validatedV4Extras },
   );
   for (const service of result.serviceSelections) {
     const p = rootPolicies.get(service.serviceSelectionId);

@@ -285,7 +285,7 @@ async function capture(
   scope,
   selections,
   expectedCatalogRevision,
-  { workflowOverride, allowConfiguredV4 = false, allowNamedExtrasV1 = false } = {},
+  { workflowOverride, allowConfiguredV4 = false, allowNamedExtrasV1 = false, validatedV4Extras } = {},
 ) {
   validateSelections(selections, { complete: true, allowNamedExtrasV1 });
   const data = await catalogData(client, scope);
@@ -391,8 +391,17 @@ async function capture(
             "Review the extra duration-count policy using contract version 4.",
             409,
           );
+        // Internal V4 capture supplies only leaves already checked against its
+        // authoritative configuration. Flags alone never bypass legacy IDs.
+        const acceptedV4Extra = allowConfiguredV4 && service.configuration &&
+          extra?.configuration && validatedV4Extras?.get(extraSelection.extraSelectionId);
+        const eligibleV4Extra = acceptedV4Extra &&
+          acceptedV4Extra.serviceSelectionId === selected.serviceSelectionId &&
+          acceptedV4Extra.parentServiceId === service.id &&
+          acceptedV4Extra.resourceSelectionId === selection.resourceSelectionId &&
+          acceptedV4Extra.serviceId === extraSelection.serviceId;
         if (
-          !service.extra_service_ids.includes(extraSelection.serviceId) ||
+          (!eligibleV4Extra && !service.extra_service_ids.includes(extraSelection.serviceId)) ||
           !extra?.policy_revision ||
           (extra.selection_mode !== "pooled" && !(allowNamedExtrasV1 && extra.selection_mode === "named"))
         )
