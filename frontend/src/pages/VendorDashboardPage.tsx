@@ -38,7 +38,7 @@ import { CounterStaffAssignments } from "../vendor/CounterStaffAssignments";
 import { ServiceEditorTabs } from "../vendor/ServiceEditorTabs";
 import { validateServiceEditor } from "../vendor/serviceEditorValidation";
 import { serviceQuantityError, dateExceptionPayload } from "../vendor/serviceConfigurationState";
-import { FieldGroup } from "../vendor/components/ui/field";
+import { FieldGroup, FieldSet, FieldLegend } from "../vendor/components/ui/field";
 import { ConfigurationScope, ConfigurationNumber, ConfigurationTextarea, ConfigurationInput, ConfigurationPhone, ConfigurationCheck, ConfigurationSelect, ConfigurationFile, ConfigurationSection } from "../vendor/ConfigurationUi";
 import { Tabs as ConfigTabs, TabsList as ConfigTabsList, TabsTrigger as ConfigTabsTrigger, TabsContent as ConfigTabsContent } from "../vendor/components/ui/tabs";
 import { availableRescheduleSelection, boundedPage } from "../vendor/operationsState";
@@ -6827,10 +6827,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     }
                   />
 </ConfigurationSection></FieldGroup>}
-                booking={<FieldGroup><p className="ops-muted">Resource bookings use the location’s queue policy for duration and resource assignment. These settings are for ordinary bookings and existing legacy records.</p><details data-service-advanced open={!resourceOnly}><summary>Ordinary booking settings</summary><ConfigurationSection
-                  title="Ordinary booking duration and limits"
-                  description=""
-                >
+                booking={<FieldGroup><p className="ops-muted">Resource bookings use the duration and resource choices set for each location.</p><details data-service-advanced open={!resourceOnly}><summary>Duration and booking limits</summary><FieldSet className="config-section"><FieldLegend className="v:sr-only">Duration and booking limits</FieldLegend><FieldGroup>
                   <ConfigurationNumber
                     label={
                       serviceForm.allowBookingQuantity
@@ -6902,7 +6899,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       }))
                     }
                   />
-                </ConfigurationSection></details></FieldGroup>}
+                </FieldGroup></FieldSet></details></FieldGroup>}
                 locations={<ConfigurationSection title="Locations offering this service" description="">
                   <div>
                     <p className="ops-muted">

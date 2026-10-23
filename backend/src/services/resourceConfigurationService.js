@@ -7,9 +7,10 @@ const permissions = require("./permissions");
 const poolLifecycle = require("./resourcePoolLifecycleService");
 const { assertPublicTextFieldsAllowed } = require("./contentModeration");
 
-function fail(message, statusCode = 400) {
+function fail(message, statusCode = 400, code) {
   const error = new Error(message);
   error.statusCode = statusCode;
+  if(code)error.code=code;
   throw error;
 }
 function id(value) {
@@ -77,17 +78,19 @@ async function saveRequirement(scope, body, current, client) {
     const removed = await client.query("DELETE FROM service_resource_requirements WHERE tenant_id = $1 AND location_id = $2 AND service_id = $3", [scope.tenantId, scope.locationId, serviceId]);
     return removed.rowCount > 0;
   }
-  if (!current.services.some((service) => service.id === serviceId)) fail("Select an active service offered at this location.");
+  if (!current.services.some((service) => service.id === serviceId)) fail("Select an active service offered at this location.",400,"RESOURCE_SERVICE_NOT_OFFERED");
   const service = await client.query(`SELECT services.id FROM vendor_services AS services
     JOIN location_services AS locations ON locations.service_id = services.id AND locations.tenant_id = services.tenant_id
     WHERE services.tenant_id = $1 AND locations.location_id = $2 AND services.id = $3
       AND services.is_active = TRUE AND locations.is_active = TRUE FOR SHARE OF services, locations`,
   [scope.tenantId, scope.locationId, serviceId]);
-  if (!service.rows[0]) fail("Service availability changed. Reload before saving.", 409);
+  if (!service.rows[0]) fail("Service availability changed. Reload before saving.",409,"RESOURCE_CONFIGURATION_STALE");
   const poolId = id(body.poolId);
   const unitsRequired = units(body.unitsRequired);
   const pool = current.pools.find((item) => item.id === poolId);
-  if (!pool || pool.archived_at || unitsRequired > pool.capacity) fail("Select a resource pool with enough capacity.");
+  if(!pool)fail("Resource pool not found at this location.",404,"RESOURCE_POOL_NOT_FOUND");
+  if(pool.archived_at)fail("Choose a resource pool that has not been archived.",409,"RESOURCE_POOL_ARCHIVED");
+  if(unitsRequired>pool.capacity)fail("Required units exceed this resource pool’s capacity.",400,"RESOURCE_REQUIREMENT_EXCEEDS_CAPACITY");
   if (!current.requirements.some((item) => item.service_id === serviceId) && current.requirements.length >= 500) fail("A location supports up to 500 service requirements.");
   await repository.setDraftRequirement(scope, { serviceId, poolId, unitsRequired }, { client });
   return true;
@@ -115,7 +118,7 @@ async function saveConfiguration(scope, body) {
       id(body.poolId);
       return poolLifecycle.execute(client, scope, body, read, current);
     }
-    if (current.version !== body.version) fail("Resource configuration changed. Reload and review it before saving.", 409);
+    if (current.version !== body.version) fail("Resource configuration changed. Reload and review it before saving.",409,"RESOURCE_CONFIGURATION_STALE");
     const changed = body.action === "pool"
       ? await savePool(scope, body, current, client)
       : await saveRequirement(scope, body, current, client);

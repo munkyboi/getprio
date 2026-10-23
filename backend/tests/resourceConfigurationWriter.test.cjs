@@ -139,7 +139,7 @@ test('draft resource configuration writer under PostgreSQL constraints', { skip:
       const before=await revision();
       await save(await body({action:'archivePool',poolId:'1',operationKey:randomUUID()}));
       assert.equal(await revision(),before);
-      await assert.rejects(save(await body({action:'requirement',serviceId:'1000',poolId:'1',unitsRequired:1})),{statusCode:400});
+      await assert.rejects(save(await body({action:'requirement',serviceId:'1000',poolId:'1',unitsRequired:1})),{statusCode:409,code:'RESOURCE_POOL_ARCHIVED'});
       await assert.rejects(save(await body()),{statusCode:409});
       const referencedRows = () => pool.query(`SELECT to_jsonb(p) AS pool,
         (SELECT jsonb_agg(to_jsonb(r) ORDER BY r.service_id) FROM service_resource_requirements r WHERE r.pool_id=p.id AND r.tenant_id=p.tenant_id AND r.location_id=p.location_id) AS requirements,

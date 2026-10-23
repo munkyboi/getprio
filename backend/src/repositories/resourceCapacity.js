@@ -90,20 +90,26 @@ async function createDraftPool(scope, data, options = {}) {
   return result.rows[0];
 }
 
+function requirementError(code,message,statusCode=400) {
+  return Object.assign(new Error(message),{code,statusCode});
+}
+
 async function setDraftRequirement(scope, data, options = {}) {
   assertScope(scope);
   for (const field of ["poolId", "serviceId"]) {
     if (!/^[1-9]\d*$/u.test(String(data[field] || ""))) throw new Error(`Invalid ${field}.`);
   }
   if (!Number.isInteger(data.unitsRequired) || data.unitsRequired < 1 || data.unitsRequired > 100) {
-    throw new Error("Required units must be an integer from 1 to 100.");
+    throw requirementError("RESOURCE_REQUIREMENT_INVALID_UNITS", "Required units must be an integer from 1 to 100.");
   }
   const client = draftClient(options);
   const pool = await client.query(`
-    SELECT capacity FROM location_resource_pools
-    WHERE tenant_id = $1 AND location_id = $2 AND id = $3 AND tracking_enabled = FALSE AND (to_jsonb(location_resource_pools)->>'archived_at') IS NULL FOR UPDATE
+    SELECT capacity, (to_jsonb(location_resource_pools)->>'archived_at') AS archived_at FROM location_resource_pools
+    WHERE tenant_id = $1 AND location_id = $2 AND id = $3 FOR UPDATE
   `, [scope.tenantId, scope.locationId, data.poolId]);
-  if (!pool.rows[0] || data.unitsRequired > pool.rows[0].capacity) throw new Error("Draft pool is missing or demand exceeds capacity.");
+  if (!pool.rows[0]) throw requirementError("RESOURCE_POOL_NOT_FOUND", "Resource pool not found at this location.", 404);
+  if (pool.rows[0].archived_at) throw requirementError("RESOURCE_POOL_ARCHIVED", "Choose a resource pool that has not been archived.", 409);
+  if (data.unitsRequired > pool.rows[0].capacity) throw requirementError("RESOURCE_REQUIREMENT_EXCEEDS_CAPACITY", "Required units exceed this resource pool’s capacity.");
   const result = await client.query(`
     INSERT INTO service_resource_requirements (tenant_id, location_id, service_id, pool_id, units_required)
     VALUES ($1, $2, $3, $4, $5)
