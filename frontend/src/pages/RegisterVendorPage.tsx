@@ -354,7 +354,7 @@ export default function RegisterVendorPage() {
               <p className="vendor-eyebrow">
                 {isAuthenticatedFlow
                   ? "Your vendor workspace"
-                  : "Build your booking business"}
+                  : "Create your workspace"}
               </p>
               <h1>
                 {isAuthenticatedFlow
@@ -368,7 +368,7 @@ export default function RegisterVendorPage() {
                   ? oauthProviderLabel
                     ? `Signed in with ${oauthProviderLabel}. Add the final business details to get started.`
                     : "You're signed in. Add the final business details to get started."
-                  : "Create your business profile, choose a shareable link, and start accepting bookings."}
+                  : "Create your business profile and start managing your services and queue."}
               </p>
             </div>
             {!isAuthenticatedFlow ? (
