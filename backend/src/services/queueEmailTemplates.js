@@ -1,4 +1,5 @@
 const env = require("../config/env");
+const { surfaceOrigins } = require("./browserSurfaceUrls");
 const { BRAND, createBrandedEmail: renderBrandedEmail } = require("./emailTemplates");
 
 // Queue journey text is an existing delivery contract. Change its HTML only.
@@ -126,7 +127,7 @@ function queueLifecycleEmail({ tenant, ticket, kind, action, position }) {
 
 function queueReconciliationEmail({ tenant, location }) {
   const locationName = location?.name || tenant.name;
-  const actionUrl = `${String(env.appBaseUrl || "").replace(/\/$/, "")}/dashboard/queue`;
+  const actionUrl = `${surfaceOrigins(env).vendor}/dashboard/queue`;
   return createBrandedEmail({
     subject: `Queue reconciliation needs attention: ${locationName}`,
     preheader: `${locationName} queue actions are locked pending review.`,

@@ -28,6 +28,8 @@ function fixture({mode='pooled',requirement='optional',configured=true,legacyIds
  const state={busy:null,services,members,calls,writes};
  state.query=async(sql,args=[])=>{
   calls.push({sql,args});
+  if(sql.includes("to_regclass") && sql.includes("booking_v4_reservations"))return {rows:[{available:true}]};
+  if(sql.includes("FROM booking_v4_reservations"))return {rows:[]};
   if (/^\s*(INSERT|UPDATE|DELETE)\b/u.test(sql)) {writes.push({sql,args});return {rows:[]};}
   if(sql.includes('FROM queue_stage_attempts'))return {rows:[{n:'0'}]};
   if(sql.includes('FROM queue_reservation_groups'))return {rows:[]};
