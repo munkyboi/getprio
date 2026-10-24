@@ -11,9 +11,12 @@ dotenv.config({ path: rootEnvPath });
 
 const backendEnvPath = path.resolve(__dirname, "../../.env");
 dotenv.config({ path: backendEnvPath, override: false });
-// Worktree-local overrides are ignored by git and loaded last.
-dotenv.config({ path: path.resolve(__dirname, "../../../.env.local"), override: true });
-dotenv.config({ path: path.resolve(__dirname, "../../.env.local"), override: true });
+// Explicit local surface profiles are fully pinned by the guarded launcher.
+// Re-reading an overriding worktree file after validation would change its identity.
+if (!process.env.LOCAL_API_PROFILE) {
+  dotenv.config({ path: path.resolve(__dirname, "../../../.env.local"), override: true });
+  dotenv.config({ path: path.resolve(__dirname, "../../.env.local"), override: true });
+}
 
 const port = Number(process.env.PORT || process.env.BACKEND_PORT || 5001);
 const frontendPort = Number(process.env.FRONTEND_PORT || 5173);
