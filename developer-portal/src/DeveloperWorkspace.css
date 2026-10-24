@@ -684,3 +684,14 @@
   border-color: #3861fb !important;
   color: #17366f !important;
 }
+
+/* Keep the live Developer palette; distinguish actionable boundaries from dividers. */
+.developer-workspace.developer-workspace.dpp[data-api-theme] :is(input,select,textarea) { border-color: var(--dp-component-boundary) !important; background: var(--dp-surface); color: var(--dp-ink); }
+.developer-workspace input::placeholder { color: var(--dp-muted); }
+.developer-workspace :is(input,select,textarea):focus { border-color: var(--dp-component-boundary); background: var(--dp-surface); outline: 3px solid var(--dp-accent); outline-offset: 3px; box-shadow: none; }
+.developer-workspace :is(button,a,[tabindex]):focus-visible { outline: 3px solid var(--dp-accent); outline-offset: 3px; }
+.developer-workspace.developer-workspace :is(.mantine-Button-root[data-variant=light],.mantine-Button-root[data-variant=default]):not(:disabled) { --button-color: var(--dp-accent) !important; --button-bg: var(--dp-action-soft) !important; --button-bd: 1px solid var(--dp-component-boundary) !important; color: var(--dp-accent) !important; background: var(--dp-action-soft) !important; border-color: var(--dp-component-boundary) !important; }
+.developer-workspace.developer-workspace .developer-workspace-status { color: var(--dp-ink); }
+.developer-workspace .developer-workspace-next-badge { background: var(--dp-action-soft); color: var(--dp-accent); }
+
+.developer-workspace .mantine-Button-root[data-variant=subtle] { --button-color: var(--dp-accent) !important; color: var(--dp-accent); }

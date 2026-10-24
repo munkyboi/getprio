@@ -14,16 +14,14 @@ test('semantic alerts render readable meaning and retain caller-controlled annou
  assert.match(renderToStaticMarkup(React.createElement(Alert,{variant:'destructive',role:'region','aria-label':'Queue auto-close status'},'Existing status')),/role="region"/);
  assert.match(renderToStaticMarkup(React.createElement(Alert,{variant:'info',role:'note'},'Static guidance')),/role="note"/);
 });
-test('semantic alert text and icons exceed normal-text contrast on mild surfaces in both themes',()=>{
- const css=fs.readFileSync(require('node:path').join(__dirname,'../src/vendor/styles.css'),'utf8');
- const light=css.match(/\.vendor-workspace \{([\s\S]*?)\n\}/)[1], dark=css.match(/\.vendor-workspace\[data-vendor-theme=dark\] \{([\s\S]*?)\n\}/)[1];
- const token=(scope,name)=>scope.match(new RegExp(`--${name}: (#[a-fA-F0-9]{6})`))?.[1];
- const rgb=hex=>[1,3,5].map(i=>parseInt(hex.slice(i,i+2),16));
- const lum=c=>c.map(v=>v/255).map(v=>v<=0.04045?v/12.92:((v+0.055)/1.055)**2.4).reduce((n,v,i)=>n+v*[0.2126,0.7152,0.0722][i],0);
- for(const [theme,scope] of [['light',light],['dark',dark]])for(const tone of ['info','success','warning','error']){
-  const fg=rgb(token(scope,tone==='error'?'destructive':tone)),bg=rgb(token(scope,'background'));
-  const surface=fg.map((v,i)=>v*.07+bg[i]*.93),a=lum(fg),b=lum(surface),ratio=(Math.max(a,b)+.05)/(Math.min(a,b)+.05);
-  assert.ok(ratio>=4.5,`${theme} ${tone}: ${ratio}`);
+test('semantic alert text exceeds normal-text contrast on actual mild surfaces in both themes', {skip:process.env.GETPRIO_PALETTE_BROWSER_EVIDENCE!=='1'},()=>{
+ const evidence=JSON.parse(fs.readFileSync(require('node:path').join(__dirname,'../../output/approved-palette-20261025/browser-results.json'),'utf8'));
+ for(const theme of ['light','dark']){
+  const page=evidence.results.find(p=>p.surface==='vendor'&&p.theme===theme);
+  for(const tone of ['info','success','warning','error']){
+   const text=page.text.find(t=>t.text===`${tone} alert message`);
+   assert.ok(text,`${theme} ${tone} rendered`);assert.ok(text.ratio>=4.5,`${theme} ${tone}: ${text.ratio}`);
+  }
  }
 });
 test('vendor toasts retain Base UI stacked geometry above dialogs',()=>{

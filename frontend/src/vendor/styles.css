@@ -11,7 +11,7 @@
   --color-secondary-foreground: var(--foreground);
   --color-muted: var(--secondary);
   --color-muted-foreground: var(--muted-foreground);
-  --color-popover: var(--background);
+  --color-popover: var(--card);
   --color-popover-foreground: var(--foreground);
   --color-border: var(--border);
   --color-input: var(--border);
@@ -35,20 +35,25 @@
 /* Neutral shell composition follows the agreed AdminCN/prototype reference. */
 .vendor-app-frame { min-height: 100dvh; }
 .vendor-workspace {
-  --background: #ffffff; --foreground: #18181b; --card: #ffffff; --primary: #18181b;
-  --destructive: #b42318; --primary-foreground: #ffffff; --secondary: #f4f4f5; --muted-foreground: #71717a;
-  --info: #1d4ed8; --success: #166534; --warning: #854d0e; --error: var(--destructive);
-  --border: #e4e4e7; --radius-md: .5rem;
+  --background: oklch(1 0 0); --foreground: oklch(.145 0 0); --card: oklch(1 0 0);
+  --primary: oklch(.205 0 0); --primary-foreground: oklch(.985 0 0);
+  --secondary: oklch(.97 0 0); --muted-foreground: oklch(.556 0 0);
+  --destructive: oklch(.577 .245 27.325); --error: var(--destructive);
+  --info: #3e63dd; --success: oklch(.52 .14 145); --warning: oklch(.24 .05 75);
+  --border: oklch(.922 0 0); --component-boundary: var(--foreground); --ring: var(--foreground);
+  --sidebar: oklch(.985 0 0); --radius-md: .5rem;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-size: 14px; line-height: 1.5;
   display: grid; grid-template-columns: minmax(0, 1fr); min-height: 100dvh;
-  color: var(--foreground); background: #fafafa;
+  color: var(--foreground); background: var(--background);
 }
 .vendor-workspace[data-vendor-theme=dark] {
-  --background: #18181b; --foreground: #fafafa; --card: #18181b; --primary: #fafafa;
-  --destructive: #ffb4ab; --primary-foreground: #18181b; --secondary: #27272a; --muted-foreground: #a1a1aa; --border: #3f3f46;
-  --info: #93c5fd; --success: #86efac; --warning: #fde68a;
-  background: #09090b; color-scheme: dark;
+  --background: oklch(.145 0 0); --foreground: oklch(.985 0 0); --card: oklch(.205 0 0);
+  --primary: oklch(.922 0 0); --primary-foreground: oklch(.205 0 0);
+  --secondary: oklch(.269 0 0); --muted-foreground: oklch(.708 0 0);
+  --destructive: oklch(.704 .191 22.216); --border: oklch(1 0 0 / 10%);
+  --info: #5472e4; --success: oklch(.62 .15 145); --warning: oklch(.75 .16 75);
+  --sidebar: oklch(.205 0 0); background: var(--background); color-scheme: dark;
 }
 .vendor-sidebar { display: none; }
 .vendor-workspace-main { min-width: 0; }
@@ -103,7 +108,7 @@
 
 /* Live Queue uses the same tokens in both themes; legacy sections remain staged. */
 @theme inline {
-  --color-card: var(--background);
+  --color-card: var(--card);
   --color-card-foreground: var(--foreground);
   --color-secondary-foreground: var(--foreground);
 }
@@ -972,3 +977,17 @@
 .queue-counter-picker-item > span:has(> .queue-counter-picker-option) { min-width:0; flex:1 1 0; white-space:normal; }
 .queue-counter-picker-option { display:flex; align-items:center; justify-content:space-between; gap:8px; width:100%; min-width:0; }
 .queue-counter-picker-option-label { flex:1 1 auto; min-width:0; white-space:normal; overflow-wrap:anywhere; }
+
+/* Decorative dividers retain the source palette; controls require a visible boundary. */
+.vendor-workspace { color-scheme: light; }
+.vendor-workspace[data-vendor-theme=dark] { color-scheme: dark; }
+.vendor-workspace .vendor-sidebar { background: var(--sidebar); }
+.vendor-workspace .vendor-feature-content { color: var(--foreground); }
+.vendor-workspace :is(input:not([type=hidden]),select,textarea,[data-slot=select-trigger],[data-slot=button].v\:border-border) { border-color: var(--component-boundary); }
+.vendor-workspace :is(a,button,input,select,textarea,[tabindex]):focus-visible { outline: 3px solid var(--foreground) !important; outline-offset: 3px !important; }
+
+/* Tinted alerts keep their tone while small copy uses the accessible neutral role. */
+.vendor-workspace [data-slot=alert]:is(.v\:text-error,.v\:text-destructive),
+.vendor-workspace [data-slot=alert]:is(.v\:text-error,.v\:text-destructive) [data-slot=alert-description],
+.vendor-workspace[data-vendor-theme=dark] [data-slot=alert].v\:text-info,
+.vendor-workspace[data-vendor-theme=dark] [data-slot=alert].v\:text-info [data-slot=alert-description] { color: var(--foreground); }

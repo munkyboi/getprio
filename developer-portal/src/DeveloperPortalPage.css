@@ -9,6 +9,7 @@
   --dp-action: #3861fb;
   --dp-action-soft: #213562;
   --dp-border: #293246;
+  --dp-component-boundary: var(--dp-accent);
   --dp-code-bg: #080d17;
   --dp-code-toolbar: #111a2b;
   min-height: 100vh;
@@ -26,6 +27,7 @@
   --dp-action: #3861fb;
   --dp-action-soft: #eaf1ff;
   --dp-border: #d5dfec;
+  --dp-component-boundary: var(--dp-accent);
   --dp-code-bg: #111827;
   --dp-code-toolbar: #1c293d;
   color-scheme: light;
