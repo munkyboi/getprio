@@ -991,3 +991,6 @@
 .vendor-workspace [data-slot=alert]:is(.v\:text-error,.v\:text-destructive) [data-slot=alert-description],
 .vendor-workspace[data-vendor-theme=dark] [data-slot=alert].v\:text-info,
 .vendor-workspace[data-vendor-theme=dark] [data-slot=alert].v\:text-info [data-slot=alert-description] { color: var(--foreground); }
+
+/* Destructive controls retain their tint and label; small copy uses neutral ink. */
+.vendor-workspace [data-slot=button].v\:text-destructive { color: var(--foreground); border-color: var(--component-boundary); }
