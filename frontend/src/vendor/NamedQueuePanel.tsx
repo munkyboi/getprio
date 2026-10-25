@@ -1,4 +1,4 @@
-import { showResourceManagement } from "./queueIntakeMode";
+import { showResourceManagement, fullInventoryReady } from "./queueIntakeMode";
 import { queuePlanBase } from "../api/queuePlansV2";
 import { LocalResourceActivation } from "./LocalResourceActivation";
 import { queueResourceCatalog } from "./queueResourceCatalog";
@@ -44,7 +44,7 @@ function orderResourceMembers<T extends { displayOrder?: number }>(members: T[])
 }
 
 
-export function NamedQueuePanel({token,tenant,location,counterSlug,staffMode=false,managementOnly=false,onManagementReady,newRequestSequence=0,onIntakeAvailability,onEditForm,onCloseForm,onBusy,onTicketIds,onNotice,hasUnsavedEdits,onReviewQueueSetup}:{token:string;tenant:string;location:string;counterSlug:string;staffMode?:boolean;managementOnly?:boolean;onManagementReady?:(ready:boolean)=>void;newRequestSequence?:number;onIntakeAvailability?:(ready:boolean)=>void;onEditForm:(form:HTMLFormElement)=>void;onCloseForm:()=>void;onBusy:(busy:boolean)=>void;onTicketIds:(ids:string[])=>void;onNotice:(title:string,message:string)=>void;hasUnsavedEdits?:()=>boolean;onReviewQueueSetup?:()=>void}){
+export function NamedQueuePanel({token,tenant,location,counterSlug,staffMode=false,managementOnly=false,onManagementReady,newRequestSequence=0,onIntakeAvailability,onEditForm,onCloseForm,onBusy,onTicketIds,onNotice,hasUnsavedEdits,onReviewQueueSetup}:{token:string;tenant:string;location:string;counterSlug:string;staffMode?:boolean;managementOnly?:boolean;onManagementReady?:(ready:boolean,scope:string)=>void;newRequestSequence?:number;onIntakeAvailability?:(ready:boolean)=>void;onEditForm:(form:HTMLFormElement)=>void;onCloseForm:()=>void;onBusy:(busy:boolean)=>void;onTicketIds:(ids:string[],scope:string)=>void;onNotice:(title:string,message:string)=>void;hasUnsavedEdits?:()=>boolean;onReviewQueueSetup?:()=>void}){
  const streamHealthy=useQueueStreamHealthy(queueStreamScope(token,tenant,location));
  const commandLocked=useQueueCommandLocked();
  const client=useQueryClient();
@@ -56,8 +56,9 @@ export function NamedQueuePanel({token,tenant,location,counterSlug,staffMode=fal
  const active=useInfiniteQuery({queryKey:['named-queue-active',token,tenant,location],initialPageParam:undefined as string|undefined,queryFn:({signal,pageParam})=>listQueueSelections(token,tenant,location,'active',signal,pageParam),getNextPageParam:page=>page.nextCursor||undefined,retry:2});
  const skipped=useInfiniteQuery({queryKey:['skipped-queue-plans',token,tenant,location],initialPageParam:undefined as string|undefined,queryFn:({signal,pageParam})=>apiRequest<{plans:Array<{contractVersion:number;ticketId:string}>;nextCursor:string|null}>(`${queuePlanBase(tenant,location)}&state=skipped${pageParam?`&cursor=${encodeURIComponent(pageParam)}`:''}`,{token,signal}),getNextPageParam:page=>page.nextCursor||undefined,retry:false});
  const managementReady=useRef(onManagementReady);managementReady.current=onManagementReady;
- useEffect(()=>{managementReady.current?.(active.isSuccess&&skipped.isSuccess);},[active.isSuccess,skipped.isSuccess,token,tenant,location]);
- useEffect(()=>()=>managementReady.current?.(false),[token,tenant,location]);
+ const inventoryScope=`${tenant}:${location}`;
+ const inventoryReady=fullInventoryReady(active,skipped);
+ useEffect(()=>()=>managementReady.current?.(false,inventoryScope),[inventoryScope]);
  const [editor,setEditor]=useState<{plan?:QueueSelectionPlanV3;initial:NamedQueueFormDraft;mode:'draft'|'amend'}|null>(null);
  const streamHealthyRef=useRef(streamHealthy);
  streamHealthyRef.current=streamHealthy;
@@ -154,9 +155,12 @@ export function NamedQueuePanel({token,tenant,location,counterSlug,staffMode=fal
  },[location,open,tenant]);
  useEffect(()=>{if(managementOnly&&!skipped.isPending&&!skipped.isFetchingNextPage&&skipped.hasNextPage)void skipped.fetchNextPage();},[managementOnly,skipped.isPending,skipped.isFetchingNextPage,skipped.hasNextPage,skipped.fetchNextPage]);
  const ids=[...new Set([...plans.map(plan=>plan.ticketId),...(skipped.data?.pages.flatMap(page=>page.plans)||[]).filter(plan=>plan.contractVersion===3||plan.contractVersion===4).map(plan=>plan.ticketId)])].sort().join(',');
- useEffect(()=>{idsRef.current(ids?ids.split(','):[]);},[ids]);
+ useEffect(()=>{
+  idsRef.current(ids?ids.split(','):[],inventoryScope);
+  managementReady.current?.(inventoryReady,inventoryScope);
+ },[ids,inventoryScope,inventoryReady]);
  useEffect(()=>{busyRef.current(busy||uncertain);},[busy,uncertain]);
- useEffect(()=>()=>{busyRef.current(false);idsRef.current([]);},[]);
+ useEffect(()=>()=>{busyRef.current(false);idsRef.current([],inventoryScope);},[]);
  useEffect(()=>{if(!uncertain)return;const warn=(event:BeforeUnloadEvent)=>{event.preventDefault();event.returnValue='';};window.addEventListener('beforeunload',warn);return()=>window.removeEventListener('beforeunload',warn);},[uncertain]);
  const intakeSequence=useRef(newRequestSequence);
  const intakeAvailable=!managementOnly&&Boolean(v4Options.data?.capabilities.publication)&&!busy&&!uncertain&&!commandLocked&&!editor&&!outcome&&!protection&&!completion;

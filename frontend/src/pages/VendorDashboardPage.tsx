@@ -24,7 +24,7 @@ import { QueueDetailsEditor } from "../vendor/QueueDetailsEditor";
 import { localPoolReadState, scopedLocalPoolData, localPoolDispatchSnapshot, hasExecutableLocalPlan, missingServicePlanGuidance } from "../vendor/localPoolState";
 import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from "../vendor/components/ui/accordion";
 import { ResourceDashboard } from "../vendor/ResourceDashboard";
-import { queueIntakeMode, queueWorkPresentation, legacyQueueWork } from "../vendor/queueIntakeMode";
+import { queueIntakeMode, queueWorkPresentation, legacyQueueWork, scopedResourceIds } from "../vendor/queueIntakeMode";
 import { useLocalPoolOperations, localPoolDemoClientEnabled as resourceQueueOptIn } from "../vendor/useLocalPoolOperations";
 import { ManagedCollection } from "../vendor/ManagedCollection";
 import { draftUnloadHandler } from "../vendor/draftUnloadGuard";
@@ -1021,7 +1021,8 @@ function VendorDashboardContent() {
   const [bookingAlertBookings, setBookingAlertBookings] = useState<VendorBookingSummary[]>([]);
   const dismissedBookingAlertIdsRef = useRef<Set<string>>(new Set());
   const knownQueueTicketIdsRef = useRef<Set<string> | null>(null);
-  const [namedTicketIds,setNamedTicketIds]=useState<string[]>([]);
+  const [namedInventory,setNamedInventory]=useState<{scope:string;ids:string[]}>({scope:"",ids:[]});
+  const namedTicketIds=scopedResourceIds(`${selectedTenantSlug}:${selectedLocationSlug}`,namedInventory);
   const [namedManagementRead,setNamedManagementRead]=useState({scope:"",ready:false});
   const v2TicketIds=namedTicketIds;
   const [queueAlertIds, setQueueAlertIds] = useState<string[]>([]);
@@ -5383,7 +5384,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
           </QueueCardContent>
         </QueueCard>
         {!resourceQueueEnabled ? <LiveQueueSummary snapshot={snapshot} /> : null}
-        {resourceManagementEnabled && selectedTenantSlug && selectedLocationSlug ? <NamedQueuePanel managementOnly={!resourceQueueEnabled} onManagementReady={ready=>setNamedManagementRead({scope:localPoolScope,ready})} hasUnsavedEdits={()=>unsavedForm.current.hasEdits()} key={`named:${selectedTenantSlug}:${selectedLocationSlug}`} token={token} tenant={selectedTenantSlug} location={selectedLocationSlug} counterSlug={selectedCounterSlug} staffMode={selectedTenantRole === "staff"} onReviewQueueSetup={(isOwner||isAdmin)&&visibleNavItems.some(item=>item.section==="services")?()=>{if(!canLeaveFeature())return;setServicesTab("queue-policy");navigate(workspacePath("services","administration",location.search));}:undefined} newRequestSequence={resourceQueueEnabled?serviceRequestSequence:0} onIntakeAvailability={setServiceRequestAvailable} onTicketIds={setNamedTicketIds} onEditForm={form=>unsavedForm.current.mark(form)} onCloseForm={()=>unsavedForm.current.discardId("named-queue-plan")} onBusy={busy=>setBusyAction(busy?"named-queue-plan":"")} onNotice={showSuccessNotification}/>:null}
+        {resourceManagementEnabled && selectedTenantSlug && selectedLocationSlug ? <NamedQueuePanel managementOnly={!resourceQueueEnabled} onManagementReady={(ready,scope)=>{if(scope===localPoolScopeRef.current)setNamedManagementRead({scope,ready});}} hasUnsavedEdits={()=>unsavedForm.current.hasEdits()} key={`named:${selectedTenantSlug}:${selectedLocationSlug}`} token={token} tenant={selectedTenantSlug} location={selectedLocationSlug} counterSlug={selectedCounterSlug} staffMode={selectedTenantRole === "staff"} onReviewQueueSetup={(isOwner||isAdmin)&&visibleNavItems.some(item=>item.section==="services")?()=>{if(!canLeaveFeature())return;setServicesTab("queue-policy");navigate(workspacePath("services","administration",location.search));}:undefined} newRequestSequence={resourceQueueEnabled?serviceRequestSequence:0} onIntakeAvailability={setServiceRequestAvailable} onTicketIds={(ids,scope)=>{if(scope===localPoolScopeRef.current)setNamedInventory({scope,ids});}} onEditForm={form=>unsavedForm.current.mark(form)} onCloseForm={()=>unsavedForm.current.discardId("named-queue-plan")} onBusy={busy=>setBusyAction(busy?"named-queue-plan":"")} onNotice={showSuccessNotification}/>:null}
 
 
         {linearCommandError?.scope === `${selectedTenantSlug}:${selectedLocationSlug}` ? <OperationAlert color="orange" title="Queue action needs review">{linearCommandError.message}<OperationButton variant="outline" disabled={queueActionBusy} onClick={() => { void Promise.all([queueLifecycleSnapshotQuery.refetch(), resourceQueueEnabled ? localPoolQuery.refetch() : Promise.resolve()]); }}>Refresh queue</OperationButton></OperationAlert> : null}

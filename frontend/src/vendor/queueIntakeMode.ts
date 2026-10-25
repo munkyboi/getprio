@@ -30,3 +30,10 @@ export function showResourceManagement({managementOnly, activeReady, draftsReady
 }) {
   return !managementOnly || !activeReady || !draftsReady || activeCount>0 || draftCount>0 || hasMore || transient;
 }
+
+export function fullInventoryReady(active:{isSuccess:boolean;hasNextPage:boolean;isFetchingNextPage:boolean},skipped:{isSuccess:boolean;hasNextPage:boolean;isFetchingNextPage:boolean}) {
+ return [active,skipped].every(read=>read.isSuccess&&!read.hasNextPage&&!read.isFetchingNextPage);
+}
+export function scopedResourceIds(currentScope:string, inventory:{scope:string;ids:string[]}) {
+ return inventory.scope===currentScope?inventory.ids:[];
+}

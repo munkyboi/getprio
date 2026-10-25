@@ -74,3 +74,24 @@ test('actual management-only panel hides verified empty data but renders existin
  assert.match(page,/!resourceQueueEnabled && workPresentation.resourceCounters[\s\S]*?onClick=\{\(\)=>setWalkInDialogOpen\(true\)\}/);
  assert.match(page,/snapshot=\{legacyCounterSnapshot\}/);
 });
+
+test('complete scoped inventories gate page-two V4 targets without locking ordinary background refresh',()=>{
+ const {fullInventoryReady,scopedResourceIds}=require('../src/vendor/queueIntakeMode.ts');
+ const complete={isSuccess:true,hasNextPage:false,isFetchingNextPage:false};
+ const partial={...complete,hasNextPage:true};
+ for(const [a,b] of [[partial,complete],[complete,partial],[{...complete,isFetchingNextPage:true},complete],[{...complete,isSuccess:false},complete]])assert.equal(fullInventoryReady(a,b),false);
+ assert.equal(fullInventoryReady(complete,complete),true,'successful empty inventory settles');
+ assert.equal(fullInventoryReady({...complete,isFetching:true},{...complete,isFetching:true}),true,'ordinary background refresh retains readiness');
+ const scope='free:main',selected='v4-page-two';
+ assert.equal(fullInventoryReady(partial,complete),false,'legacy actions locked until page two is inventoried');
+ const inventory={scope,ids:['v4-page-one',selected]};
+ assert.equal(queueWorkPresentation({resourceIntake:false,managementAllowed:true,resourceTicketIds:scopedResourceIds(scope,inventory),currentTicketId:selected}).resourceCounters,true);
+ assert.deepEqual(scopedResourceIds('other:main',inventory),[],'scope switch immediately clears prior IDs');
+ const panel=fs.readFileSync(path.resolve(__dirname,'../src/vendor/NamedQueuePanel.tsx'),'utf8');
+ assert.match(panel,/const inventoryReady=fullInventoryReady\(active,skipped\)/);
+ const publish=panel.indexOf("idsRef.current(ids?ids.split(','):[],inventoryScope)");
+ assert.ok(publish>=0&&publish<panel.indexOf('managementReady.current?.(inventoryReady,inventoryScope)'),'IDs publish before readiness');
+ const page=fs.readFileSync(path.resolve(__dirname,'../src/pages/VendorDashboardPage.tsx'),'utf8');
+ assert.equal((page.match(/if\(scope===localPoolScopeRef.current\)/g)||[]).length,2,'ID and readiness callbacks reject stale scope');
+ assert.match(page,/namedManagementRead.scope !== localPoolScope \|\| !namedManagementRead.ready/);
+});
