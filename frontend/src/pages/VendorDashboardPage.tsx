@@ -759,7 +759,7 @@ const dashboardSectionDescriptions: Partial<Record<DashboardSection, string>> = 
   overview: "Observe requests and resource capacity for the selected business and location.",
   queue: "Run the live queue, manage intake, and move customers through service.",
   tenants: "Configure locations, counters, and the public entry points for each branch.",
-  services: "Manage bookable services, durations, pricing, and public availability state.",
+  services: "Manage your service catalog, location offerings and queue setup.",
   bookings: "Review incoming service requests and manage confirmation, rescheduling, or cancellation.",
   staff: "Manage workspace access, roles, and operating status for your team.",
   clients: "Review recent customer activity and returning queue visitors.",
@@ -6660,7 +6660,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         busy={Boolean(busyAction)}
         headingEyebrow="SERVICE EDITOR"
         title={`Service: ${serviceForm.name || "New service"}`}
-        description="Set the duration, price and branches where customers can book this service."
+        description="Set the service details, duration and locations where it is offered."
         footer={
           <>
             <OperationButton
@@ -7023,7 +7023,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     ),
                   )}
                   <p className="ops-muted">
-                    For ordinary bookings, a higher weekly or special-date limit still applies. Resource bookings always follow pool capacity; operating hours and exceptions apply to both.
+                    {bookingSettingsAllowed ? "For ordinary bookings, a higher weekly or special-date limit still applies. Resource bookings always follow pool capacity; operating hours and exceptions apply to both." : "Queue requests use the resources and duration set in Queue policy. Make sure each service fits within this location’s operating hours."}
                   </p>
 </ConfigurationSection>}
               />
@@ -7476,12 +7476,12 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
             <OperationMetric
               label="Inactive business services"
               value={catalogReady ? services.length - activeServices : "—"}
-              detail="Existing booking records are retained."
+              detail="Existing requests and service records are retained."
             />
             <OperationMetric
               label="Availability at"
               value={selectedLocation?.name || "Select a branch"}
-              detail={`Schedules use ${selectedLocation?.timezone || "the branch timezone"}.`}
+              detail={`Branch time zone: ${selectedLocation?.timezone || "not set"}.`}
             />
           </div>
           <ConfigTabs value={!bookingSettingsAllowed && (servicesTab === "weekly" || servicesTab === "exceptions") ? "catalog" : servicesTab} onValueChange={changeTab}>
