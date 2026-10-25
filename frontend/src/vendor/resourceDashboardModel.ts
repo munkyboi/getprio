@@ -1,5 +1,8 @@
 import type { LocalResourceOperations } from "../../../shared/localPoolDemo";
 
+/** Real authenticated resource projection; deliberately distinct from the disposable fixture DTO. */
+export type VendorResourceOperations = Omit<LocalResourceOperations, "contractVersion" | "localDemo"> & {contractVersion: "vendor-resource-operations-v1"};
+export type ResourceOperations = VendorResourceOperations | LocalResourceOperations;
 export type DashboardScope = { tenantSlug: string; locationSlug: string; tenantId: string; locationId: string };
 export type DashboardPool = LocalResourceOperations["pools"][number];
 export type DashboardModel = {
@@ -22,8 +25,9 @@ export function dashboardScopeKey(scope: DashboardScope) {
 }
 const whole = (value: unknown): value is number => Number.isSafeInteger(value) && Number(value) >= 0;
 /** Reject foreign or malformed observations instead of borrowing another scope's cached data. */
-export function resourceDashboardModel(data: LocalResourceOperations, scope: DashboardScope): DashboardModel {
-  if (data.contractVersion !== "local-resource-operations-v1" || data.localDemo !== true ||
+export function resourceDashboardModel(data: VendorResourceOperations, scope: DashboardScope): DashboardModel {
+  if (!data || typeof data !== "object" || data.contractVersion !== "vendor-resource-operations-v1" || "localDemo" in data ||
+      typeof data.scope?.tenantId !== "string" || typeof data.scope?.locationId !== "string" ||
       !scope.tenantId || !scope.locationId || data.scope?.tenantId !== scope.tenantId || data.scope?.locationId !== scope.locationId) {
     throw new Error("Dashboard data does not match the selected business and location.");
   }

@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const { resourceDashboardModel, poolUtilization, dashboardScopeKey } = require('../src/vendor/resourceDashboardModel.ts');
 const scope = {tenantSlug:'sports',locationSlug:'courts',tenantId:'tenant-a',locationId:'location-a'};
 function observation(overrides={}) {
-  return {contractVersion:'local-resource-operations-v1',localDemo:true,scope:{tenantId:'tenant-a',locationId:'location-a'},asOf:'2026-10-20T15:00:00.000Z',ledgerRevision:'revision-8',readyWaitingCount:1,
+  return {contractVersion:'vendor-resource-operations-v1',scope:{tenantId:'tenant-a',locationId:'location-a'},asOf:'2026-10-20T15:00:00.000Z',ledgerRevision:'revision-8',readyWaitingCount:1,
     pools:[{id:'courts',name:'Courts',capacity:4,revision:'r1',trackingEnabled:true,archivedAt:null,availabilityQuality:'observed',availabilityReasonCodes:[],allocatedUnits:3,protectedUnitsNow:1,availableUnits:0,overdueUnits:2,overCapacity:false}],
     waiting:[{id:'waiting-a'},{id:'waiting-a'},{id:'waiting-b'}],called:[{id:'called-a'}],activeSessions:[{ticketId:'active-a'},{ticketId:'active-a'},{ticketId:'active-b'}],
     reconciliation:{required:false,issues:[]},...overrides};

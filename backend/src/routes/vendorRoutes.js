@@ -278,6 +278,14 @@ async function getCounterForLocation(location, counterSlug) {
 
 router.use(authenticate);
 
+// Additive real Vendor read contract; legacy fixture routes retain their own guards.
+router.get('/tenant/:tenantSlug/locations/:locationSlug/resource-operations/snapshot',asyncHandler(async(req,res)=>{
+ const read=require('../services/vendorResourceOperationsService').createVendorResourceOperationsReader({pool:require('../config/db').pool});
+ const snapshot=await read({tenantSlug:req.params.tenantSlug,locationSlug:req.params.locationSlug,actorUserId:req.user._id});
+ res.set('Cache-Control','no-store').json(snapshot);
+}));
+
+
 for (const method of ["get", "put"]) {
   router[method]("/tenant/:tenantSlug/locations/:locationSlug/resources", asyncHandler(async (req, res) => {
     const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);

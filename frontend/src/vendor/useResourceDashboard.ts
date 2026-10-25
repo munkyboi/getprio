@@ -1,12 +1,11 @@
 import { useEffect, useState } from "react";
-import { localPoolPreviewEnabled } from "./localPreviewEligibility";
 import { useQuery } from "@tanstack/react-query";
 import { API_BASE_URL, ApiError } from "../api/client";
 import { queueReadRequest } from "./queueReadRequest";
-import type { LocalResourceOperations } from "../../../shared/localPoolDemo";
+import type { VendorResourceOperations } from "./resourceDashboardModel";
 import { dashboardHintMatchesLocation, dashboardScopeKey, resourceDashboardModel, type DashboardScope } from "./resourceDashboardModel";
 
-/** The local read is gated independently from production resource readiness. */
+/** Authenticated server projection; observed capacity never grants resource admission. */
 export function useResourceDashboard(token: string | null, scope: DashboardScope) {
   const scopeKey = dashboardScopeKey(scope);
   const [stream, setStream] = useState<{scope: string; session: string | null; state: "connecting" | "connected" | "disconnected"}>({scope: scopeKey, session: token, state: "connecting"});
@@ -20,13 +19,12 @@ export function useResourceDashboard(token: string | null, scope: DashboardScope
     window.addEventListener("offline", onOffline);
     return () => { window.clearInterval(tick); window.removeEventListener("online", onOnline); window.removeEventListener("offline", onOffline); };
   }, []);
-  const localReadEnabled = localPoolPreviewEnabled;
-  const enabled = Boolean(localReadEnabled && token && scope.tenantSlug && scope.locationSlug && scope.tenantId && scope.locationId);
+  const enabled = Boolean(token && scope.tenantSlug && scope.locationSlug && scope.tenantId && scope.locationId);
   const query = useQuery({
     queryKey: ["resource-dashboard", token, dashboardScopeKey(scope)],
     enabled,
-    queryFn: async ({signal}) => resourceDashboardModel(await queueReadRequest<LocalResourceOperations>(
-      `/vendor/tenant/${encodeURIComponent(scope.tenantSlug)}/locations/${encodeURIComponent(scope.locationSlug)}/resource-operations`,
+    queryFn: async ({signal}) => resourceDashboardModel(await queueReadRequest<VendorResourceOperations>(
+      `/vendor/tenant/${encodeURIComponent(scope.tenantSlug)}/locations/${encodeURIComponent(scope.locationSlug)}/resource-operations/snapshot`,
       {token: token || "", signal}), scope),
     retry: false,
     staleTime: 10000,

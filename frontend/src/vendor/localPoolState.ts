@@ -1,20 +1,21 @@
 import { ApiError } from "../api/client";
 import type { QueueSnapshot } from "@shared";
-import type { LocalPoolWork, LocalResourceOperations } from "../../../shared/localPoolDemo";
+import type { LocalPoolWork } from "../../../shared/localPoolDemo";
+import type { ResourceOperations } from "./resourceDashboardModel";
 
-export function scopedLocalPoolData(snapshot: QueueSnapshot | null, data: LocalResourceOperations | undefined, tenantSlug: string, locationSlug: string) {
+export function scopedLocalPoolData(snapshot: QueueSnapshot | null, data: ResourceOperations | undefined, tenantSlug: string, locationSlug: string) {
   if (!data || !snapshot) return null;
   return data.scope?.tenantId === snapshot?.tenant.id && data.scope?.locationId === snapshot?.location?.id && snapshot?.tenant.slug === tenantSlug && snapshot?.location?.slug === locationSlug ? data : null;
 }
 
-export function localPoolReadState(snapshot: QueueSnapshot | null, data: LocalResourceOperations | undefined, tenantSlug: string, locationSlug: string, pending: boolean, failed: boolean, error?: unknown): 'checking' | 'unavailable' | 'ready' | 'not_applicable' {
+export function localPoolReadState(snapshot: QueueSnapshot | null, data: ResourceOperations | undefined, tenantSlug: string, locationSlug: string, pending: boolean, failed: boolean, error?: unknown): 'checking' | 'unavailable' | 'ready' | 'not_applicable' {
   if (failed) return error instanceof ApiError && error.status===404 && error.code==='LOCAL_RESOURCE_OPERATIONS_NOT_APPLICABLE' ? 'not_applicable' : 'unavailable';
   if (scopedLocalPoolData(snapshot,data,tenantSlug,locationSlug)) return 'ready';
   return pending ? 'checking' : 'unavailable';
 }
 
 /** Only explicit server dispatch advice can free a local call lane; availability is not admission. */
-export function localPoolDispatchSnapshot(snapshot: QueueSnapshot | null, data: LocalResourceOperations | null) {
+export function localPoolDispatchSnapshot(snapshot: QueueSnapshot | null, data: ResourceOperations | null) {
   return snapshot ? {...snapshot, counterDispatch: data?.counterDispatch || [], calledTickets: snapshot.calledTickets?.filter(ticket => data?.called.some(work => work.id === ticket.id)) || []} : null;
 }
 

@@ -2,17 +2,17 @@ import { queueReadRequest } from "./queueReadRequest";
 import { localPoolPreviewEnabled } from "./localPreviewEligibility";
 import { useQuery } from "@tanstack/react-query";
 import { ApiError } from "../api/client";
-import type { LocalResourceOperations } from "../../../shared/localPoolDemo";
+import { resourceDashboardModel, type VendorResourceOperations } from "./resourceDashboardModel";
 
 export const localPoolDemoClientEnabled = localPoolPreviewEnabled;
 
 export function useLocalPoolOperations(token: string | null, tenantSlug: string, locationSlug: string, enabled: boolean) {
   return useQuery({
     queryKey: ["local-pool-operations", token, tenantSlug, locationSlug],
-    enabled: Boolean(localPoolDemoClientEnabled && enabled && token && tenantSlug && locationSlug),
+    enabled: Boolean(enabled && token && tenantSlug && locationSlug),
     queryFn: async ({signal}) => {
-      const data = await queueReadRequest<LocalResourceOperations>(`/vendor/tenant/${encodeURIComponent(tenantSlug)}/locations/${encodeURIComponent(locationSlug)}/resource-operations`, {token: token || "",signal});
-      if (data.contractVersion !== "local-resource-operations-v1" || data.localDemo !== true) throw new Error("Local pool operations are unavailable.");
+      const data = await queueReadRequest<VendorResourceOperations>(`/vendor/tenant/${encodeURIComponent(tenantSlug)}/locations/${encodeURIComponent(locationSlug)}/resource-operations/snapshot`, {token: token || "",signal});
+      resourceDashboardModel(data, {tenantSlug, locationSlug, tenantId:data.scope?.tenantId, locationId:data.scope?.locationId});
       return data;
     },
     retry: false,

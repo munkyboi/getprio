@@ -1,13 +1,14 @@
 import { hasExecutableLocalPlan, missingServicePlanGuidance } from "./localPoolState";
 import { LinearTicketState } from "./LinearTicketState";
-import type { LocalResourceOperations, LocalPoolWork } from "../../../shared/localPoolDemo";
+import type { LocalPoolWork } from "../../../shared/localPoolDemo";
+import type { ResourceOperations } from "./resourceDashboardModel";
 import { OperationAlert, OperationButton, OperationEmpty, OperationMetric, OperationPanel } from "./OperationsUi";
 import { Badge } from "./components/ui/badge";
 
-type Session = LocalResourceOperations["activeSessions"][number];
+type Session = ResourceOperations["activeSessions"][number];
 export function LocalPoolOperations({data,busy,canStart,onStart,onEnd,onEdit,token,tenantSlug,locationSlug}: {
   token:string|null;tenantSlug:string;locationSlug:string;
-  data: LocalResourceOperations;
+  data: ResourceOperations;
   busy: boolean;
   onEdit: (ticketId:string) => void;
   canStart: (ticket: LocalPoolWork) => boolean;
