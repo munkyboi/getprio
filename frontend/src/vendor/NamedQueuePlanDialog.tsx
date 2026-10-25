@@ -113,6 +113,7 @@ function availabilityIntent(reasonCode?: string | null) {
 export function NamedQueuePlanDialog({
   initial,
   ticketNumber,
+  editingDraft = false,
   options,
   v4Options,
   catalogRevision,
@@ -139,6 +140,7 @@ export function NamedQueuePlanDialog({
   availabilityScope?: NamedAvailabilityScope;
   initial: NamedQueueFormDraft;
   ticketNumber?: string;
+  editingDraft?: boolean;
   options: NamedQueueServiceChoice[];
   v4Options?: QueueSelectionOptionsV4;
   catalogRevision: string;
@@ -374,7 +376,7 @@ export function NamedQueuePlanDialog({
     else onClose();
   };
   const catalogItems: ResourceCatalogItem[] = resourceCatalog ?? (v4Options ? queueResourceCatalog(v4Options) : []);
-  const resourceFilters = [{id:"all",name:"All"},...(v4Options?.resourceSetup?.pools || [])];
+  const resourceFilters = [{id:"all",name:"All"},...(v4Options?.resourceSetup?.pools || []).filter(pool=>!pool.archivedAt)];
   const effectiveResourceFilter = resourceFilters.some(pool=>pool.id===resourceFilter) ? resourceFilter : "all";
   const availabilityFor = (item: ResourceCatalogItem, selectionId?: string) => {
     const candidates = availability.response?.selections.filter(
@@ -463,7 +465,7 @@ export function NamedQueuePlanDialog({
         busy={busy || uncertain}
         title={
           mode === "draft"
-            ? "New service request"
+            ? editingDraft ? "Edit request draft" : "New service request"
             : `Amend service request${ticketNumber ? ` · ${ticketNumber}` : ""}`
         }
         description="Resources keep configured durations and recorded identities. Availability is provisional until Call."

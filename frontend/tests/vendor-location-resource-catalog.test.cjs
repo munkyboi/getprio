@@ -2,7 +2,7 @@ require('tsx/cjs');
 const test=require('node:test'),assert=require('node:assert/strict'),React=require('react'),{renderToStaticMarkup}=require('react-dom/server'),Module=require('node:module');
 // Only the portal shell is replaced; the actual request picker and its catalog logic render.
 const load=Module._load;
-Module._load=function(id,parent,...rest){if(id==='./TaskDialog'&&parent?.filename.endsWith('NamedQueuePlanDialog.tsx'))return {TaskDialog:({children})=>React.createElement('section',null,children),QueueConfirmation:()=>null};return load.call(this,id,parent,...rest);};
+Module._load=function(id,parent,...rest){if(id==='./TaskDialog'&&parent?.filename.endsWith('NamedQueuePlanDialog.tsx'))return {TaskDialog:({children,title})=>React.createElement('section',null,React.createElement('h2',null,title),children),QueueConfirmation:()=>null};return load.call(this,id,parent,...rest);};
 const {NamedQueuePlanDialog}=require('../src/vendor/NamedQueuePlanDialog.tsx');Module._load=load;
 const {VendorToastProvider}=require('../src/vendor/VendorToasts.tsx');
 function render(options,extra={}){return renderToStaticMarkup(React.createElement(VendorToastProvider,null,React.createElement(NamedQueuePlanDialog,{initial:{customerName:'',customerEmail:'',customerPhone:'',notes:'',catalogRevision:null,selections:[]},options:[],v4Options:options,catalogRevision:'mandaue-empty',mode:'draft',busy:false,uncertain:false,error:'',publishAvailable:false,onClose(){},onSave:async()=>{},onPublish:async()=>{},onAmend:async()=>{},onRetry:async()=>{},...extra})));}
@@ -64,4 +64,26 @@ test('activation owners stay mounted when setup disappears, new pools arrive and
  render(second);flush();const next=render(second);assert.match(next,/data-owner="13" data-visible="false"/);assert.match(next,/data-owner="14" data-visible="true"/);flush();
  const filtered=render(second,'unrelated');assert.match(filtered,/data-owner="13" data-visible="false"/);assert.match(filtered,/data-owner="14" data-visible="false"/);flush();
  assert.deepEqual(owners,['13','14']);
+});
+
+
+test('saved empty draft hides archived standalone pool categories and explains current setup',()=>{
+ const pools=[{id:'doctors',name:'Doctors',capacity:1,trackingEnabled:false,archivedAt:null,serviceIds:[]},{id:'qa-archive',name:'Archived QA pool',capacity:2,trackingEnabled:true,archivedAt:'2026-10-25T13:27:03.589Z',serviceIds:[]}];
+ const options={...empty,resourceSetup:{pools,services:[]}};const initial={customerName:'Retained customer',customerEmail:'',customerPhone:'',notes:'Keep notes',catalogRevision:'saved-old',selections:[]};const before=JSON.stringify({options,initial});
+ const html=render(options,{editingDraft:true,initial,onReviewQueueSetup(){}});assert.match(html,/<h2>Edit request draft<\/h2>/);assert.doesNotMatch(html,/New service request|Archived QA pool/);assert.match(html,/Doctors/);assert.match(html,/No services are set up for resource requests at this location/);assert.match(html,/Add or enable a service/);assert.match(html,/Review queue setup/);assert.equal(JSON.stringify({options,initial}),before);
+ assert.match(render(options),/<h2>New service request<\/h2>/);assert.match(render(options,{mode:'amend',ticketNumber:'P001'}),/Amend service request.*P001/);
+});
+
+test('archived linked pool retains diagnostic identity while categories and activation stay hidden',()=>{
+ const {ResourceSetupPanel}=require('../src/vendor/ResourceSetupPanel.tsx');
+ const archived={id:'archived',name:'Archived linked pool',capacity:1,trackingEnabled:false,archivedAt:'2026-10-25T00:00:00Z',serviceIds:['retained-service']};
+ const resourceSetup={pools:[archived],services:[{id:'retained-service',name:'Recorded service',poolId:'archived',requestable:false,reasonCodes:['RESOURCE_POOL_ARCHIVED']}]};
+ const html=render({...empty,resourceSetup},{editingDraft:true});const filters=html.match(/<div class="service-resource-filters"[\s\S]*?<\/div>/)?.[0]||'';assert.doesNotMatch(filters,/Archived linked pool/);assert.match(html,/Recorded service/);assert.match(html,/The linked resource pool is archived/);
+ const owner=renderToStaticMarkup(React.createElement(ResourceSetupPanel,{setup:resourceSetup,poolFilter:'all',managementActions:(id,visible)=>React.createElement('span',{'data-owner':id,'data-visible':String(visible)})}));assert.match(owner,/data-owner="archived" data-visible="false"/);
+});
+
+test('archived draft selections preserve stored member and duration data without adding choices',()=>{
+ const initial={customerName:'Retained',customerEmail:'',customerPhone:'',notes:'Retained note',catalogRevision:'old',selections:[{serviceSelectionId:'saved-service',serviceId:'retained-service',courts:[{courtSelectionId:'saved-resource',resourceMemberId:'recorded-member',resourceQuantity:'1',durationCount:'2',durationBaseMinutes:30,extras:[]}]}]};
+ const setup={pools:[{id:'old-pool',name:'Archived pool',capacity:1,trackingEnabled:false,archivedAt:'2026-10-25T00:00:00Z',serviceIds:[]}],services:[]};const before=JSON.stringify(initial);
+ const html=render({...empty,resourceSetup:setup},{initial,editingDraft:true});assert.equal(JSON.stringify(initial),before);assert.match(html,/2 × 30 min/);assert.match(html,/Selected resource/);assert.doesNotMatch(html,/class="service-resource-card(?:\s|")/);
 });

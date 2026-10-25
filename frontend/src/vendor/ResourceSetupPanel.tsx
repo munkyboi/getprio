@@ -11,13 +11,15 @@ export function ResourceSetupPanel({setup,poolFilter,onReviewSetup,managementAct
     const currentIds=setup?.pools.map(pool=>pool.id)||[];
     setOwnerIds(previous=>{const added=currentIds.filter(id=>!previous.includes(id));return added.length?[...previous,...added]:previous;});
   },[setup]);
-  const owners=managementActions?ownerIds.map(id=>{const pool=setup?.pools.find(item=>item.id===id);return <div key={id}>{managementActions(id,Boolean(pool&&!pool.trackingEnabled&&(poolFilter==='all'||pool.id===poolFilter)))}</div>;}):null;
+  const owners=managementActions?ownerIds.map(id=>{const pool=setup?.pools.find(item=>item.id===id);return <div key={id}>{managementActions(id,Boolean(pool&&!pool.archivedAt&&!pool.trackingEnabled&&(poolFilter==='all'||pool.id===poolFilter)))}</div>;}):null;
   if(!setup)return <><Alert variant="warning"><AlertTitle>Resource setup unavailable</AlertTitle><AlertDescription>Refresh the resource list to check this location’s setup.</AlertDescription></Alert>{owners}</>;
   const services=setup.services.filter(service=>!service.requestable&&(poolFilter==='all'||service.poolId===poolFilter));
-  const emptyPools=setup.pools.filter(pool=>!pool.serviceIds.length&&(poolFilter==='all'||pool.id===poolFilter));
-  if(!services.length&&!emptyPools.length)return <>{null}{owners}</>;
+  const emptyPools=setup.pools.filter(pool=>!pool.archivedAt&&!pool.serviceIds.length&&(poolFilter==='all'||pool.id===poolFilter));
+  const noServices=setup.services.length===0;
+  if(!services.length&&!emptyPools.length&&!noServices)return <>{null}{owners}</>;
   return <><section className="queue-stack" aria-label="Resource setup">
-    <p className="request-metadata">Some resources need setup before they can be used in a service request.</p>
+    <p className="request-metadata">{noServices ? "No services are set up for resource requests at this location." : "Some resources need setup before they can be used in a service request."}</p>
+    {noServices?<p className="request-metadata">Add or enable a service at this location, link a resource pool and set its queue policy. Your saved selections stay unchanged.</p>:null}
     {services.map(service=><div className="queue-stack" key={service.id}>
       <strong>{service.name}</strong>
       {service.poolId?<span className="request-metadata">{setup.pools.find(pool=>pool.id===service.poolId)?.name||'Linked pool unavailable'}</span>:null}
