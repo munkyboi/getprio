@@ -7,6 +7,35 @@ import {createHash} from 'node:crypto';
 const require=createRequire(import.meta.url);
 const {chromium}=require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const root=process.cwd();
+if(process.argv.includes('--local-preview')){await verifyBuiltLocalPreview();process.exit(0);}
+async function verifyBuiltLocalPreview(){
+ const {build}=await import('vite');
+ const {readFile}=await import('node:fs/promises');
+ const paths=['frontend/src/vendor/localPreviewEligibility.ts','frontend/src/vendor/useResourceDashboard.ts','frontend/src/vendor/useLocalPoolOperations.ts'];
+ const sourceHashes=Object.fromEntries(await Promise.all(paths.map(async p=>[p,createHash('sha256').update(await readFile(p)).digest('hex')])));
+ const cases=[];
+ const browser=await chromium.launch({headless:true});
+ try{for(const profile of [{name:'explicit-local',surfaces:'1',demo:'1',expected:true},{name:'ordinary-production',surfaces:undefined,demo:'1',expected:false},{name:'demo-opt-out',surfaces:'1',demo:undefined,expected:false}]){
+  const out=resolve(root,'output/approved-palette-20261025/local-preview-builds',profile.name);
+  const entry=resolve(root,'__local_preview_fixture.tsx');
+  const code=`import React from 'react';import{createRoot}from'react-dom/client';import{QueryClient,QueryClientProvider}from'@tanstack/react-query';
+import{useResourceDashboard}from${JSON.stringify(resolve(root,'frontend/src/vendor/useResourceDashboard.ts'))};
+import{useLocalPoolOperations,localPoolDemoClientEnabled}from${JSON.stringify(resolve(root,'frontend/src/vendor/useLocalPoolOperations.ts'))};
+function Probe(){const r=useResourceDashboard('fixture-session',{tenantSlug:'fixture',locationSlug:'main',tenantId:'fixture-tenant',locationId:'fixture-location'});useLocalPoolOperations('fixture-session','fixture','main',true);return <main data-build-dev={String(import.meta.env.DEV)} data-enabled={String(r.enabled)} data-local-mode={String(localPoolDemoClientEnabled)} data-status={r.query.status}>Resource read status</main>;}
+createRoot(document.getElementById('root')).render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}><Probe/></QueryClientProvider>);`;
+  await build({configFile:false,root,mode:'production',define:{'process.env.NODE_ENV':JSON.stringify('production'),'import.meta.env.VITE_LOCAL_SURFACES':JSON.stringify(profile.surfaces)||'undefined','import.meta.env.VITE_LOCAL_POOL_DEMO':JSON.stringify(profile.demo)||'undefined','import.meta.env.VITE_API_URL':JSON.stringify('/api')},resolve:{alias:{react:resolve(root,'node_modules/react'),'react-dom':resolve(root,'node_modules/react-dom')}},plugins:[{name:'local-preview-fixture',resolveId(id){if(id===entry)return entry;},load(id){if(id===entry)return code;}},(await import('@vitejs/plugin-react')).default()],build:{outDir:out,emptyOutDir:true,minify:false,lib:{entry,formats:['es'],fileName:()=> 'entry.js'}}});
+  const http=createHttpServer(async(req,res)=>{if(req.url==='/entry.js'){res.setHeader('Content-Type','text/javascript');res.end(await readFile(resolve(out,'entry.js')));}else{res.setHeader('Content-Type','text/html');res.end('<div id="root"></div><script type="module" src="/entry.js"></script>');}});await new Promise(r=>http.listen(0,'127.0.0.1',r));
+  try{for(const invalidScope of profile.expected?[false,true]:[false]){
+   const page=await browser.newPage();let resourceRequests=0;const errors=[];page.on('pageerror',e=>{errors.push(e.message);console.error(e.message);});
+   await page.addInitScript(()=>{window.EventSource=class{addEventListener(){}removeEventListener(){}close(){}};});
+   await page.route('**/api/**',async route=>{resourceRequests++;await route.fulfill({json:{contractVersion:'local-resource-operations-v1',localDemo:true,scope:{tenantId:invalidScope?'foreign-tenant':'fixture-tenant',locationId:'fixture-location'},asOf:new Date().toISOString(),ledgerRevision:'fixture-1',readyWaitingCount:0,pools:[],waiting:[],called:[],activeSessions:[],reconciliation:{required:false,issues:[]}}});});
+   await page.goto(`http://127.0.0.1:${http.address().port}/`);await page.waitForSelector('main');if(profile.expected)await page.waitForFunction(()=>document.querySelector('main').dataset.status!=='pending');await page.waitForTimeout(100);
+   const state=await page.locator('main').evaluate(el=>({buildDev:el.dataset.buildDev==='true',enabled:el.dataset.enabled==='true',localMode:el.dataset.localMode==='true',status:el.dataset.status}));cases.push({profile:profile.name,invalidScope,expected:profile.expected,resourceRequests,errors,...state});await page.close();
+  }}finally{await new Promise(r=>http.close(r));}
+ }}finally{await browser.close();}
+ await writeFile('output/approved-palette-20261025/local-preview-build-results.json',JSON.stringify({sourceHashes,cases},null,2));console.log(JSON.stringify(cases,null,2));
+ if(cases.some(c=>c.errors.length||c.enabled!==c.expected||c.localMode!==c.expected||(!c.expected&&c.resourceRequests)|| (c.expected&&c.status!==(c.invalidScope?'error':'success'))))throw new Error('Built local-preview regression failed');
+}
 const server=await createServer({configFile:false,root,publicDir:resolve(root,'frontend/public'),server:{middlewareMode:true,hmr:false},resolve:{alias:{'/fonts/aleo/aleo.css':resolve(root,'developer-portal/public/fonts/aleo/aleo.css'),'@':resolve(root,'platform-dashboard-shadcn/src'),'react':resolve(root,'node_modules/react'),'react-dom':resolve(root,'node_modules/react-dom')}},plugins:[(await import('@vitejs/plugin-react')).default(),(await import('@tailwindcss/vite')).default(),{name:'palette-gallery',configureServer(s){s.middlewares.use(async(req,res,next)=>{if(req.url?.startsWith('/palette-gallery?')){res.setHeader('Content-Type','text/html');res.end(await s.transformIndexHtml(req.url,'<div id="root"></div><script type="module" src="/tools/qa/approved-palette-gallery.tsx"></script>'));}else next();});}}]});
 const http=createHttpServer(server.middlewares); await new Promise(r=>http.listen(0,'127.0.0.1',r));
 const port=http.address().port;

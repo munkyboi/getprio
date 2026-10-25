@@ -1,9 +1,10 @@
 import { queueReadRequest } from "./queueReadRequest";
+import { localPoolPreviewEnabled } from "./localPreviewEligibility";
 import { useQuery } from "@tanstack/react-query";
 import { ApiError } from "../api/client";
 import type { LocalResourceOperations } from "../../../shared/localPoolDemo";
 
-export const localPoolDemoClientEnabled = Boolean(import.meta.env.DEV && import.meta.env.VITE_LOCAL_POOL_DEMO === "1" && typeof window !== "undefined" && ["localhost", "127.0.0.1", "[::1]"].includes(window.location.hostname));
+export const localPoolDemoClientEnabled = localPoolPreviewEnabled;
 
 export function useLocalPoolOperations(token: string | null, tenantSlug: string, locationSlug: string, enabled: boolean) {
   return useQuery({

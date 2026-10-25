@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { localPoolPreviewEnabled } from "./localPreviewEligibility";
 import { useQuery } from "@tanstack/react-query";
 import { API_BASE_URL, ApiError } from "../api/client";
 import { queueReadRequest } from "./queueReadRequest";
@@ -19,7 +20,7 @@ export function useResourceDashboard(token: string | null, scope: DashboardScope
     window.addEventListener("offline", onOffline);
     return () => { window.clearInterval(tick); window.removeEventListener("online", onOnline); window.removeEventListener("offline", onOffline); };
   }, []);
-  const localReadEnabled = Boolean(import.meta.env?.DEV && import.meta.env?.VITE_LOCAL_POOL_DEMO === "1" && typeof window !== "undefined" && ["localhost", "127.0.0.1", "[::1]"].includes(window.location.hostname));
+  const localReadEnabled = localPoolPreviewEnabled;
   const enabled = Boolean(localReadEnabled && token && scope.tenantSlug && scope.locationSlug && scope.tenantId && scope.locationId);
   const query = useQuery({
     queryKey: ["resource-dashboard", token, dashboardScopeKey(scope)],
