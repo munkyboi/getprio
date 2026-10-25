@@ -24,7 +24,7 @@ import { QueueDetailsEditor } from "../vendor/QueueDetailsEditor";
 import { localPoolReadState, scopedLocalPoolData, localPoolDispatchSnapshot, hasExecutableLocalPlan, missingServicePlanGuidance } from "../vendor/localPoolState";
 import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from "../vendor/components/ui/accordion";
 import { ResourceDashboard } from "../vendor/ResourceDashboard";
-import { queueIntakeMode } from "../vendor/queueIntakeMode";
+import { queueIntakeMode, queueWorkPresentation, legacyQueueWork } from "../vendor/queueIntakeMode";
 import { useLocalPoolOperations, localPoolDemoClientEnabled as resourceQueueOptIn } from "../vendor/useLocalPoolOperations";
 import { ManagedCollection } from "../vendor/ManagedCollection";
 import { draftUnloadHandler } from "../vendor/draftUnloadGuard";
@@ -1022,6 +1022,7 @@ function VendorDashboardContent() {
   const dismissedBookingAlertIdsRef = useRef<Set<string>>(new Set());
   const knownQueueTicketIdsRef = useRef<Set<string> | null>(null);
   const [namedTicketIds,setNamedTicketIds]=useState<string[]>([]);
+  const [namedManagementRead,setNamedManagementRead]=useState({scope:"",ready:false});
   const v2TicketIds=namedTicketIds;
   const [queueAlertIds, setQueueAlertIds] = useState<string[]>([]);
   const dismissedQueueAlertIdsRef = useRef<Set<string>>(new Set());
@@ -1254,7 +1255,12 @@ function VendorDashboardContent() {
     entitlements: effectiveEntitlements, plan: tenantPlan,
   });
   const resourceQueueEnabled = intakeMode === "resource";
-  const dispatchSnapshot = resourceQueueEnabled ? localPoolDispatchSnapshot(snapshot, localPoolData) : snapshot;
+  const resourceManagementEnabled = resourceQueueOptIn && intakeMode !== "loading" && canAccessVendorSection("queue", effectiveEntitlements, tenantPlan);
+  const rawCounterTicket = selectCounterDispatch(snapshot, selectedTenantSlug, selectedLocationSlug, selectedCounterSlug).ticket;
+  const workPresentation = queueWorkPresentation({resourceIntake:resourceQueueEnabled,managementAllowed:resourceManagementEnabled,resourceTicketIds:namedTicketIds,currentTicketId:rawCounterTicket?.id});
+  const managementReadPending = resourceManagementEnabled && !resourceQueueEnabled && (namedManagementRead.scope !== localPoolScope || !namedManagementRead.ready);
+  const legacyCounterSnapshot = legacyQueueWork(snapshot,namedTicketIds);
+  const dispatchSnapshot = workPresentation.resourceCounters ? localPoolDispatchSnapshot(snapshot, localPoolData) : snapshot;
   const {lane: selectedLane, ticket: selectedCalledTicket} = selectCounterDispatch(dispatchSnapshot, selectedTenantSlug, selectedLocationSlug, selectedCounterSlug);
 
   const roleVisibleNavItems = requiresMfaEnrollment
@@ -2472,7 +2478,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
   const recordedIntervals = useMemo(() => servedTicketIntervals(snapshot?.history || [], RECORDED_INTERVAL_TICKET_LIMIT), [snapshot?.history]);
   const averageRecordedInterval = recordedIntervals.length ? Math.round(recordedIntervals.reduce((total, bar)=>total+bar.minutes,0)/recordedIntervals.length*10)/10 : 0;
   const intervalMaximum = Math.max(...recordedIntervals.map(bar=>bar.minutes),averageRecordedInterval,1);
-  const overflowTickets = useMemo(() => snapshot?.overflow || [], [snapshot]);
+  const overflowTickets = useMemo(() => (snapshot?.overflow || []).filter(ticket=>!namedTicketIds.includes(String(ticket.id))), [snapshot,namedTicketIds]);
   const currentQueueTickets = useMemo(
     () => (snapshot?.nextUp || []).filter((ticket) => !ticket.isCarriedOver && !v2TicketIds.includes(String(ticket.id))),
     [snapshot,v2TicketIds]
@@ -2480,9 +2486,10 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
   const recoverableTickets = useMemo(
     () =>
       (snapshot?.recovery || [])
+        .filter(ticket=>!namedTicketIds.includes(String(ticket.id)))
         .sort((a, b) => getHistoryTimestamp(b.updatedAt) - getHistoryTimestamp(a.updatedAt))
         .slice(0, 10),
-    [snapshot]
+    [snapshot,namedTicketIds]
   );
   const filteredClients = useMemo(() => {
     const query = clientsSearch.trim().toLowerCase();
@@ -4852,6 +4859,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
 
   function renderQueuePage() {
     if (intakeMode === "loading") return <OperationQueryState loading={!effectiveEntitlementsQuery.error} error={effectiveEntitlementsQuery.error} onRetry={() => void effectiveEntitlementsQuery.refetch()} />;
+    const queueActionBusy = Boolean(busyAction) || managementReadPending;
     const activeCounters = serviceCounters.filter((counter) => counter.isActive);
     const activeTicket = selectedCalledTicket;
     const queueDayBadgeVariant = queueDayClosed
@@ -4886,7 +4894,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   {queueDayUnopened && canOperateQueueDay ? (
                     <QueueButton
                       variant="default"
-                      disabled={Boolean(busyAction) || boardScannerBusy || boardSettingsBusy || savingNotificationSettings || requestingBrowserPermission}
+                      disabled={queueActionBusy || boardScannerBusy || boardSettingsBusy || savingNotificationSettings || requestingBrowserPermission}
                       aria-busy={busyAction === "queue-open"}
                       onClick={() => void handleOpenQueueDay()}
                     >
@@ -4895,7 +4903,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   ) : queueDayActuallyClosed && canReopenQueueDay ? (
                     <QueueButton
                       variant="default"
-                      disabled={Boolean(busyAction) || boardScannerBusy || boardSettingsBusy || savingNotificationSettings || requestingBrowserPermission}
+                      disabled={queueActionBusy || boardScannerBusy || boardSettingsBusy || savingNotificationSettings || requestingBrowserPermission}
                       onClick={async () => {
                         const success = await runAction("queue-reopen", () =>
                           vendorDashboardQueue.reopenQueueDay(
@@ -4920,7 +4928,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   ) : !queueDayClosed && queueDayPaused ? (
                     <QueueButton
                       variant="secondary"
-                      disabled={Boolean(busyAction) || boardScannerBusy || boardSettingsBusy || savingNotificationSettings || requestingBrowserPermission}
+                      disabled={queueActionBusy || boardScannerBusy || boardSettingsBusy || savingNotificationSettings || requestingBrowserPermission}
                       onClick={async () => {
                         const success = await runAction("queue-resume", () =>
                           vendorDashboardQueue.resumeQueueDay(
@@ -4944,7 +4952,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   ) : !queueDayClosed ? (
                     <QueueButton
                       variant="secondary"
-                      disabled={Boolean(busyAction) || boardScannerBusy || boardSettingsBusy || savingNotificationSettings || requestingBrowserPermission}
+                      disabled={queueActionBusy || boardScannerBusy || boardSettingsBusy || savingNotificationSettings || requestingBrowserPermission}
                       onClick={async () => {
                         const success = await runAction("queue-pause", () =>
                           vendorDashboardQueue.pauseQueueDay(
@@ -4970,7 +4978,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   {!queueDayClosed && canOperateQueueDay ? (
                     <QueueButton
                       variant="destructive"
-                      disabled={Boolean(busyAction) || boardScannerBusy || boardSettingsBusy || savingNotificationSettings || requestingBrowserPermission}
+                      disabled={queueActionBusy || boardScannerBusy || boardSettingsBusy || savingNotificationSettings || requestingBrowserPermission}
                       onClick={() => {
                         setConfirmAction({
                           title: `Close ${selectedLocation?.name || "this queue"} now?`,
@@ -5047,12 +5055,13 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       ]
                     : []),
                 ]}
-                disabled={Boolean(busyAction) || ticketScannerOpen}
+                disabled={queueActionBusy || ticketScannerOpen}
                 label="Serving from"
                 placeholder="Select counter"
                 value={selectedCounterSlug || null}
                 onChange={(value) => setSelectedCounterSlug(value || "")}
               />
+                {!resourceQueueEnabled && workPresentation.resourceCounters ? <QueueButton variant="default" disabled={Boolean(queueDayClosed || queueDayPaused || busyAction) || boardScannerBusy || managementReadPending} onClick={()=>setWalkInDialogOpen(true)}><IconUserPlus data-icon="inline-start" />Add walk-in</QueueButton> : null}
                 {resourceQueueEnabled ? <>
                   <QueueButton
                     variant="default"
@@ -5064,12 +5073,12 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   </QueueButton>
                 </> : null}
               </div>
-              {resourceQueueEnabled ? <CounterQueueControls token={token} tenant={selectedTenantSlug} location={selectedLocationSlug} counterSlug={selectedCounterSlug} busy={Boolean(busyAction)||ticketScannerOpen} onScan={command=>{setTicketScannerError("");setScannerTarget({ticketId:command.ticketId,ticketNumber:command.ticketNumber,counterSlug:command.counterSlug,tenantSlug:selectedTenantSlug,locationQuery});setTicketScannerOpen(true);}}/> : <ButtonGroup className="vendor-queue-primary-actions" aria-label="Ticket actions">
+              {workPresentation.resourceCounters ? <CounterQueueControls token={token} tenant={selectedTenantSlug} location={selectedLocationSlug} counterSlug={selectedCounterSlug} busy={queueActionBusy||ticketScannerOpen} onScan={command=>{setTicketScannerError("");setScannerTarget({ticketId:command.ticketId,ticketNumber:command.ticketNumber,counterSlug:command.counterSlug,tenantSlug:selectedTenantSlug,locationQuery});setTicketScannerOpen(true);}}/> : <ButtonGroup className="vendor-queue-primary-actions" aria-label="Ticket actions">
                 <ButtonGroupSeparator className="queue-walkin-separator" aria-hidden="true" />
                 <QueueButton
                   variant="default"
                   disabled={Boolean(
-                    (Boolean(busyAction) || v2TicketIds.length > 0) ||
+                    (queueActionBusy || workPresentation.currentResource) ||
                     !selectedLane?.canCallNext ||
                     queueDayClosed ||
                     Boolean(activeTicket),
@@ -5099,7 +5108,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   <QueueButton
                     variant="outline"
                     disabled={
-                      (Boolean(busyAction) || v2TicketIds.length > 0) ||
+                      (queueActionBusy || workPresentation.currentResource) ||
                       (resourceQueueEnabled && !activeTicket.serviceStartedAt &&
                         (!hasExecutableLocalPlan(localPoolData?.called.find(work => work.id === activeTicket.id)) || Boolean(localPoolData?.reconciliation.required))) ||
                       Boolean(
@@ -5176,7 +5185,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                 ) : (
                   <QueueButton
                     variant="outline"
-                    disabled={Boolean(!activeTicket || (Boolean(busyAction) || v2TicketIds.length > 0))}
+                    disabled={Boolean(!activeTicket || (queueActionBusy || workPresentation.currentResource))}
                     onClick={() => {
                       setTicketScannerError("");
                       if (activeTicket)
@@ -5197,7 +5206,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                 <QueueButton
                   variant="outline"
                   disabled={Boolean(
-                    (Boolean(busyAction) || v2TicketIds.length > 0) ||
+                    (queueActionBusy || workPresentation.currentResource) ||
                     !activeTicket ||
                     Boolean(activeTicket.serviceStartedAt),
                   )}
@@ -5234,7 +5243,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                 {activeTicket?.serviceStartedAt ? (
                   <QueueButton
                     variant="outline"
-                    disabled={(Boolean(busyAction) || v2TicketIds.length > 0)}
+                    disabled={(queueActionBusy || workPresentation.currentResource)}
                     onClick={() =>
                       setConfirmAction({
                         title: "Interrupt service?",
@@ -5374,19 +5383,19 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
           </QueueCardContent>
         </QueueCard>
         {!resourceQueueEnabled ? <LiveQueueSummary snapshot={snapshot} /> : null}
-        {resourceQueueEnabled && selectedTenantSlug && selectedLocationSlug ? <NamedQueuePanel hasUnsavedEdits={()=>unsavedForm.current.hasEdits()} key={`named:${selectedTenantSlug}:${selectedLocationSlug}`} token={token} tenant={selectedTenantSlug} location={selectedLocationSlug} counterSlug={selectedCounterSlug} staffMode={selectedTenantRole === "staff"} onReviewQueueSetup={(isOwner||isAdmin)&&visibleNavItems.some(item=>item.section==="services")?()=>{if(!canLeaveFeature())return;setServicesTab("queue-policy");navigate(workspacePath("services","administration",location.search));}:undefined} newRequestSequence={serviceRequestSequence} onIntakeAvailability={setServiceRequestAvailable} onTicketIds={setNamedTicketIds} onEditForm={form=>unsavedForm.current.mark(form)} onCloseForm={()=>unsavedForm.current.discardId("named-queue-plan")} onBusy={busy=>setBusyAction(busy?"named-queue-plan":"")} onNotice={showSuccessNotification}/>:null}
+        {resourceManagementEnabled && selectedTenantSlug && selectedLocationSlug ? <NamedQueuePanel managementOnly={!resourceQueueEnabled} onManagementReady={ready=>setNamedManagementRead({scope:localPoolScope,ready})} hasUnsavedEdits={()=>unsavedForm.current.hasEdits()} key={`named:${selectedTenantSlug}:${selectedLocationSlug}`} token={token} tenant={selectedTenantSlug} location={selectedLocationSlug} counterSlug={selectedCounterSlug} staffMode={selectedTenantRole === "staff"} onReviewQueueSetup={(isOwner||isAdmin)&&visibleNavItems.some(item=>item.section==="services")?()=>{if(!canLeaveFeature())return;setServicesTab("queue-policy");navigate(workspacePath("services","administration",location.search));}:undefined} newRequestSequence={resourceQueueEnabled?serviceRequestSequence:0} onIntakeAvailability={setServiceRequestAvailable} onTicketIds={setNamedTicketIds} onEditForm={form=>unsavedForm.current.mark(form)} onCloseForm={()=>unsavedForm.current.discardId("named-queue-plan")} onBusy={busy=>setBusyAction(busy?"named-queue-plan":"")} onNotice={showSuccessNotification}/>:null}
 
 
-        {linearCommandError?.scope === `${selectedTenantSlug}:${selectedLocationSlug}` ? <OperationAlert color="orange" title="Queue action needs review">{linearCommandError.message}<OperationButton variant="outline" disabled={Boolean(busyAction)} onClick={() => { void Promise.all([queueLifecycleSnapshotQuery.refetch(), resourceQueueEnabled ? localPoolQuery.refetch() : Promise.resolve()]); }}>Refresh queue</OperationButton></OperationAlert> : null}
+        {linearCommandError?.scope === `${selectedTenantSlug}:${selectedLocationSlug}` ? <OperationAlert color="orange" title="Queue action needs review">{linearCommandError.message}<OperationButton variant="outline" disabled={queueActionBusy} onClick={() => { void Promise.all([queueLifecycleSnapshotQuery.refetch(), resourceQueueEnabled ? localPoolQuery.refetch() : Promise.resolve()]); }}>Refresh queue</OperationButton></OperationAlert> : null}
         {startPlanErrorScope === `${selectedTenantSlug}:${selectedLocationSlug}` ? <OperationAlert color="orange" title="Service selection required">{missingServicePlanGuidance}</OperationAlert> : null}
         {resourceQueueEnabled ? <ResourceReadStatus state={localPoolReadState(snapshot,localPoolQuery.data,selectedTenantSlug,selectedLocationSlug,localPoolQuery.isPending,localPoolQuery.isError,localPoolQuery.error)} refreshing={localPoolQuery.isFetching} onRetry={()=>void localPoolQuery.refetch()}/> : null}
         {resourceQueueEnabled && localPoolData?.reconciliation.required ? <OperationAlert color="red" title="Resource records need review">Refresh and reconcile these records before starting more work. Active sessions continue to hold capacity.</OperationAlert> : null}
         {!resourceQueueEnabled ? <>
         <CounterTickets
           onEdit={openQueueDetails}
-          snapshot={snapshot}
+          snapshot={legacyCounterSnapshot}
           selectedTicketId={activeTicket?.id}
-          disabled={Boolean(busyAction) || ticketScannerOpen}
+          disabled={queueActionBusy || ticketScannerOpen}
           onSelect={(counter) => {
             setSelectedCounterSlug(counter);
             setQueueView("current");
@@ -5430,7 +5439,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
             <AccordionItem value="request-recovery">
               <AccordionTrigger headingLevel={2}>Request recovery</AccordionTrigger>
               <AccordionContent keepMounted className="queue-stack">
-        {resourceQueueEnabled && selectedTenantSlug && selectedLocationSlug ? <SkippedQueueRequests key={`skipped:${selectedTenantSlug}:${selectedLocationSlug}`} token={token} tenant={selectedTenantSlug} location={selectedLocationSlug}/>:null}
+        {resourceManagementEnabled && selectedTenantSlug && selectedLocationSlug ? <SkippedQueueRequests key={`skipped:${selectedTenantSlug}:${selectedLocationSlug}`} token={token} tenant={selectedTenantSlug} location={selectedLocationSlug}/>:null}
             {!resourceQueueEnabled && queueView === "current" ? (
               <QueueCard>
                 <QueueCardHeader><QueueCardTitle>Waiting and recovery</QueueCardTitle></QueueCardHeader>
@@ -5506,12 +5515,12 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                                     {formatDateTime(ticket.createdAt)}
                                   </QueueTableCell>
                                   <QueueTableCell data-label="Actions">
-                                    {selectedTenantRole && ticket.status === "waiting" ? <QueueButton variant="outline" disabled={Boolean(busyAction)} onClick={()=>openQueueDetails(ticket.id)} aria-label={`Edit queue details for ${ticket.ticketNumber}`}>Edit queue details</QueueButton> : null}
+                                    {selectedTenantRole && ticket.status === "waiting" ? <QueueButton variant="outline" disabled={queueActionBusy} onClick={()=>openQueueDetails(ticket.id)} aria-label={`Edit queue details for ${ticket.ticketNumber}`}>Edit queue details</QueueButton> : null}
                                     {selectedTenantRole &&
                                     ticket.status === "waiting" ? (
                                       <QueueButton
                                         variant="destructive"
-                                        disabled={Boolean(busyAction)}
+                                        disabled={queueActionBusy}
                                         aria-label={`Cancel waiting ticket ${ticket.ticketNumber}`}
                                         onClick={() =>
                                           openWaitingTicketCancellation(ticket)
@@ -5744,7 +5753,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                           {(["complete", "interrupt"] as const).map((action) => (
                             <QueueButton
                               variant="outline"
-                              disabled={Boolean(busyAction)}
+                              disabled={queueActionBusy}
                               key={action}
                               onClick={() =>
                                 setConfirmAction({

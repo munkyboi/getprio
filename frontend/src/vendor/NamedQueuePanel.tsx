@@ -1,3 +1,5 @@
+import { showResourceManagement } from "./queueIntakeMode";
+import { queuePlanBase } from "../api/queuePlansV2";
 import { LocalResourceActivation } from "./LocalResourceActivation";
 import { queueResourceCatalog } from "./queueResourceCatalog";
 import { queueStreamScope, useQueueStreamHealthy, createCounterReadQueue } from "./queueCounterLiveUpdates";
@@ -42,7 +44,7 @@ function orderResourceMembers<T extends { displayOrder?: number }>(members: T[])
 }
 
 
-export function NamedQueuePanel({token,tenant,location,counterSlug,staffMode=false,newRequestSequence=0,onIntakeAvailability,onEditForm,onCloseForm,onBusy,onTicketIds,onNotice,hasUnsavedEdits,onReviewQueueSetup}:{token:string;tenant:string;location:string;counterSlug:string;staffMode?:boolean;newRequestSequence?:number;onIntakeAvailability?:(ready:boolean)=>void;onEditForm:(form:HTMLFormElement)=>void;onCloseForm:()=>void;onBusy:(busy:boolean)=>void;onTicketIds:(ids:string[])=>void;onNotice:(title:string,message:string)=>void;hasUnsavedEdits?:()=>boolean;onReviewQueueSetup?:()=>void}){
+export function NamedQueuePanel({token,tenant,location,counterSlug,staffMode=false,managementOnly=false,onManagementReady,newRequestSequence=0,onIntakeAvailability,onEditForm,onCloseForm,onBusy,onTicketIds,onNotice,hasUnsavedEdits,onReviewQueueSetup}:{token:string;tenant:string;location:string;counterSlug:string;staffMode?:boolean;managementOnly?:boolean;onManagementReady?:(ready:boolean)=>void;newRequestSequence?:number;onIntakeAvailability?:(ready:boolean)=>void;onEditForm:(form:HTMLFormElement)=>void;onCloseForm:()=>void;onBusy:(busy:boolean)=>void;onTicketIds:(ids:string[])=>void;onNotice:(title:string,message:string)=>void;hasUnsavedEdits?:()=>boolean;onReviewQueueSetup?:()=>void}){
  const streamHealthy=useQueueStreamHealthy(queueStreamScope(token,tenant,location));
  const commandLocked=useQueueCommandLocked();
  const client=useQueryClient();
@@ -52,12 +54,16 @@ export function NamedQueuePanel({token,tenant,location,counterSlug,staffMode=fal
  const resourceMembers=useQuery({queryKey:['vendor-resource-members-catalog',token,tenant,location],queryFn:async({signal})=>Promise.all((resourceConfiguration.data?.pools||[]).filter((pool)=>!pool.archived_at).map((pool)=>listResourceMembers(token,tenant,location,pool.id,signal))),enabled:false,retry:false});
  const drafts=useInfiniteQuery({queryKey:['named-queue-drafts',token,tenant,location],initialPageParam:undefined as string|undefined,queryFn:({signal,pageParam})=>listQueueSelections(token,tenant,location,'draft',signal,pageParam),getNextPageParam:page=>page.nextCursor||undefined,retry:2});
  const active=useInfiniteQuery({queryKey:['named-queue-active',token,tenant,location],initialPageParam:undefined as string|undefined,queryFn:({signal,pageParam})=>listQueueSelections(token,tenant,location,'active',signal,pageParam),getNextPageParam:page=>page.nextCursor||undefined,retry:2});
+ const skipped=useInfiniteQuery({queryKey:['skipped-queue-plans',token,tenant,location],initialPageParam:undefined as string|undefined,queryFn:({signal,pageParam})=>apiRequest<{plans:Array<{contractVersion:number;ticketId:string}>;nextCursor:string|null}>(`${queuePlanBase(tenant,location)}&state=skipped${pageParam?`&cursor=${encodeURIComponent(pageParam)}`:''}`,{token,signal}),getNextPageParam:page=>page.nextCursor||undefined,retry:false});
+ const managementReady=useRef(onManagementReady);managementReady.current=onManagementReady;
+ useEffect(()=>{managementReady.current?.(active.isSuccess&&skipped.isSuccess);},[active.isSuccess,skipped.isSuccess,token,tenant,location]);
+ useEffect(()=>()=>managementReady.current?.(false),[token,tenant,location]);
  const [editor,setEditor]=useState<{plan?:QueueSelectionPlanV3;initial:NamedQueueFormDraft;mode:'draft'|'amend'}|null>(null);
  const streamHealthyRef=useRef(streamHealthy);
  streamHealthyRef.current=streamHealthy;
  const activeRefreshing=useRef<ReturnType<typeof createCounterReadQueue>|null>(null);
  useEffect(()=>{
-  const queue=createCounterReadQueue(()=>active.refetch(),()=>document.visibilityState==='visible');
+  const queue=createCounterReadQueue(()=>Promise.all([active.refetch(),skipped.refetch()]),()=>document.visibilityState==='visible');
   activeRefreshing.current=queue;
   const onRefresh=()=>queue.update();
   const timer=window.setInterval(()=>{if(!streamHealthyRef.current)onRefresh();},15000);
@@ -115,7 +121,7 @@ export function NamedQueuePanel({token,tenant,location,counterSlug,staffMode=fal
   if(editorRead.current){editorRead.current.abort();editorRead.current=null;setBusy(false);}
  },[token,tenant,location]);
  const open=useCallback(async(plan?:Pick<QueueSelectionPlanV3,'id'>)=>{
-  if(busy||uncertain||editorRead.current)return;
+  if(busy||uncertain||editorRead.current||(!plan&&managementOnly))return;
   const controller=new AbortController();editorRead.current=controller;
   setBusy(true);setError('');
   try{
@@ -128,7 +134,7 @@ export function NamedQueuePanel({token,tenant,location,counterSlug,staffMode=fal
   }finally{
    if(editorRead.current===controller){editorRead.current=null;setBusy(false);}
   }
- },[busy,uncertain,token,tenant,location]);
+ },[busy,uncertain,token,tenant,location,managementOnly]);
  const plans=(active.data?.pages.flatMap(page=>page.plans)||[]).filter((plan):plan is QueuePublishedSelectionPlanV3=>plan.state!=='draft');
  // Conflict highlighting must consider every waiting request, including requests
  // beyond the first server page. Continue loading the active queue in the
@@ -146,13 +152,14 @@ export function NamedQueuePanel({token,tenant,location,counterSlug,staffMode=fal
   window.addEventListener('queue-request-amend',handleAmend);
   return()=>window.removeEventListener('queue-request-amend',handleAmend);
  },[location,open,tenant]);
- const ids=plans.map(plan=>plan.ticketId).sort().join(',');
+ useEffect(()=>{if(managementOnly&&!skipped.isPending&&!skipped.isFetchingNextPage&&skipped.hasNextPage)void skipped.fetchNextPage();},[managementOnly,skipped.isPending,skipped.isFetchingNextPage,skipped.hasNextPage,skipped.fetchNextPage]);
+ const ids=[...new Set([...plans.map(plan=>plan.ticketId),...(skipped.data?.pages.flatMap(page=>page.plans)||[]).filter(plan=>plan.contractVersion===3||plan.contractVersion===4).map(plan=>plan.ticketId)])].sort().join(',');
  useEffect(()=>{idsRef.current(ids?ids.split(','):[]);},[ids]);
  useEffect(()=>{busyRef.current(busy||uncertain);},[busy,uncertain]);
  useEffect(()=>()=>{busyRef.current(false);idsRef.current([]);},[]);
  useEffect(()=>{if(!uncertain)return;const warn=(event:BeforeUnloadEvent)=>{event.preventDefault();event.returnValue='';};window.addEventListener('beforeunload',warn);return()=>window.removeEventListener('beforeunload',warn);},[uncertain]);
  const intakeSequence=useRef(newRequestSequence);
- const intakeAvailable=Boolean(v4Options.data?.capabilities.publication)&&!busy&&!uncertain&&!commandLocked&&!editor&&!outcome&&!protection&&!completion;
+ const intakeAvailable=!managementOnly&&Boolean(v4Options.data?.capabilities.publication)&&!busy&&!uncertain&&!commandLocked&&!editor&&!outcome&&!protection&&!completion;
  useEffect(()=>{onIntakeAvailability?.(intakeAvailable);return()=>onIntakeAvailability?.(false);},[intakeAvailable,onIntakeAvailability]);
  const intakeAction=useRef(()=>{});intakeAction.current=()=>{if(intakeAvailable)void open();};
  useEffect(()=>{if(intakeSequence.current===newRequestSequence)return;intakeSequence.current=newRequestSequence;intakeAction.current();},[newRequestSequence]);
@@ -161,12 +168,12 @@ export function NamedQueuePanel({token,tenant,location,counterSlug,staffMode=fal
  const resourceCatalog = v4Options.data ? queueResourceCatalog(v4Options.data) : undefined;
  const queryLoading = v4Options.isPending || options.isPending || drafts.isPending || active.isPending;
  const queryError = v4Options.error || options.error || drafts.error || active.error;
- function refresh(){setActionErrors({});for(const key of ['named-queue-options','queue-options-v4','named-queue-drafts','named-queue-active','named-queue-review','local-pool-operations','vendor-dashboard-queue-lifecycle'])void client.invalidateQueries({queryKey:[key,token,tenant,location]});window.dispatchEvent(new Event('queue-plans-updated'));}
+ function refresh(){setActionErrors({});for(const key of ['named-queue-options','queue-options-v4','named-queue-drafts','named-queue-active','named-queue-review','skipped-queue-plans','local-pool-operations','vendor-dashboard-queue-lifecycle'])void client.invalidateQueries({queryKey:[key,token,tenant,location]});window.dispatchEvent(new Event('queue-plans-updated'));}
  async function send(command?:Pending){if(busy)return;if(!pending.current&&command)pending.current=command;if(!pending.current)return;setBusy(true);setError('');try{const c=pending.current;const response=c.kind==='save'?await saveQueueSelection(token,tenant,location,c.id,c.body,c.key):await commandQueueSelection(token,tenant,location,c.id,c.action,c.body,c.key);if(response.plan.contractVersion!==3&&response.plan.contractVersion!==4)throw Error('Unexpected response. Retry this command to reconcile it.');if(response.plan.state!=='draft')setLast(response.plan);if(c.kind==='command')setActionErrors(current=>{const next={...current};delete next[c.id];return next;});pending.current=null;setUncertain(false);setEditor(null);setOutcome(null);setProtection(null);completionReview.current?.reset();onCloseForm();refresh();onNotice(c.kind==='save'?'Request draft saved':'Request updated',c.kind==='save'?'No queue ticket, resource hold or allowance charge was created.':'The server confirmed the request action.');}catch(e){const c=pending.current;const message=e instanceof ApiError?(linearQueueRecovery(e.code,e.message)||e.message):(e instanceof Error?e.message:'Request action failed.');const unknown=!(e instanceof ApiError)||e.status>=500;if(c?.kind==='command'&&c.action==='call'&&c.id)setActionErrors(current=>({...current,[c.id]:{message,commandKey:c.key,unknown}}));else setError(message);setUncertain(unknown);if(!unknown){pending.current=null;void active.refetch();}}finally{setBusy(false);}}
  completionExecute.current=command=>send(command);
  async function confirmCompletion(){try{await completionReview.current?.confirm();}catch(e){setError(e instanceof Error?e.message:'Refresh this request.');}}
 
- async function save(draft:NamedQueueFormDraft){if(!editor)return;await send({kind:'save',id:editor.plan?.id||null,body:{customer:{name:draft.customerName,email:draft.customerEmail,phone:draft.customerPhone},notes:draft.notes,catalogRevision:draft.catalogRevision,...(!editor.plan||editor.plan.contractVersion===4?{contractVersion:4 as const,serviceSelections:selectionInputV4(draft.selections)}:{serviceSelections:namedSelectionInput(draft.selections)}),...(editor.plan?{expectedPlanRevision:editor.plan.planRevision}:{})},key:crypto.randomUUID()});}
+ async function save(draft:NamedQueueFormDraft){if(!editor)return;if(managementOnly&&!editor.plan){setError('New resource intake is unavailable. Use Add walk-in; existing requests can still be managed.');return;}await send({kind:'save',id:editor.plan?.id||null,body:{customer:{name:draft.customerName,email:draft.customerEmail,phone:draft.customerPhone},notes:draft.notes,catalogRevision:draft.catalogRevision,...(!editor.plan||editor.plan.contractVersion===4?{contractVersion:4 as const,serviceSelections:selectionInputV4(draft.selections)}:{serviceSelections:namedSelectionInput(draft.selections)}),...(editor.plan?{expectedPlanRevision:editor.plan.planRevision}:{})},key:crypto.randomUUID()});}
  async function publish(draft:NamedQueueFormDraft){if(!editor?.plan||editor.plan.state!=='draft')return;if(JSON.stringify(draft)!==JSON.stringify(editor.initial)){setError('Save the reviewed request first, then reopen it to publish.');return;}const currentOptions=editor.plan.contractVersion===4?v4Options.data:options.data;if(!currentOptions||draft.catalogRevision!==currentOptions.catalogRevision){setError('Review and save the current resource and extra policies before publication.');return;}await send({kind:'command',id:editor.plan.id,action:'publish',body:{expectedPlanRevision:editor.plan.planRevision,expectedCatalogRevision:currentOptions.catalogRevision},key:crypto.randomUUID()});}
  async function amend(draft:NamedQueueFormDraft,reason:string,agreement:boolean){if(!editor?.plan||editor.plan.state==='draft')return;const isV4=editor.plan.contractVersion===4;const currentOptions=isV4?v4Options.data:options.data;if(!currentOptions||draft.catalogRevision!==currentOptions.catalogRevision){setError('Review the current resource and extra policies first.');return;}await send({kind:'command',id:editor.plan.id,action:'amend',body:{...revisions(editor.plan),...(isV4?{contractVersion:4 as const}:{ }),serviceSelections:isV4?selectionInputV4(draft.selections):namedSelectionInput(draft.selections),expectedCatalogRevision:currentOptions.catalogRevision,reason,...(agreement?{customerAgreement:{confirmed:true}}:{})},key:crypto.randomUUID()});}
  function planAction(plan:QueuePublishedSelectionPlanV3,action:'amend'|'call'|'start'|'complete'|'cancelProtection'){if(action==='cancelProtection'){setProtectionReason('');setError('');setProtection(plan);return;}if(action==='amend'){void open(plan);return;}try{let extra:object=action==='call'?{counterSlug,dispatchMode:'selectedRequest'}:{counterSlug};if(action==='start'){const groups=plan.reservationGroups.filter(group=>group.state==='protected'&&group.planRevision===plan.planRevision&&group.stageAttemptId===plan.currentStage.attemptId);if(groups.length!==1)throw Error('Refresh this request to review its recorded protection.');extra={reservationGroupId:groups[0].id};}if(action==='complete'){setError('');completionReview.current?.open({plan,label:plan.ticketNumber});return;}void send({kind:'command',id:plan.id,action,body:{...revisions(plan),...extra},key:crypto.randomUUID()});}catch(e){setError(e instanceof Error?e.message:'Refresh this request.');}}
@@ -179,6 +186,7 @@ export function NamedQueuePanel({token,tenant,location,counterSlug,staffMode=fal
  if(action==='interrupt'){if(!reason.trim()||!outcome.review)return;setBusy(true);try{const latest=(await readQueueSelection(token,tenant,location,plan.id)).plan;if(latest.state==='draft')throw Error('Refresh this request before interruption.');const body=confirmedInterruption(outcome.review,latest,reason);await send({kind:'command',id:plan.id,action,body,key:crypto.randomUUID()});}catch(e){setError(e instanceof Error?e.message:'The active resources could not be verified.');}finally{setBusy(false);}return;}
  await send({kind:'command',id:plan.id,action,body:{...revisions(plan),childAttemptId:target.child.childAttemptId,expectedChildRevision:target.child.revision,interruptedExtras:dependentExtras.flatMap(extra=>extra.execution?[{childAttemptId:extra.execution.childAttemptId,expectedChildRevision:extra.execution.revision}]:[])},key:crypto.randomUUID()});}
 
+ if(!showResourceManagement({managementOnly,activeReady:active.isSuccess,draftsReady:drafts.isSuccess,activeCount:plans.length,draftCount:drafts.data?.pages.reduce((n,page)=>n+page.plans.length,0)||0,hasMore:Boolean(active.hasNextPage||drafts.hasNextPage),transient:Boolean(editor||outcome||protection||completion||pending.current||busy||uncertain||last)}))return null;
  return <section className="queue-stack" aria-label="Service requests">
  <RequestCallErrorToasts rejections={actionErrors} scope={JSON.stringify([tenant,location])}/>
  <OperationQueryState loading={queryLoading} error={queryError} onRetry={()=>{void v4Options.refetch();void options.refetch();if(!staffMode){void resourceConfiguration.refetch();void resourceMembers.refetch();}void drafts.refetch();void active.refetch();}}/>
