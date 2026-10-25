@@ -1249,7 +1249,7 @@ function VendorDashboardContent() {
     currentPlan?.entitlements ||
     effectiveEntitlementsQuery.data?.entitlements;
   const tenantPlan = effectiveEntitlementsQuery.data?.plan;
-  const bookingSettingsAllowed = effectiveEntitlementsQuery.isSuccess && !effectiveEntitlementsQuery.isPlaceholderData && effectiveEntitlementsQuery.data?.clientTenantSlug === selectedTenantSlug && effectiveEntitlements?.serviceBookingAccess === true;
+  const bookingSettingsAllowed = effectiveEntitlementsQuery.isSuccess && !effectiveEntitlementsQuery.isPlaceholderData && effectiveEntitlementsQuery.data?.clientTenantSlug === selectedTenantSlug && effectiveEntitlementsQuery.data?.entitlements?.serviceBookingAccess === true;
   const [queueSetupRead,setQueueSetupRead] = useState<{scope:string;ready:boolean}>({scope:"",ready:false});
   const intakeMode = queueIntakeMode({
     optedIn: resourceQueueOptIn, tenantSlug: selectedTenantSlug,

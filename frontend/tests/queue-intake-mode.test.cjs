@@ -94,3 +94,26 @@ test('complete scoped inventories gate page-two V4 targets without locking ordin
  assert.equal((page.match(/if\(scope===localPoolScopeRef.current\)/g)||[]).length,3,'IDs, inventory and setup callbacks reject stale scope');
  assert.match(page,/namedManagementRead.scope !== localPoolScope \|\| !namedManagementRead.ready/);
 });
+
+test('closed panel refreshes scoped setup options on SSE and visible fallback without resetting selected draft',()=>{
+ const vm=require('node:vm');const source=fs.readFileSync(path.resolve(__dirname,'../src/vendor/NamedQueuePanel.tsx'),'utf8');
+ const start=source.indexOf(' useEffect(()=>{',source.indexOf('// Keep setup readiness'));
+ const end=source.indexOf(' const [busy,setBusy]',start);const effect=source.slice(start,end);
+ assert.doesNotMatch(effect,/if\(!editor\)|setEditor|setDraft|setInitial/);
+ const readiness=source.match(/ const configuredForIntake=[^\n]+;\n useEffect\(\(\)=>\{setupCallback.current\?\.\(configuredForIntake,inventoryScope\);\},\[configuredForIntake,inventoryScope\]\);/)[0];
+ const draft={selectedResource:'member-A',durationCount:2};const reads=[];const targets=new Map();const timers=new Map();let sequence=0,cleanup;
+ const target=name=>({addEventListener(type,fn){const key=name+':'+type;if(!targets.has(key))targets.set(key,new Set());targets.get(key).add(fn);},removeEventListener(type,fn){targets.get(name+':'+type)?.delete(fn);}});
+ const window={...target('window'),setInterval(fn,ms){assert.equal(ms,15000);timers.set(++sequence,fn);return sequence;},clearInterval(id){timers.delete(id);}};
+ const document={...target('document'),visibilityState:'visible'};
+ const options={isSuccess:true,isPlaceholderData:false,data:{resourceSetup:{services:[{requestable:false}]}}};let serverReady=false;
+ const context={window,document,editor:null,client:{invalidateQueries({queryKey}){reads.push(queryKey);if(queryKey[0]==='queue-options-v4')options.data.resourceSetup.services[0].requestable=serverReady;return Promise.resolve();}},token:'private-test-token',tenant:'free',location:'main',staffMode:false,useEffect(fn){cleanup=fn();},setEditor(){assert.fail('Do not reset the editor');},setDraft(){assert.fail('Do not reset selected resources/count');}};
+ const ready=[];const sample=()=>vm.runInNewContext(readiness,{v4Options:options,inventoryScope:'free:main',setupCallback:{current:(value,scope)=>ready.push({value,scope})},useEffect:fn=>fn()});
+ const fire=(name,type)=>{for(const fn of [...(targets.get(name+':'+type)||[])])fn();};
+ sample();assert.equal(ready.at(-1).value,false);vm.runInNewContext(effect,context);
+ reads.length=0;serverReady=true;fire('window','queue-plans-updated');sample();assert.equal(ready.at(-1).value,true,'activation SSE invalidates options with closed editor and exposes resource intake');
+ assert.ok(reads.some(key=>key[0]==='queue-options-v4'));assert.ok(reads.every(key=>JSON.stringify(key.slice(1))===JSON.stringify(['private-test-token','free','main'])));
+ for(const event of ['vendor-queue-snapshot-updated','focus','online']){reads.length=0;fire('window',event);assert.ok(reads.some(key=>key[0]==='queue-options-v4'),event);}
+ reads.length=0;for(const fn of timers.values())fn();assert.ok(reads.length>0);
+ document.visibilityState='hidden';reads.length=0;for(const fn of timers.values())fn();fire('window','focus');fire('document','visibilitychange');assert.equal(reads.length,0,'hidden tabs do not poll');
+ cleanup();document.visibilityState='visible';fire('window','queue-plans-updated');fire('window','focus');assert.equal(reads.length,0);assert.equal(timers.size,0);assert.ok([...targets.values()].every(set=>set.size===0));assert.deepEqual(draft,{selectedResource:'member-A',durationCount:2});
+});

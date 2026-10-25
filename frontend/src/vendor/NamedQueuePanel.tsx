@@ -86,9 +86,8 @@ export function NamedQueuePanel({token,tenant,location,counterSlug,staffMode=fal
    window.removeEventListener('queue-plans-updated',onRefresh);
   };
  },[active.refetch,token,tenant,location]);
- // Keep the open form's catalog current across accounts without resetting its draft.
+ // Keep setup readiness and any open form current; invalidation never resets draft state.
  useEffect(()=>{
-   if(!editor)return;
    const refreshCatalog=()=>{
      for(const key of ['named-queue-options','queue-options-v4',...(!staffMode?['vendor-resource-configuration','vendor-resource-members-catalog']:[])])
        void client.invalidateQueries({queryKey:[key,token,tenant,location]});
@@ -109,7 +108,7 @@ export function NamedQueuePanel({token,tenant,location,counterSlug,staffMode=fal
      window.removeEventListener('vendor-queue-snapshot-updated',refreshCatalog);
      document.removeEventListener('visibilitychange',onVisible);
    };
- },[Boolean(editor),client,token,tenant,location,staffMode]);
+ },[client,token,tenant,location,staffMode]);
  const [busy,setBusy]=useState(false),[uncertain,setUncertain]=useState(false),[error,setError]=useState(''),[actionErrors,setActionErrors]=useState<Record<string,RequestCallRejection>>({});
  const [outcome,setOutcome]=useState<{plan:QueuePublishedSelectionPlanV3;target:NamedChildTarget;action:'interrupt'|'retry';review?:InterruptionReview}|null>(null),[reason,setReason]=useState(''),[confirmed,setConfirmed]=useState(false),[last,setLast]=useState<QueuePublishedSelectionPlanV3|null>(null);
  const [completion,setCompletion]=useState<CompletionReview|null>(null);
