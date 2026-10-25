@@ -18,6 +18,7 @@ export function canAccessVendorSection(section, entitlements, plan = null) {
     case "tenants":
       return Number(entitlements.locations || 0) > 0;
     case "services":
+      return entitlements.queueSystemAccess === true || entitlements.serviceBookingAccess === true;
     case "bookings":
       return entitlements.serviceBookingAccess === true;
     case "group-funded":

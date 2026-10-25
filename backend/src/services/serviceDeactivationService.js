@@ -51,4 +51,4 @@ async function updateVendorService(tenant, serviceSlug, body, { actorUserId }) {
   return withCatalogService(tenant, serviceSlug, actorUserId, (client, branchIds, service) => saveCatalogDefinition(client, branchIds, tenant, body, service));
 }
 
-module.exports = { createVendorService, deactivateVendorService, updateVendorService };
+module.exports = { createVendorService, deactivateVendorService, updateVendorService, withCatalog, withCatalogService };

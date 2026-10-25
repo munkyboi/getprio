@@ -163,10 +163,26 @@ async function upsertLocationService(data, options = {}) {
   return mapLocationService(result.rows[0]);
 }
 
+/** Queue-only upsert leaves booking capacity and retired campaign settings untouched. */
+async function upsertQueueLocationService(data, options = {}) {
+  const fields = {isActive:"is_active",sortOrder:"sort_order"};
+  const selected = Object.entries(fields).filter(([key])=>Object.hasOwn(data,key));
+  const columns = selected.map(([,column])=>column);
+  const values = [data.tenantId,data.locationId,data.serviceId,...selected.map(([key])=>data[key])];
+  const assignments = columns.map(column=>`${column}=EXCLUDED.${column}`);
+  const result = await buildQueryClient(options.client).query(`INSERT INTO location_services (tenant_id,location_id,service_id${columns.length?","+columns.join(","):""})
+    VALUES (${values.map((_,index)=>`$${index+1}`).join(",")})
+    ON CONFLICT (location_id,service_id) DO UPDATE SET ${[...assignments,"updated_at=NOW()"].join(",")}
+    WHERE location_services.tenant_id=EXCLUDED.tenant_id RETURNING ${LOCATION_SERVICE_COLUMNS}`,values);
+  if (!result.rows[0]) throw Object.assign(new Error("Location service scope mismatch."),{statusCode:403});
+  return mapLocationService(result.rows[0]);
+}
+
 module.exports = {
   mapLocationService,
   listLocationServicesByTenantId,
   listLocationServicesByLocationId,
   findLocationServiceByLocationAndServiceId,
-  upsertLocationService
+  upsertLocationService,
+  upsertQueueLocationService
 };

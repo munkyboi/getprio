@@ -1,0 +1,13 @@
+# Queue service configuration and booking separation
+
+Queue access includes service catalog configuration, resource mappings and queue policies. It uses existing `feature.queue` / `queueSystemAccess`; booking remains `feature.booking` / `serviceBookingAccess`. No new entitlement, plan data migration, billing credit, or service cap is introduced. Existing location/counter/staff limits remain enforced by their normal writers.
+
+Authenticated `POST /api/vendor/tenant/:tenantSlug/queue/services` and `PATCH /api/vendor/tenant/:tenantSlug/queue/services/:serviceSlug` use active membership, `tenant.service.manage`, fresh transaction authorization and the tenant catalog lock/revision protocol. Queue feature/lifecycle admission is independent of ticket allowance balance and does not spend ticket or booking credits.
+
+Allowed service fields: name, slug, imageUrl, description, durationMinutes, isActive, sortOrder; optional locationServices is an array of locationSlug, isActive and sortOrder. All unknown root/nested fields are rejected, including paid values that happen to be false, null or unchanged. No caller purpose discriminator grants capabilities. Shared service and location IDs are retained. Queue updates never write booking quantity/payment/capacity, root/location pricing, retired campaign values, bookings, reservations or admitted queue history. New service booking columns use existing repository/schema defaults. Normal service booking create/update, scheduling and payment paths retain booking admission.
+
+Vendor Services navigation is available for queue or booking capability. Free editor exposes common service details/duration and location offerings; paid booking/pricing/schedule controls are absent. Queue policy/resources remain accessible before setup is complete. Resource intake uses current-location server `resourceSetup.services[].requestable`, not plan name, booking flag, menu access, resource occupancy or ticket balance. Generic walk-in remains available while resource setup is absent. V4 management of existing requests and full inventory pagination survive this fallback. Scoped callbacks reject stale location/tenant results; successful background observations remain usable.
+
+Active Platform shadcn matrix retains independently editable queue/booking feature flags with explicit descriptions. Free queue remains protected by the existing server invariant; no stored plan is republished. The retired legacy Platform app is not changed. Plan highlights use the same existing policy features.
+
+Runtime acceptance is independent from source tests and requires Ikan's reviewed local artifact activation plus QA. No merge, deployment, production, provider, retained fixture or runtime changes are part of implementation.

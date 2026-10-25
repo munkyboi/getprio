@@ -1249,11 +1249,14 @@ function VendorDashboardContent() {
     currentPlan?.entitlements ||
     effectiveEntitlementsQuery.data?.entitlements;
   const tenantPlan = effectiveEntitlementsQuery.data?.plan;
+  const bookingSettingsAllowed = effectiveEntitlements?.serviceBookingAccess === true;
+  const [queueSetupRead,setQueueSetupRead] = useState<{scope:string;ready:boolean}>({scope:"",ready:false});
   const intakeMode = queueIntakeMode({
     optedIn: resourceQueueOptIn, tenantSlug: selectedTenantSlug,
     entitlementTenantSlug: effectiveEntitlementsQuery.data?.clientTenantSlug,
     loaded: effectiveEntitlementsQuery.isSuccess && !effectiveEntitlementsQuery.isPlaceholderData,
     entitlements: effectiveEntitlements, plan: tenantPlan,
+    locationSlug:selectedLocationSlug, setup:queueSetupRead,
   });
   const resourceQueueEnabled = intakeMode === "resource";
   const resourceManagementEnabled = resourceQueueOptIn && intakeMode !== "loading" && canAccessVendorSection("queue", effectiveEntitlements, tenantPlan);
@@ -1350,7 +1353,7 @@ function VendorDashboardContent() {
   const bookingConfigurationQuery=useQuery({
     queryKey:['vendor-booking-configuration',token,selectedTenantSlug],
     queryFn:()=>apiRequest<{locations:Array<{locationSlug:string;serviceId:string;contractVersion:4;capabilityEnabled:boolean;resourceConfigured:boolean;ready:boolean;assignment:string|null;duration:{baseMinutes:number;defaultCount:number}|null;extrasCount:number;workflowSupported:boolean}>}>(`/vendor/tenant/${selectedTenantSlug}/booking-configuration`,{token}),
-    enabled:Boolean(canLoadProtectedDashboard&&token&&selectedTenantSlug&&(isOwner||isAdmin)&&(serviceDialogOpen||routeServiceSlug)),
+    enabled:Boolean(canLoadProtectedDashboard&&token&&selectedTenantSlug&&(isOwner||isAdmin)&&bookingSettingsAllowed&&(serviceDialogOpen||routeServiceSlug)),
   });
   const availabilityQuery = useQuery({
     queryKey: ["vendor-dashboard-availability", token, selectedTenantSlug, selectedLocationSlug, isOwner, isAdmin],
@@ -1367,7 +1370,7 @@ function VendorDashboardContent() {
       selectedTenantSlug &&
       selectedLocationSlug &&
       (isOwner || isAdmin) &&
-      canAccessVendorSection("services", effectiveEntitlements)
+      bookingSettingsAllowed
     )
   });
   const countersQuery = useQuery({
@@ -3221,7 +3224,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     const submittedForm = event.currentTarget;
     if(!dashboardBootstrapQuery.data||dashboardBootstrapQuery.isError||!locationServicesQuery.data||locationServicesQuery.isError||servicesQuery.isError||!serviceForm.locationServices||serviceForm.locationServices.length!==dashboardBootstrapQuery.data.locationsResponse.locations.length||dashboardBootstrapQuery.data.locationsResponse.locations.some(location=>!serviceForm.locationServices?.some(assignment=>assignment.locationSlug===location.slug))){setError('Location settings are not ready. Retry loading locations before saving.');return;}
     const validationError = validateServiceEditor(submittedForm, {
-      quantityError: serviceQuantityError(serviceForm), checkingSlug: checkingServiceSlug,
+      quantityError: bookingSettingsAllowed ? serviceQuantityError(serviceForm) : "", checkingSlug: checkingServiceSlug,
       slugAvailable: serviceSlugAvailable, slugMessage: serviceSlugMessage,
     });
     if (validationError) { setError(validationError); return; }
@@ -3229,7 +3232,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     setError("");
 
     try {
-      const response = await vendorDashboardCatalog.saveService(token, selectedTenantSlug, editingServiceSlug || null, serviceForm);
+      const response = await vendorDashboardCatalog.saveService(token, selectedTenantSlug, editingServiceSlug || null, serviceForm, !bookingSettingsAllowed);
       setEditingServiceId(response.service.id);setEditingServiceSlug(response.service.slug);
       setServiceForm(current=>({...current,slug:response.service.slug}));
       setServices(current=>current.map(item=>item.id===response.service.id ? response.service : item));
@@ -3241,7 +3244,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       if(routeServiceSlug) navigate(workspacePath("services","administration",location.search));
       showSuccessNotification(
         editingServiceSlug ? "Service updated" : "Service created",
-        `${serviceForm.name} is ready for booking setup.`
+        `${serviceForm.name} is ready for ${bookingSettingsAllowed ? "queue and booking" : "queue"} setup.`
       );
     } catch (saveError) {
       setError(getErrorMessage(saveError));
@@ -3270,7 +3273,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         priceDisplay: service.priceDisplay,
         isActive,
         sortOrder: service.sortOrder
-      });
+      }, !bookingSettingsAllowed);
       setServices((current) =>
         current.map((item) => (item.id === response.service.id ? response.service : item))
       );
@@ -3294,7 +3297,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       const response = await vendorDashboardCatalog.deactivateService(token, selectedTenantSlug, service.slug);
       setServices((current) => current.map((item) => item.id === response.service.id ? response.service : item));
       await reloadBookings();
-      showSuccessNotification("Service removed from booking", `${service.name} is disabled. Existing records are retained.`);
+      showSuccessNotification("Service removed", `${service.name} is disabled. Existing records are retained.`);
     } catch (deleteError) {
       setError(getErrorMessage(deleteError));
     } finally {
@@ -5384,7 +5387,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
           </QueueCardContent>
         </QueueCard>
         {!resourceQueueEnabled ? <LiveQueueSummary snapshot={snapshot} /> : null}
-        {resourceManagementEnabled && selectedTenantSlug && selectedLocationSlug ? <NamedQueuePanel managementOnly={!resourceQueueEnabled} onManagementReady={(ready,scope)=>{if(scope===localPoolScopeRef.current)setNamedManagementRead({scope,ready});}} hasUnsavedEdits={()=>unsavedForm.current.hasEdits()} key={`named:${selectedTenantSlug}:${selectedLocationSlug}`} token={token} tenant={selectedTenantSlug} location={selectedLocationSlug} counterSlug={selectedCounterSlug} staffMode={selectedTenantRole === "staff"} onReviewQueueSetup={(isOwner||isAdmin)&&visibleNavItems.some(item=>item.section==="services")?()=>{if(!canLeaveFeature())return;setServicesTab("queue-policy");navigate(workspacePath("services","administration",location.search));}:undefined} newRequestSequence={resourceQueueEnabled?serviceRequestSequence:0} onIntakeAvailability={setServiceRequestAvailable} onTicketIds={(ids,scope)=>{if(scope===localPoolScopeRef.current)setNamedInventory({scope,ids});}} onEditForm={form=>unsavedForm.current.mark(form)} onCloseForm={()=>unsavedForm.current.discardId("named-queue-plan")} onBusy={busy=>setBusyAction(busy?"named-queue-plan":"")} onNotice={showSuccessNotification}/>:null}
+        {resourceManagementEnabled && selectedTenantSlug && selectedLocationSlug ? <NamedQueuePanel onSetupReady={(ready,scope)=>{if(scope===localPoolScopeRef.current)setQueueSetupRead(current=>current.scope===scope&&current.ready===ready?current:{scope,ready});}} managementOnly={!resourceQueueEnabled} onManagementReady={(ready,scope)=>{if(scope===localPoolScopeRef.current)setNamedManagementRead({scope,ready});}} hasUnsavedEdits={()=>unsavedForm.current.hasEdits()} key={`named:${selectedTenantSlug}:${selectedLocationSlug}`} token={token} tenant={selectedTenantSlug} location={selectedLocationSlug} counterSlug={selectedCounterSlug} staffMode={selectedTenantRole === "staff"} onReviewQueueSetup={(isOwner||isAdmin)&&visibleNavItems.some(item=>item.section==="services")?()=>{if(!canLeaveFeature())return;setServicesTab("queue-policy");navigate(workspacePath("services","administration",location.search));}:undefined} newRequestSequence={resourceQueueEnabled?serviceRequestSequence:0} onIntakeAvailability={setServiceRequestAvailable} onTicketIds={(ids,scope)=>{if(scope===localPoolScopeRef.current)setNamedInventory({scope,ids});}} onEditForm={form=>unsavedForm.current.mark(form)} onCloseForm={()=>unsavedForm.current.discardId("named-queue-plan")} onBusy={busy=>setBusyAction(busy?"named-queue-plan":"")} onNotice={showSuccessNotification}/>:null}
 
 
         {linearCommandError?.scope === `${selectedTenantSlug}:${selectedLocationSlug}` ? <OperationAlert color="orange" title="Queue action needs review">{linearCommandError.message}<OperationButton variant="outline" disabled={queueActionBusy} onClick={() => { void Promise.all([queueLifecycleSnapshotQuery.refetch(), resourceQueueEnabled ? localPoolQuery.refetch() : Promise.resolve()]); }}>Refresh queue</OperationButton></OperationAlert> : null}
@@ -6692,7 +6695,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   {error}
                 </OperationAlert>
               ) : null}
-              <ServiceEditorTabs busy={Boolean(busyAction)}
+              <ServiceEditorTabs bookingEnabled={bookingSettingsAllowed} busy={Boolean(busyAction)}
                 general={<FieldGroup>                <ConfigurationSection
                   title="Service details"
                   description=""
@@ -6737,7 +6740,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
               >
                 <ConfigurationTextarea
                   label="Service description"
-                  description="Tell customers what is included and what they should know before booking."
+                  description="Describe what is included in this service."
                   value={serviceForm.description || ""}
                   onChange={(event) =>
                     setServiceForm((current) => ({
@@ -6746,10 +6749,11 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     }))
                   }
                 />
+                <ConfigurationNumber label="Service duration (minutes)" min={5} max={480} required value={serviceForm.durationMinutes} onChange={value=>setServiceForm(current=>({...current,durationMinutes:Number(value)||30}))}/>
                 <ConfigurationCheck
                   checked={serviceForm.isActive !== false}
                   label="Available across the business"
-                  description="Turn off to stop new bookings. Existing bookings stay in your records."
+                  description="Turn off to stop new requests. Existing requests stay in your records."
                   onChange={(event) =>
                     setServiceForm((current) => ({
                       ...current,
@@ -6757,7 +6761,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     }))
                   }
                 />
-              </ConfigurationSection><ConfigurationSection title="Price and payment" description="Base service price; resource booking amounts are confirmed by the vendor.">                  <ConfigurationNumber
+              </ConfigurationSection>{bookingSettingsAllowed && <ConfigurationSection title="Price and payment" description="Base service price; resource booking amounts are confirmed by the vendor.">                  <ConfigurationNumber
                     step={0.01}
                     label={
                       serviceForm.allowBookingQuantity
@@ -6776,7 +6780,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       }))
                     }
                   />
-                  <ConfigurationCheck
+                  {bookingSettingsAllowed && <ConfigurationCheck
                     checked={serviceForm.manualPaymentRequired === true}
                     label="Require proof of payment"
                     description="Customers pay separately, then submit a receipt and payment reference. Review their payment before confirming the booking."
@@ -6787,7 +6791,8 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       }))
                     }
                   />
-</ConfigurationSection></FieldGroup>}
+                  }
+</ConfigurationSection>}</FieldGroup>}
                 advanced={<FieldGroup><ConfigurationSection title="Advanced details" description="Optional link, image and display settings.">                  <ConfigurationInput
                     label="Image link (optional)"
                     description="Paste an image link, or upload an image above."
@@ -6801,12 +6806,12 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   />
                   <ConfigurationInput
                     data-service-field="slug"
-                    label="Booking link name"
+                    label="Service link name"
                     description={
                       checkingServiceSlug
                         ? "Checking link availability..."
                         : serviceSlugMessage ||
-                          "Used in this service’s booking link. Created from the service name; changing it changes the link."
+                          "Used in this service’s link. Created from the service name; changing it changes the link."
                     }
                     error={
                       !checkingServiceSlug &&
@@ -6836,7 +6841,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       }))
                     }
                   />
-                  <ConfigurationInput
+                  {bookingSettingsAllowed && <ConfigurationInput
                     label="Price text shown to customers (optional)"
                     description="Use custom text instead of the formatted price. The booking total uses the price above, or the branch price below."
                     placeholder="For example, PHP 500 per session"
@@ -6848,30 +6853,9 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       }))
                     }
                   />
+                  }
 </ConfigurationSection></FieldGroup>}
                 booking={<FieldGroup><p className="ops-muted">Resource bookings use the duration and resource choices set for each location.</p><details data-service-advanced open={!resourceOnly}><summary>Duration and booking limits</summary><FieldSet className="config-section"><FieldLegend className="v:sr-only">Duration and booking limits</FieldLegend><FieldGroup>
-                  <ConfigurationNumber
-                    label={
-                      serviceForm.allowBookingQuantity
-                        ? "Duration per unit (minutes)"
-                        : "Service duration (minutes)"
-                    }
-                    description={
-                      serviceForm.allowBookingQuantity
-                        ? "Time reserved for a quantity of 1."
-                        : "Time reserved for one booking."
-                    }
-                    min={5}
-                    max={480}
-                    required
-                    value={serviceForm.durationMinutes}
-                    onChange={(value) =>
-                      setServiceForm((current) => ({
-                        ...current,
-                        durationMinutes: Number(value) || 30,
-                      }))
-                    }
-                  />
                   <ConfigurationCheck
                     checked={serviceForm.allowBookingQuantity === true}
                     label="Allow quantity input"
@@ -6925,12 +6909,11 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                 locations={<ConfigurationSection title="Locations offering this service" description="">
                   <div>
                     <p className="ops-muted">
-                      Turn on each branch where customers can book this service.
-                      Ordinary bookings use the limits below. Resource bookings use the configured pool capacity.
+                      Turn on each branch where this service is offered. Queue resources and durations are set in Resource mappings and Queue policies.
                     </p>
                   </div>
-                  <OperationQueryState loading={bookingConfigurationQuery.isPending} error={bookingConfigurationQuery.error} onRetry={()=>void bookingConfigurationQuery.refetch()}/>
-                  {(bookingConfigurationQuery.data?.locations||[]).filter(item=>item.serviceId===editingServiceId).map(item=><OperationAlert key={item.locationSlug} color={item.ready?'blue':'yellow'} title={locations.find(location=>location.slug===item.locationSlug)?.name||item.locationSlug}>
+                  {bookingSettingsAllowed && <OperationQueryState loading={bookingConfigurationQuery.isPending} error={bookingConfigurationQuery.error} onRetry={()=>void bookingConfigurationQuery.refetch()}/>}
+                  {bookingSettingsAllowed && (bookingConfigurationQuery.data?.locations||[]).filter(item=>item.serviceId===editingServiceId).map(item=><OperationAlert key={item.locationSlug} color={item.ready?'blue':'yellow'} title={locations.find(location=>location.slug===item.locationSlug)?.name||item.locationSlug}>
                     {item.capabilityEnabled?(item.ready?`Resource bookings use ${item.assignment==='named'?'selected named resources':'pool quantities'} and the existing location duration policy. Pool capacity controls simultaneous bookings.`:'Resource bookings need setup before they can be offered.'):'Resource booking configuration is prepared; the new booking flow is not enabled.'}
                     {item.duration?` Default duration: ${item.duration.defaultCount} × ${item.duration.baseMinutes} minutes.`:''}
                     <OperationButton variant="outline" onClick={()=>openServiceResourceSettings(item.locationSlug,'policy')}>Open queue policies</OperationButton>
@@ -6963,7 +6946,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                             }));
                           }}
                         />
-                        {!bookingConfigurationReady?<p className="ops-muted">Booking configuration is unavailable until location settings finish loading. Retry above to review limits.</p>:resourceSettings.some(setting=>setting.locationSlug===assignment.locationSlug&&setting.capabilityEnabled&&setting.ready)?<p className="ops-muted">Pool capacity controls resource bookings at this location.</p>:<>                        <ConfigurationNumber
+                        {bookingSettingsAllowed && (!bookingConfigurationReady?<p className="ops-muted">Booking configuration is unavailable until location settings finish loading. Retry above to review limits.</p>:resourceSettings.some(setting=>setting.locationSlug===assignment.locationSlug&&setting.capabilityEnabled&&setting.ready)?<p className="ops-muted">Pool capacity controls resource bookings at this location.</p>:<>                        <ConfigurationNumber
                           label={`${locations.find((location) => location.slug === assignment.locationSlug)?.name || assignment.locationSlug} bookings allowed at the same time`}
                           description="Counts service bookings, rather than the number of guests."
                           min={1}
@@ -6982,8 +6965,8 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                             }))
                           }
                         />
-                        </>}
-                        <ConfigurationNumber
+                        </>)}
+                        {bookingSettingsAllowed && <><ConfigurationNumber
                           step={0.01}
                           label="Price at this branch (PHP, optional)"
                           description="Leave blank to use the service price above."
@@ -7035,7 +7018,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                             }));
                           }}
                         />
-</details>
+</details></>}
                       </FieldGroup>
                     ),
                   )}
@@ -7501,7 +7484,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
               detail={`Schedules use ${selectedLocation?.timezone || "the branch timezone"}.`}
             />
           </div>
-          <ConfigTabs value={servicesTab} onValueChange={changeTab}>
+          <ConfigTabs value={!bookingSettingsAllowed && (servicesTab === "weekly" || servicesTab === "exceptions") ? "catalog" : servicesTab} onValueChange={changeTab}>
             <ConfigTabsList
               className="config-tabs-list"
               activateOnFocus
@@ -7510,13 +7493,13 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
               <ConfigTabsTrigger disabled={busy} value="catalog">
                 Service catalog
               </ConfigTabsTrigger>
-              {resourceQueueEnabled?<ConfigTabsTrigger disabled={busy} value="queue-policy">Queue policy</ConfigTabsTrigger>:null}
-              <ConfigTabsTrigger disabled={busy} value="weekly">
+              {resourceManagementEnabled?<ConfigTabsTrigger disabled={busy} value="queue-policy">Queue policy</ConfigTabsTrigger>:null}
+              {bookingSettingsAllowed && <><ConfigTabsTrigger disabled={busy} value="weekly">
                 Weekly availability
               </ConfigTabsTrigger>
               <ConfigTabsTrigger disabled={busy} value="exceptions">
                 Date exceptions
-              </ConfigTabsTrigger>
+              </ConfigTabsTrigger></>}
             </ConfigTabsList>
             <ConfigTabsContent value="catalog" keepMounted>
               <div className="ops-stack">
@@ -7540,7 +7523,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     onRemove={service=>remove("Remove service from all locations?", "New bookings will stop for this shared service at every location. Existing bookings and service records are retained.", "Remove from all locations", ()=>handleDeleteService(service))}/>
               </div>
             </ConfigTabsContent>
-            <ConfigTabsContent value="weekly" keepMounted>
+            {bookingSettingsAllowed && <><ConfigTabsContent value="weekly" keepMounted>
               <div className="ops-stack">
                 <div className="ops-list-heading">
                   <div>
@@ -7661,7 +7644,8 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                 ) : null}
               </div>
             </ConfigTabsContent>
-            {resourceQueueEnabled&&selectedTenantSlug&&selectedLocationSlug?<ConfigTabsContent value="queue-policy">
+            </>}
+            {resourceManagementEnabled&&selectedTenantSlug&&selectedLocationSlug?<ConfigTabsContent value="queue-policy">
               <OperationQueryState loading={servicesQuery.isPending} error={servicesQuery.error} onRetry={()=>void servicesQuery.refetch()}/>
               <OperationQueryState loading={locationServicesQuery.isPending} error={locationServicesQuery.error} onRetry={()=>void locationServicesQuery.refetch()}/>
               <QueueServicePolicyEditor key={`${selectedTenantSlug}:${selectedLocationSlug}`} token={token} tenant={selectedTenantSlug} location={selectedLocationSlug} services={servicesQuery.data?.services || []} assignments={locationServicesQuery.data?.locationServices || []} locations={locations} servicesReady={catalogReady} assignmentsReady={assignmentsReady} canManage={isOwner||isAdmin} onBusy={value=>setBusyAction(value?'queue-service-policy':'')} onCloseForm={()=>unsavedForm.current.discardId('queue-service-policy')} onNotice={showSuccessNotification}/>
@@ -10668,7 +10652,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     ? resolveLocationEditor(locationSlug, locations, new Set(dashboardBootstrapQuery.data.locationsResponse.locations.map(item => item.id))) : undefined;
   const routedService = routeServiceSlug && servicesQuery.data ? resolveServiceEditor(routeServiceSlug,services,new Set(servicesQuery.data.services.map(item=>item.id))) : undefined;
   const pageTitle = requiresMfaEnrollment ? "Secure your account" : routeServiceSlug ? routedService ? `Service: ${serviceDialogOpen ? serviceForm.name || "New service" : routedService.name}` : servicesQuery.isPending ? "Loading service" : "Service unavailable" : locationSlug ? routedLocation ? `Edit ${routedLocation.name}` : "Location unavailable" : currentSection === "queue" ? "Live queue" : navItems.find(item => item.section === currentSection)?.label || "Account";
-  const pageDescription = requiresMfaEnrollment ? "Set up an authenticator to continue to your vendor workspace. Your sign-in session remains active during setup." : routeServiceSlug ? "Set the duration, price and branches where customers can book this service." : locationSlug ? "Set the branch details, payment options and operating hours customers see." : dashboardSectionDescriptions[currentSection] || "Manage your vendor workspace.";
+  const pageDescription = requiresMfaEnrollment ? "Set up an authenticator to continue to your vendor workspace. Your sign-in session remains active during setup." : routeServiceSlug ? "Set the service details, duration and locations." : locationSlug ? "Set the branch details, payment options and operating hours customers see." : dashboardSectionDescriptions[currentSection] || "Manage your vendor workspace.";
   return (
     <VendorWorkspaceShell
       workspace={workspace} canAdmin={canSwitchWorkspace} items={workspaceNavItems}

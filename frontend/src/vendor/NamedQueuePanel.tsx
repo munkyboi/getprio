@@ -44,7 +44,7 @@ function orderResourceMembers<T extends { displayOrder?: number }>(members: T[])
 }
 
 
-export function NamedQueuePanel({token,tenant,location,counterSlug,staffMode=false,managementOnly=false,onManagementReady,newRequestSequence=0,onIntakeAvailability,onEditForm,onCloseForm,onBusy,onTicketIds,onNotice,hasUnsavedEdits,onReviewQueueSetup}:{token:string;tenant:string;location:string;counterSlug:string;staffMode?:boolean;managementOnly?:boolean;onManagementReady?:(ready:boolean,scope:string)=>void;newRequestSequence?:number;onIntakeAvailability?:(ready:boolean)=>void;onEditForm:(form:HTMLFormElement)=>void;onCloseForm:()=>void;onBusy:(busy:boolean)=>void;onTicketIds:(ids:string[],scope:string)=>void;onNotice:(title:string,message:string)=>void;hasUnsavedEdits?:()=>boolean;onReviewQueueSetup?:()=>void}){
+export function NamedQueuePanel({token,tenant,location,counterSlug,staffMode=false,managementOnly=false,onSetupReady,onManagementReady,newRequestSequence=0,onIntakeAvailability,onEditForm,onCloseForm,onBusy,onTicketIds,onNotice,hasUnsavedEdits,onReviewQueueSetup}:{token:string;tenant:string;location:string;counterSlug:string;staffMode?:boolean;managementOnly?:boolean;onSetupReady?:(ready:boolean,scope:string)=>void;onManagementReady?:(ready:boolean,scope:string)=>void;newRequestSequence?:number;onIntakeAvailability?:(ready:boolean)=>void;onEditForm:(form:HTMLFormElement)=>void;onCloseForm:()=>void;onBusy:(busy:boolean)=>void;onTicketIds:(ids:string[],scope:string)=>void;onNotice:(title:string,message:string)=>void;hasUnsavedEdits?:()=>boolean;onReviewQueueSetup?:()=>void}){
  const streamHealthy=useQueueStreamHealthy(queueStreamScope(token,tenant,location));
  const commandLocked=useQueueCommandLocked();
  const client=useQueryClient();
@@ -57,6 +57,10 @@ export function NamedQueuePanel({token,tenant,location,counterSlug,staffMode=fal
  const skipped=useInfiniteQuery({queryKey:['skipped-queue-plans',token,tenant,location],initialPageParam:undefined as string|undefined,queryFn:({signal,pageParam})=>apiRequest<{plans:Array<{contractVersion:number;ticketId:string}>;nextCursor:string|null}>(`${queuePlanBase(tenant,location)}&state=skipped${pageParam?`&cursor=${encodeURIComponent(pageParam)}`:''}`,{token,signal}),getNextPageParam:page=>page.nextCursor||undefined,retry:false});
  const managementReady=useRef(onManagementReady);managementReady.current=onManagementReady;
  const inventoryScope=`${tenant}:${location}`;
+ const setupCallback=useRef(onSetupReady);setupCallback.current=onSetupReady;
+ const configuredForIntake=v4Options.isSuccess && !v4Options.isPlaceholderData && Boolean(v4Options.data?.resourceSetup?.services.some(service=>service.requestable));
+ useEffect(()=>{setupCallback.current?.(configuredForIntake,inventoryScope);},[configuredForIntake,inventoryScope]);
+ useEffect(()=>()=>setupCallback.current?.(false,inventoryScope),[inventoryScope]);
  const inventoryReady=fullInventoryReady(active,skipped);
  useEffect(()=>()=>managementReady.current?.(false,inventoryScope),[inventoryScope]);
  const [editor,setEditor]=useState<{plan?:QueueSelectionPlanV3;initial:NamedQueueFormDraft;mode:'draft'|'amend'}|null>(null);

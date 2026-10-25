@@ -1,20 +1,19 @@
 require('tsx/cjs');
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path');
 const {queueIntakeMode,queueWorkPresentation,legacyQueueWork,showResourceManagement}=require('../src/vendor/queueIntakeMode.ts');
-const current=extra=>({optedIn:true,tenantSlug:'free-vendor',entitlementTenantSlug:'free-vendor',loaded:true,entitlements:{queueSystemAccess:true,serviceBookingAccess:false,monthlyTickets:500},plan:{planSlug:'free',subscriptionStatus:'active'},...extra});
-test('actual service-catalog entitlement selects presentation, never plan name or a booking grant',()=>{
+const current=extra=>({optedIn:true,tenantSlug:'free-vendor',entitlementTenantSlug:'free-vendor',loaded:true,locationSlug:'main',setup:{scope:'free-vendor:main',ready:false},entitlements:{queueSystemAccess:true,serviceBookingAccess:false,monthlyTickets:500},plan:{planSlug:'free',subscriptionStatus:'active'},...extra});
+test('queue setup readiness, not booking permission or menu visibility, selects resource intake',()=>{
  assert.equal(queueIntakeMode(current()),'legacy');
- assert.equal(queueIntakeMode(current({entitlements:{serviceBookingAccess:true},plan:{planSlug:'pro',subscriptionStatus:'active'}})),'resource');
- assert.equal(queueIntakeMode(current({entitlements:{serviceBookingAccess:true}})),'resource','server grant wins over free label');
- assert.equal(queueIntakeMode(current({plan:{planSlug:'pro',subscriptionStatus:'active'}})),'legacy','pro label cannot invent a catalog grant');
- assert.equal(queueIntakeMode(current({optedIn:false,entitlements:{serviceBookingAccess:true}})),'legacy');
+ assert.equal(queueIntakeMode(current({setup:{scope:'free-vendor:main',ready:true}})),'resource');
+ assert.equal(queueIntakeMode(current({entitlements:{queueSystemAccess:true,serviceBookingAccess:true}})),'legacy');
+ assert.equal(queueIntakeMode(current({setup:{scope:'old-vendor:main',ready:true}})),'legacy');
+ assert.equal(queueIntakeMode(current({setup:{scope:'free-vendor:main',ready:true},optedIn:false})),'legacy');
+ assert.equal(queueIntakeMode(current({setup:{scope:'free-vendor:main',ready:true},entitlements:{queueSystemAccess:false,serviceBookingAccess:true}})),'legacy');
 });
-test('loading, failed/placeholder data and tenant switching never inherit another tenant intake mode',()=>{
+test('initial loading and scope changes fail safe, ordinary background refresh retains known setup',()=>{
  for(const change of [{loaded:false},{entitlements:undefined},{entitlementTenantSlug:undefined},{entitlementTenantSlug:'previous-pro'},{tenantSlug:''}])assert.equal(queueIntakeMode(current(change)),'loading');
- assert.equal(queueIntakeMode(current({tenantSlug:'new-free',entitlementTenantSlug:'old-pro',entitlements:{serviceBookingAccess:true}})),'loading');
- assert.equal(queueIntakeMode(current({tenantSlug:'new-free',entitlementTenantSlug:'new-free'})),'legacy');
- assert.equal(queueIntakeMode(current({tenantSlug:'pro',entitlementTenantSlug:'pro',entitlements:{serviceBookingAccess:true}})),'resource');
- assert.equal(queueIntakeMode(current({entitlements:{serviceBookingAccess:true},loaded:true})),'resource','background refetch retains scoped successful mode');
+ assert.equal(queueIntakeMode(current({setup:{scope:'free-vendor:main',ready:true},loaded:true})),'resource');
+ assert.equal(queueIntakeMode(current({locationSlug:'other',setup:{scope:'free-vendor:main',ready:true}})),'legacy');
 });
 test('dashboard integrates scoped mode across intake, dialog, dispatch and both ticket presentations',()=>{
  const source=fs.readFileSync(path.resolve(__dirname,'../src/pages/VendorDashboardPage.tsx'),'utf8');
@@ -70,7 +69,7 @@ test('actual management-only panel hides verified empty data but renders existin
  assert.match(source,/!plan&&managementOnly/);assert.match(source,/managementOnly&&!editor.plan/);assert.match(source,/const intakeAvailable=!managementOnly/);
  const page=fs.readFileSync(path.resolve(__dirname,'../src/pages/VendorDashboardPage.tsx'),'utf8');
  assert.match(page,/resourceManagementEnabled && selectedTenantSlug && selectedLocationSlug \? <SkippedQueueRequests/);
- assert.match(page,/<NamedQueuePanel managementOnly=\{!resourceQueueEnabled\}/);
+ assert.match(page,/<NamedQueuePanel[^\n]*managementOnly=\{!resourceQueueEnabled\}/);
  assert.match(page,/!resourceQueueEnabled && workPresentation.resourceCounters[\s\S]*?onClick=\{\(\)=>setWalkInDialogOpen\(true\)\}/);
  assert.match(page,/snapshot=\{legacyCounterSnapshot\}/);
 });
@@ -92,6 +91,6 @@ test('complete scoped inventories gate page-two V4 targets without locking ordin
  const publish=panel.indexOf("idsRef.current(ids?ids.split(','):[],inventoryScope)");
  assert.ok(publish>=0&&publish<panel.indexOf('managementReady.current?.(inventoryReady,inventoryScope)'),'IDs publish before readiness');
  const page=fs.readFileSync(path.resolve(__dirname,'../src/pages/VendorDashboardPage.tsx'),'utf8');
- assert.equal((page.match(/if\(scope===localPoolScopeRef.current\)/g)||[]).length,2,'ID and readiness callbacks reject stale scope');
+ assert.equal((page.match(/if\(scope===localPoolScopeRef.current\)/g)||[]).length,3,'IDs, inventory and setup callbacks reject stale scope');
  assert.match(page,/namedManagementRead.scope !== localPoolScope \|\| !namedManagementRead.ready/);
 });

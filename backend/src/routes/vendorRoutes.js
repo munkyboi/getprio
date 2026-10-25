@@ -1,6 +1,7 @@
 const { createQueueTicketDetailsService } = require("../services/queueTicketDetailsService");
 const queueTicketDetailsService = createQueueTicketDetailsService({ pool: require("../config/db").pool });
 const serviceDeactivationService = require("../services/serviceDeactivationService");
+const queueServiceCatalogService = require("../services/queueServiceCatalogService");
 const ticketServicePlanService = require("../services/ticketServicePlanService");
 const { projectOperationalBooking } = require("./vendorBookingReadModel");
 const permissions = require("../services/permissions");
@@ -676,6 +677,20 @@ router.get(
   })
 );
 router.get("/tenant/:tenantSlug/services/slug-availability", asyncHandler((req, res) => handleCheckServiceSlugAvailability({ req, res, getAuthorizedTenant, assertTenantPermission, vendorServiceRepository })));
+
+// Queue catalog configuration is independent of paid booking admission.
+router.post("/tenant/:tenantSlug/queue/services", asyncHandler(async(req,res)=>{
+ const tenant=await getAuthorizedTenant(req.user,req.params.tenantSlug);
+ assertTenantPermission(req.user,tenant._id,"tenant.service.manage");
+ const result=await queueServiceCatalogService.createQueueService(tenant,req.body||{},{actorUserId:req.user._id});
+ res.status(201).json({service:require("./vendorRouteHelpers").formatVendorService(result.service),locationServices:result.locationServices});
+}));
+router.patch("/tenant/:tenantSlug/queue/services/:serviceSlug", asyncHandler(async(req,res)=>{
+ const tenant=await getAuthorizedTenant(req.user,req.params.tenantSlug);
+ assertTenantPermission(req.user,tenant._id,"tenant.service.manage");
+ const result=await queueServiceCatalogService.updateQueueService(tenant,req.params.serviceSlug,req.body||{},{actorUserId:req.user._id});
+ res.json({service:require("./vendorRouteHelpers").formatVendorService(result.service),locationServices:result.locationServices});
+}));
 
 router.post("/tenant/:tenantSlug/services", asyncHandler((req, res) => handleCreateService({ req, res, getAuthorizedTenant, assertTenantPermission, serviceDeactivationService })));
 

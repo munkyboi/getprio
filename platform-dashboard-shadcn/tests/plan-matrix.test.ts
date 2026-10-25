@@ -34,3 +34,12 @@ test("Plan Matrix preserves review gates, audits reasons, and keeps credit catal
   assert.match(matrix, /Review and publish/)
   assert.doesNotMatch(matrix, /Usage Credit catalog|CreditTaskModal/)
 })
+
+test("Queue setup and paid booking policy remain independently editable without a new entitlement", () => {
+  assert.match(matrix, /Queue operations and service setup/)
+  assert.match(matrix, /Bookings, schedules and payment settings/)
+  assert.match(matrix, /Setup does not use ticket credits/)
+  assert.match(matrix, /key === "queue" && plan.slug === "free"/)
+  assert.match(matrix, /key === "booking" && !checked/)
+  assert.doesNotMatch(matrix, /queueServiceSetupAccess|queueServiceCredits/)
+})

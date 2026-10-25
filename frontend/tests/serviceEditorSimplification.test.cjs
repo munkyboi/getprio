@@ -28,10 +28,11 @@ test('location-specific policy and resource actions retain clicked branch/busine
 });
 test('unknown location configuration cannot render an ordinary capacity editor; known resource and ordinary states stay distinct',()=>{
  const React=require('react'),{renderToStaticMarkup}=require('react-dom/server');
- const a=source.indexOf('{!bookingConfigurationReady?'),b=source.indexOf('                        <ConfigurationNumber\n                          step={0.01}',a),jsx=source.slice(a+1,b).trim().replace(/\}$/u,'');
- const c={React,bookingConfigurationReady:false,resourceSettings:[],assignment:{locationSlug:'branch',capacity:1,isActive:true},locations:[{slug:'branch',name:'Branch'}],index:0,setServiceForm(){},ConfigurationNumber:props=>React.createElement('input',{'aria-label':props.label,value:props.value,readOnly:true})};
+ const a=source.indexOf('{bookingSettingsAllowed && (!bookingConfigurationReady?'),b=source.indexOf('                        {bookingSettingsAllowed && <><ConfigurationNumber\n                          step={0.01}',a),jsx=source.slice(a+1,b).trim().replace(/\}$/u,'');
+ const c={React,bookingSettingsAllowed:true,bookingConfigurationReady:false,resourceSettings:[],assignment:{locationSlug:'branch',capacity:1,isActive:true},locations:[{slug:'branch',name:'Branch'}],index:0,setServiceForm(){},ConfigurationNumber:props=>React.createElement('input',{'aria-label':props.label,value:props.value,readOnly:true})};
  const code=ts.transpileModule('function capacity(){return ('+jsx+');}',{compilerOptions:{jsx:ts.JsxEmit.React,target:ts.ScriptTarget.ES2022}}).outputText;vm.runInNewContext(code,c);
  assert.doesNotMatch(renderToStaticMarkup(c.capacity()),/<input/);assert.match(renderToStaticMarkup(c.capacity()),/unavailable/);
  c.bookingConfigurationReady=true;assert.match(renderToStaticMarkup(c.capacity()),/<input/);
  c.resourceSettings=[{locationSlug:'branch',capabilityEnabled:true,ready:true}];assert.doesNotMatch(renderToStaticMarkup(c.capacity()),/<input/);assert.match(renderToStaticMarkup(c.capacity()),/Pool capacity/);
+ c.bookingSettingsAllowed=false;c.resourceSettings=[];assert.doesNotMatch(renderToStaticMarkup(c.capacity()),/<input|unavailable|Pool capacity/);
 });

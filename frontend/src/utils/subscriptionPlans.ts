@@ -15,6 +15,7 @@ export function getPlanHighlights(plan: SubscriptionPlan): string[] {
   count(e.counters, "counter");
   count(e.staffSeats, "staff seat");
   count(plan.allowances?.queueTickets ?? e.monthlyTickets, "Queue Ticket", "Queue Tickets", "/mo");
+  if (plan.features?.queue ?? e.queueSystemAccess) highlights.push("Queue services, resource mappings and policies");
   if (plan.features?.booking ?? e.serviceBookingAccess) {
     count(plan.allowances?.serviceBookings ?? e.monthlyServiceBookings, "service booking", "service bookings", "/mo");
   }

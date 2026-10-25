@@ -89,6 +89,7 @@ test("service status mutation retains saved unit bounds and service settings in 
   };
   const calls = [];
   const context = {
+    bookingSettingsAllowed: true,
     token: "fixture",
     selectedTenantSlug: "sports",
     setBusyAction() {},
@@ -124,6 +125,8 @@ test("service status mutation retains saved unit bounds and service settings in 
   ])
     assert.equal(body[key], service[key]);
   assert.equal(body.isActive, false);
+  assert.equal(calls[0][4],false,"Pro keeps normal booking catalog path");
+  context.bookingSettingsAllowed=false;await fn(service,false);assert.equal(calls[1][4],true,"Free uses strict queue payload client path");
 });
 
 test("opening and saving an existing service-specific date-only block preserves its service scope", () => {
