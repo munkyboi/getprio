@@ -1,3 +1,4 @@
+import type { VendorResourceActivationV1 } from "../../../shared/vendorResourceActivationV1";
 import type { LocalResourceActivationV1 } from "../../../shared/localResourceActivationV1";
 import type { FormEvent } from "react";
 import {
@@ -38,6 +39,7 @@ export type ResourceConfiguration = {
   services: { id: string; name: string }[];
   trackingAvailable: false;
   localActivation?: LocalResourceActivationV1;
+  resourceActivation?: VendorResourceActivationV1;
 };
 export type PoolEditor = {
   kind: "pool";

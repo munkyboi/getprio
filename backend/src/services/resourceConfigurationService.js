@@ -33,6 +33,7 @@ async function read(scope, client) {
   `, [scope.tenantId, scope.locationId]);
   const version = createHash("sha256").update(JSON.stringify(configuration)).digest("hex");
   return { ...configuration, version, services: services.rows, trackingAvailable: false,
+    resourceActivation:await require("./vendorResourceActivationService").describe(client,scope,configuration.pools),
     localActivation:await require("./localResourceActivationService").describe(client,scope,configuration.pools) };
 }
 async function getConfiguration(scope) {
@@ -134,5 +135,5 @@ async function saveConfiguration(scope, body) {
     {type:"queue-plans-updated",locationId:String(scope.locationId)}, {locationId:scope.locationId});
   return result;
 }
-module.exports = { getConfiguration, saveConfiguration,
+module.exports = { getConfiguration, saveConfiguration, getConfigurationInTransaction:read,
   activateConfiguration:(scope,poolId,body,operationKey)=>require("./localResourceActivationService").activate(scope,poolId,body,operationKey,read) };

@@ -4,6 +4,7 @@ const path = require('node:path');
 // Preserve historical filenames and migration markers. These explicit edges
 // correct only the queue feature's same-day dependency order; SQL is unchanged.
 const DEPENDENCIES = Object.freeze({
+  '20261025_vendor_resource_activation.sql': ['20261003_add_resource_capacity_foundation.sql','20261007_add_resource_ledger_foundation.sql','20261017_add_queue_plan_drafts.sql','20261017_resource_members_and_queue_policies.sql','20260804_04_add_idempotency_and_security_audit.sql'],
   '20261017_named_extra_members_v1.sql': ['20261017_selection_child_execution.sql'],
   '20261017_named_resource_archival.sql': ['20261017_resource_members_and_queue_policies.sql'],
   '20261017_queue_plan_catalog_revision.sql': ['20261017_add_queue_plan_drafts.sql'],

@@ -31,3 +31,9 @@ test('UTF-16 filename order and tracked Docker manifest match the shared planner
   assert.equal(fs.readFileSync(path.join(directory,'migration-order.txt'),'utf8'),
     orderedMigrationFiles(directory).map(file=>path.basename(file)).join('\n')+'\n', 'regenerate Docker manifest with the shared dependency planner after adding migrations');
 });
+
+test('Vendor activation migration removes only historical disabled check and keeps tracking default untouched',()=>{
+ const sql=fs.readFileSync(path.join(__dirname,'../database/migrations/20261025_vendor_resource_activation.sql'),'utf8');
+ assert.match(sql,/DROP CONSTRAINT IF EXISTS resource_pools_tracking_disabled_check/);
+ assert.doesNotMatch(sql,/UPDATE\s|INSERT\s|SET DEFAULT|DROP TABLE|DROP COLUMN|ADD COLUMN/);
+});

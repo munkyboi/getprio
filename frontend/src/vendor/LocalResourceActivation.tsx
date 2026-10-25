@@ -1,14 +1,14 @@
 import { useRef,useState } from 'react';
 import type { ResourceConfiguration } from '../components/VendorResourceConfigurationForms';
 import { ApiError } from '../api/client';
-import { prepareResourceActivation,submitResourceActivation,type ResourceActivationAttempt } from './resourceActivationCommand';
+import { prepareResourceActivation,submitResourceActivation,resourceActivationCapability,type ResourceActivationAttempt } from './resourceActivationCommand';
 import { Button } from './components/ui/button';
 
 export function LocalResourceActivation({configuration,poolId,tenant,location,token,disabled,visible=true,onBusy,onChanged,onRefresh}:{configuration:ResourceConfiguration|undefined;poolId:string;tenant:string;location:string;token:string;disabled:boolean;visible?:boolean;onBusy:(busy:boolean)=>void;onChanged:(result:ResourceConfiguration)=>void;onRefresh:()=>void}) {
   const [working,setWorking]=useState(false),[error,setError]=useState(''),[uncertain,setUncertain]=useState(false);
   const pending=useRef<ResourceActivationAttempt|null>(null);
-  const capability=configuration?.localActivation,record=capability?.pools.find(pool=>pool.poolId===poolId);
-  const allowed=capability?.capability==='local-resource-activation-v1'&&capability.available&&record?.status==='ready';
+  const capability=resourceActivationCapability(configuration),record=capability?.pools.find(pool=>pool.poolId===poolId);
+  const allowed=Boolean(capability&&['vendor-resource-activation-v1','local-resource-activation-v1'].includes(capability.capability))&&capability?.available&&record?.status==='ready';
   async function activate(){
     if(working||(!pending.current&&disabled))return;
     try{if(!pending.current){if(!configuration)return;pending.current=prepareResourceActivation(configuration,poolId,tenant,location,crypto.randomUUID());}}catch(e){setError(e instanceof Error?e.message:'Refresh resource setup.');return;}

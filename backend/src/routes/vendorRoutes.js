@@ -299,6 +299,17 @@ for (const method of ["get", "put"]) {
     res.json(configuration);
   }));
 }
+router.post('/tenant/:tenantSlug/locations/:locationSlug/resources/:poolId/tracking/activate',asyncHandler(async(req,res)=>{
+ const activation=require('../services/vendorResourceActivationService');
+ if(!activation.enabled())throw Object.assign(new Error('Resource activation is unavailable in this environment.'),{statusCode:404,code:'VENDOR_ACTIVATION_UNAVAILABLE'});
+ const tenant=await getAuthorizedTenant(req.user,req.params.tenantSlug);
+ assertTenantPermission(req.user,tenant._id,'tenant.location.manage');
+ assertTenantPermission(req.user,tenant._id,'tenant.service.manage');
+ const location=await getLocationForTenant(tenant,req.params.locationSlug);
+ const result=await activation.activate({tenantId:String(tenant._id),locationId:String(location._id),actorUserId:String(req.user._id),sessionId:req.auth?.sessionId},req.params.poolId,req.body,req.get('Idempotency-Key'),(scope,client)=>resourceConfigurationService.getConfigurationInTransaction(scope,client));
+ res.json(result);
+}));
+
 router.post("/tenant/:tenantSlug/locations/:locationSlug/resources/:poolId/activate",asyncHandler(async(req,res)=>{
   const localRequest=require("../services/localFixtureTenantScope").loopbackRequest(req);
   if(!localRequest)throw Object.assign(new Error("Local resource activation is unavailable."),{statusCode:404,code:"LOCAL_ACTIVATION_UNAVAILABLE"});
