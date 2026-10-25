@@ -50,3 +50,22 @@ test('dashboard actually wires the scoped catalog to current tenant query and lo
  assert.doesNotMatch(source,/<ManagedCollection key=\{selectedTenantSlug\} items=\{services\}/);
  assert.match(source,/Remove service from all locations\?/);
 });
+
+test('actual Free queue catalog hides paid booking metadata while retaining queue facts and shared status',()=>{
+ const before=JSON.stringify({services,assignments});
+ const html=render({bookingEnabled:false});
+ for(const text of ['Court Rental','60 min','List order','Enabled branch assignments','Mandaue','Business active'])assert.ok(html.includes(text),text);
+ for(const text of ['per booking','per unit','<dt>Price</dt>','<dt>Quantity</dt>','Booking limit','<dt>Payment</dt>','No proof required'])assert.ok(!html.includes(text),text);
+ assert.match(html,/aria-label="Edit Court Rental service"/);assert.equal(JSON.stringify({services,assignments}),before);
+});
+test('actual Pro catalog retains full paid details and dashboard passes explicit effective capability',()=>{
+ const html=render({bookingEnabled:true});for(const text of ['60 min per booking','<dt>Price</dt>','One per booking','Booking limit','Only this service','<dt>Payment</dt>','No proof required'])assert.ok(html.includes(text),text);
+ const source=fs.readFileSync(path.join(__dirname,'../src/pages/VendorDashboardPage.tsx'),'utf8');assert.match(source,/bookingEnabled=\{bookingSettingsAllowed\} assignments=/);assert.match(source,/const bookingSettingsAllowed = effectiveEntitlementsQuery.isSuccess && !effectiveEntitlementsQuery.isPlaceholderData && effectiveEntitlementsQuery.data\?\.clientTenantSlug === selectedTenantSlug && effectiveEntitlements\?\.serviceBookingAccess === true/);
+ const {ServicesGrid}=require('../src/vendor/ServicesGrid.tsx');const shared=renderToStaticMarkup(React.createElement(ServicesGrid,{items:services,assignments,locations,canManage:true,busyAction:'',assignmentsReady:true,bookingEnabled:false,onToggle(){},onEdit(){},onRemove(){}}));assert.ok(shared.includes('Unassigned service'));assert.ok(shared.includes('No enabled branches'));assert.ok(!shared.includes('Booking limit'));
+});
+test('actual booking metadata gate fails closed for unknown, failed, placeholder and foreign tenant reads',()=>{
+ const vm=require('node:vm');const source=fs.readFileSync(path.join(__dirname,'../src/pages/VendorDashboardPage.tsx'),'utf8');const expression=source.match(/const bookingSettingsAllowed = ([^\n]+);/)[1];
+ const current={effectiveEntitlementsQuery:{isSuccess:true,isPlaceholderData:false,data:{clientTenantSlug:'free'}},selectedTenantSlug:'free',effectiveEntitlements:{serviceBookingAccess:false}};
+ for(const change of [{},{effectiveEntitlements:undefined},{effectiveEntitlements:{serviceBookingAccess:true},effectiveEntitlementsQuery:{isSuccess:false}},{effectiveEntitlements:{serviceBookingAccess:true},effectiveEntitlementsQuery:{isSuccess:true,isPlaceholderData:true,data:{clientTenantSlug:'free'}}},{effectiveEntitlements:{serviceBookingAccess:true},effectiveEntitlementsQuery:{isSuccess:true,isPlaceholderData:false,data:{clientTenantSlug:'previous-pro'}}}])assert.equal(vm.runInNewContext(expression,{...current,...change}),false);
+ assert.equal(vm.runInNewContext(expression,{...current,effectiveEntitlements:{serviceBookingAccess:true}}),true);
+});

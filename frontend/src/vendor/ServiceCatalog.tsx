@@ -27,6 +27,7 @@ type Props = {
   assignmentsReady: boolean;
   assignmentsLoading?: boolean;
   canManage: boolean;
+  bookingEnabled?: boolean;
   busyAction: string;
   onAdd: () => void;
   onToggle: (service: VendorServiceSummary, active: boolean) => void;
@@ -58,7 +59,7 @@ export function ServiceCatalog(props: Props) {
     <p className="ops-muted">Service details, business availability and removal affect the shared service across all locations. Change location offerings in the service editor’s Locations tab.</p>
     {!props.catalogReady ? null : scope === "location" && !location ? <OperationEmpty title="Choose a location" text="Select a location above, or choose All business services to manage the shared catalog." />
       : scope === "location" && !props.assignmentsReady ? <p className="ops-muted">{props.assignmentsLoading ? "Loading location offerings…" : "Location assignments are unavailable. Refresh the branch settings above to review this location’s catalog."}</p>
-      : ready && !items.length ? <OperationEmpty title={scope === "business" ? "No business services yet" : `No services offered at ${location!.name}`} text={scope === "business" ? "Add a service, then choose where customers can book it." : "Choose All business services, edit a service and enable this location in its Locations tab."} />
-      : ready ? <ManagedCollection key={scope} items={items} label="services" defaultStatus="active" statusTabs searchText={service => `${service.name} ${service.slug}`} statusOf={service => service.isActive ? "active" : "inactive"} statuses={[{value:"active",label:"Active"},{value:"inactive",label:"Inactive"}]}>{visible => <ServicesGrid items={visible} assignments={props.assignments} locations={props.locations} canManage={props.canManage} busyAction={props.busyAction} assignmentsReady={props.assignmentsReady} onToggle={props.onToggle} onEdit={props.onEdit} onRemove={props.onRemove} />}</ManagedCollection> : null}
+      : ready && !items.length ? <OperationEmpty title={scope === "business" ? "No business services yet" : `No services offered at ${location!.name}`} text={scope === "business" ? "Add a service, then choose the locations where it is offered." : "Choose All business services, edit a service and enable this location in its Locations tab."} />
+      : ready ? <ManagedCollection key={scope} items={items} label="services" defaultStatus="active" statusTabs searchText={service => `${service.name} ${service.slug}`} statusOf={service => service.isActive ? "active" : "inactive"} statuses={[{value:"active",label:"Active"},{value:"inactive",label:"Inactive"}]}>{visible => <ServicesGrid bookingEnabled={props.bookingEnabled} items={visible} assignments={props.assignments} locations={props.locations} canManage={props.canManage} busyAction={props.busyAction} assignmentsReady={props.assignmentsReady} onToggle={props.onToggle} onEdit={props.onEdit} onRemove={props.onRemove} />}</ManagedCollection> : null}
   </div>;
 }

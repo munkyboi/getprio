@@ -1249,7 +1249,7 @@ function VendorDashboardContent() {
     currentPlan?.entitlements ||
     effectiveEntitlementsQuery.data?.entitlements;
   const tenantPlan = effectiveEntitlementsQuery.data?.plan;
-  const bookingSettingsAllowed = effectiveEntitlements?.serviceBookingAccess === true;
+  const bookingSettingsAllowed = effectiveEntitlementsQuery.isSuccess && !effectiveEntitlementsQuery.isPlaceholderData && effectiveEntitlementsQuery.data?.clientTenantSlug === selectedTenantSlug && effectiveEntitlements?.serviceBookingAccess === true;
   const [queueSetupRead,setQueueSetupRead] = useState<{scope:string;ready:boolean}>({scope:"",ready:false});
   const intakeMode = queueIntakeMode({
     optedIn: resourceQueueOptIn, tenantSlug: selectedTenantSlug,
@@ -7514,7 +7514,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   onRetry={() => void locationServicesQuery.refetch()}
                 />
                 <ServiceCatalog key={`${selectedTenantSlug}:${selectedLocationSlug}`} services={servicesQuery.data?.services || []}
-                    assignments={locationServicesQuery.data?.locationServices || []} locations={locations}
+                    bookingEnabled={bookingSettingsAllowed} assignments={locationServicesQuery.data?.locationServices || []} locations={locations}
                     selectedLocationSlug={selectedLocationSlug} catalogReady={catalogReady}
                     assignmentsLoading={locationServicesQuery.isPending}
                     canManage={isOwner || isAdmin} busyAction={busyAction} assignmentsReady={assignmentsReady}
