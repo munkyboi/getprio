@@ -5,7 +5,7 @@ import { Button } from "./components/ui/button";
 
 const stateLabel:Record<QueuePublishedPlanV2['state'],string>={waiting:'Waiting',called:'Called',in_service:'In service',served:'Completed',skipped:'Skipped',cancelled:'Cancelled',unserved:'Unserved',expired:'Expired',pending_carry_over:'Carry-over'};
 type Action=QueuePublishedPlanV2['allowedActions'][number];
-const actionLabel:Partial<Record<Action,string>>={amend:'Amend service plan',call:'Call ticket',start:'Start service',complete:'Complete service',interrupt:'Interrupt service',ready:'Mark ready',arrive:'Record arrival',handoff:'Send to next station',pause:'Pause stage',resume:'Resume stage',retry:'Retry stage',cancelJourney:'Cancel future progression'};
+const actionLabel:Partial<Record<Action,string>>={skip:'Skip stage',recall:'Recall stage',amend:'Amend service plan',call:'Call ticket',start:'Start service',complete:'Complete service',interrupt:'Interrupt service',ready:'Mark ready',arrive:'Record arrival',handoff:'Send to next station',pause:'Pause stage',resume:'Resume stage',retry:'Retry stage',cancelJourney:'Cancel future progression'};
 function time(value:string){return new Date(value).toLocaleTimeString('en-PH',{hour:'2-digit',minute:'2-digit'});}
 /** Server projections only: planned requirements are never rendered as actual occupancy. */
 export function PublishedQueuePlans<A extends Action='amend'|'call'|'start'|'complete'|'interrupt'>({plans,busy,onAction,actions}:{plans:QueuePublishedPlanV2[];busy:boolean;actions?:readonly A[];onAction:(plan:QueuePublishedPlanV2,action:A)=>void}) {

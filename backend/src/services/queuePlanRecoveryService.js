@@ -36,16 +36,18 @@ async function recall(client,{scope,tenant,location,ticket,p,stage,body,queue,qu
  const currentLocation={...location,queueLifecycleMode:branch.queue_lifecycle_mode,timezone:branch.timezone||'Asia/Manila'};
  const day=await queue.assertQueueIntakeOpen(tenant,currentLocation,{client,queueDateKey:today});
  const dateKey=day?.businessDate?String(day.businessDate).replaceAll('-',''):today;
- if(String(ticket.queueDateKey||ticket.dateKey)!==dateKey||(day&&String(ticket.currentQueueDayId)!==String(day._id)))fail('RECALL_QUEUE_DAY_CHANGED','Recall is limited to the same open Queue Day.');
+ const arrivalContract=stage.arrival_contract_version===1;
+ if(!arrivalContract&&(String(ticket.queueDateKey||ticket.dateKey)!==dateKey||(day&&String(ticket.currentQueueDayId)!==String(day._id))))fail('RECALL_QUEUE_DAY_CHANGED','Recall is limited to the same open Queue Day.');
  const policy=(await client.query('SELECT auto_pause_enabled,auto_pause_threshold FROM tenants WHERE id=$1',[scope.tenantId])).rows[0];
- await queue.assertWaitingIntakeCapacityAvailable({...tenant,autoPauseEnabled:policy.auto_pause_enabled,autoPauseThreshold:policy.auto_pause_threshold},location,{client,queueDateKey:dateKey});
+ if(!arrivalContract)await queue.assertWaitingIntakeCapacityAvailable({...tenant,autoPauseEnabled:policy.auto_pause_enabled,autoPauseThreshold:policy.auto_pause_threshold},location,{client,queueDateKey:dateKey});
  const tuple=[scope.tenantId,scope.locationId,ticket._id];
  if((await client.query("SELECT 1 FROM resource_ledger_reservations WHERE tenant_id=$1 AND location_id=$2 AND ticket_id=$3 AND state='protected' LIMIT 1",tuple)).rows.length||(await client.query('SELECT 1 FROM resource_allocations WHERE tenant_id=$1 AND location_id=$2 AND ticket_id=$3 AND released_at IS NULL LIMIT 1',tuple)).rows.length)fail('INVALID_STATE','Resolve unexpected live resource records before Recall.');
  const children=(await client.query('SELECT * FROM queue_child_attempts WHERE tenant_id=$1 AND location_id=$2 AND ticket_id=$3 AND plan_revision=$4 AND stage_attempt_id=$5 AND is_current ORDER BY CASE WHEN selection_kind=\'resource\' THEN 0 ELSE 1 END,selection_id FOR UPDATE',[...tuple,p.revision,stage.id])).rows;
  if([3,4].includes(p.contract_version)&&(!children.length||children.some(c=>c.state!=='skipped'||c.started_at||!c.ended_at)))fail('INVALID_STATE','The skipped attempt history needs reconciliation.');
  const stageId=randomUUID();
- await client.query(`INSERT INTO queue_stage_attempts(id,tenant_id,location_id,ticket_id,stage_id,attempt,ordinal,state,station_id,station_snapshot,label,assigned_user_id)
- VALUES($1,$2,$3,$4,$5,$6,$7,'waiting',$8,$9::jsonb,$10,$11)`,[stageId,...tuple,stage.stage_id,String(BigInt(stage.attempt)+1n),stage.ordinal,stage.station_id,JSON.stringify(stage.station_snapshot),stage.label,stage.assigned_user_id]);
+ const recalledState=arrivalContract?(stage.readiness_required===true?'awaiting_readiness':'awaiting_arrival'):'waiting';
+ await client.query(`INSERT INTO queue_stage_attempts(id,tenant_id,location_id,ticket_id,stage_id,attempt,ordinal,state,station_id,station_snapshot,label,assigned_user_id,arrival_contract_version,resource_requirement,readiness_required)
+ VALUES($1,$2,$3,$4,$5,$6,$7,$12,$8,$9::jsonb,$10,$11,$13,$14::jsonb,$15)`,[stageId,...tuple,stage.stage_id,String(BigInt(stage.attempt)+1n),stage.ordinal,stage.station_id,JSON.stringify(stage.station_snapshot),stage.label,stage.assigned_user_id,recalledState,stage.arrival_contract_version||0,JSON.stringify(stage.resource_requirement||{kind:'pool'}),stage.readiness_required===true]);
  if(children.length)await client.query('UPDATE queue_child_attempts SET is_current=FALSE,revision=revision+1 WHERE id=ANY($1::uuid[])',[children.map(c=>c.id)]);
  const parentIds=new Map();
  for(const child of children){const id=randomUUID();parentIds.set(child.selection_id,id);
