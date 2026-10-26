@@ -49,7 +49,16 @@ export interface QueuePlanStageV2 {
   skippedAt?: string | null;
   skipReason?: string | null;
   skippedByUserId?: string | null;
+  resourceRequirement?: {kind:"none"|"pool"};
+  readinessRequired?: boolean;
+  readyAt?: string|null;
+  arrivedAt?: string|null;
+  stationWaitingAt?: string|null;
+  stationQueueSequence?: string|null;
+  stationQueueDateKey?: string|null;
   state:
+    | "awaiting_readiness"
+    | "awaiting_arrival"
     | "pending"
     | "waiting"
     | "called"
@@ -58,6 +67,7 @@ export interface QueuePlanStageV2 {
     | "completed"
     | "interrupted"
     | "superseded"
+    | "cancelled"
     | "skipped";
 }
 export interface QueuePlanRequirementV2 {
@@ -161,6 +171,9 @@ export interface QueuePublishedPlanV2 {
     | "start"
     | "complete"
     | "interrupt"
+    | "ready"
+    | "arrive"
+    | "cancelJourney"
     | "handoff"
     | "pause"
     | "resume"
@@ -211,6 +224,8 @@ export interface QueueWorkflowV2 {
     stationId: string;
     label: string;
     serviceIds: string[];
+    resourceRequirement?: {kind:"none"|"pool"};
+    readinessRequired?: boolean;
   }>;
 }
 

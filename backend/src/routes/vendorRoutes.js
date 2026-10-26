@@ -1453,7 +1453,7 @@ router.post('/tenant/:tenantSlug/queue/plans/:planId/publish', asyncHandler(asyn
     draftId:req.params.planId,operationKey:req.get('Idempotency-Key'),body:req.body});
   res.json(result);
 }));
-for(const action of ['call','start','complete','interrupt','amend','handoff','pause','resume','retry','reassign','cancelProtection','skip','recall']) {
+for(const action of ['call','start','complete','interrupt','amend','handoff','ready','arrive','cancelJourney','pause','resume','retry','reassign','cancelProtection','skip','recall']) {
   router.post(`/tenant/:tenantSlug/queue/plans/:planId/${action}`,asyncHandler(async(req,res)=>{
     const context=await queuePlanContext(req);
     const serviceCounter=action==='call'||Object.hasOwn(req.body||{},'expectedCounterId') ? await getCounterForLocation(context.location,normalizeRequestText(req.body.counterSlug)):undefined;

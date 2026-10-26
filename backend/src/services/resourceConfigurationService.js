@@ -113,6 +113,7 @@ async function saveConfiguration(scope, body) {
     pool: db.pool, ...scope, locationKeyShareCompatible: !["deletePool", "archivePool"].includes(body.action),
     authorize: authorizeConfiguration
   }, async (client) => {
+    if(!["removeRequirement","deletePool","archivePool"].includes(body.action)) await require('./queueTypeService').assertConfiguration(client,scope);
     tenantSlug = (await client.query("SELECT to_jsonb(tenants)->>'slug' AS slug FROM tenants WHERE id=$1", [scope.tenantId])).rows[0]?.slug;
     const current = await read(scope, client);
     if (["deletePool", "archivePool"].includes(body.action)) {

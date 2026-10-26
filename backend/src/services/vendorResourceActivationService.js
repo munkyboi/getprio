@@ -64,6 +64,7 @@ async function activate(scope,poolId,body,operationKey,readConfiguration){
  if(!enabled())fail(unavailable(),404);
  let actor,changed=false,tenantSlug;
  const result=await ledger.withScopeTransaction({pool:db.pool,...scope,locationKeyShareCompatible:true,authorize:async(client,locked)=>{actor=await authorize(client,locked);return Boolean(actor);}},async client=>{
+   await require('./queueTypeService').assertConfiguration(client,scope);
    if(!await capability(client,scope))fail(unavailable(),404);
    return receipts.execute(client,scope,{operationKey,action:'vendor_resource_pool_activate',target:poolId,payload:body},async()=>{
     const current=await readConfiguration(scope,client);

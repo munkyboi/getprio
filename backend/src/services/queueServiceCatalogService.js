@@ -1,3 +1,4 @@
+const resolver = require("./entitlementResolver");
 const admission = require("./entitlementAdmissionService");
 const catalog = require("./serviceDeactivationService");
 const services = require("../repositories/vendorServices");
@@ -36,6 +37,8 @@ function validateQueuePayload(body) {
 async function save(client, branchIds, tenant, body, current) {
   validateQueuePayload(body);
   // Feature/lifecycle admission only: configuration neither spends nor checks ticket/booking allowance.
+  const currentPolicy=await resolver.resolveTenantPolicy(tenant._id,{client,lockPolicy:true,queueTypePolicy:true});
+  resolver.assertFeature(currentPolicy,'queue');
   await admission.admit({tenantId:tenant._id,featureKey:"queue",client,lockPolicy:true});
   const previousQueue = current ? Object.fromEntries(SERVICE_FIELDS.map(key=>[key,current[key]])) : null;
   const normalized = normalizeServicePayload({...previousQueue,...body},previousQueue);

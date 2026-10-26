@@ -21,7 +21,7 @@ async function read(client,scope,{lock=false}={}) {
  const row=(await client.query(`SELECT l.slug,t.slug AS tenant_slug,to_jsonb(l)->>'queue_type' AS queue_type,to_jsonb(l)->>'queue_type_revision' AS revision
  FROM store_locations l JOIN tenants t ON t.id=l.tenant_id WHERE l.id=$2 AND t.id=$1 AND l.is_active AND t.is_active ${lock?'FOR UPDATE OF l':''}`,[scope.tenantId,scope.locationId])).rows[0];
  if(!row)fail('LOCATION_NOT_FOUND','Location not found.',404);
- const policy=await resolver.resolveTenantPolicy(scope.tenantId,{client,lockPolicy:lock});
+ const policy=await resolver.resolveTenantPolicy(scope.tenantId,{client,lockPolicy:lock,queueTypePolicy:true});
  const caps=capabilities(policy);
  // Configuration readiness never depends on current resource occupancy.
  const rows=(await client.query(`SELECT s.id::text,r.pool_id::text,r.units_required,p.capacity,p.tracking_enabled,
@@ -33,10 +33,12 @@ async function read(client,scope,{lock=false}={}) {
  LEFT JOIN queue_service_policies q ON (q.service_id,q.tenant_id,q.location_id)=(s.id,s.tenant_id,ls.location_id)
  WHERE s.tenant_id=$1 AND ls.location_id=$2 AND s.is_active AND ls.is_active`,[scope.tenantId,scope.locationId])).rows;
  const workflow=await workflows.read(client,scope);
- const configured=rows.some(row=>minimum.evaluate(row,rows,{workflow}).requestable);
+ const configured=rows.some(row=>minimum.evaluate(row,rows,{workflow:{mode:'linear',stages:[]}}).requestable);
+ const offered=(await client.query('SELECT s.id::text FROM vendor_services s JOIN location_services l ON l.service_id=s.id AND l.tenant_id=s.tenant_id WHERE s.tenant_id=$1 AND l.location_id=$2 AND s.is_active AND l.is_active',[scope.tenantId,scope.locationId])).rows;
+ const workflowReady=workflow.mode==='multi_station' && workflow.stages.length>=2 && new Set(workflow.stages.map(stage=>stage.stationId)).size>=2 && workflow.stages.every(stage=>workflow.stations.some(station=>station.stationId===stage.stationId)) && (caps.resource||workflow.stages.every(stage=>stage.resourceRequirement?.kind==='none')) && workflow.stages.every(stage=>stage.serviceIds.some(id=>offered.some(row=>row.id===id)&&(stage.resourceRequirement?.kind==='none'||rows.some(row=>row.id===id&&row.configuration?.assignment?.mode!=='named'&&minimum.evaluate(row,rows,{workflow}).requestable))));
 
  return {contract:'queue-type-v1',scope:{tenantSlug:row.tenant_slug,locationSlug:row.slug},type:TYPES.includes(row.queue_type)?row.queue_type:'simple',revision:row.revision||'1',futureAdmissionsOnly:true,capabilities:caps,
- readiness:{simple:{ready:true,reason:null},resource:{ready:configured,reason:configured?null:'Configure a service, resource pool and queue policy first.'},workflow:{ready:false,reason:'Sequential workflow readiness and arrival support is not activated yet.'}},
+ readiness:{simple:{ready:true,reason:null},resource:{ready:configured,reason:configured?null:'Configure a service, resource pool and queue policy first.'},workflow:{ready:workflowReady,reason:workflowReady?null:'Configure every station, required stage and resource policy before enabling Workflow Queue.'}},
  notice:'This setting applies to future requests only. Existing requests and reservations keep their original setup.'};
 }
 async function get(context) {
@@ -65,4 +67,31 @@ async function put(context,body,operationKey) {
  if(changed)events.publish(context.tenant.slug,{type:'queue-plans-updated',locationId:scope.locationId},{locationId:scope.locationId});
  return result;
 }
-module.exports={get,put,read,validate,capabilities};
+async function execution(client,scope,{lock=true}={}) {
+ const row=(await client.query(`SELECT COALESCE(to_jsonb(l)->>'queue_type','simple') AS type FROM store_locations l WHERE tenant_id=$1 AND id=$2 ${lock?'FOR SHARE':''}`,[scope.tenantId,scope.locationId])).rows[0];
+ if(!row||!TYPES.includes(row.type))fail('LOCATION_NOT_FOUND','Queue location not found.',404);
+ const policy=await resolver.resolveTenantPolicy(scope.tenantId,{client,lockPolicy:lock,queueTypePolicy:true});
+ return {type:row.type,capabilities:capabilities(policy),policy};
+}
+async function assertConfiguration(client,scope,feature='resource') {
+ const state=await execution(client,scope);
+ if(!state.capabilities[feature])fail(state.policy.restriction?.code||'QUEUE_TYPE_NOT_INCLUDED',state.policy.restriction?.message||'Your current plan does not include this queue setup.',403);
+ return state;
+}
+async function assertAdmission(client,scope,expectedType='simple') {
+ const state=await execution(client,scope);
+ if(state.type!==expectedType)fail('QUEUE_TYPE_ADMISSION_REQUIRED',`This location uses ${state.type} requests. Use its supported request flow.`,409);
+ if(!state.capabilities[state.type])fail(state.policy.restriction?.code||'QUEUE_TYPE_NOT_INCLUDED',state.policy.restriction?.message||'Your current plan does not include new requests for this queue type.',403);
+ return state;
+}
+async function assertAmendment(client,scope,oldItems,newItems,workflowMode) {
+ const state=await execution(client,scope);
+ const expected=workflowMode==='multi_station'?'workflow':'resource';
+ const allowed=state.type===expected && state.capabilities[expected] && (!newItems.some(item=>item.resource?.known)||state.capabilities.resource);
+ if(allowed)return;
+ for(const item of newItems){
+  const old=oldItems.find(value=>(value.selectionId||value.lineId)===(item.selectionId||item.lineId));
+  if(!old||old.serviceId!==item.serviceId||old.stageId!==item.stageId||old.resource?.poolId!==item.resource?.poolId||old.resourceMemberId!==item.resourceMemberId||item.quantity>old.quantity||item.durationMinutes>old.durationMinutes||Number(item.resource?.totalUnits||0)>Number(old.resource?.totalUnits||0))fail('QUEUE_TYPE_WIND_DOWN_ONLY','This request can be reduced or resolved, but its original resources and duration cannot be extended on the current plan.',403);
+ }
+}
+module.exports={get,put,read,validate,capabilities,execution,assertConfiguration,assertAdmission,assertAmendment};

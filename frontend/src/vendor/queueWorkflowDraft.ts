@@ -2,7 +2,7 @@
 export interface QueueWorkflowDraft {
  mode:'linear'|'multi_station';
  stations:Array<{stationId:string;name:string;serviceCounterIds:string[]}>;
- stages:Array<{stageId:string;stationId:string;label:string;serviceIds:string[]}>;
+ stages:Array<{stageId:string;stationId:string;label:string;serviceIds:string[];resourceRequirement?:{kind:"none"|"pool"};readinessRequired?:boolean}>;
 }
 export interface WorkflowChoice {id:string;name:string}
 export function workflowDraftIssues(draft:QueueWorkflowDraft,counters:WorkflowChoice[],services:WorkflowChoice[]):string[] {

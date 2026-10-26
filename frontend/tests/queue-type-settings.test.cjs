@@ -6,7 +6,7 @@ const {queueIntakeMode}=require('../src/vendor/queueIntakeMode.ts');
 const configuration={contract:'queue-type-v1',scope:{tenantSlug:'t',locationSlug:'main'},type:'simple',revision:'1',futureAdmissionsOnly:true,capabilities:{simple:true,resource:false,workflow:false},readiness:{simple:{ready:true,reason:null},resource:{ready:true,reason:null},workflow:{ready:false,reason:'Workflow is not activated.'}},notice:'Future requests only.'};
 test('actual selector labels three execution types and locks unsupported options',()=>{
  const html=renderToStaticMarkup(React.createElement(QueueTypeSettings,{configuration,canEdit:true,busy:false,onSave:async()=>{}}));
- for(const text of ['Simple Queue','Resource Queue','Workflow Queue','Future requests only.','Not included in your current plan.'])assert.ok(html.includes(text),text);
+ for(const text of ['Simple queue','Resource-based queue','Queue workflow','Future requests only.','Not included in your current plan.'])assert.ok(html.includes(text),text);
  assert.equal((html.match(/type="radio"/g)||[]).length,3);assert.match(html,/disabled="" value="resource"/);assert.match(html,/type="checkbox" disabled=""/);
 });
 test('explicit type replaces readiness auto-detection and stale scopes fail closed',()=>{

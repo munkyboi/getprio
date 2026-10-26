@@ -4,7 +4,7 @@ import { ConfigurationCheck, ConfigurationInput, ConfigurationSelect } from './C
 import { OperationButton } from './OperationsUi';
 import { moveWorkflowStage, workflowDraftIssues, type QueueWorkflowDraft, type WorkflowChoice } from './queueWorkflowDraft';
 
-/** Prepared controlled fields. No API binding, persistence or runtime activation. */
+/** Controlled sequential station fields; the parent owns revisioned server writes. */
 export function QueueWorkflowFields({draft,counters,services,busy,onChange}:{draft:QueueWorkflowDraft;counters:WorkflowChoice[];services:WorkflowChoice[];busy:boolean;onChange:(draft:QueueWorkflowDraft)=>void}) {
  const issues=workflowDraftIssues(draft,counters,services);
  const toggle=(ids:string[],id:string,checked:boolean)=>checked?[...ids,id]:ids.filter(value=>value!==id);
@@ -18,14 +18,16 @@ export function QueueWorkflowFields({draft,counters,services,busy,onChange}:{dra
     <fieldset><legend>Permitted counters</legend>{counters.map(counter=><ConfigurationCheck key={counter.id} label={`${counter.name} for station ${index+1}`} checked={station.serviceCounterIds.includes(counter.id)} disabled={busy} onChange={event=>onChange({...draft,stations:draft.stations.map(item=>item.stationId===station.stationId?{...item,serviceCounterIds:toggle(item.serviceCounterIds,counter.id,event.currentTarget.checked)}:item)})}/>)}</fieldset>
     {draft.stages.some(stage=>stage.stationId===station.stationId)?<p className="ops-muted">Move or remove this station’s stages before removing it.</p>:null}
    </EntityCard>)}</EntityGrid>
-   <div className="ops-list-heading"><h3>Stage order</h3><OperationButton variant="outline" disabled={busy||!draft.stations.length} onClick={()=>onChange({...draft,stages:[...draft.stages,{stageId:crypto.randomUUID(),stationId:'',label:'',serviceIds:[]}]})}>Add stage</OperationButton></div>
+   <div className="ops-list-heading"><h3>Stage order</h3><OperationButton variant="outline" disabled={busy||!draft.stations.length} onClick={()=>onChange({...draft,stages:[...draft.stages,{stageId:crypto.randomUUID(),stationId:'',label:'',serviceIds:[],resourceRequirement:{kind:'none'},readinessRequired:false}]})}>Add stage</OperationButton></div>
    <EntityGrid label="Ordered workflow stages">{draft.stages.map((stage,index)=><EntityCard key={stage.stageId} title={`${index+1}. ${stage.label||'Unnamed stage'}`} footer={<div className="queue-row"><EntityIconAction label={`Move stage ${index+1} earlier`} disabled={busy||index===0} onClick={()=>onChange(moveWorkflowStage(draft,stage.stageId,-1))}><IconArrowUp aria-hidden="true"/></EntityIconAction><EntityIconAction label={`Move stage ${index+1} later`} disabled={busy||index===draft.stages.length-1} onClick={()=>onChange(moveWorkflowStage(draft,stage.stageId,1))}><IconArrowDown aria-hidden="true"/></EntityIconAction><EntityIconAction label={`Remove stage ${index+1}`} disabled={busy} onClick={()=>onChange({...draft,stages:draft.stages.filter(item=>item.stageId!==stage.stageId)})}><IconTrash aria-hidden="true"/></EntityIconAction></div>}>
     <ConfigurationInput label={`Label for stage ${index+1}`} value={stage.label} disabled={busy} onChange={event=>onChange({...draft,stages:draft.stages.map(item=>item.stageId===stage.stageId?{...item,label:event.currentTarget.value}:item)})}/>
     <ConfigurationSelect label={`Station for stage ${index+1}`} value={stage.stationId} disabled={busy} data={draft.stations.map(station=>({value:station.stationId,label:station.name||'Unnamed station'}))} onChange={value=>onChange({...draft,stages:draft.stages.map(item=>item.stageId===stage.stageId?{...item,stationId:value||''}:item)})}/>
+    <ConfigurationSelect label={`Resource requirement for stage ${index+1}`} value={stage.resourceRequirement?.kind||'pool'} disabled={busy} data={[{value:'none',label:'No resource required'},{value:'pool',label:'Configured resource pool'}]} onChange={value=>{if(value==='none'||value==='pool')onChange({...draft,stages:draft.stages.map(item=>item.stageId===stage.stageId?{...item,resourceRequirement:{kind:value}}:item)});}}/>
+    <ConfigurationCheck label={`Confirm readiness before arrival at stage ${index+1}`} checked={stage.readinessRequired===true} disabled={busy} onChange={event=>onChange({...draft,stages:draft.stages.map(item=>item.stageId===stage.stageId?{...item,readinessRequired:event.currentTarget.checked}:item)})}/>
     <fieldset><legend>Services in this stage</legend>{services.map(service=><ConfigurationCheck key={service.id} label={`${service.name} in stage ${index+1}`} checked={stage.serviceIds.includes(service.id)} disabled={busy} onChange={event=>onChange({...draft,stages:draft.stages.map(item=>item.stageId===stage.stageId?{...item,serviceIds:toggle(item.serviceIds,service.id,event.currentTarget.checked)}:item)})}/>)}</fieldset>
    </EntityCard>)}</EntityGrid>
    {issues.length?<ul aria-label="Workflow draft needs review">{issues.map(issue=><li key={issue}>{issue}</li>)}</ul>:null}
-   <p className="ops-muted">Only the current stage may reserve resources. Future stages wait for an explicit handoff. This editor does not activate runtime processing.</p>
+   <p className="ops-muted">Workflow resource stages use pooled capacity only; named resource selection belongs to Resource-based Queue. Only the current stage may reserve resources. Completing a stage makes the next step ready for arrival or preparation confirmation. Destination arrival is recorded separately before joining that station’s queue.</p>
   </>:null}
  </div>;
 }

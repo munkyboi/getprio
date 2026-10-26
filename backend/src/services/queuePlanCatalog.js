@@ -19,7 +19,9 @@ async function readCatalog(client, scope) {
       [scope.tenantId, scope.locationId],
     )
   ).rows;
-  const workflow = await require("./queueWorkflowService").read(client, scope);
+  const definitions=require('./queueWorkflowService');
+  const definition=await definitions.read(client,scope);
+  const workflow=definition.executionType&&definition.executionType!=='workflow'?await definitions.readVersion(client,scope,'1'):definition;
   return {
     catalogRevision: createHash("sha256")
       .update(JSON.stringify({ rows, workflow }))
@@ -49,7 +51,7 @@ async function captureLines(
   scope,
   lines,
   expectedCatalogRevision,
-  { allowStagePools = false } = {},
+  { allowStagePools = false, workflow } = {},
 ) {
   if (
     expectedCatalogRevision &&
@@ -69,19 +71,22 @@ async function captureLines(
     fail("Combine quantities for the same service instead of duplicating it.");
   const services = await client.query(
     `SELECT s.id::text,s.name,s.duration_minutes,s.updated_at::text AS service_revision,
-      s.price_display,r.pool_id::text,r.units_required,r.revision AS requirement_revision,
+      s.price_display,q.configuration AS queue_policy_configuration,r.pool_id::text,r.units_required,r.revision AS requirement_revision,
       p.revision AS pool_revision,p.name AS pool_name,p.capacity,(p.tracking_enabled AND (to_jsonb(p)->>'archived_at') IS NULL) AS tracking_enabled
     FROM vendor_services s JOIN location_services l ON (l.service_id,l.tenant_id)=(s.id,s.tenant_id)
-    JOIN service_resource_requirements r ON (r.service_id,r.tenant_id,r.location_id)=(s.id,s.tenant_id,l.location_id)
-    JOIN location_resource_pools p ON (p.id,p.tenant_id,p.location_id)=(r.pool_id,r.tenant_id,r.location_id)
+    LEFT JOIN service_resource_requirements r ON (r.service_id,r.tenant_id,r.location_id)=(s.id,s.tenant_id,l.location_id)
+    LEFT JOIN location_resource_pools p ON (p.id,p.tenant_id,p.location_id)=(r.pool_id,r.tenant_id,r.location_id)
+    LEFT JOIN queue_service_policies q ON(q.service_id,q.tenant_id,q.location_id)=(s.id,s.tenant_id,l.location_id)
     WHERE s.tenant_id=$1 AND l.location_id=$2 AND s.id=ANY($3::bigint[])
-      AND s.is_active=TRUE AND l.is_active=TRUE ORDER BY s.id FOR SHARE OF s,l,r,p`,
+      AND s.is_active=TRUE AND l.is_active=TRUE ORDER BY s.id FOR SHARE OF s,l`,
     [scope.tenantId, scope.locationId, serviceIds],
   );
   const byId = new Map(services.rows.map((row) => [row.id, row]));
   const items = lines.map((line) => {
     const service = byId.get(line.serviceId);
-    if (!service || !service.tracking_enabled)
+    const configured=workflow?.stages?.find(stage=>stage.serviceIds.includes(line.serviceId));
+    const noResource=workflow?.mode==='multi_station' && configured?.resourceRequirement?.kind==='none';
+    if (!service || (!noResource && !service.tracking_enabled))
       fail(
         "Each service must be active at this branch with a ready resource pool.",
       );
@@ -100,8 +105,9 @@ async function captureLines(
       fail(
         "Service duration must match the current catalog duration. Reload the service options.",
       );
-    const units = service.units_required * line.quantity;
-    if (units > 100 || units > service.capacity)
+    if(workflow?.mode==='multi_station'&&!noResource&&service.queue_policy_configuration?.assignment?.mode==='named')throw Object.assign(new Error('Workflow resource stages support pooled capacity only. Use Resource Queue for named resource selection.'),{statusCode:409,code:'WORKFLOW_NAMED_ASSIGNMENT_UNSUPPORTED'});
+    const units = noResource ? 0 : service.units_required * line.quantity;
+    if (!noResource && (units > 100 || units > service.capacity))
       fail("Requested concurrent units exceed configured pool capacity.");
     return {
       lineId: line.lineId,
@@ -113,7 +119,7 @@ async function captureLines(
       durationMinutes: service.duration_minutes,
       executionMode: "parallel",
       priceDisplay: service.price_display,
-      resource: {
+      resource: noResource ? {known:false,reason:"workflow_stage_without_resource"} : {
         known: true,
         poolId: service.pool_id,
         poolName: service.pool_name,
@@ -143,12 +149,17 @@ async function assignStages(client, scope, workflow, items) {
     const selected = items.filter((item) =>
       configured.serviceIds.includes(item.serviceId),
     );
-    if (!selected.length) continue;
+    if (!selected.length) fail("Choose a service for every required workflow stage.");
     const station = workflow.stations.find(
       (candidate) => candidate.stationId === configured.stationId,
     );
     if (!station) fail("Configured station is unavailable.");
     for (const item of selected) item.stageId = configured.stageId;
+    if(configured.resourceRequirement?.kind==='none') {
+      if(selected.some(item=>item.resource.known))fail('A no-resource stage cannot capture pool demand.');
+      stages.push({...configured,station});continue;
+    }
+    if(selected.some(item=>!item.resource.known))fail('Resource stages require configured pool demand.');
     if (new Set(selected.map((item) => item.resource.poolId)).size !== 1)
       fail("Each station stage must use parallel lines from the same pool.");
     const capacity = (

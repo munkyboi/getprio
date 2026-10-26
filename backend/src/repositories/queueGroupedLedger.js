@@ -385,7 +385,7 @@ async function expireUnstarted(client, scope, draft) {
   const ticketId = draft.published_ticket_id;
   const ticket = (
     await client.query(
-      `SELECT t.status,a.started_at AS stage_started_at FROM tickets t
+      `SELECT t.status,a.started_at AS stage_started_at,a.arrival_contract_version,a.station_queue_sequence::text,a.station_waiting_at,a.station_queue_date_key,a.arrived_at FROM tickets t
   JOIN ticket_service_plans p ON(p.ticket_id,p.tenant_id,p.location_id)=(t.id,t.tenant_id,t.location_id)
   JOIN queue_stage_attempts a ON(a.id,a.ticket_id,a.tenant_id,a.location_id)=(p.stage_attempt_id,t.id,t.tenant_id,t.location_id)
   WHERE t.tenant_id=$1 AND t.location_id=$2 AND t.id=$3 FOR UPDATE OF t`,
@@ -434,14 +434,14 @@ async function expireUnstarted(client, scope, draft) {
     [scope.tenantId, scope.locationId, ticketId],
   );
   await client.query(
-    "UPDATE queue_stage_attempts SET state='waiting',revision=revision+1 WHERE id=$1",
-    [group.stage_attempt_id],
+    "UPDATE queue_stage_attempts SET state=$2,station_queue_sequence=CASE WHEN $2='awaiting_arrival' THEN NULL ELSE station_queue_sequence END,station_waiting_at=CASE WHEN $2='awaiting_arrival' THEN NULL ELSE station_waiting_at END,station_queue_date_key=CASE WHEN $2='awaiting_arrival' THEN NULL ELSE station_queue_date_key END,revision=revision+1 WHERE id=$1",
+    [group.stage_attempt_id,ticket.arrival_contract_version===1?'awaiting_arrival':'waiting'],
   );
   await client.query(
     `UPDATE ticket_service_plans SET ticket_revision=ticket_revision+1,
-  resource_wait=jsonb_build_object('code','RESERVATION_EXPIRED','message','The call expired. Waiting for a new call.','planRevision',revision::text,'stageId',stage_id,'observedAt',clock_timestamp())
+  resource_wait=jsonb_build_object('code','RESERVATION_EXPIRED','message',$4::text,'planRevision',revision::text,'stageId',stage_id,'observedAt',clock_timestamp())
   WHERE tenant_id=$1 AND location_id=$2 AND ticket_id=$3`,
-    [scope.tenantId, scope.locationId, ticketId],
+    [scope.tenantId, scope.locationId, ticketId,ticket.arrival_contract_version===1?'The call expired. Please check in at this station again.':'The call expired. Waiting for a new call.'],
   );
   await client.query(
     `INSERT INTO queue_plan_events(tenant_id,location_id,actor_user_id,draft_id,event_type,old_revision,new_revision,snapshot,actor_role)
@@ -456,7 +456,8 @@ async function expireUnstarted(client, scope, draft) {
         reservationGroupId: group.id,
         stageAttemptId: group.stage_attempt_id,
         ticketId,
-        state: "waiting",
+        state: ticket.arrival_contract_version===1?'awaiting_arrival':'waiting',
+        priorStationQueue:{sequence:ticket.station_queue_sequence||null,waitingAt:ticket.station_waiting_at||null,dateKey:ticket.station_queue_date_key||null,arrivedAt:ticket.arrived_at||null},
       }),
       scope.actorRole,
     ],

@@ -40,6 +40,9 @@ function validate(action, body, operationKey) {
       "interrupt",
       "amend",
       "handoff",
+      "ready",
+      "arrive",
+      "cancelJourney",
       "pause",
       "resume",
       "retry",
@@ -81,6 +84,9 @@ function validate(action, body, operationKey) {
       "expectedCatalogRevision",
     ],
     handoff: [],
+    ready: [],
+    arrive: [],
+    cancelJourney: ["reason"],
     pause: ["allocationGroupId"],
     resume: ["allocationGroupId"],
     retry: ["childAttemptId", "expectedChildRevision", "interruptedExtras"],
@@ -107,7 +113,7 @@ function validate(action, body, operationKey) {
   if (body.dispatchMode !== undefined && (action !== 'call' || !['nextEligible','selectedRequest'].includes(body.dispatchMode)))
     fail('INVALID_PLAN', 'Unsupported call dispatch mode.', 400);
   if (
-    ["interrupt", "amend", "cancelProtection", "skip", "recall"].includes(action) &&
+    ["interrupt", "amend", "cancelProtection", "skip", "recall", "cancelJourney"].includes(action) &&
     (typeof body.reason !== "string" ||
       !body.reason.trim() ||
       body.reason.length > 500)
@@ -168,7 +174,7 @@ function validate(action, body, operationKey) {
     fail("INVALID_PLAN", "A recorded allocation group is required.", 400);
   if (action === "complete") {
     if (body.completeAll === true) {
-      if (!uuid(body.allocationGroupId) || body.childAttemptId !== undefined || body.expectedChildRevision !== undefined)
+      if ((body.allocationGroupId!==undefined&&!uuid(body.allocationGroupId)) || body.childAttemptId !== undefined || body.expectedChildRevision !== undefined)
         fail("INVALID_PLAN", "A complete-all command needs the recorded allocation group only.", 400);
     } else if (!uuid(body.childAttemptId) || typeof body.expectedChildRevision !== "string" || !/^[1-9]\d{0,18}$/u.test(body.expectedChildRevision) || !uuid(body.allocationGroupId)) {
       fail("INVALID_PLAN", "A recorded child allocation is required.", 400);
@@ -248,7 +254,7 @@ async function amend(client, scope, draft, p, ticket, body) {
     scope,
     body.lines,
     body.expectedCatalogRevision,
-    { allowStagePools: p.workflow_mode === "multi_station" },
+    { allowStagePools: p.workflow_mode === "multi_station",workflow },
   );
   const configured = await assignStages(client, scope, workflow, items);
   if (typeof body.expectedCatalogRevision !== "string")
@@ -279,6 +285,7 @@ async function amend(client, scope, draft, p, ticket, body) {
     item.lineRevision = String(BigInt(old?.lineRevision || "0") + 1n);
     if (old) item.priceDisplay = old.priceDisplay;
   }
+  await require("./queueTypeService").assertAmendment(client,scope,p.items,items,p.workflow_mode);
   await require("./queueAmendAvailability").assertAvailable(client, scope, ticket._id, p.items, items);
   const groups = (
     await client.query(
@@ -502,7 +509,7 @@ async function execute(
             "STALE_REVISION",
             "The ticket, plan or current stage changed. Reload before continuing.",
           );
-        if (Object.hasOwn(body,"expectedCounterId")) {
+        if (Object.hasOwn(body,"expectedCounterId") && !["ready","arrive","handoff","retry","reassign","cancelJourney"].includes(action)) {
           if (action === "call") {
             if (String(serviceCounter?._id) !== body.expectedCounterId) fail("COUNTER_CONTEXT_CHANGED","The selected counter changed. Refresh before continuing.");
           } else await require("./queueCounterBinding").assert(client,scope,ticket,body,{status:action === "recall" ? "skipped" : "called"});
@@ -552,6 +559,8 @@ async function execute(
             },
           );
         }
+        else if(p.workflow_mode==='multi_station' && (['ready','arrive','cancelJourney'].includes(action)||(stage.resource_requirement?.kind==='none'&&['start','complete','interrupt','pause','resume'].includes(action))))
+          await stages.execute(client,ledger,{scope,tenant,location,ticket,p,stage,action,body,actor,timing});
         else if (action === "amend")
           await amend(client, scope, draft, p, ticket, body);
         else if (action === "call") {
@@ -596,14 +605,16 @@ async function execute(
                 ? String(day.businessDate).replaceAll("-", "")
                 : ticket.dateKey,
             },
-            { serviceCounter, ...(eligibleTicketId?{targetTicketId:eligibleTicketId}:{}) },
+            { serviceCounter, queuePlanCommand:true, ...(eligibleTicketId?{targetTicketId:eligibleTicketId}:{}) },
           );
           if (!next || String(next._id) !== String(ticket._id))
             fail(
               "INVALID_STATE",
               "Another ticket has priority. Refresh the queue.",
             );
-          if ([3, 4].includes(p.contract_version))
+          if(p.workflow_mode==='multi_station'&&stage.resource_requirement?.kind==='none')
+            await client.query("UPDATE queue_stage_attempts SET state='called',revision=revision+1 WHERE id=$1 AND state='waiting'",[stage.id]);
+          else if ([3, 4].includes(p.contract_version))
             await require("../repositories/queueSelectionLedger").reserve(
               client,
               [scope.tenantId, scope.locationId],
@@ -737,7 +748,7 @@ async function execute(
           [scope.tenantId, scope.locationId],
         );
         if (
-          ([3, 4].includes(p.contract_version) && action === "call") || ["skip","recall"].includes(action) ||
+          ([3, 4].includes(p.contract_version) && action === "call") || ["skip","recall","ready","arrive","cancelJourney"].includes(action) || (p.workflow_mode === "multi_station" && stage.resource_requirement?.kind === "none") ||
           (![3, 4].includes(p.contract_version) &&
             ["handoff", "pause", "resume", "retry", "reassign"].includes(
               action,

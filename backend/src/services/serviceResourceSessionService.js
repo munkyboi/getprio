@@ -28,6 +28,8 @@ async function readState(client, ticket) {
   const inconsistentGroup=allocations.rows.some(row=>row.group_id) && allocations.rows.some(row=>
     row.group_id!==allocation.group_id || Boolean(row.released_at)!==Boolean(allocation.released_at) || row.outcome!==allocation.outcome);
   if(inconsistentGroup)conflict();
+  const execution=(await client.query("SELECT to_jsonb(t)->>'queue_execution_type' AS type FROM tickets t WHERE t.id=$3 AND t.tenant_id=$1 AND t.location_id=$2",scope)).rows[0]?.type;
+  if(execution==='simple'&&!allocation&&!flags.rows[0].bound)return {allocation:null,required:false,ticketReservationRequired:false,ticketReservationProtected:false,contractVersion:Number(identity?.version||1)};
   let enabled = flags.rows[0].enabled;
   if (enabled && !allocation && !flags.rows[0].bound) {
     const plans = await client.query(`SELECT items FROM ticket_service_plans
@@ -62,7 +64,7 @@ async function readState(client, ticket) {
       ticketReservationProtected = binding.rows[0]?.protected === true;
     }
   }
-  return { allocation, required: !!allocation || enabled || flags.rows[0].bound,
+  return { allocation,contractVersion:Number(identity?.version||1), required: !!allocation || enabled || flags.rows[0].bound,
     ticketReservationRequired, ticketReservationProtected };
 }
 

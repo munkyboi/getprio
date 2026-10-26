@@ -1,6 +1,6 @@
 const test=require('node:test'),assert=require('node:assert/strict');
 const {loadModuleWithMocks}=require('./helpers/loadModuleWithMocks.cjs');
-function fixture({authorized=true,queue=true,booking=false,current=null}={}) {
+function fixture({authorized=true,queue=true,publishedQueue=queue,booking=false,current=null}={}) {
  const calls=[];let stored=current&&structuredClone(current);
  const client={query:async()=>{throw Error('Unexpected SQL or allowance access');}};
  const ledger={withTenantCatalogTransaction:async(options,callback)=>{
@@ -15,6 +15,7 @@ function fixture({authorized=true,queue=true,booking=false,current=null}={}) {
  });
  const service=loadModuleWithMocks(require.resolve('../src/services/queueServiceCatalogService'),{
   './serviceDeactivationService':catalog,'../repositories/resourceLedger':ledger,
+  './entitlementResolver':{resolveTenantPolicy:async(tenantId,options)=>{assert.equal(tenantId,'1');assert.equal(options.client,client);assert.equal(options.lockPolicy,true);assert.equal(options.queueTypePolicy,true);return {lifecycle:{state:'active'},features:{queue:{enabled:publishedQueue}}};},assertFeature:require('../src/services/entitlementResolver').assertFeature},
   './entitlementAdmissionService':{admit:async input=>{assert.equal(input.featureKey,'queue');assert.equal(input.lockPolicy,true);calls.push('queue-feature');if(!queue)throw Object.assign(Error('No queue'),{statusCode:403});return {allowed:true};}},
   '../repositories/vendorServices':{createService:async data=>{calls.push('create');stored={_id:'2',...data};return stored;},updateService:async(id,changes)=>{assert.equal(id,'2');assert.ok(!Object.keys(changes).some(key=>/booking|price|payment/i.test(key)));calls.push('update');stored={...stored,...changes};return stored;}},
   '../repositories/storeLocations':{findLocationByTenantAndSlug:async(tenant,slug)=>{assert.equal(tenant,'1');return slug==='main'?{_id:'10',isActive:true}:null;}},
@@ -73,4 +74,10 @@ test('mounted queue catalog routes apply normal auth and permissions and retain 
  assert.equal((await send('own','POST',false)).status,401);assert.equal((await send('foreign')).status,403);
  const created=await send('own');assert.equal(created.status,201);assert.equal((await created.json()).service.id,'2');assert.equal((await send('own','PATCH')).status,200);
  }finally{await new Promise(resolve=>server.close(resolve));}
+});
+
+test('current published base queue OFF denies queue setup despite old subscription queue ON',async()=>{
+ const f=fixture({queue:true,publishedQueue:false,booking:true});
+ await assert.rejects(()=>f.service.createQueueService({_id:'1'},{name:'Current policy',durationMinutes:30},{actorUserId:'actor'}),{statusCode:403,code:'FEATURE_QUEUE_NOT_INCLUDED'});
+ assert.ok(!f.calls.includes('queue-feature'));assert.ok(!f.calls.includes('create'));assert.ok(!f.calls.includes('revision'));
 });

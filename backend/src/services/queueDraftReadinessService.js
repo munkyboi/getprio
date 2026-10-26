@@ -16,10 +16,15 @@ async function decorate(client,scope,context,plan){
   if(!plan.customer.name?.trim())blocked('CUSTOMER_NAME_REQUIRED','Add the customer name before publishing.');
   if(!plan.catalogRevision)blocked('CATALOG_ACCEPTANCE_REQUIRED','Review and save the current catalog before publishing.');
   assertPublicTextFieldsAllowed({'Customer name':plan.customer.name,Notes:plan.notes});
-  const workflow=await workflows.read(client,scope);
+  const execution=await require('./queueTypeService').execution(client,scope,{lock:false});
+  if(execution.type==='simple')blocked('QUEUE_TYPE_ADMISSION_REQUIRED','Simple Queue uses the walk-in form. This saved draft remains available for review.');
+  await require('./queueTypeService').assertAdmission(client,scope,execution.type);
+  const workflow=execution.type==='workflow'?await workflows.read(client,scope):await workflows.readVersion(client,scope,'1');
+  if(execution.type==='workflow'&&(workflow.mode!=='multi_station'||workflow.stages.length<2||new Set(workflow.stages.map(stage=>stage.stationId)).size<2))blocked('QUEUE_TYPE_NOT_READY','Configure the station journey before publishing.');
+  if(execution.type==='workflow'&&workflow.stages.some(stage=>(stage.resourceRequirement?.kind||'pool')==='pool')&&!execution.capabilities.resource)blocked('QUEUE_TYPE_NOT_INCLUDED','Resource stages also require Resource Queue access.');
   let captured;
-  if(plan.contractVersion===2){const items=await captureLines(client,scope,plan.lines,plan.catalogRevision,{allowStagePools:workflow.mode==='multi_station'});await assignStages(client,scope,workflow,items);}
-  else captured=await captures[plan.contractVersion].capture(client,scope,plan.serviceSelections,plan.catalogRevision);
+  if(plan.contractVersion===2){const items=await captureLines(client,scope,plan.lines,plan.catalogRevision,{allowStagePools:workflow.mode==='multi_station',workflow});await assignStages(client,scope,workflow,items);}
+  else captured=await captures[plan.contractVersion].capture(client,scope,plan.serviceSelections,plan.catalogRevision,{workflowOverride:workflow});
   if(plan.contractVersion===4)await serviceHours.assertPlanFits(client,scope,captured.items,captured.workflow);
   await maintenance.assertNewIntake({client});
   await entitlements.admit({tenantId:scope.tenantId,featureKey:'queue',client});

@@ -30,9 +30,14 @@ async function mutate(context, command) {
     "Customer name": command.body.customer?.name,
     Notes: command.body.notes,
   });
-  return run(context, (client, scope) =>
-    drafts.command(client, scope, command).then(async result => ({...result,plan:await require("./queueDraftReadinessService").decorate(client,scope,context,result.plan)})),
-  );
+  return run(context, async (client, scope) => {
+    const beforeCreate=async()=>{
+      const state=await require('./queueTypeService').execution(client,scope);
+      if(state.type==='simple')throw Object.assign(new Error('Simple Queue uses the walk-in form.'),{statusCode:409,code:'QUEUE_TYPE_ADMISSION_REQUIRED'});
+      await require('./queueTypeService').assertAdmission(client,scope,state.type);
+    };
+    return drafts.command(client, scope, {...command,beforeCreate}).then(async result => ({...result,plan:await require("./queueDraftReadinessService").decorate(client,scope,context,result.plan)}));
+  });
 }
 async function read(context, id) {
   let expired = false;

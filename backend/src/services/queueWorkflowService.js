@@ -40,8 +40,9 @@ async function read(client, scope, { initialize = false } = {}) {
   }
   const row = (
     await client.query(
-      `SELECT v.revision::text,v.mode,v.stations,v.stages FROM queue_workflow_configurations h
+      `SELECT v.revision::text,v.mode,v.stations,v.stages,COALESCE(to_jsonb(l)->>'queue_type','simple') AS execution_type FROM queue_workflow_configurations h
   JOIN queue_workflow_versions v ON(v.tenant_id,v.location_id,v.revision)=(h.tenant_id,h.location_id,h.revision)
+  JOIN store_locations l ON(l.tenant_id,l.id)=(h.tenant_id,h.location_id)
   WHERE h.tenant_id=$1 AND h.location_id=$2`,
       [scope.tenantId, scope.locationId],
     )
@@ -49,6 +50,7 @@ async function read(client, scope, { initialize = false } = {}) {
   return row
     ? {
         configurationRevision: row.revision,
+        executionType:row.execution_type,
         mode: row.mode,
         stations: row.stations,
         stages: row.stages,
@@ -130,7 +132,7 @@ function validate(body) {
     if (
       !stage ||
       Object.keys(stage).some(
-        (key) => !["stageId", "stationId", "label", "serviceIds"].includes(key),
+        (key) => !["stageId", "stationId", "label", "serviceIds", "resourceRequirement", "readinessRequired"].includes(key),
       ) ||
       !uuid(stage.stageId) ||
       stageIds.has(stage.stageId) ||
@@ -148,6 +150,8 @@ function validate(body) {
         "Each unique ordered stage must map offered services unambiguously to a configured station.",
         400,
       );
+    if(stage.resourceRequirement!==undefined && (!stage.resourceRequirement || Object.keys(stage.resourceRequirement).some(key=>key!=='kind') || !['none','pool'].includes(stage.resourceRequirement.kind)))fail('INVALID_WORKFLOW','Choose an explicit none or pool requirement for each stage.',400);
+    if(stage.readinessRequired!==undefined && typeof stage.readinessRequired!=='boolean')fail('INVALID_WORKFLOW','Stage readiness must be a boolean.',400);
     if (new Set(stage.serviceIds).size !== stage.serviceIds.length)
       fail("INVALID_WORKFLOW", "A service can belong to only one stage.", 400);
     assertPublicTextFieldsAllowed({ "Stage name": stage.label });
@@ -225,6 +229,9 @@ async function put(context, body, operationKey) {
       permission: "tenant.location.manage",
     },
     async (client, _ledger, actor) => {
+      const execution=await require('./queueTypeService').assertConfiguration(client,scope,'workflow');
+      if(body.stages.some(stage=>(stage.resourceRequirement?.kind||'pool')==='pool')&&!execution.capabilities.resource)fail('QUEUE_TYPE_NOT_INCLUDED','Resource stages also require Resource Queue access.',403);
+      if(!['owner','admin'].includes(actor.tenantMemberships[0].role)||!require('./permissions').userHasPermission(actor,'tenant.service.manage',{tenantId:scope.tenantId}))fail('FORBIDDEN_SCOPE','Workflow setup requires location and service management.',403);
       const args = [
         scope.tenantId,
         scope.locationId,

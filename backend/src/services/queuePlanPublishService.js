@@ -118,16 +118,21 @@ async function publish(context, { draftId, operationKey, body }) {
           "CATALOG_ACCEPTANCE_REQUIRED",
           "Review and save the current catalog before publishing.",
         );
-      const workflow = await workflows.read(client, scope, {
-        initialize: true,
-      });
-      const captured=nested?await require(draft.selection_contract_version===4?'./queueSelectionCaptureV4':'./queueSelectionCapture').capture(client,scope,draft.service_selections,draft.catalog_revision):null;
+      const execution=await require('./queueTypeService').execution(client,scope);
+      if(execution.type==='simple')fail('QUEUE_TYPE_ADMISSION_REQUIRED','Simple Queue uses the walk-in form.');
+      await require('./queueTypeService').assertAdmission(client,scope,execution.type);
+      const definition=await workflows.read(client,scope,{initialize:true});
+      const workflow = execution.type==='workflow' ? definition : await workflows.readVersion(client,scope,'1');
+      if(execution.type==='workflow' && nested)fail('WORKFLOW_STAGE_SELECTION_REQUIRED','Use the complete sequential workflow request form.');
+      if(execution.type==='workflow' && (workflow.mode!=='multi_station'||workflow.stages.length<2||new Set(workflow.stages.map(stage=>stage.stationId)).size<2))fail('QUEUE_TYPE_NOT_READY','Configure the full station journey before publishing.');
+      if(execution.type==='workflow' && workflow.stages.some(stage=>(stage.resourceRequirement?.kind||'pool')==='pool')&&!execution.capabilities.resource)fail('QUEUE_TYPE_NOT_INCLUDED','Resource stages also require Resource Queue access.',403);
+      const captured=nested?await require(draft.selection_contract_version===4?'./queueSelectionCaptureV4':'./queueSelectionCapture').capture(client,scope,draft.service_selections,draft.catalog_revision,{workflowOverride:workflow}):null;
       const items = captured?captured.items:await captureLines(
         client,
         scope,
         draft.lines,
         draft.catalog_revision,
-        { allowStagePools: workflow.mode === "multi_station" },
+        { allowStagePools: workflow.mode === "multi_station",workflow },
       );
       const configuredStages = captured?(workflow.mode==='linear'?null:captured.requiredStages.map(stage=>({...stage,station:workflow.stations.find(station=>station.stationId===stage.stationId)}))):await assignStages(
         client,
@@ -194,7 +199,7 @@ async function publish(context, { draftId, operationKey, body }) {
         notifyByEmail: false,
         notifyBySms: false,
         queueDateKey: dateKey,
-      });
+      },{queueExecutionType:execution.type});
       const stages = configuredStages || [
         { stageId: randomUUID(), label: "Service", station: null },
       ];
@@ -206,8 +211,8 @@ async function publish(context, { draftId, operationKey, body }) {
       for (const [index, stage] of stages.entries()){
         const stageAttemptId=index===0?attemptId:randomUUID();stageAttempts.set(stage.stageId,stageAttemptId);
         await client.query(
-          `INSERT INTO queue_stage_attempts(id,tenant_id,location_id,ticket_id,stage_id,attempt,ordinal,state,station_id,station_snapshot,label)
-      VALUES($1,$2,$3,$4,$5,1,$6,$7,$8,$9::jsonb,$10)`,
+          `INSERT INTO queue_stage_attempts(id,tenant_id,location_id,ticket_id,stage_id,attempt,ordinal,state,station_id,station_snapshot,label,resource_requirement,readiness_required,arrival_contract_version)
+      VALUES($1,$2,$3,$4,$5,1,$6,$7,$8,$9::jsonb,$10,$11::jsonb,$12,$13)`,
           [
             stageAttemptId,
             scope.tenantId,
@@ -215,10 +220,13 @@ async function publish(context, { draftId, operationKey, body }) {
             ticket._id,
             stage.stageId,
             index + 1,
-            index === 0 ? "waiting" : "pending",
+            index === 0 ? (workflow.mode==='multi_station'?(stage.readinessRequired?"awaiting_readiness":"awaiting_arrival"):"waiting") : "pending",
             stage.station?.stationId || null,
             stage.station ? JSON.stringify(stage.station) : null,
             stage.label,
+            JSON.stringify(stage.resourceRequirement||{kind:"pool"}),
+            stage.readinessRequired===true,
+            workflow.mode==='multi_station'?1:0,
           ],
         );
       }
@@ -269,7 +277,7 @@ async function publish(context, { draftId, operationKey, body }) {
           [scope.tenantId, scope.locationId, draftId, ticket._id],
         )
       ).rows[0];
-      const result = { plan: await projection.read(client, scope, updated) };
+      const result = { plan: await projection.read(client, scope, updated),customerAccess:{lookupCode:ticket.lookupCode,path:`/ticket/${encodeURIComponent(tenant.slug)}/${encodeURIComponent(location.slug)}?ticket=${encodeURIComponent(ticket.lookupCode)}`} };
       await client.query(
         `INSERT INTO queue_plan_notification_outbox(tenant_id,location_id,ticket_id,plan_revision,kind)
       VALUES($1,$2,$3,1,'service_plan_published') ON CONFLICT DO NOTHING`,

@@ -435,6 +435,17 @@ async function assertIntakeOpen(tenant, location, options = {}) {
 }
 
 async function closeTicketOutcomes(client, queueDay, options = {}) {
+  const stationWaiting=(await client.query(`SELECT a.id,a.ticket_id::text,a.revision::text,a.station_queue_sequence::text,a.station_waiting_at,a.station_queue_date_key,a.arrived_at
+    FROM queue_stage_attempts a JOIN ticket_service_plans p ON p.stage_attempt_id=a.id JOIN tickets t ON t.id=p.ticket_id
+    WHERE a.tenant_id=$1 AND a.location_id=$2 AND a.arrival_contract_version=1 AND a.state='waiting'
+    AND a.station_queue_date_key=$3 AND a.started_at IS NULL
+    AND NOT EXISTS(SELECT 1 FROM resource_allocations r WHERE r.ticket_id=t.id AND r.released_at IS NULL)
+    AND NOT EXISTS(SELECT 1 FROM resource_ledger_reservations r WHERE r.ticket_id=t.id AND r.state='protected') FOR UPDATE OF a,t`,[queueDay.tenantId,queueDay.locationId,queueDateKey(queueDay)])).rows;
+  for(const stage of stationWaiting){
+    await recordLifecycleEvent(client,queueDay,'workflow_station_queue_closed',{ticketId:stage.ticket_id,actorUserId:options.actorUserId,actorRole:options.actorRole,source:options.source||'system',eventKey:`station:${stage.id}:revision:${stage.revision}:queue-day:${queueDay._id}:closed`,previousState:{stageState:'waiting',stationQueueSequence:stage.station_queue_sequence,stationWaitingAt:stage.station_waiting_at,stationQueueDateKey:stage.station_queue_date_key,arrivedAt:stage.arrived_at},nextState:{stageState:'awaiting_arrival'},reasonCode:'station_queue_day_closed'});
+    await client.query("UPDATE queue_stage_attempts SET state='awaiting_arrival',station_queue_sequence=NULL,station_waiting_at=NULL,station_queue_date_key=NULL,revision=revision+1 WHERE id=$1",[stage.id]);
+    await client.query('UPDATE ticket_service_plans SET ticket_revision=ticket_revision+1 WHERE ticket_id=$1',[stage.ticket_id]);
+  }
   const result = await client.query(
     `SELECT ticket.id, ticket.status, ticket.carry_over_consumed,
             ticket.notify_by_email, ticket.user_id,
@@ -450,6 +461,7 @@ async function closeTicketOutcomes(client, queueDay, options = {}) {
       AND segment.queue_day_id = $1
      WHERE ticket.current_queue_day_id = $1
        AND ticket.status IN ('waiting', 'called', 'skipped')
+       AND NOT EXISTS(SELECT 1 FROM ticket_service_plans wp WHERE wp.ticket_id=ticket.id AND wp.workflow_mode='multi_station')
      ORDER BY ticket.id
      FOR UPDATE OF ticket`,
     [Number(queueDay._id)]

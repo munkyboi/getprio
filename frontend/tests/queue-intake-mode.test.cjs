@@ -1,34 +1,39 @@
 require('tsx/cjs');
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path');
 const {queueIntakeMode,queueWorkPresentation,legacyQueueWork,showResourceManagement}=require('../src/vendor/queueIntakeMode.ts');
-const current=extra=>({optedIn:true,tenantSlug:'free-vendor',entitlementTenantSlug:'free-vendor',loaded:true,locationSlug:'main',setup:{scope:'free-vendor:main',ready:false},entitlements:{queueSystemAccess:true,serviceBookingAccess:false,monthlyTickets:500},plan:{planSlug:'free',subscriptionStatus:'active'},...extra});
-test('queue setup readiness, not booking permission or menu visibility, selects resource intake',()=>{
+const setting=(type='simple',capabilities={simple:true,resource:false,workflow:false})=>({scope:{tenantSlug:'free-vendor',locationSlug:'main'},type,capabilities});
+const current=extra=>({queueType:setting(),optedIn:true,tenantSlug:'free-vendor',entitlementTenantSlug:'free-vendor',loaded:true,locationSlug:'main',setup:{scope:'free-vendor:main',ready:false},entitlements:{queueSystemAccess:true,serviceBookingAccess:false,monthlyTickets:500},plan:{planSlug:'free',subscriptionStatus:'active'},...extra});
+test('only explicit type/current policy selects advanced intake; readiness never changes Simple',()=>{
  assert.equal(queueIntakeMode(current()),'legacy');
- assert.equal(queueIntakeMode(current({setup:{scope:'free-vendor:main',ready:true}})),'resource');
- assert.equal(queueIntakeMode(current({entitlements:{queueSystemAccess:true,serviceBookingAccess:true}})),'legacy');
- assert.equal(queueIntakeMode(current({setup:{scope:'old-vendor:main',ready:true}})),'legacy');
- assert.equal(queueIntakeMode(current({setup:{scope:'free-vendor:main',ready:true},optedIn:false})),'legacy');
- assert.equal(queueIntakeMode(current({setup:{scope:'free-vendor:main',ready:true},entitlements:{queueSystemAccess:false,serviceBookingAccess:true}})),'legacy');
+ assert.equal(queueIntakeMode(current({setup:{scope:'free-vendor:main',ready:true}})),'legacy');
+ const selected=setting('resource',{simple:true,resource:true,workflow:false});
+ assert.equal(queueIntakeMode(current({queueType:selected})),'blocked');
+ assert.equal(queueIntakeMode(current({queueType:selected,setup:{scope:'free-vendor:main',ready:true}})),'resource');
+ assert.equal(queueIntakeMode(current({queueType:selected,setup:{scope:'old-vendor:main',ready:true}})),'blocked');
+ assert.equal(queueIntakeMode(current({queueType:selected,setup:{scope:'free-vendor:main',ready:true},optedIn:false})),'blocked');
+ assert.equal(queueIntakeMode(current({queueType:selected,setup:{scope:'free-vendor:main',ready:true},entitlements:{queueSystemAccess:false,serviceBookingAccess:true}})),'resource','current queue-type policy wins over stale billing aliases');
+ for(const capabilities of [{simple:true,resource:false,workflow:false},{simple:true,resource:true,workflow:false},{simple:true,resource:true,workflow:true}])for(const type of ['simple','resource','workflow'])assert.equal(queueIntakeMode(current({queueType:setting(type,capabilities),setup:{scope:'free-vendor:main',ready:true}})),capabilities[type]?({simple:'legacy',resource:'resource',workflow:'workflow'})[type]:'blocked');
 });
-test('initial loading and scope changes fail safe, ordinary background refresh retains known setup',()=>{
- for(const change of [{loaded:false},{entitlements:undefined},{entitlementTenantSlug:undefined},{entitlementTenantSlug:'previous-pro'},{tenantSlug:''}])assert.equal(queueIntakeMode(current(change)),'loading');
- assert.equal(queueIntakeMode(current({setup:{scope:'free-vendor:main',ready:true},loaded:true})),'resource');
- assert.equal(queueIntakeMode(current({locationSlug:'other',setup:{scope:'free-vendor:main',ready:true}})),'legacy');
+test('initial loading/foreign settings fail safe, background refresh retains explicit known mode',()=>{
+ for(const change of [{loaded:false},{entitlements:undefined},{entitlementTenantSlug:undefined},{entitlementTenantSlug:'previous-pro'},{tenantSlug:''},{queueType:null},{locationSlug:'other'}])assert.equal(queueIntakeMode(current(change)),'loading');
+ const selected=setting('resource',{simple:true,resource:true,workflow:false});
+ assert.equal(queueIntakeMode(current({queueType:selected,setup:{scope:'free-vendor:main',ready:true},loaded:true,isFetching:true})),'resource');
+ assert.equal(queueIntakeMode(current({queueType:{...selected,scope:{tenantSlug:'foreign',locationSlug:'main'}}})),'loading');
 });
 test('dashboard integrates scoped mode across intake, dialog, dispatch and both ticket presentations',()=>{
  const source=fs.readFileSync(path.resolve(__dirname,'../src/pages/VendorDashboardPage.tsx'),'utf8');
  assert.equal((source.match(/localPoolDemoClientEnabled/g)||[]).length,1,'global opt-in only imported, never used directly as tenant mode');
  assert.match(source,/clientTenantSlug: selectedTenantSlug/);
- assert.match(source,/loaded: effectiveEntitlementsQuery\.isSuccess && !effectiveEntitlementsQuery\.isPlaceholderData/);
+ assert.match(source,/loaded: Boolean\(effectiveEntitlementsQuery\.data\?\.entitlements\) && !effectiveEntitlementsQuery\.isPlaceholderData/);
  assert.match(source,/const dispatchSnapshot = workPresentation\.resourceCounters \? localPoolDispatchSnapshot/);
  assert.match(source,/function renderQueuePage\(\) \{\s*if \(intakeMode === "loading"\)/);
- assert.match(source,/!resourceQueueEnabled && <QueueButton[\s\S]*?Add walk-in/);
+ assert.match(source,/intakeMode === "legacy" && <QueueButton[\s\S]*?Add walk-in/);
  assert.match(source,/workPresentation\.resourceCounters \? <CounterQueueControls/);
  assert.match(source,/resourceManagementEnabled && selectedTenantSlug && selectedLocationSlug \? <NamedQueuePanel/);
  assert.match(source,/!resourceQueueEnabled \? <LiveQueueSummary/);
  assert.match(source,/!resourceQueueEnabled && queueView === "current"/);
  assert.match(source,/<WalkInDialog linearMode=\{resourceQueueEnabled\}/);
- assert.match(source,/function renderWalkInDialog\(\) \{\s*if \(intakeMode === "loading"\) return null/);
+ assert.match(source,/function renderWalkInDialog\(\) \{\s*if \(intakeMode !== "legacy"\) return null/);
  assert.match(source,/const localPoolQuery = useLocalPoolOperations\(token, selectedTenantSlug, selectedLocationSlug, canLoadProtectedDashboard && currentSection === "queue"\)/);
  assert.match(source,/vendorDashboardQueue\.createWalkInTicket\(token, selectedTenantSlug, locationQuery, walkInForm\)/);
 });
@@ -70,7 +75,7 @@ test('actual management-only panel hides verified empty data but renders existin
  const page=fs.readFileSync(path.resolve(__dirname,'../src/pages/VendorDashboardPage.tsx'),'utf8');
  assert.match(page,/resourceManagementEnabled && selectedTenantSlug && selectedLocationSlug \? <SkippedQueueRequests/);
  assert.match(page,/<NamedQueuePanel[^\n]*managementOnly=\{!resourceQueueEnabled\}/);
- assert.match(page,/!resourceQueueEnabled && workPresentation.resourceCounters[\s\S]*?onClick=\{\(\)=>setWalkInDialogOpen\(true\)\}/);
+ assert.match(page,/intakeMode === "legacy" && workPresentation.resourceCounters[\s\S]*?onClick=\{\(\)=>setWalkInDialogOpen\(true\)\}/);
  assert.match(page,/snapshot=\{legacyCounterSnapshot\}/);
 });
 
@@ -91,7 +96,7 @@ test('complete scoped inventories gate page-two V4 targets without locking ordin
  const publish=panel.indexOf("idsRef.current(ids?ids.split(','):[],inventoryScope)");
  assert.ok(publish>=0&&publish<panel.indexOf('managementReady.current?.(inventoryReady,inventoryScope)'),'IDs publish before readiness');
  const page=fs.readFileSync(path.resolve(__dirname,'../src/pages/VendorDashboardPage.tsx'),'utf8');
- assert.equal((page.match(/if\(scope===localPoolScopeRef.current\)/g)||[]).length,3,'IDs, inventory and setup callbacks reject stale scope');
+ assert.equal((page.match(/if\(scope===localPoolScopeRef.current\)/g)||[]).length,5,'resource and workflow inventory/setup callbacks reject stale scope');
  assert.match(page,/namedManagementRead.scope !== localPoolScope \|\| !namedManagementRead.ready/);
 });
 
@@ -110,10 +115,16 @@ test('closed panel refreshes scoped setup options on SSE and visible fallback wi
  const ready=[];const sample=()=>vm.runInNewContext(readiness,{v4Options:options,inventoryScope:'free:main',setupCallback:{current:(value,scope)=>ready.push({value,scope})},useEffect:fn=>fn()});
  const fire=(name,type)=>{for(const fn of [...(targets.get(name+':'+type)||[])])fn();};
  sample();assert.equal(ready.at(-1).value,false);vm.runInNewContext(effect,context);
- reads.length=0;serverReady=true;fire('window','queue-plans-updated');sample();assert.equal(ready.at(-1).value,true,'activation SSE invalidates options with closed editor and exposes resource intake');
+ reads.length=0;serverReady=true;fire('window','queue-plans-updated');sample();assert.equal(ready.at(-1).value,true,'activation SSE invalidates options with closed editor and exposes setup readiness');
  assert.ok(reads.some(key=>key[0]==='queue-options-v4'));assert.ok(reads.every(key=>JSON.stringify(key.slice(1))===JSON.stringify(['private-test-token','free','main'])));
  for(const event of ['vendor-queue-snapshot-updated','focus','online']){reads.length=0;fire('window',event);assert.ok(reads.some(key=>key[0]==='queue-options-v4'),event);}
  reads.length=0;for(const fn of timers.values())fn();assert.ok(reads.length>0);
  document.visibilityState='hidden';reads.length=0;for(const fn of timers.values())fn();fire('window','focus');fire('document','visibilitychange');assert.equal(reads.length,0,'hidden tabs do not poll');
  cleanup();document.visibilityState='visible';fire('window','queue-plans-updated');fire('window','focus');assert.equal(reads.length,0);assert.equal(timers.size,0);assert.ok([...targets.values()].every(set=>set.size===0));assert.deepEqual(draft,{selectedResource:'member-A',durationCount:2});
+});
+
+test('base queue loss keeps role-authorized work navigation and panels without exposing new intake',()=>{
+ const page=fs.readFileSync(path.resolve(__dirname,'../src/pages/VendorDashboardPage.tsx'),'utf8');
+ assert.match(page,/item.section === "queue" \|\| canAccessVendorSection/);assert.match(page,/resourceManagementEnabled = resourceQueueOptIn && intakeMode !== "loading" && Boolean\(selectedTenantSlug&&selectedLocationSlug\)/);assert.match(page,/onReviewQueueSetup=\{resourceSetupAllowed&&/);assert.match(page,/\(intakeMode === "workflow" && !rawCounterTicket\)/);
+ const panel=fs.readFileSync(path.resolve(__dirname,'../src/vendor/WorkflowQueuePanel.tsx'),'utf8');assert.match(panel,/plans.hasNextPage&&!plans.isFetchingNextPage&&!plans.isFetchNextPageError/);assert.match(panel,/void plans.fetchNextPage\(\)/);
 });

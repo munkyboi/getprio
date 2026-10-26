@@ -479,6 +479,7 @@ async function createTicketForTenantInTransaction(client, {
   // Request payloads are deliberately separate from this options argument.
   if (options.existingWork !== true) await maintenance.assertNewIntake({ client });
   const resolvedLocation = location || (await resolveLocation(tenant));
+  const queueExecution=await require('./queueTypeService').assertAdmission(client,{tenantId:String(tenant._id),locationId:String(resolvedLocation._id)},options.queueExecutionType || 'simple');
   let queueDay = null;
   let dateKey;
   let sequence;
@@ -519,6 +520,7 @@ async function createTicketForTenantInTransaction(client, {
     originalQueueDayId: queueDay?._id,
     currentQueueDayId: queueDay?._id
   });
+  await client.query('UPDATE tickets SET queue_execution_type=$2 WHERE id=$1 AND queue_execution_type IS NULL',[ticket._id,queueExecution.type]);
   const ticketAllowanceInput = {
     tenantId: tenant._id,
     resourceKey: "queueTickets",

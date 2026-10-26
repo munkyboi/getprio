@@ -28,6 +28,7 @@ function resourceSnapshot(requirement) {
     poolRevision: requirement.pool_revision };
 }
 async function insert(client, scope, ticketId, plan, actorUserId) {
+  await require("./queueWorkflowService").read(client,scope,{initialize:true});
   await client.query(`INSERT INTO ticket_service_plans
     (ticket_id, tenant_id, location_id, source, booking_id, execution_mode, items, created_by_user_id)
     VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8)`, [ticketId, scope.tenantId, scope.locationId,
@@ -58,10 +59,12 @@ async function captureStaffPlan(client, { tenant, location, ticket, serviceId, a
   [scope.tenantId, scope.locationId, serviceId]);
   const service = result.rows[0];
   if (!service) fail('Select an active service offered at this branch.');
-  const mappings = await requirements(client, scope, [serviceId]);
+  const execution=await require('./queueTypeService').assertAdmission(client,scope,'simple');
+  // Service labeling in Simple Queue deliberately carries no resource demand.
+  const mappings = new Map();
   await insert(client, scope, ticket._id, { source: 'staff_selection', executionMode: 'parallel',
     items: [{ serviceId, serviceName: service.name, durationMinutes: Number(service.duration_minutes),
-      resource: resourceSnapshot(mappings.get(serviceId)) }] }, actorUserId);
+      executionType:execution.type,resource:{known:false,reason:'simple_queue_service_label'} }] }, actorUserId);
 }
 async function getTicketPlan(scope, ticketId) {
   if (!validId(ticketId)) fail('Ticket not found.', 404);

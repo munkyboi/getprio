@@ -1,6 +1,6 @@
 import {useEffect,useState} from 'react';
 import type {QueueType,QueueTypeConfiguration} from '../../../shared/queueTypes';
-const labels:Record<QueueType,{name:string;description:string}>={simple:{name:'Simple Queue',description:'Call customers in order. You can include a service without reserving resources.'},resource:{name:'Resource Queue',description:'Use available courts, rooms, equipment or named team members.'},workflow:{name:'Workflow Queue',description:'Guide one customer journey through sequential service stations.'}};
+const labels:Record<QueueType,{name:string;description:string}>={simple:{name:'Simple queue',description:'Call customers in order. You can include a service without reserving resources.'},resource:{name:'Resource-based queue',description:'Manage requests that share limited people, rooms or equipment.'},workflow:{name:'Queue workflow',description:'Guide one customer journey through sequential service stations.'}};
 export function QueueTypeSettings({configuration,canEdit,busy,onSave}:{configuration:QueueTypeConfiguration|null;canEdit:boolean;busy:boolean;onSave:(type:QueueType)=>Promise<void>}){
  const [selected,setSelected]=useState<QueueType>('simple');const [confirmed,setConfirmed]=useState(false);const [error,setError]=useState('');
  useEffect(()=>{setSelected(configuration?.type||'simple');setConfirmed(false);setError('');},[configuration?.scope.tenantSlug,configuration?.scope.locationSlug,configuration?.revision]);

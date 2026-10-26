@@ -1,3 +1,4 @@
+import {WorkflowQueuePanel} from "../vendor/WorkflowQueuePanel";
 import {QueueTypeSettings} from "../vendor/QueueTypeSettings";
 import {getQueueType,saveQueueType} from "../api/queueTypes";
 import { appUrl } from "../surfaces/surfaceConfig";
@@ -1024,7 +1025,9 @@ function VendorDashboardContent() {
   const dismissedBookingAlertIdsRef = useRef<Set<string>>(new Set());
   const knownQueueTicketIdsRef = useRef<Set<string> | null>(null);
   const [namedInventory,setNamedInventory]=useState<{scope:string;ids:string[]}>({scope:"",ids:[]});
-  const namedTicketIds=scopedResourceIds(`${selectedTenantSlug}:${selectedLocationSlug}`,namedInventory);
+  const [workflowInventory,setWorkflowInventory]=useState<{scope:string;ids:string[]}>({scope:"",ids:[]});
+  const [workflowManagementRead,setWorkflowManagementRead]=useState({scope:"",ready:false});
+  const namedTicketIds=[...new Set([...scopedResourceIds(`${selectedTenantSlug}:${selectedLocationSlug}`,namedInventory),...scopedResourceIds(`${selectedTenantSlug}:${selectedLocationSlug}`,workflowInventory)])];
   const [namedManagementRead,setNamedManagementRead]=useState({scope:"",ready:false});
   const v2TicketIds=namedTicketIds;
   const [queueAlertIds, setQueueAlertIds] = useState<string[]>([]);
@@ -1257,22 +1260,30 @@ function VendorDashboardContent() {
     queryFn:({signal})=>getQueueType(token!,selectedTenantSlug,selectedLocationSlug,signal),
     enabled:Boolean(token&&selectedTenantSlug&&selectedLocationSlug&&!requiresMfaEnrollment),
   });
-  const queueTypeConfiguration = queueTypeQuery.isSuccess && !queueTypeQuery.isPlaceholderData && queueTypeQuery.data.scope.tenantSlug === selectedTenantSlug && queueTypeQuery.data.scope.locationSlug === selectedLocationSlug ? queueTypeQuery.data : null;
+  const queueTypeConfiguration = !queueTypeQuery.isPlaceholderData && queueTypeQuery.data && queueTypeQuery.data.scope.tenantSlug === selectedTenantSlug && queueTypeQuery.data.scope.locationSlug === selectedLocationSlug ? queueTypeQuery.data : null;
+  useEffect(()=>{
+    if(!token||!selectedTenantSlug||!selectedLocationSlug)return;
+    const refresh=()=>{if(document.visibilityState==='visible')void queueTypeQuery.refetch();};
+    const interval=window.setInterval(refresh,15000);
+    window.addEventListener('queue-plans-updated',refresh);window.addEventListener('focus',refresh);window.addEventListener('online',refresh);
+    return()=>{window.clearInterval(interval);window.removeEventListener('queue-plans-updated',refresh);window.removeEventListener('focus',refresh);window.removeEventListener('online',refresh);};
+  },[token,selectedTenantSlug,selectedLocationSlug,queueTypeQuery.refetch]);
   const [queueTypeBusy,setQueueTypeBusy]=useState(false);
   const [queueSetupRead,setQueueSetupRead] = useState<{scope:string;ready:boolean}>({scope:"",ready:false});
   const intakeMode = queueIntakeMode({
     optedIn: resourceQueueOptIn, tenantSlug: selectedTenantSlug,
     entitlementTenantSlug: effectiveEntitlementsQuery.data?.clientTenantSlug,
-    loaded: effectiveEntitlementsQuery.isSuccess && !effectiveEntitlementsQuery.isPlaceholderData,
+    loaded: Boolean(effectiveEntitlementsQuery.data?.entitlements) && !effectiveEntitlementsQuery.isPlaceholderData,
     entitlements: effectiveEntitlementsQuery.data?.entitlements, plan: tenantPlan,
     queueType:queueTypeConfiguration,
     locationSlug:selectedLocationSlug, setup:queueSetupRead,
   });
   const resourceQueueEnabled = intakeMode === "resource";
-  const resourceManagementEnabled = resourceQueueOptIn && intakeMode !== "loading" && canAccessVendorSection("queue", effectiveEntitlements, tenantPlan);
+  const resourceSetupAllowed=queueTypeConfiguration?.capabilities.resource===true;
+  const resourceManagementEnabled = resourceQueueOptIn && intakeMode !== "loading" && Boolean(selectedTenantSlug&&selectedLocationSlug);
   const rawCounterTicket = selectCounterDispatch(snapshot, selectedTenantSlug, selectedLocationSlug, selectedCounterSlug).ticket;
   const workPresentation = queueWorkPresentation({resourceIntake:resourceQueueEnabled,managementAllowed:resourceManagementEnabled,resourceTicketIds:namedTicketIds,currentTicketId:rawCounterTicket?.id});
-  const managementReadPending = resourceManagementEnabled && !resourceQueueEnabled && (namedManagementRead.scope !== localPoolScope || !namedManagementRead.ready);
+  const managementReadPending = resourceManagementEnabled && !resourceQueueEnabled && (namedManagementRead.scope !== localPoolScope || !namedManagementRead.ready || workflowManagementRead.scope !== localPoolScope || !workflowManagementRead.ready);
   const legacyCounterSnapshot = legacyQueueWork(snapshot,namedTicketIds);
   const dispatchSnapshot = workPresentation.resourceCounters ? localPoolDispatchSnapshot(snapshot, localPoolData) : snapshot;
   const {lane: selectedLane, ticket: selectedCalledTicket} = selectCounterDispatch(dispatchSnapshot, selectedTenantSlug, selectedLocationSlug, selectedCounterSlug);
@@ -1285,7 +1296,7 @@ function VendorDashboardContent() {
         ? navItems.filter((item) => adminAllowedSections.has(item.section))
         : navItems.filter((item) => staffAllowedSections.has(item.section));
   const visibleNavItems = roleVisibleNavItems.filter((item) =>
-    canAccessVendorSection(item.section, effectiveEntitlements, tenantPlan)
+    item.section === "queue" || canAccessVendorSection(item.section, effectiveEntitlements, tenantPlan)
   );
   const defaultDashboardPath = `/dashboard/${visibleNavItems[0]?.section || "settings"}`;
   useEffect(() => {
@@ -5075,7 +5086,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                 value={selectedCounterSlug || null}
                 onChange={(value) => setSelectedCounterSlug(value || "")}
               />
-                {!resourceQueueEnabled && workPresentation.resourceCounters ? <QueueButton variant="default" disabled={Boolean(queueDayClosed || queueDayPaused || busyAction) || boardScannerBusy || managementReadPending} onClick={()=>setWalkInDialogOpen(true)}><IconUserPlus data-icon="inline-start" />Add walk-in</QueueButton> : null}
+                {intakeMode === "legacy" && workPresentation.resourceCounters ? <QueueButton variant="default" disabled={Boolean(queueDayClosed || queueDayPaused || busyAction) || boardScannerBusy || managementReadPending} onClick={()=>setWalkInDialogOpen(true)}><IconUserPlus data-icon="inline-start" />Add walk-in</QueueButton> : null}
                 {resourceQueueEnabled ? <>
                   <QueueButton
                     variant="default"
@@ -5087,7 +5098,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   </QueueButton>
                 </> : null}
               </div>
-              {workPresentation.resourceCounters ? <CounterQueueControls token={token} tenant={selectedTenantSlug} location={selectedLocationSlug} counterSlug={selectedCounterSlug} busy={queueActionBusy||ticketScannerOpen} onScan={command=>{setTicketScannerError("");setScannerTarget({ticketId:command.ticketId,ticketNumber:command.ticketNumber,counterSlug:command.counterSlug,tenantSlug:selectedTenantSlug,locationQuery});setTicketScannerOpen(true);}}/> : <ButtonGroup className="vendor-queue-primary-actions" aria-label="Ticket actions">
+              {(intakeMode === "workflow" && !rawCounterTicket) || scopedResourceIds(localPoolScope,workflowInventory).includes(rawCounterTicket?.id||"") ? <p className="ops-muted">Use the station actions in Workflow journeys below.</p> : workPresentation.resourceCounters ? <CounterQueueControls token={token} tenant={selectedTenantSlug} location={selectedLocationSlug} counterSlug={selectedCounterSlug} busy={queueActionBusy||ticketScannerOpen} onScan={command=>{setTicketScannerError("");setScannerTarget({ticketId:command.ticketId,ticketNumber:command.ticketNumber,counterSlug:command.counterSlug,tenantSlug:selectedTenantSlug,locationQuery});setTicketScannerOpen(true);}}/> : <ButtonGroup className="vendor-queue-primary-actions" aria-label="Ticket actions">
                 <ButtonGroupSeparator className="queue-walkin-separator" aria-hidden="true" />
                 <QueueButton
                   variant="default"
@@ -5282,7 +5293,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     Interrupt service
                   </QueueButton>
                 ) : null}
-                {!resourceQueueEnabled && <QueueButton
+                {intakeMode === "legacy" && <QueueButton
                         variant="default"
                         disabled={Boolean(queueDayClosed || queueDayPaused || busyAction) || boardScannerBusy || (resourceQueueEnabled && !serviceRequestAvailable)}
                         onClick={() => resourceQueueEnabled ? setServiceRequestSequence(value=>value+1) : setWalkInDialogOpen(true)}
@@ -5397,7 +5408,9 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
           </QueueCardContent>
         </QueueCard>
         {!resourceQueueEnabled ? <LiveQueueSummary snapshot={snapshot} /> : null}
-        {resourceManagementEnabled && selectedTenantSlug && selectedLocationSlug ? <NamedQueuePanel onSetupReady={(ready,scope)=>{if(scope===localPoolScopeRef.current)setQueueSetupRead(current=>current.scope===scope&&current.ready===ready?current:{scope,ready});}} managementOnly={!resourceQueueEnabled} onManagementReady={(ready,scope)=>{if(scope===localPoolScopeRef.current)setNamedManagementRead({scope,ready});}} hasUnsavedEdits={()=>unsavedForm.current.hasEdits()} key={`named:${selectedTenantSlug}:${selectedLocationSlug}`} token={token} tenant={selectedTenantSlug} location={selectedLocationSlug} counterSlug={selectedCounterSlug} staffMode={selectedTenantRole === "staff"} onReviewQueueSetup={(isOwner||isAdmin)&&visibleNavItems.some(item=>item.section==="services")?()=>{if(!canLeaveFeature())return;setServicesTab("queue-policy");navigate(workspacePath("services","administration",location.search));}:undefined} newRequestSequence={resourceQueueEnabled?serviceRequestSequence:0} onIntakeAvailability={setServiceRequestAvailable} onTicketIds={(ids,scope)=>{if(scope===localPoolScopeRef.current)setNamedInventory({scope,ids});}} onEditForm={form=>unsavedForm.current.mark(form)} onCloseForm={()=>unsavedForm.current.discardId("named-queue-plan")} onBusy={busy=>setBusyAction(busy?"named-queue-plan":"")} onNotice={showSuccessNotification}/>:null}
+        {intakeMode==='blocked'?<OperationAlert color="orange" title="New requests need review">This location’s selected queue type is unavailable or needs setup. Existing requests can still be resolved below.</OperationAlert>:null}
+        {resourceManagementEnabled&&selectedTenantSlug&&selectedLocationSlug?<WorkflowQueuePanel key={`workflow:${localPoolScope}`} token={token} tenant={selectedTenantSlug} location={selectedLocationSlug} counterSlug={selectedCounterSlug} onEditForm={form=>unsavedForm.current.mark(form)} onClean={id=>unsavedForm.current.discardId(id)} onBusy={busy=>setBusyAction(busy?"workflow-command":"")} allowNew={intakeMode==='workflow'} onTicketIds={(ids,scope)=>{if(scope===localPoolScopeRef.current)setWorkflowInventory({scope,ids});}} onManagementReady={(ready,scope)=>{if(scope===localPoolScopeRef.current)setWorkflowManagementRead({scope,ready});}}/>:null}
+        {resourceManagementEnabled && selectedTenantSlug && selectedLocationSlug ? <NamedQueuePanel onSetupReady={(ready,scope)=>{if(scope===localPoolScopeRef.current)setQueueSetupRead(current=>current.scope===scope&&current.ready===ready?current:{scope,ready});}} managementOnly={!resourceQueueEnabled} onManagementReady={(ready,scope)=>{if(scope===localPoolScopeRef.current)setNamedManagementRead({scope,ready});}} hasUnsavedEdits={()=>unsavedForm.current.hasEdits()} key={`named:${selectedTenantSlug}:${selectedLocationSlug}`} token={token} tenant={selectedTenantSlug} location={selectedLocationSlug} counterSlug={selectedCounterSlug} staffMode={selectedTenantRole === "staff"} onReviewQueueSetup={resourceSetupAllowed&&(isOwner||isAdmin)&&visibleNavItems.some(item=>item.section==="services")?()=>{if(!canLeaveFeature())return;setServicesTab("queue-policy");navigate(workspacePath("services","administration",location.search));}:undefined} newRequestSequence={resourceQueueEnabled?serviceRequestSequence:0} onIntakeAvailability={setServiceRequestAvailable} onTicketIds={(ids,scope)=>{if(scope===localPoolScopeRef.current)setNamedInventory({scope,ids});}} onEditForm={form=>unsavedForm.current.mark(form)} onCloseForm={()=>unsavedForm.current.discardId("named-queue-plan")} onBusy={busy=>setBusyAction(busy?"named-queue-plan":"")} onNotice={showSuccessNotification}/>:null}
 
 
         {linearCommandError?.scope === `${selectedTenantSlug}:${selectedLocationSlug}` ? <OperationAlert color="orange" title="Queue action needs review">{linearCommandError.message}<OperationButton variant="outline" disabled={queueActionBusy} onClick={() => { void Promise.all([queueLifecycleSnapshotQuery.refetch(), resourceQueueEnabled ? localPoolQuery.refetch() : Promise.resolve()]); }}>Refresh queue</OperationButton></OperationAlert> : null}
@@ -5814,7 +5827,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
   }
 
   function renderWalkInDialog() {
-    if (intakeMode === "loading") return null;
+    if (intakeMode !== "legacy") return null;
     const intakeUnavailable = queueDayClosed || queueDayPaused;
     return <WalkInDialog linearMode={resourceQueueEnabled} opened={walkInDialogOpen} busy={busyAction === "walk-in"} unavailable={intakeUnavailable} closed={queueDayClosed}
       form={walkInForm} options={ticketServiceOptionsQuery.data?.services || []} optionsLoading={ticketServiceOptionsQuery.isFetching} optionsError={ticketServiceOptionsQuery.isError}
@@ -6500,7 +6513,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
             >
               Locations
             </ConfigTabsTrigger>
-            {admin ? (
+            {admin && resourceSetupAllowed ? (
               <ConfigTabsTrigger
                 disabled={Boolean(busyAction) || resourceConfigurationBusy}
                 value="resources"
@@ -6564,7 +6577,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
             </div>
           </ConfigTabsContent>
           <ConfigTabsContent value="resources" keepMounted>
-            {token && selectedTenantSlug && selectedLocationSlug && admin ? (
+            {token && selectedTenantSlug && selectedLocationSlug && admin && resourceSetupAllowed ? (
               <VendorResourceConfiguration
                 key={`${selectedTenantSlug}:${selectedLocationSlug}`}
                 token={token}
@@ -6919,7 +6932,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                 locations={<ConfigurationSection title="Locations offering this service" description="">
                   <div>
                     <p className="ops-muted">
-                      Turn on each branch where this service is offered. Queue resources and durations are set in Resource mappings and Queue policies.
+                      Turn on each location where this service is offered. The service duration applies to its queue entry.
                     </p>
                   </div>
                   {bookingSettingsAllowed && <OperationQueryState loading={bookingConfigurationQuery.isPending} error={bookingConfigurationQuery.error} onRetry={()=>void bookingConfigurationQuery.refetch()}/>}
@@ -7503,7 +7516,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
               <ConfigTabsTrigger disabled={busy} value="catalog">
                 Service catalog
               </ConfigTabsTrigger>
-              {resourceManagementEnabled?<ConfigTabsTrigger disabled={busy} value="queue-policy">Queue policy</ConfigTabsTrigger>:null}
+              {resourceSetupAllowed?<ConfigTabsTrigger disabled={busy} value="queue-policy">Queue policy</ConfigTabsTrigger>:null}
               {bookingSettingsAllowed && <><ConfigTabsTrigger disabled={busy} value="weekly">
                 Weekly availability
               </ConfigTabsTrigger>
@@ -7658,7 +7671,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
             {resourceManagementEnabled&&selectedTenantSlug&&selectedLocationSlug?<ConfigTabsContent value="queue-policy">
               <OperationQueryState loading={servicesQuery.isPending} error={servicesQuery.error} onRetry={()=>void servicesQuery.refetch()}/>
               <OperationQueryState loading={locationServicesQuery.isPending} error={locationServicesQuery.error} onRetry={()=>void locationServicesQuery.refetch()}/>
-              <QueueServicePolicyEditor key={`${selectedTenantSlug}:${selectedLocationSlug}`} token={token} tenant={selectedTenantSlug} location={selectedLocationSlug} services={servicesQuery.data?.services || []} assignments={locationServicesQuery.data?.locationServices || []} locations={locations} servicesReady={catalogReady} assignmentsReady={assignmentsReady} canManage={isOwner||isAdmin} onBusy={value=>setBusyAction(value?'queue-service-policy':'')} onCloseForm={()=>unsavedForm.current.discardId('queue-service-policy')} onNotice={showSuccessNotification}/>
+              <QueueServicePolicyEditor key={`${selectedTenantSlug}:${selectedLocationSlug}`} token={token} tenant={selectedTenantSlug} location={selectedLocationSlug} services={servicesQuery.data?.services || []} assignments={locationServicesQuery.data?.locationServices || []} locations={locations} servicesReady={catalogReady} assignmentsReady={assignmentsReady} canManage={resourceSetupAllowed&&(isOwner||isAdmin)} onBusy={value=>setBusyAction(value?'queue-service-policy':'')} onCloseForm={()=>unsavedForm.current.discardId('queue-service-policy')} onNotice={showSuccessNotification}/>
             </ConfigTabsContent>:null}
           </ConfigTabs>
         </div>
@@ -9433,6 +9446,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
             </OperationPanel>
           </ConfigTabsContent>
           <ConfigTabsContent value="queue">
+            {(isOwner||isAdmin)&&queueTypeConfiguration?.capabilities.workflow?<WorkflowQueuePanel key={`workflow-setup:${selectedTenantSlug}:${selectedLocationSlug}`} token={token} tenant={selectedTenantSlug} location={selectedLocationSlug} configurationOnly onEditForm={form=>unsavedForm.current.mark(form)} onClean={id=>unsavedForm.current.discardId(id)} onBusy={busy=>setBusyAction(busy?"workflow-setup":"")} onConfigured={()=>void queueTypeQuery.refetch()}/>:null}
             <QueueTypeSettings configuration={queueTypeConfiguration} canEdit={isOwner||isAdmin} busy={queueTypeBusy} onSave={async type=>{
               if(!token||!queueTypeConfiguration)return;
               const tenant=selectedTenantSlug,location=selectedLocationSlug;

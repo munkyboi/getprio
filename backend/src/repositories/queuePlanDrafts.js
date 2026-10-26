@@ -192,7 +192,7 @@ async function find(client, scope, draftId, lock = false, includeDiscarded = fal
 async function command(
   client,
   scope,
-  { operationKey, action, draftId = null, body },
+  { operationKey, action, draftId = null, body, beforeCreate },
 ) {
   if (
     typeof operationKey !== "string" ||
@@ -233,6 +233,7 @@ async function command(
   let oldSnapshot = null;
   let row;
   if (action === "create") {
+    if(beforeCreate)await beforeCreate();
     const result = await client.query(
       `INSERT INTO queue_plan_drafts(id,tenant_id,location_id,created_by_user_id,customer,lines,notes,catalog_revision,service_selections,selection_contract_version)
       VALUES($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7,$8,$9::jsonb,$10) RETURNING *,revision::text`,

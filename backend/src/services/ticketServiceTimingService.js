@@ -35,7 +35,7 @@ async function startService(current, enabled, options, client, ledger, state) {
     return false;
   }
   if (current.serviceEndedAt) reject("This ticket already has a finished service record. Issue a new ticket for another service.");
-  if (!enabled) reject("Service timing is not enabled for this location.");
+  if (!enabled && ![2,3,4].includes(state.contractVersion)) reject("Service timing is not enabled for this location.");
   if (current.status !== "called") reject("Call the ticket before starting service.");
   if (!current.customerConfirmedAt && current.joinChannel !== "vendor") reject("Confirm the ticket before starting service.");
   const allocationId = await resources.allocate(ledger, current, state);
@@ -133,7 +133,7 @@ async function applySelectionTiming(client,tenant,ticketId,action,options,alloca
     if (current.serviceStartedAt) return {ticket:current,changed:false};
     const branch=(await client.query(`SELECT l.service_timing_enabled,l.is_active,t.is_active AS tenant_active FROM store_locations l
       JOIN tenants t ON t.id=l.tenant_id WHERE l.id=$1 AND l.tenant_id=$2`,[location._id,tenant._id])).rows[0];
-    if (!branch?.service_timing_enabled || !branch.is_active || !branch.tenant_active || current.status!=='called') reject('This branch is not accepting service starts.');
+    if (!branch?.is_active || !branch.tenant_active || current.status!=='called') reject('This branch is not accepting service starts.');
     await timing.start(current,options.actorUserId,client,allocationId);
   } else {
     if (current.serviceEndedAt) return {ticket:current,changed:false};

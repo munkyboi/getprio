@@ -50,7 +50,10 @@ async function run(context, permission, operation) {
   );
 }
 async function mutateConfiguration(context, permission, operation) {
-  const result = await run(context, permission, operation);
+  const result = await run(context, permission, async(client,scope)=>{
+    await require('./queueTypeService').assertConfiguration(client,scope);
+    return operation(client,scope);
+  });
   // The transaction has committed; a scoped hint prompts readers to refetch.
   require("./queueEvents").publish(context.tenant.slug,
     {type:"queue-plans-updated",locationId:String(context.location._id)},

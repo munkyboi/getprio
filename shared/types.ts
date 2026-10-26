@@ -1401,6 +1401,7 @@ export interface QueueHistoryTicket {
 }
 
 export interface QueueFocusTicket {
+  journey?: import("./queueJourneyProgress").QueueJourneyProgress;
   id: string;
   lookupCode: string;
   ticketNumber: string;

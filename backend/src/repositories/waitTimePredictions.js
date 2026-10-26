@@ -27,7 +27,7 @@ async function recordPrediction(sample, options = {}) {
   const queryClient = buildQueryClient(options.client);
   const ticketResult = await queryClient.query(
     `
-      SELECT status, called_at, updated_at, date_key
+      SELECT status, called_at, updated_at, date_key,EXISTS(SELECT 1 FROM ticket_service_plans p WHERE p.ticket_id=tickets.id AND p.workflow_mode='multi_station') AS workflow_journey
       FROM tickets
       WHERE id = $1
       FOR UPDATE
@@ -35,7 +35,7 @@ async function recordPrediction(sample, options = {}) {
     [Number(sample.ticketId)]
   );
   const ticket = ticketResult.rows[0];
-  if (!ticket) {
+  if (!ticket || ticket.workflow_journey === true) {
     return false;
   }
 

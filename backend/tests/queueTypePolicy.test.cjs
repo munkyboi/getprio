@@ -70,3 +70,13 @@ test('successful setting changes update only location metadata and emit audit/ev
 test('resource capability alone cannot activate invalid setup',async()=>{
  const h=commandHarness({resource:true});await assert.rejects(()=>h.module.put(h.context,{type:'resource',expectedRevision:'1',confirmedFutureOnly:true},'key'),{code:'QUEUE_TYPE_NOT_READY'});assert.equal(h.writes.length,0);
 });
+
+test('legacy authority revokes new capabilities immediately after published defaults change',()=>{
+ const r=loadModuleWithMocks(require.resolve('../src/services/entitlementResolver'),{'../repositories/entitlementResolver':{}});
+ const input={plan:{legacyEntitlements:{queueSystemAccess:true,resourceQueueAccess:true,workflowQueueAccess:true}},subscription:{legacyEntitlements:{queueSystemAccess:true,resourceQueueAccess:true,workflowQueueAccess:true}}};
+ assert.equal(r.buildLegacyValues(input).features.resourceQueue.enabled,true);
+ input.plan.legacyEntitlements.resourceQueueAccess=false;input.plan.legacyEntitlements.workflowQueueAccess=false;
+ assert.equal(r.buildLegacyValues(input).features.resourceQueue.enabled,false);assert.equal(r.buildLegacyValues(input).features.workflowQueue.enabled,false);
+ input.plan.legacyEntitlements.resourceQueueAccess=true;input.plan.legacyEntitlements.queueSystemAccess=false;
+ assert.equal(r.buildLegacyValues(input).features.resourceQueue.enabled,false);
+});

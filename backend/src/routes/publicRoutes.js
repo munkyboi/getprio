@@ -480,6 +480,7 @@ router.get(
     const tenant = await getTenantOrThrow(req.params.tenantSlug);
     const location = await getLocationOrPrimary(tenant, req.params.locationSlug);
     const lookupCode = String(req.query.lookupCode || "").trim().toUpperCase();
+    let authorizedJourneyTicket;
     if (lookupCode) {
       const ticket = await ticketRepository.findTicketByTenantAndLookupCode(
         tenant._id,
@@ -491,6 +492,7 @@ router.get(
         throw error;
       }
       assertQueueTicketDetailsAccess(req, ticket);
+      authorizedJourneyTicket=ticket;
     }
 
     const snapshot = await getQueueSnapshot(tenant, {
@@ -504,7 +506,7 @@ router.get(
       throw error;
     }
 
-    res.json(lookupCode ? withoutStaffServiceTiming(snapshot) : formatPublicQueueSnapshot(snapshot));
+    res.json(lookupCode ? await require("../services/queueJourneyPublicProjection").attach(withoutStaffServiceTiming(snapshot),authorizedJourneyTicket) : formatPublicQueueSnapshot(snapshot));
   })
 );
 
@@ -657,7 +659,7 @@ router.get(
       lookupCode: ticket.lookupCode,
       location: location || undefined
     });
-    res.json(snapshot.focusTicket);
+    res.json((await require("../services/queueJourneyPublicProjection").attach(snapshot,ticket)).focusTicket);
   })
 );
 
@@ -890,6 +892,7 @@ router.get(
     const lookupCode = req.query.lookupCode
       ? String(req.query.lookupCode).trim().toUpperCase()
       : "";
+    let authorizedJourneyTicket;
     if (lookupCode) {
       const ticket = await ticketRepository.findTicketByTenantAndLookupCode(
         tenant._id,
@@ -901,6 +904,7 @@ router.get(
         throw error;
       }
       assertQueueTicketDetailsAccess(req, ticket);
+      authorizedJourneyTicket=ticket;
     }
 
     res.setHeader("Content-Type", "text/event-stream");
@@ -910,7 +914,7 @@ router.get(
 
     const writeSnapshot = async (snapshot) => {
       const payload = lookupCode
-        ? withoutStaffServiceTiming(await getQueueSnapshot(tenant, { lookupCode, location }))
+        ? await require("../services/queueJourneyPublicProjection").attach(withoutStaffServiceTiming(await getQueueSnapshot(tenant, { lookupCode, location })),authorizedJourneyTicket)
         : formatPublicQueueSnapshot(
             snapshot || (await getQueueSnapshot(tenant, { location }))
           );

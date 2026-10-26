@@ -1,3 +1,4 @@
+import {currentJourneyStage,journeyStageLabels,type QueueJourneyProgress} from "../../../shared/queueJourneyProgress";
 import { getBookingEmailStatus, needsEmailDeliveryFallback } from "../utils/ticketEmailStatus";
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import {
@@ -39,6 +40,11 @@ import {
   isQueueAcceptingJoins
 } from "../utils/queueStatus";
 import { getQueueCustomerFullNameLabel } from "../utils/queueNames";
+
+export function QueueJourneyProgressView({journey}:{journey:QueueJourneyProgress}) {
+ const current=currentJourneyStage(journey);
+ return <section aria-label="Your service journey"><h3>Your service journey</h3><p>Keep reference {journey.reference} throughout your visit.</p>{current?<p role="status"><strong>{current.label}</strong>: {journeyStageLabels[current.state]}{current.queuePosition?` · Position ${current.queuePosition} at this station`:''}</p>:null}<ol>{journey.stages.map(stage=><li key={stage.ordinal} aria-current={stage.ordinal===journey.currentStage?'step':undefined}><strong>{stage.label}</strong> · {journeyStageLabels[stage.state]} · Reference {stage.reference}</li>)}</ol><p>Ask staff if you need to change or cancel the remaining steps.</p></section>;
+}
 
 function hexToRgba(hex: string, alpha: number): string {
   const normalized = /^#[0-9a-f]{6}$/i.test(hex) ? hex : "#ffffff";
@@ -306,11 +312,14 @@ export default function JoinedQueuePage() {
   const ticketIsConfirmed = Boolean(
     snapshot?.focusTicket?.status === "called" && snapshot.focusTicket.customerConfirmedAt
   );
-  const ticketState = getCustomerTicketStateSummary(
+  const legacyTicketState = getCustomerTicketStateSummary(
     snapshot?.focusTicket?.status,
     snapshot?.focusTicket?.customerConfirmedAt,
     snapshot?.focusTicket?.statusReason
   );
+  const ownJourney=snapshot?.focusTicket?.journey;
+  const ownJourneyStage=ownJourney?currentJourneyStage(ownJourney):null;
+  const ticketState=ownJourneyStage?{...legacyTicketState,label:journeyStageLabels[ownJourneyStage.state]}:legacyTicketState;
   const ticketDisplayStatus = ticketIsConfirmed
     ? "confirmed"
     : snapshot?.focusTicket?.status || "waiting";
@@ -329,14 +338,14 @@ export default function JoinedQueuePage() {
   const vendorIsInactive = snapshot ? !snapshot.tenant.isActive : false;
   const locationIsClosed = snapshot?.location ? !snapshot.location.openStatus.isOpen : false;
   const queueState = getQueueStateSummary(snapshot);
-  const ticketIsWaiting = snapshot?.focusTicket?.status === "waiting";
+  const ticketIsWaiting = ownJourneyStage?ownJourneyStage.state==="waiting":snapshot?.focusTicket?.status === "waiting";
   const ticketIsCarriedOver = Boolean(
     snapshot?.focusTicket?.isCarriedOver ||
     snapshot?.focusTicket?.servicePriorityBand === "carry_over" ||
     Number(snapshot?.focusTicket?.carryOverCount || 0) > 0
   );
   const canJoinAgain =
-    isQueueAcceptingJoins(snapshot) &&
+    !ownJourney && isQueueAcceptingJoins(snapshot) &&
     !ticketIsWaiting &&
     !vendorIsInactive &&
     !locationIsClosed;
@@ -346,7 +355,7 @@ export default function JoinedQueuePage() {
     customerEmail: user?.email || storedAccess?.customerEmail || prefill?.email || "",
     customerPhone: user?.phone || storedAccess?.customerPhone || prefill?.phone || ""
   };
-  const canCancelTicket = snapshot?.focusTicket?.status === "waiting";
+  const canCancelTicket = !ownJourney&&snapshot?.focusTicket?.status === "waiting";
   const ownershipVerificationError = "We could not verify that this ticket belongs to you.";
 
   useEffect(() => {
@@ -969,6 +978,7 @@ export default function JoinedQueuePage() {
                       ) : null}
                     </Group>
                   </div>
+                  {snapshot?.focusTicket?.journey?<QueueJourneyProgressView journey={snapshot.focusTicket.journey}/>:null}
                   {isBookingTicket ? (
                     <Stack gap="xs">
                       {linkedBookingReference ? <Text size="sm">Booking reference: <strong>{linkedBookingReference}</strong></Text> : null}
@@ -1043,13 +1053,13 @@ export default function JoinedQueuePage() {
                     <Text className="booking-detail-ticket-number" fw={900}>{snapshot?.focusTicket?.ticketNumber || lookupCode}</Text>
                   </div>
                   <div className="booking-detail-visual-tile">
-                    <Text size="xs">Position</Text>
+                    <Text size="xs">{snapshot?.focusTicket?.journey?"Station position":"Position"}</Text>
                     <Text fw={800}>{ticketIsWaiting && snapshot?.focusTicket?.position ? `#${snapshot.focusTicket.position}` : "--"}</Text>
                     <Text size="sm">{ticketIsWaiting ? "in the queue" : ticketState.label}</Text>
                   </div>
                   <div className="booking-detail-visual-tile">
-                    <Text size="xs">Estimated wait</Text>
-                    <Text fw={800}>{snapshot?.focusTicket?.estimatedWaitMinutes ?? snapshot?.stats?.estimatedWaitMinutes ?? 0} mins</Text>
+                    <Text size="xs">{snapshot?.focusTicket?.journey?"Current step":"Estimated wait"}</Text>
+                    <Text fw={800}>{snapshot?.focusTicket?.journey?currentJourneyStage(snapshot.focusTicket.journey)?.label:`${snapshot?.focusTicket?.estimatedWaitMinutes ?? snapshot?.stats?.estimatedWaitMinutes ?? 0} mins`}</Text>
                     <Text size="sm">{ticketState.label}</Text>
                   </div>
                 </SimpleGrid>
@@ -1157,7 +1167,7 @@ export default function JoinedQueuePage() {
                   ETA
                 </Text>
                 <Title className="ticket-page-metric-value" order={2}>
-                  {snapshot?.focusTicket?.estimatedWaitMinutes ?? snapshot?.stats?.estimatedWaitMinutes ?? 0} mins
+                  {ownJourneyStage?journeyStageLabels[ownJourneyStage.state]:`${snapshot?.focusTicket?.estimatedWaitMinutes ?? snapshot?.stats?.estimatedWaitMinutes ?? 0} mins`}
                 </Title>
               </Paper>
               <Paper className="ticket-page-metric" p="md">

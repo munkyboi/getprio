@@ -1,5 +1,20 @@
 ## Queue type policy — accepted 2026-10-26
 
+## Initial sequential runtime candidate — 2026-10-26
+
+The source candidate implements one active sequential route per location with at least two distinct stations. A service choice is recorded for every required stage; no stage is silently omitted. Each stage explicitly requires no resource or pooled capacity. New Workflow requests do not support named-member selection, branching, loops or parallel stages. Resource-based Queue retains its separate V4 named-resource guarantees. A multi-workflow/package library and graphical canvas remain future scope; the initial setup uses ordered station fields.
+
+New arrival-contract-v1 journeys require explicit first-station arrival. Completing a nonfinal stage releases its allocation group and advances the pinned journey pointer in the same transaction to either preparation/readiness wait or destination-arrival wait. Neither wait has a station queue position or resource allocation. Only confirmed arrival joins the destination station’s current Queue Day with its own waiting timestamp and rank. Start validates only the current stage’s hours, never the sum of the whole visit or results wait. Historical arrival-contract0 workflows retain their original explicit handoff behavior.
+
+Cancelling future progression preserves any active allocation until staff explicitly completes or interrupts that stage. An unstarted cancellation resolves protected groups and members. A cancelled journey does not become served or advance to another station. Closure preserves the journey; unheld unstarted station waiting work requires a fresh arrival, while active service and preparation waits are retained. Protection expiry follows its existing independent clock.
+
+The admitted execution type is recorded server-side on new tickets. Existing tickets remain unmodified. Simple Queue may display a shared service name/duration without capturing its resource mappings; Resource/Workflow configuration and new admission use current published capabilities independently of stale subscription snapshots or billing model-version rollout. Previously published work keeps its pinned command path after a type or plan change. New unsupported drafts/publication are denied, existing draft edits remain available, and receipt replay returns the original committed result.
+
+Customer tracking is an own-ticket safe projection through existing opaque lookup/ownership checks and lookup SSE. Global boards receive no private journey labels or tracking tokens. Legacy customer/mobile advanced intake remains unsupported and fails closed; it does not consume Vendor admin DTOs. Confirmed but unadmitted incompatible bookings retain their reservations and require staff resolution.
+
+**Acceptance boundary:** this is a local/staging source candidate. Unit simulations, builds, independent source review, migration application, authenticated browser flows, true cross-day runtime, merge and deployment are separate gates. No runtime, migration, deployment or full future-PRD completion is claimed by this document.
+
+
 This decision supersedes the resource pilot and deferred tier policy below. Location execution types are `simple`, `resource`, and `workflow`; billing tiers are not execution types. New and legacy-absent locations default to Simple for future admissions, without inferring a type from configured pools or existing work.
 
 Published Platform capabilities govern access: Free defaults to Simple; Economy (`economical`) adds Resource; Pro and Enterprise add Workflow. Explicit custom published values are preserved. Missing advanced capabilities deny access. Booking remains independent. Workflow stages with resource requirements require both advanced capabilities.

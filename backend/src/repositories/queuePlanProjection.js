@@ -10,7 +10,7 @@ async function read(client, scope, draft, options = {}) {
   const result = await client.query(
     `SELECT t.id::text,t.ticket_number,t.status,t.service_started_at,t.service_ended_at,
       p.revision::text,p.ticket_revision::text,p.items,p.workflow_mode,p.workflow_configuration_revision::text,p.stage_id,a.revision::text AS stage_revision,p.resource_wait,
-      a.id AS stage_attempt_id,a.attempt::text,a.ordinal,a.state AS stage_state,p.created_at,clock_timestamp() AS observed_at
+      a.id AS stage_attempt_id,a.attempt::text,a.ordinal,a.state AS stage_state,p.created_at,p.journey_cancelled_at,clock_timestamp() AS observed_at
     FROM tickets t JOIN ticket_service_plans p ON (p.ticket_id,p.tenant_id,p.location_id)=(t.id,t.tenant_id,t.location_id)
     JOIN queue_stage_attempts a ON (a.id,a.tenant_id,a.location_id)=(p.stage_attempt_id,p.tenant_id,p.location_id)
     WHERE t.tenant_id=$1 AND t.location_id=$2 AND t.id=$3 AND p.contract_version=2`,
@@ -24,7 +24,7 @@ async function read(client, scope, draft, options = {}) {
     });
   const stages = (
     await client.query(
-      `SELECT id,stage_id,revision::text,attempt::text,ordinal,station_id,station_snapshot,label,assigned_user_id::text,state,started_at,ended_at
+      `SELECT id,stage_id,revision::text,attempt::text,ordinal,station_id,station_snapshot,label,assigned_user_id::text,state,started_at,ended_at,arrival_contract_version,resource_requirement,readiness_required,ready_at,arrived_at,station_waiting_at,station_queue_sequence::text,station_queue_date_key
     FROM queue_stage_attempts WHERE tenant_id=$1 AND location_id=$2 AND ticket_id=$3 ORDER BY ordinal,attempt,id`,
       [scope.tenantId, scope.locationId, row.id],
     )
@@ -40,6 +40,11 @@ async function read(client, scope, draft, options = {}) {
     assignedUserId: attempt.assigned_user_id || null,
     serviceCounterIds: attempt.station_snapshot?.serviceCounterIds || [],
     state: attempt.state,
+    arrivalContractVersion:attempt.arrival_contract_version||0,
+    resourceRequirement:attempt.resource_requirement||{kind:'pool'},
+    readinessRequired:attempt.readiness_required===true,
+    readyAt:attempt.ready_at||null,arrivedAt:attempt.arrived_at||null,
+    stationWaitingAt:attempt.station_waiting_at||null,stationQueueSequence:attempt.station_queue_sequence||null,stationQueueDateKey:attempt.station_queue_date_key||null,
     startedAt: attempt.started_at,
     endedAt: attempt.ended_at,
     skippedAt: attempt.skipped_at || null,
@@ -206,6 +211,12 @@ async function read(client, scope, draft, options = {}) {
                   : [];
     if (canReassign) allowedActions.push("reassign");
   }
+  if(row.workflow_mode==='multi_station'&&stage.resourceRequirement?.kind==='none') {
+    allowedActions=stage.state==='called'?['start']:stage.state==='in_service'?['complete','interrupt','pause']:stage.state==='paused'?['resume','complete','interrupt']:allowedActions;
+  }
+  if(row.workflow_mode==='multi_station'&&stage.state==='awaiting_readiness')allowedActions=['ready'];
+  if(row.workflow_mode==='multi_station'&&stage.state==='awaiting_arrival')allowedActions=['arrive'];
+  if(row.workflow_mode==='multi_station'&&stage.arrivalContractVersion===1&&!row.journey_cancelled_at&&!['served','cancelled','unserved','expired'].includes(row.status))allowedActions.push('cancelJourney');
   if (row.status === "skipped" && stage.state === "skipped") allowedActions = ["recall"];
   let permittedReassignmentUsers = [];
   if (allowedActions.includes("reassign"))
@@ -237,7 +248,7 @@ async function read(client, scope, draft, options = {}) {
     },
     lines: row.items.map((item) => ({
       ...item,
-      requirements: [
+      requirements: item.resource?.known ? [
         {
           poolId: item.resource.poolId,
           unitsPerQuantity: item.resource.unitsRequired,
@@ -245,7 +256,7 @@ async function read(client, scope, draft, options = {}) {
           poolRevision: item.resource.poolRevision,
           requirementRevision: item.resource.requirementRevision,
         },
-      ],
+      ] : [],
     })),
     currentStage: stage,
     stages,

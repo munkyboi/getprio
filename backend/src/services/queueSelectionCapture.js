@@ -145,7 +145,8 @@ async function catalogData(client, scope) {
       [scope.tenantId, scope.locationId],
     )
   ).rows;
-  const workflow = await workflows.read(client, scope);
+  const definition = await workflows.read(client, scope);
+  const workflow = definition.executionType && definition.executionType!=='workflow' ? await workflows.readVersion(client,scope,'1') : definition;
   const observedAt = (
     await client.query("SELECT clock_timestamp() AS observed_at")
   ).rows[0].observed_at;

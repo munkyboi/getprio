@@ -18,14 +18,14 @@ export function queueIntakeMode(input: ModeInput): "loading" | "legacy" | "resou
   if (!setting.capabilities[setting.type]) return "blocked";
   if (setting.type === "simple") return "legacy";
   if (setting.type === "workflow") return "workflow";
-  return input.optedIn && input.entitlements.queueSystemAccess === true && input.setup?.scope === `${input.tenantSlug}:${input.locationSlug}` && input.setup.ready ? "resource" : "blocked";
+  return input.optedIn && input.setup?.scope === `${input.tenantSlug}:${input.locationSlug}` && input.setup.ready ? "resource" : "blocked";
 }
 
 export function queueWorkPresentation({resourceIntake, managementAllowed, resourceTicketIds, currentTicketId}: {
   resourceIntake: boolean; managementAllowed: boolean; resourceTicketIds: string[]; currentTicketId?: string | null;
 }) {
   const currentResource = Boolean(currentTicketId && resourceTicketIds.includes(currentTicketId));
-  return {currentResource, resourceCounters: resourceIntake || Boolean(managementAllowed && resourceTicketIds.length && (!currentTicketId || currentResource)), newRequest: resourceIntake ? "resource" as const : "walkIn" as const};
+  return {currentResource, resourceCounters: Boolean((!currentTicketId||currentResource)&&resourceIntake) || Boolean(managementAllowed && resourceTicketIds.length && (!currentTicketId || currentResource)), newRequest: resourceIntake ? "resource" as const : "walkIn" as const};
 }
 
 export function legacyQueueWork<T extends {calledTickets?: Array<{id: string}>}>(snapshot:T|null, resourceTicketIds:string[]):T|null {

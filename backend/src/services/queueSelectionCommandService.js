@@ -56,6 +56,7 @@ async function amend(client, { scope, ticket, p, stage, body, draft }) {
     await serviceHours.assertPlanFits(client,scope,captured.items,workflow);
     serviceHours.tagItems(captured.items);
   }
+  await require("./queueTypeService").assertAmendment(client,scope,p.items,captured.items,p.workflow_mode);
   const reduced = p.items.some((old) => {
     const next = captured.items.find(
       (item) => item.selectionId === old.selectionId,
