@@ -1466,6 +1466,18 @@ for(const action of ['call','start','complete','interrupt','amend','handoff','pa
     }
   }));
 }
+async function queueTypeContext(req) {
+  const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+  const location = await getLocationForTenant(tenant, req.params.locationSlug);
+  await assertQueueLocationAccess(req.user, tenant, location);
+  return {tenant,location,actorUserId:req.user._id};
+}
+router.get('/tenant/:tenantSlug/locations/:locationSlug/queue-type',asyncHandler(async(req,res)=>{
+  res.json(await require('../services/queueTypeService').get(await queueTypeContext(req)));
+}));
+router.put('/tenant/:tenantSlug/locations/:locationSlug/queue-type',asyncHandler(async(req,res)=>{
+  res.json(await require('../services/queueTypeService').put(await queueTypeContext(req),req.body,req.get('Idempotency-Key')));
+}));
 router.get('/tenant/:tenantSlug/queue/workflow',asyncHandler(async(req,res)=>{
   res.json(await require('../services/queueWorkflowService').get(await queuePlanContext(req)));
 }));

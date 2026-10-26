@@ -1,6 +1,7 @@
 
 type ModeInput = {
   optedIn: boolean;
+  queueType?: {scope:{tenantSlug:string;locationSlug:string};type:"simple"|"resource"|"workflow";capabilities:{simple:boolean;resource:boolean;workflow:boolean}} | null;
   tenantSlug: string;
   entitlementTenantSlug: string | null | undefined;
   loaded: boolean;
@@ -10,9 +11,14 @@ type ModeInput = {
   plan?: { planSlug?: string | null; subscriptionStatus?: string | null } | null;
 };
 /** Presentation only; the server still authorizes queue admission and booking separately. */
-export function queueIntakeMode(input: ModeInput): "loading" | "legacy" | "resource" {
+export function queueIntakeMode(input: ModeInput): "loading" | "legacy" | "resource" | "workflow" | "blocked" {
   if (!input.tenantSlug || !input.loaded || input.entitlementTenantSlug !== input.tenantSlug || !input.entitlements) return "loading";
-  return input.optedIn && input.entitlements.queueSystemAccess === true && input.setup?.scope === `${input.tenantSlug}:${input.locationSlug}` && input.setup.ready ? "resource" : "legacy";
+  const setting = input.queueType;
+  if (!setting || setting.scope.tenantSlug!==input.tenantSlug || setting.scope.locationSlug!==input.locationSlug) return "loading";
+  if (!setting.capabilities[setting.type]) return "blocked";
+  if (setting.type === "simple") return "legacy";
+  if (setting.type === "workflow") return "workflow";
+  return input.optedIn && input.entitlements.queueSystemAccess === true && input.setup?.scope === `${input.tenantSlug}:${input.locationSlug}` && input.setup.ready ? "resource" : "blocked";
 }
 
 export function queueWorkPresentation({resourceIntake, managementAllowed, resourceTicketIds, currentTicketId}: {

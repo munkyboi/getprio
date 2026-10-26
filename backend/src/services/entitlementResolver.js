@@ -2,7 +2,7 @@ const crypto = require("crypto");
 const repository = require("../repositories/entitlementResolver");
 const releaseControls = require("../config/releaseControls");
 
-const FEATURE_KEYS = ["queue", "branding", "discovery", "booking", "campaigns"];
+const FEATURE_KEYS = ["queue", "resourceQueue", "workflowQueue", "branding", "discovery", "booking", "campaigns"];
 const ALLOWANCE_KEYS = ["queueTickets", "serviceBookings"];
 const RESTRICTED_STATUSES = new Set(["past_due", "unpaid", "suspended"]);
 
@@ -29,6 +29,9 @@ function stableHash(value) {
 }
 
 function applyCampaignDependency(features) {
+  if (!features.queue?.enabled) {
+    for (const key of ["resourceQueue", "workflowQueue"]) features[key] = { enabled: false, source: "restriction", overrideId: null };
+  }
   features.campaigns = { enabled: false, source: "restriction", overrideId: null };
   return features;
 }
@@ -40,6 +43,8 @@ function buildLegacyValues(input) {
   };
   const featureMap = {
     queue: "queueSystemAccess",
+    resourceQueue: "resourceQueueAccess",
+    workflowQueue: "workflowQueueAccess",
     branding: "publicFacingBranding",
     discovery: "marketplaceDiscovery",
     booking: "serviceBookingAccess",
@@ -50,7 +55,7 @@ function buildLegacyValues(input) {
     serviceBookings: "monthlyServiceBookings"
   };
   const features = Object.fromEntries(FEATURE_KEYS.map((key) => [key, {
-    enabled: Boolean(snapshot[featureMap[key]]),
+    enabled: ["resourceQueue", "workflowQueue"].includes(key) ? input.plan?.legacyEntitlements?.[featureMap[key]] === true : Boolean(snapshot[featureMap[key]]),
     source: "legacy_snapshot",
     overrideId: null
   }]));

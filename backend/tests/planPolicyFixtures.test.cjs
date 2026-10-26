@@ -17,22 +17,22 @@ test("settled four-plan features and monthly allowances have one canonical fixtu
   assert.deepEqual(PLAN_POLICY_FIXTURES, {
     free: {
       checkoutEnabled: false,
-      features: { queue: true, branding: false, discovery: false, booking: false, campaigns: false },
+      features: { queue: true, resourceQueue: false, workflowQueue: false, branding: false, discovery: false, booking: false, campaigns: false },
       allowances: { queueTickets: 500, serviceBookings: 0 }
     },
     economical: {
       checkoutEnabled: true,
-      features: { queue: true, branding: false, discovery: true, booking: true, campaigns: false },
+      features: { queue: true, resourceQueue: true, workflowQueue: false, branding: false, discovery: true, booking: true, campaigns: false },
       allowances: { queueTickets: 1000, serviceBookings: 100 }
     },
     pro: {
       checkoutEnabled: true,
-      features: { queue: true, branding: true, discovery: true, booking: true, campaigns: false },
+      features: { queue: true, resourceQueue: true, workflowQueue: true, branding: true, discovery: true, booking: true, campaigns: false },
       allowances: { queueTickets: 5000, serviceBookings: 1000 }
     },
     enterprise: {
       checkoutEnabled: false,
-      features: { queue: true, branding: true, discovery: true, booking: true, campaigns: false },
+      features: { queue: true, resourceQueue: true, workflowQueue: true, branding: true, discovery: true, booking: true, campaigns: false },
       allowances: { queueTickets: 50000, serviceBookings: 10000 }
     }
   });

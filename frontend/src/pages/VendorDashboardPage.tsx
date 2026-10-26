@@ -1,3 +1,5 @@
+import {QueueTypeSettings} from "../vendor/QueueTypeSettings";
+import {getQueueType,saveQueueType} from "../api/queueTypes";
 import { appUrl } from "../surfaces/surfaceConfig";
 import {apiRequest} from "../api/client";
 import { ResourceReadStatus } from '../vendor/ResourceReadStatus';
@@ -1250,12 +1252,20 @@ function VendorDashboardContent() {
     effectiveEntitlementsQuery.data?.entitlements;
   const tenantPlan = effectiveEntitlementsQuery.data?.plan;
   const bookingSettingsAllowed = effectiveEntitlementsQuery.isSuccess && !effectiveEntitlementsQuery.isPlaceholderData && effectiveEntitlementsQuery.data?.clientTenantSlug === selectedTenantSlug && effectiveEntitlementsQuery.data?.entitlements?.serviceBookingAccess === true;
+  const queueTypeQuery = useQuery({
+    queryKey:["vendor-queue-type",selectedTenantSlug,selectedLocationSlug,token],
+    queryFn:({signal})=>getQueueType(token!,selectedTenantSlug,selectedLocationSlug,signal),
+    enabled:Boolean(token&&selectedTenantSlug&&selectedLocationSlug&&!requiresMfaEnrollment),
+  });
+  const queueTypeConfiguration = queueTypeQuery.isSuccess && !queueTypeQuery.isPlaceholderData && queueTypeQuery.data.scope.tenantSlug === selectedTenantSlug && queueTypeQuery.data.scope.locationSlug === selectedLocationSlug ? queueTypeQuery.data : null;
+  const [queueTypeBusy,setQueueTypeBusy]=useState(false);
   const [queueSetupRead,setQueueSetupRead] = useState<{scope:string;ready:boolean}>({scope:"",ready:false});
   const intakeMode = queueIntakeMode({
     optedIn: resourceQueueOptIn, tenantSlug: selectedTenantSlug,
     entitlementTenantSlug: effectiveEntitlementsQuery.data?.clientTenantSlug,
     loaded: effectiveEntitlementsQuery.isSuccess && !effectiveEntitlementsQuery.isPlaceholderData,
-    entitlements: effectiveEntitlements, plan: tenantPlan,
+    entitlements: effectiveEntitlementsQuery.data?.entitlements, plan: tenantPlan,
+    queueType:queueTypeConfiguration,
     locationSlug:selectedLocationSlug, setup:queueSetupRead,
   });
   const resourceQueueEnabled = intakeMode === "resource";
@@ -9423,6 +9433,14 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
             </OperationPanel>
           </ConfigTabsContent>
           <ConfigTabsContent value="queue">
+            <QueueTypeSettings configuration={queueTypeConfiguration} canEdit={isOwner||isAdmin} busy={queueTypeBusy} onSave={async type=>{
+              if(!token||!queueTypeConfiguration)return;
+              const tenant=selectedTenantSlug,location=selectedLocationSlug;
+              setQueueTypeBusy(true);
+              try {await saveQueueType(token,tenant,location,{type,expectedRevision:queueTypeConfiguration.revision,confirmedFutureOnly:true},crypto.randomUUID());await queryClient.invalidateQueries({queryKey:["vendor-queue-type",tenant,location]});}
+              finally {setQueueTypeBusy(false);}
+            }}/>
+
             <OperationPanel className="config-long-form">
               <form id="vendor-queue-settings" onSubmit={handleSaveSettings}>
                 <div className="config-persistent-actions"><p className="ops-muted">Changes apply to queue preferences at this business.</p><OperationButton type="submit" loading={settingsBusy}>Save queue settings</OperationButton></div>

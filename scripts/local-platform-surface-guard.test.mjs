@@ -32,3 +32,19 @@ test('full source manifest verifies every byte and rejects drift, duplicate path
   hash=write([{path:'../escape',sha256:sha},...entries.slice(1)]);assert.throws(()=>verifyLocalSurfaceSource(root,filename,hash),/Unsafe source manifest path/);
  }finally{fs.rmSync(temp,{recursive:true});}
 });
+test('finite queue-type QA topology accepts only exact isolated target and every application role',()=>{
+ const qa={...valid,topology:'queue_type_qa_20261026',env:{...valid.env,PORT:'5093',LOCAL_API_ORIGIN:'http://127.0.0.1:5093',DATABASE_URL:'postgresql://local:local@127.0.0.1:55493/getprio_local_pool_demo_surfaces_core_queue_type_qa_20261026',LOCAL_BROWSER_COOKIE_PREFIX:'qtqa20261026',CLIENT_URL:'http://127.0.0.1:5196',APP_BASE_URL:'http://127.0.0.1:5196',CUSTOMER_APP_URL:'http://127.0.0.1:5196',VENDOR_APP_URL:'http://127.0.0.1:5197',PLATFORM_DASHBOARD_URL:'http://127.0.0.1:5198'}};
+ assert.equal(validateLocalSurfaceArtifact(qa).port,5093);
+ assert.throws(()=>validateLocalSurfaceArtifact({...qa,topology:'arbitrary'}));
+ for(const key of ['CLIENT_URL','APP_BASE_URL','CUSTOMER_APP_URL','VENDOR_APP_URL','MARKETING_URL','PLATFORM_DASHBOARD_URL','DEVELOPER_PORTAL_URL'])assert.throws(()=>validateLocalSurfaceArtifact({...qa,env:{...qa.env,[key]:'http://127.0.0.1:5199'}}));
+ for(const patch of [{PORT:'5091'},{DATABASE_URL:valid.env.DATABASE_URL},{LOCAL_BROWSER_COOKIE_PREFIX:'surface_review'},{DATABASE_URL:qa.env.DATABASE_URL.replace('55493','55491')},{LOCAL_API_PROFILE:'sandbox'}])assert.throws(()=>validateLocalSurfaceArtifact({...qa,env:{...qa.env,...patch}}));
+ assert.equal(validateLocalSurfaceArtifact(valid).port,5091);
+});
+test('compiled application URL factory resolves all five finite QA roles and rejects omitted origins',async()=>{
+ const {createRequire}=await import('node:module');const vm=await import('node:vm');const require=createRequire(import.meta.url);const {transformSync}=require('esbuild');
+ const source=fs.readFileSync(new URL('../frontend/src/surfaces/surfaceConfig.ts',import.meta.url),'utf8');
+ const env={VITE_LOCAL_SURFACES:'1',VITE_APP_SURFACE:'vendor',VITE_MARKETING_URL:'http://127.0.0.1:5190',VITE_CUSTOMER_APP_URL:'http://127.0.0.1:5196',VITE_VENDOR_APP_URL:'http://127.0.0.1:5197',VITE_PLATFORM_DASHBOARD_URL:'http://127.0.0.1:5198',VITE_DEVELOPER_PORTAL_URL:'http://127.0.0.1:5194'};
+ function compiled(values){const output=transformSync(source,{loader:'ts',format:'cjs',define:{'import.meta.env':JSON.stringify(values)}}).code;const module={exports:{}};vm.runInNewContext(output,{module,exports:module.exports,URL});return module.exports;}
+ for(const [role,port] of Object.entries({marketing:5190,customer:5196,vendor:5197,platform:5198,developers:5194}))assert.equal(compiled(env).appUrl(role),`http://127.0.0.1:${port}/`);
+ for(const key of ['VITE_MARKETING_URL','VITE_CUSTOMER_APP_URL','VITE_VENDOR_APP_URL','VITE_PLATFORM_DASHBOARD_URL','VITE_DEVELOPER_PORTAL_URL']){const missing={...env};delete missing[key];assert.throws(()=>compiled(missing).appUrl('vendor'),/Missing local/);}
+});

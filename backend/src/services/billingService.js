@@ -1,3 +1,4 @@
+const entitlementResolver = require("./entitlementResolver");
 const { browserAllowedOrigins, surfaceOrigins } = require("./browserSurfaceUrls");
 const { activeEntitlements } = require("../domain/activePlanQuotas");
 const crypto = require("crypto");
@@ -142,9 +143,12 @@ async function getTenantEntitlements(tenantId, options = {}) {
 
   if (subscription?.status === "active") {
     const plan = await findPlanBySlug(subscription.planSlug, options);
+    const policy = await entitlementResolver.resolveTenantPolicy(tenantId, options);
     return activeEntitlements({
       ...(plan?.entitlements || {}),
-      ...(subscription.entitlements || {})
+      ...(subscription.entitlements || {}),
+      resourceQueueAccess: policy.features.resourceQueue?.enabled === true,
+      workflowQueueAccess: policy.features.workflowQueue?.enabled === true
     });
   }
 

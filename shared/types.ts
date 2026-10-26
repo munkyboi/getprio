@@ -23,12 +23,14 @@ export type SubscriptionPaymentMethod = "qrph" | "card" | "maya";
 export type SmsBundleType = "none" | "fixed" | "custom";
 export type SupportLevel = "self_serve" | "standard" | "sla";
 export type HistoryExportRange = "today" | "week" | "month" | "quarter" | "year";
-export type PlanFeatureKey = "queue" | "branding" | "discovery" | "booking" | "campaigns";
+export type PlanFeatureKey = "queue" | "resourceQueue" | "workflowQueue" | "branding" | "discovery" | "booking" | "campaigns";
 export type AllowanceResourceKey = "queueTickets" | "queueEmailJourneys" | "serviceBookings";
 export type ActiveAllowanceResourceKey = Exclude<AllowanceResourceKey, "queueEmailJourneys">;
 export type EntitlementValueSource = "plan" | "override" | "restriction";
 
 export interface SubscriptionEntitlements {
+  resourceQueueAccess?: boolean;
+  workflowQueueAccess?: boolean;
   locations: number;
   counters: number;
   staffSeats: number;
@@ -79,7 +81,7 @@ export interface SubscriptionPlan {
   included: string[];
   sortOrder?: number;
   policyRevision?: number;
-  features?: Record<PlanFeatureKey, boolean>;
+  features?: Record<Exclude<PlanFeatureKey, "resourceQueue" | "workflowQueue">, boolean> & Partial<Record<"resourceQueue" | "workflowQueue", boolean>>;
   allowances?: Record<ActiveAllowanceResourceKey, number> & Partial<Record<"queueEmailJourneys", number>>;
 }
 

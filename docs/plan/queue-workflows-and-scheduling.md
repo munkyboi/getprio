@@ -1,3 +1,15 @@
+## Queue type policy — accepted 2026-10-26
+
+This decision supersedes the resource pilot and deferred tier policy below. Location execution types are `simple`, `resource`, and `workflow`; billing tiers are not execution types. New and legacy-absent locations default to Simple for future admissions, without inferring a type from configured pools or existing work.
+
+Published Platform capabilities govern access: Free defaults to Simple; Economy (`economical`) adds Resource; Pro and Enterprise add Workflow. Explicit custom published values are preserved. Missing advanced capabilities deny access. Booking remains independent. Workflow stages with resource requirements require both advanced capabilities.
+
+A type change requires a deliberate, revision-checked, audited staff configuration action. It changes future admissions only. Existing published plans, allocations, journeys, reservations and history retain their identities and pinned execution contract. Calling, starting and progressing original frozen demand remains allowed after capability loss, including later allocations required by that admitted route; adding stages, swapping resources or extending capacity/duration beyond that commitment does not. Capability loss permits completion, cancellation, release and recovery, but no new demand, resource swaps or extensions. Unsupported drafts remain readable/editable but cannot publish. A confirmed booking that cannot be admitted requires staff resolution; never auto-cancel or release it.
+
+Simple may label a ticket with a service and duration without capturing its resource mappings. Workflow will reuse the queue foundation for one sequential journey, optional resource requirements per stage, separate readiness and destination arrival, station-specific ordering and one physically active stage. No branches, loops, parallel stages or automatic arrival are promised.
+
+**Implementation status:** Phase 1 introduces policy, explicit settings and isolated QA guards. It is not activation-ready. Full admission enforcement, optional-resource workflow capture, readiness/arrival commands, public projection and actual multi-station regression are required in Phase 2 before this model can be claimed complete. The first working setup UI will use sequential station fields; the previously proposed graphical React Flow canvas is deferred pending a separate dependency/design review. Existing notes below describe historical design and do not establish runtime acceptance.
+
 # Queue Workflows and resource-aware scheduling
 
 Status: agreed design direction, reconciled 5 October 2026. Documentation only. The [completed interview decision record](vendor-dashboard-workflow-decisions.md) owns the accepted choices and rationale.

@@ -30,6 +30,8 @@ function mapPlan(row) {
     policyRevision: Number(row.policy_revision || 1),
     features: {
       queue: Boolean(row.entitlements?.queueSystemAccess),
+      resourceQueue: row.entitlements?.resourceQueueAccess === true,
+      workflowQueue: row.entitlements?.workflowQueueAccess === true,
       branding: Boolean(row.entitlements?.publicFacingBranding),
       discovery: Boolean(row.entitlements?.marketplaceDiscovery),
       booking: Boolean(row.entitlements?.serviceBookingAccess),
@@ -64,9 +66,21 @@ async function updatePlan(plan, userId, options = {}) {
   if (!options.client && typeof db.withTransaction === "function") {
     return db.withTransaction((client) => updatePlan(plan, userId, { client }));
   }
+  const queryClient = buildQueryClient(options.client);
+  const previous = (await queryClient.query("SELECT entitlements FROM subscription_plans WHERE slug=$1 FOR UPDATE", [plan.slug])).rows[0]?.entitlements || {};
+  const advanced = {
+    resourceQueue: plan.features?.resourceQueue ?? previous.resourceQueueAccess ?? false,
+    workflowQueue: plan.features?.workflowQueue ?? previous.workflowQueueAccess ?? false
+  };
+  if ((advanced.resourceQueue || advanced.workflowQueue) && plan.features?.queue !== true) {
+    throw Object.assign(new Error("Advanced queue types require Simple Queue access."), {statusCode:400,code:"QUEUE_TYPE_QUEUE_DEPENDENCY"});
+  }
   const entitlements = activeEntitlements({
+    ...previous,
     ...(plan.entitlements || {}),
     queueSystemAccess: Boolean(plan.features?.queue),
+    resourceQueueAccess: advanced.resourceQueue,
+    workflowQueueAccess: advanced.workflowQueue,
     publicFacingBranding: Boolean(plan.features?.branding),
     marketplaceDiscovery: Boolean(plan.features?.discovery),
     serviceBookingAccess: Boolean(plan.features?.booking),
@@ -74,7 +88,6 @@ async function updatePlan(plan, userId, options = {}) {
     monthlyTickets: Number(plan.allowances?.queueTickets || 0),
     monthlyServiceBookings: Number(plan.allowances?.serviceBookings || 0)
   });
-  const queryClient = buildQueryClient(options.client);
   const result = await buildQueryClient(options.client).query(
     `
       UPDATE subscription_plans
@@ -105,7 +118,7 @@ async function updatePlan(plan, userId, options = {}) {
     ]
   );
 
-  for (const [featureKey, enabled] of Object.entries({ ...(plan.features || {}), campaigns: false })) {
+  for (const [featureKey, enabled] of Object.entries({ ...(plan.features || {}), ...advanced, campaigns: false })) {
     await queryClient.query(
       `INSERT INTO plan_feature_entitlements (plan_slug, feature_key, enabled, updated_by_user_id)
        VALUES ($1, $2, $3, $4)
