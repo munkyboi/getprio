@@ -10,17 +10,22 @@ async function skip(client,{scope,ticket,p,stage,body,queueEvent,readTicket}){
  if(ticket.status!=='called'||stage.state!=='called'||stage.started_at||ticket.serviceEndedAt)fail('SKIP_NOT_AVAILABLE','Only the current called, unstarted stage may be skipped. Use Interrupt for started work.');
  const tuple=[scope.tenantId,scope.locationId,ticket._id],now=(await client.query('SELECT clock_timestamp() AS at')).rows[0].at;
  const groups=(await client.query("SELECT * FROM queue_reservation_groups WHERE tenant_id=$1 AND location_id=$2 AND ticket_id=$3 AND stage_attempt_id=$4 AND plan_revision=$5 AND state='protected' FOR UPDATE",[...tuple,stage.id,p.revision])).rows;
- if(groups.length!==1||groups[0].id!==body.reservationGroupId||groups[0].expires_at<=now)fail('STALE_RESERVATION','Refresh the exact current unexpired protection before skipping.');
- const group=groups[0],members=(await client.query('SELECT * FROM resource_ledger_reservations WHERE tenant_id=$1 AND location_id=$2 AND group_id=$3 ORDER BY id FOR UPDATE',[scope.tenantId,scope.locationId,group.id])).rows;
+ const noResource=p.workflow_mode==='multi_station'&&stage.arrival_contract_version===1&&stage.resource_requirement?.kind==='none';
  const allocated=(await client.query('SELECT 1 FROM resource_allocations WHERE tenant_id=$1 AND location_id=$2 AND ticket_id=$3 AND (child_stage_attempt_id=$4 OR group_id IN(SELECT id FROM queue_allocation_groups WHERE stage_attempt_id=$4)) LIMIT 1',[...tuple,stage.id])).rows;
  const allocationGroup=(await client.query('SELECT 1 FROM queue_allocation_groups WHERE tenant_id=$1 AND location_id=$2 AND ticket_id=$3 AND stage_attempt_id=$4 LIMIT 1',[...tuple,stage.id])).rows;
  if(allocated.length||allocationGroup.length)fail('SKIP_NOT_AVAILABLE','This stage already has an allocation. Use its explicit outcomes.');
+ if(noResource){
+  if(body.reservationGroupId!==undefined||groups.length||(await client.query('SELECT 1 FROM resource_ledger_reservations WHERE tenant_id=$1 AND location_id=$2 AND ticket_id=$3 AND child_stage_attempt_id=$4 LIMIT 1',[...tuple,stage.id])).rows.length)fail('INVALID_RESERVATION','A resource-free stage must not have resource protection.');
+ }else{
+ if(groups.length!==1||groups[0].id!==body.reservationGroupId||groups[0].expires_at<=now)fail('STALE_RESERVATION','Refresh the exact current unexpired protection before skipping.');
+ const group=groups[0],members=(await client.query('SELECT * FROM resource_ledger_reservations WHERE tenant_id=$1 AND location_id=$2 AND group_id=$3 ORDER BY id FOR UPDATE',[scope.tenantId,scope.locationId,group.id])).rows;
  if(!members.length||members.length!==group.expected_members.length||members.some(m=>m.state!=='protected'||!group.expected_members.some(e=>String(e.reservationId)===String(m.id)&&e.lineId===m.line_id&&(e.childAttemptId||null)===(m.child_attempt_id||null))))fail('INVALID_RESERVATION','The complete recorded promise needs reconciliation before Skip.');
  const children=(await client.query('SELECT * FROM queue_child_attempts WHERE tenant_id=$1 AND location_id=$2 AND ticket_id=$3 AND plan_revision=$4 AND stage_attempt_id=$5 AND is_current ORDER BY selection_id FOR UPDATE',[...tuple,p.revision,stage.id])).rows;
  if([3,4].includes(p.contract_version)&&(children.length!==members.length||children.some(c=>c.state!=='protected'||c.started_at||c.ended_at||!members.some(m=>m.child_attempt_id===c.id))))fail('INVALID_RESERVATION','Current protected child attempts do not match the recorded promise.');
  await client.query("UPDATE resource_ledger_reservations SET state='cancelled' WHERE group_id=$1 AND state='protected'",[group.id]);
  await client.query("UPDATE queue_reservation_groups SET state='skipped' WHERE id=$1",[group.id]);
  if(children.length)await client.query("UPDATE queue_child_attempts SET state='skipped',ended_at=$2,revision=revision+1 WHERE id=ANY($1::uuid[])",[children.map(c=>c.id),now]);
+ }
  await client.query("UPDATE queue_stage_attempts SET state='skipped',ended_at=$2,skipped_at=$2,skipped_reason=$3,skipped_by_user_id=$4,revision=revision+1 WHERE id=$1",[stage.id,now,body.reason.trim(),scope.actorUserId]);
  // Retain the last called counter/time as history; status frees the counter.
  // Original priority band, sequence, age and parent service clocks are untouched.

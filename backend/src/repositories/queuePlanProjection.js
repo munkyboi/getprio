@@ -212,7 +212,7 @@ async function read(client, scope, draft, options = {}) {
     if (canReassign) allowedActions.push("reassign");
   }
   if(row.workflow_mode==='multi_station'&&stage.resourceRequirement?.kind==='none') {
-    allowedActions=stage.state==='called'?['start']:stage.state==='in_service'?['complete','interrupt','pause']:stage.state==='paused'?['resume','complete','interrupt']:allowedActions;
+    allowedActions=stage.state==='called'?(stage.arrivalContractVersion===1&&!stage.startedAt&&row.status==='called'?['start','skip']:['start']):stage.state==='in_service'?['complete','interrupt','pause']:stage.state==='paused'?['resume','complete','interrupt']:allowedActions;
   }
   if(row.workflow_mode==='multi_station'&&stage.state==='awaiting_readiness')allowedActions=['ready'];
   if(row.workflow_mode==='multi_station'&&stage.state==='awaiting_arrival')allowedActions=['arrive'];

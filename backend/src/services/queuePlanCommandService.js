@@ -169,7 +169,7 @@ function validate(action, body, operationKey) {
       "Interrupted extras need their recorded identifiers and revisions.",
       400,
     );
-  if (["cancelProtection", "skip"].includes(action) && !uuid(body.reservationGroupId)) fail("INVALID_PLAN", "A recorded reservation group is required.", 400);
+  if ((action === "cancelProtection" || (action === "skip" && body.reservationGroupId !== undefined)) && !uuid(body.reservationGroupId)) fail("INVALID_PLAN", "A recorded reservation group is required.", 400);
   if (body.allocationGroupId !== undefined && !uuid(body.allocationGroupId))
     fail("INVALID_PLAN", "A recorded allocation group is required.", 400);
   if (action === "complete") {

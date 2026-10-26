@@ -7,9 +7,13 @@ async function runScenario(run){
  delete require.cache[target];const service=require(target);
  const stages=[{id:'a1',stage_id:'s1',ordinal:1,attempt:'1',state:'awaiting_arrival',arrival_contract_version:1,resource_requirement:{kind:'none'},readiness_required:false,station_id:'reception',station_snapshot:{serviceCounterIds:['1']}},{id:'a2',stage_id:'s2',ordinal:2,attempt:'1',state:'pending',arrival_contract_version:1,resource_requirement:{kind:'none'},readiness_required:true,station_id:'results',station_snapshot:{serviceCounterIds:['2']}}];
  const ticket={_id:'100',status:'waiting',serviceStartedAt:null,serviceEndedAt:null,serviceCounterId:null};
- const plan={items:[{stageId:'s1',durationMinutes:10},{stageId:'s2',durationMinutes:15}],stage_id:'s1',stage_attempt_id:'a1'};
+ const plan={workflow_mode:'multi_station',revision:'1',items:[{stageId:'s1',durationMinutes:10},{stageId:'s2',durationMinutes:15}],stage_id:'s1',stage_attempt_id:'a1'};
  const client={query:async(sql,args=[])=>{
   if(sql.includes('FROM store_locations l JOIN tenants'))return {rows:[{is_active:state.active,tenant_active:true,service_timing_enabled:false}]};
+  if(sql==='SELECT clock_timestamp() AS at')return {rows:[{at:state.now}]};
+  if(sql.startsWith('SELECT * FROM queue_reservation_groups')||sql.startsWith('SELECT 1 FROM resource_ledger_reservations')||sql.startsWith('SELECT 1 FROM resource_allocations')||sql.startsWith('SELECT * FROM queue_child_attempts'))return {rows:[]};
+  if(sql.startsWith('SELECT 1 FROM queue_allocation_groups'))return {rows:state.allocationGroups.filter(row=>!row.released_at)};
+  if(sql.startsWith('SELECT auto_pause'))return {rows:[{auto_pause_enabled:false}]};
   if(sql.startsWith('SELECT id FROM resource_allocations'))return {rows:state.allocations.filter(row=>!row.released_at)};
   if(sql.startsWith('SELECT r.id::text FROM resource_ledger_reservations'))return {rows:state.reservations.filter(row=>row.state==='protected')};
   if(sql.includes('SELECT id,expected_members FROM queue_allocation_groups'))return {rows:state.allocationGroups.filter(row=>!row.released_at)};
@@ -17,6 +21,7 @@ async function runScenario(run){
   if(sql.includes('SELECT DISTINCT ON(stage_id)'))return {rows:[...new Map(stages.map(stage=>[stage.stage_id,stage])).values()].sort((a,b)=>a.ordinal-b.ordinal).map(stage=>({...stage}))};
   if(sql.includes('SELECT clock_timestamp() AS now'))return {rows:[{now:state.now}]};
   if(sql.startsWith('SELECT 1 FROM queue_allocation_groups'))return {rows:state.allocationGroups.filter(row=>!row.released_at)};
+  if(sql.startsWith('INSERT INTO queue_stage_attempts')&&sql.includes('assigned_user_id')){stages.push({id:args[0],stage_id:args[4],attempt:args[5],ordinal:args[6],state:args[11],station_id:args[7],station_snapshot:JSON.parse(args[8]),label:args[9],resource_requirement:JSON.parse(args[13]),readiness_required:args[14],arrival_contract_version:args[12]});return {rows:[]};}
   if(sql.startsWith('INSERT INTO queue_stage_attempts')){stages.push({id:args[0],stage_id:args[4],attempt:args[5],ordinal:args[6],state:args[13],station_id:args[7],station_snapshot:JSON.parse(args[8]),label:args[9],resource_requirement:JSON.parse(args[10]),readiness_required:args[11],arrival_contract_version:args[12]});return {rows:[]};}
   if(sql.startsWith('UPDATE queue_stage_attempts')&&sql.includes('WHERE ticket_id=$1')){for(const stage of stages)if(['pending','waiting','called','awaiting_arrival','awaiting_readiness'].includes(stage.state)){stage.state='cancelled';stage.ended_at=state.now;}return {rows:[]};}
   if(sql.startsWith('UPDATE queue_stage_attempts')){
@@ -24,13 +29,15 @@ async function runScenario(run){
    if(sql.includes("state='waiting',arrived_at")){stage.state='waiting';stage.arrived_at=args[2];stage.station_waiting_at=args[2];stage.station_queue_sequence=++state.sequence;stage.station_queue_date_key=args[4];}
    else if(sql.includes("state='waiting'")){stage.state='waiting';}
    else if(sql.includes("state='awaiting_arrival',ready_at")){stage.state='awaiting_arrival';stage.ready_at=state.now;}
+   else if(sql.includes("state='skipped',ended_at")){stage.state='skipped';stage.ended_at=state.now;}
    else if(sql.includes("state='in_service',started_at")){stage.state='in_service';stage.started_at=state.now;}
    else {stage.state=args[1];if(sql.includes('ended_at='))stage.ended_at=state.now;}
    return {rows:[]};
   }
   if(sql.startsWith('UPDATE ticket_service_plans SET journey_cancelled_at')){plan.journey_cancelled_at=state.now;return {rows:[]};}
-  if(sql.startsWith('UPDATE ticket_service_plans')){plan.stage_id=args[3];plan.stage_attempt_id=args[4];return {rows:[]};}
-  if(sql.startsWith('UPDATE tickets')){if(sql.includes("status='waiting'"))ticket.status='waiting';if(sql.includes("status='cancelled'")){ticket.status='cancelled';if(ticket.serviceStartedAt)ticket.serviceEndedAt=state.now;}if(sql.includes("status='served'")){ticket.status='served';ticket.serviceEndedAt=state.now;}if(sql.includes('service_started_at=COALESCE'))ticket.serviceStartedAt ||= state.now;if(sql.includes('service_counter_id=NULL'))ticket.serviceCounterId=null;return {rows:[]};}
+  if(sql.startsWith('UPDATE ticket_service_plans SET stage_attempt_id=$4')){plan.stage_attempt_id=args[3];return {rows:[]};}
+  if(sql.startsWith('UPDATE ticket_service_plans')){if(args.length>3){plan.stage_id=args[3];plan.stage_attempt_id=args[4];}return {rows:[]};}
+  if(sql.startsWith('UPDATE tickets')){if(sql.includes("status='skipped'"))ticket.status='skipped';if(sql.includes("status='waiting'"))ticket.status='waiting';if(sql.includes("status='cancelled'")){ticket.status='cancelled';if(ticket.serviceStartedAt)ticket.serviceEndedAt=state.now;}if(sql.includes("status='served'")){ticket.status='served';ticket.serviceEndedAt=state.now;}if(sql.includes('service_started_at=COALESCE'))ticket.serviceStartedAt ||= state.now;if(sql.includes('service_counter_id=NULL'))ticket.serviceCounterId=null;return {rows:[]};}
   throw new Error(`Unmodelled query ${sql}`);
  }};
  const execute=(index,action,body={})=>service.execute(client,{executeCommand:async command=>{
@@ -39,7 +46,8 @@ async function runScenario(run){
   if(command.command==='release'){for(const row of state.allocations)row.released_at=state.now;for(const group of state.allocationGroups)group.released_at=state.now;stages[index].state=command.payload.outcome==='completed'?'completed':'interrupted';stages[index].ended_at=state.now;return;}
   throw new Error('No resource stage may allocate');
  }},{scope:{tenantId:'1',locationId:'2',actorUserId:'3'},tenant:{_id:'1'},location:{_id:'2',timezone:'Asia/Manila'},ticket,p:plan,stage:stages[index],action,body,actor:{tenantMemberships:[{role:'owner'}]},timing:{applyTicketService:async()=>{throw new Error('No resource stage must not use pool timing');}}});
- try{await run({state,stages,ticket,plan,execute,client});}finally{Module._load=original;delete require.cache[target];}
+ const recover=(index,action,body={reason:'Customer is present'})=>require('../src/services/queuePlanRecoveryService')[action](client,{scope:{tenantId:'1',locationId:'2',actorUserId:'3'},tenant:{_id:'1'},location:{_id:'2'},ticket,p:plan,stage:stages[index],body,queue:{assertQueueIntakeOpen:async()=>({_id:'today',businessDate:state.day})},queueEvent:async()=>{},readTicket:async()=>ticket});
+ try{await run({state,stages,ticket,plan,execute,client,recover});}finally{Module._load=original;delete require.cache[target];}
 }
 test('two-station journey requires explicit first arrival, readiness and next-day destination arrival',()=>runScenario(async({state,stages,ticket,plan,execute})=>{
  await assert.rejects(()=>execute(0,'start'),/Call this stage/);
@@ -116,4 +124,11 @@ test('retry of readiness-gated interrupted stage requires fresh readiness before
  await execute(0,'retry');const retry=stages[2];assert.equal(retry.state,'awaiting_readiness');assert.equal(retry.ready_at,undefined);assert.equal(plan.stage_attempt_id,retry.id);
  await assert.rejects(()=>execute(2,'arrive'),/Confirm readiness/);await execute(2,'ready');await execute(2,'arrive');retry.state='called';ticket.status='called';ticket.serviceCounterId='1';await execute(2,'start');await execute(2,'complete');
  assert.equal(retry.state,'completed');assert.equal(stages[0].state,'interrupted');assert.equal(ticket.serviceStartedAt,firstStart);assert.equal(plan.stage_attempt_id,'a2');assert.equal(stages[1].state,'awaiting_readiness');assert.equal(state.poolCommands,0);
+}));
+
+test('NONE called missed-service recovery preserves journey and requires fresh readiness/arrival before Start',()=>runScenario(async({state,stages,ticket,plan,execute,recover})=>{
+ stages[0].readiness_required=true;stages[0].state='awaiting_readiness';await execute(0,'ready');await execute(0,'arrive');stages[0].state='called';ticket.status='called';ticket.serviceCounterId='1';
+ await recover(0,'skip');assert.equal(stages[0].state,'skipped');assert.equal(ticket.status,'skipped');assert.equal(stages[1].state,'pending');assert.equal(state.poolCommands,0);
+ await assert.rejects(()=>recover(0,'skip'),{code:'SKIP_NOT_AVAILABLE'});await recover(0,'recall');const fresh=stages[2];assert.equal(fresh.state,'awaiting_readiness');assert.equal(fresh.resource_requirement.kind,'none');assert.equal(fresh.ordinal,1);assert.equal(plan.stage_attempt_id,fresh.id);
+ await assert.rejects(()=>execute(2,'arrive'),/Confirm readiness/);await execute(2,'ready');await execute(2,'arrive');fresh.state='called';ticket.status='called';ticket.serviceCounterId='1';await execute(2,'start');assert.equal(fresh.state,'in_service');await assert.rejects(()=>recover(2,'skip'),{code:'SKIP_NOT_AVAILABLE'});assert.equal(stages[0].state,'skipped');assert.equal(stages[1].state,'pending');assert.equal(state.poolCommands,0);
 }));
