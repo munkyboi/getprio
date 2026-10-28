@@ -1,3 +1,4 @@
+const { publicAuthRequestAllowed } = require("./publicAuthPolicy");
 /** Trusted configured destinations, never request Host/Origin-derived redirects. */
 function origin(value) {
   const url = new URL(value);
@@ -64,8 +65,10 @@ function createBrowserCorsMiddleware(env, cors) {
   const normal = cors({ origin(value, callback) { const normalized = String(value || "").replace(/\/$/, ""); if (!value || allowed.has(normalized)) callback(null, true); else callback(Object.assign(new Error("Origin not allowed by CORS."), { statusCode: 403 })); }, credentials: true, exposedHeaders: ["Retry-After", "RateLimit-Limit", "RateLimit-Remaining", "RateLimit-Reset"] });
   const marketingOrigins = marketing ? surfaceOriginSet(env, "marketing") : new Set();
   const publicCors = marketing ? cors({ origin(value, callback) { callback(null, marketingOrigins.has(value) ? value : false); }, credentials: false, methods: ["GET", "POST", "OPTIONS"], allowedHeaders: ["Content-Type", "Idempotency-Key"] }) : null;
+  const authCors = cors({ origin(value, callback) { callback(null, marketingOrigins.has(value) ? value : false); }, credentials: true, methods: ["GET", "POST", "OPTIONS"], allowedHeaders: ["Content-Type", "X-CSRF-Token", "Idempotency-Key"], exposedHeaders: ["Retry-After"] });
   return (req, res, next) => {
     if (marketing && !allowed.has(marketing) && marketingOrigins.has(String(req.headers?.origin || "").replace(/\/$/, ""))) {
+      if (env.publicUniversalAuthEnabled && publicAuthRequestAllowed(req.originalUrl || req.url, req.method, req.headers?.["access-control-request-method"])) return authCors(req, res, next);
       if (!publicMarketingRequestAllowed(req.originalUrl || req.url, req.method, req.headers?.["access-control-request-method"])) return next(Object.assign(new Error("Marketing origin cannot access private API routes."), { statusCode: 403 }));
       return publicCors(req, res, next);
     }

@@ -39,6 +39,7 @@ const appBaseUrl = process.env.APP_BASE_URL || `http://localhost:${frontendPort}
 const customerAppUrl = process.env.CUSTOMER_APP_URL || "";
 const vendorAppUrl = process.env.VENDOR_APP_URL || "";
 const marketingUrl = process.env.MARKETING_URL || "";
+const publicUniversalAuthEnabled = process.env.PUBLIC_UNIVERSAL_AUTH_ENABLED === "1";
 const localApiProfile = process.env.LOCAL_API_PROFILE || "";
 const localApiOrigin = process.env.LOCAL_API_ORIGIN || "";
 const emailAssetBaseUrl = process.env.EMAIL_ASSET_BASE_URL || appBaseUrl;
@@ -182,7 +183,7 @@ const env = {
   jwtSecret,
   serverUrl,
   clientUrl,
-  customerAppUrl, vendorAppUrl, marketingUrl, localApiProfile, localApiOrigin,
+  customerAppUrl, vendorAppUrl, marketingUrl, publicUniversalAuthEnabled, localApiProfile, localApiOrigin,
   appBaseUrl,
   emailAssetBaseUrl,
   mobileQrBaseUrl,

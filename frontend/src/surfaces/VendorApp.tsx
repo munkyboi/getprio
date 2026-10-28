@@ -13,6 +13,15 @@ import QueueAutoClosePrototype from "../pages/prototypes/QueueAutoClosePrototype
 import SecureQueueBoardPage from "../pages/SecureQueueBoardPage";
 import NotFoundPage from "../pages/NotFoundPage";
 import MaintenanceBoundary from "../components/MaintenanceBoundary";
+import PublicAuthRedirect, { publicUniversalAuthEnabled } from "./PublicAuthRedirect";
+function VendorAuthEntry({ mode }: { mode: "login" | "register" }) {
+  const location = useLocation();
+  const { user } = useAuth();
+  if (mode === "login" && new URLSearchParams(location.search).has("resetToken")) return <LoginPage />;
+  // OAuth's explicit authenticated business-completion form is retained.
+  if (mode === "register" && user) return <RegisterVendorPage />;
+  return <PublicAuthRedirect surface="vendor" mode={mode} />;
+}
 function WorkspaceShell({ children }: { children: ReactNode }) {
   const guard = useRef<(() => boolean) | null>(null);
   return <VendorNavigationGuard.Provider value={guard}><div className="vendor-app-frame" onClickCapture={event => {
@@ -76,9 +85,9 @@ function VendorEntryRoute() {
 export default function VendorApp() {
   return <MaintenanceBoundary><Routes>
     <Route path="/" element={<VendorEntryRoute />} />
-    <Route path="/login" element={<LoginPage />} />
-    <Route path="/register" element={<RegisterVendorPage />} />
-    <Route path="/register/vendor" element={<RegisterVendorPage />} />
+    <Route path="/login" element={publicUniversalAuthEnabled ? <VendorAuthEntry mode="login" /> : <LoginPage />} />
+    <Route path="/register" element={publicUniversalAuthEnabled ? <VendorAuthEntry mode="register" /> : <RegisterVendorPage />} />
+    <Route path="/register/vendor" element={publicUniversalAuthEnabled ? <VendorAuthEntry mode="register" /> : <RegisterVendorPage />} />
     <Route path="/oauth/callback" element={<OAuthCallbackPage />} />
     <Route path="/dashboard" element={<DashboardRedirect />} />
     <Route path="/dashboard/services/:routeServiceSlug/edit" element={<WorkspaceShell><VendorDashboardRoute /></WorkspaceShell>} />

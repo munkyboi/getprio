@@ -44,6 +44,7 @@ function routeApp(file) {
  const fakeRequire=id=>{
   if(id.includes('/pages/'))return {__esModule:true,default:()=>React.createElement('p',null,id.split('/').pop())};
   if(id==='./PublicShell'||id.endsWith('/MaintenanceBoundary'))return {__esModule:true,default:passthrough};
+  if(id==='./PublicAuthRedirect')return {__esModule:true,default:()=>React.createElement('p',null,'PublicAuthRedirect'),publicUniversalAuthEnabled:false};
   if(id.endsWith('/AuthContext'))return {useAuth:()=>({user:null,loading:false})};
   if(id.endsWith('/VendorAuthLayout'))return {VendorAuthLayout:passthrough};
   if(id.endsWith('/workspace'))return {activeMemberships:()=>[],readPreference:()=>null,workspacePath:()=>'/dashboard/overview',preferenceKey:()=>''};
@@ -55,7 +56,7 @@ function routeApp(file) {
 }
 test('separate real route registries own their auth aliases and never mount other application dashboards',()=>{
  for(const [file,cases] of [
-  ['MarketingApp.tsx',[['/','LandingPage'],['/dashboard/queue','NotFoundPage'],['/account/dashboard','NotFoundPage'],['/login','NotFoundPage']]],
+  ['MarketingApp.tsx',[['/','LandingPage'],['/dashboard/queue','NotFoundPage'],['/account/dashboard','NotFoundPage'],['/login','UniversalAuthPage'],['/register','UniversalAuthPage']]],
   ['CustomerApp.tsx',[['/','VendorDiscoveryPage'],['/login','LoginPage'],['/register','RegisterCustomerPage'],['/register/customer','RegisterCustomerPage'],['/dashboard/queue','NotFoundPage'],['/account/dashboard','CustomerDashboardPage']]],
   ['VendorApp.tsx',[['/login','LoginPage'],['/register','RegisterVendorPage'],['/register/vendor','RegisterVendorPage'],['/account/dashboard','NotFoundPage'],['/vendors','NotFoundPage']]],
  ]) {

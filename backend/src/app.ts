@@ -58,6 +58,7 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 app.use(createCsrfProtection({
   allowedOrigins,
+  publicAuthOrigins: env.publicUniversalAuthEnabled && env.marketingUrl ? browserSurfaceUrlsModule.surfaceOriginSet(env, "marketing") : new Set(),
   csrfSecret: env.csrfSecret,
   authCookieSecure: env.authCookieSecure
 }));

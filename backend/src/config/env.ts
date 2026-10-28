@@ -41,6 +41,7 @@ export const appBaseUrl = process.env.APP_BASE_URL || `http://localhost:${fronte
 export const customerAppUrl = process.env.CUSTOMER_APP_URL || "";
 export const vendorAppUrl = process.env.VENDOR_APP_URL || "";
 export const marketingUrl = process.env.MARKETING_URL || "";
+export const publicUniversalAuthEnabled = process.env.PUBLIC_UNIVERSAL_AUTH_ENABLED === "1";
 export const localApiProfile = process.env.LOCAL_API_PROFILE || "";
 export const localApiOrigin = process.env.LOCAL_API_ORIGIN || "";
 export const emailAssetBaseUrl = process.env.EMAIL_ASSET_BASE_URL || appBaseUrl;
@@ -200,6 +201,7 @@ const env = {
   customerAppUrl,
   vendorAppUrl,
   marketingUrl,
+  publicUniversalAuthEnabled,
   localApiProfile,
   localApiOrigin,
   emailAssetBaseUrl,

@@ -15,7 +15,14 @@ import NotFoundPage from "../pages/NotFoundPage";
 import MaintenanceBoundary from "../components/MaintenanceBoundary";
 import { JOINED_QUEUE_ROUTE_PATH, LEGACY_MONITOR_ROUTE_PATH, MONITOR_ROUTE_PATH } from "../queuePaths";
 import PublicShell from "./PublicShell";
+import PublicAuthRedirect, { publicUniversalAuthEnabled } from "./PublicAuthRedirect";
 function CustomerHome() { return <VendorDiscoveryPage />; }
+function CustomerAuthEntry({ mode }: { mode: "login" | "register" }) {
+  const location = useLocation();
+  if (mode === "register" && location.state) return <RegisterCustomerPage />;
+  if (new URLSearchParams(location.search).has("resetToken")) return <LoginPage />;
+  return <PublicAuthRedirect surface="customer" mode={mode} />;
+}
 function LegacyTicketRedirect() {
   const { tenantSlug, locationSlug } = useParams(); const { search } = useLocation();
   return <Navigate replace to={`/ticket/${tenantSlug}${locationSlug ? `/${locationSlug}` : ""}${search}`} />;
@@ -23,9 +30,9 @@ function LegacyTicketRedirect() {
 export default function CustomerApp() {
   return <MaintenanceBoundary><PublicShell><Routes>
     <Route path="/" element={<CustomerHome />} />
-    <Route path="/login" element={<LoginPage />} />
-    <Route path="/register" element={<RegisterCustomerPage />} />
-    <Route path="/register/customer" element={<RegisterCustomerPage />} />
+    <Route path="/login" element={publicUniversalAuthEnabled ? <CustomerAuthEntry mode="login" /> : <LoginPage />} />
+    <Route path="/register" element={publicUniversalAuthEnabled ? <CustomerAuthEntry mode="register" /> : <RegisterCustomerPage />} />
+    <Route path="/register/customer" element={publicUniversalAuthEnabled ? <CustomerAuthEntry mode="register" /> : <RegisterCustomerPage />} />
     <Route path="/oauth/callback" element={<OAuthCallbackPage />} />
     <Route path="/account" element={<Navigate replace to="/account/dashboard" />} />
     <Route path="/account/dashboard" element={<CustomerDashboardPage />} />

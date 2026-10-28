@@ -57,6 +57,20 @@ const authHttpLimiter = rateLimit({
 });
 router.use(authHttpLimiter);
 router.use(moderatePublicText);
+// Destination is a validated navigation hint, never a role or tenant grant.
+router.use((req, _res, next) => {
+  try {
+    if (req.body?.surface !== undefined) {
+      const surface = authSurface(req.body.surface);
+      if ((req.path === "/register/customer" && surface !== "customer") || (req.path === "/register/vendor" && surface !== "vendor")) {
+        const error = new Error("Registration destination does not match the account type.");
+        error.statusCode = 400;
+        throw error;
+      }
+    }
+    next();
+  } catch (error) { next(error); }
+});
 const OAUTH_INTENTS = new Set(["login", "register_customer", "register_vendor"]);
 const normalizeEmail = authService.normalizeEmail;
 const authAttemptLimiter = asyncHandler(async (req, _res, next) => {

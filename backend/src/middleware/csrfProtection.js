@@ -7,6 +7,7 @@ const {
   verifyCsrfToken
 } = require("../services/browserSessionService");
 const { normalizeApiPath } = require("./apiPath");
+const { publicAuthRequestAllowed } = require("../services/publicAuthPolicy");
 
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 const ALLOWED_CONTENT_TYPES = [
@@ -65,7 +66,7 @@ function isDeveloperRequest(req) {
   return path === "/developer" || path.startsWith("/developer/");
 }
 
-function createCsrfProtection({ allowedOrigins, csrfSecret, authCookieSecure = true }) {
+function createCsrfProtection({ allowedOrigins, csrfSecret, authCookieSecure = true, publicAuthOrigins = new Set() }) {
   const origins = allowedOrigins instanceof Set ? allowedOrigins : new Set(allowedOrigins || []);
 
   return function csrfProtection(req, _res, next) {
@@ -97,7 +98,8 @@ function createCsrfProtection({ allowedOrigins, csrfSecret, authCookieSecure = t
       : CSRF_COOKIE;
     const cookieToken = String(cookies[csrfCookieName] || "");
 
-    if (!origin || !origins.has(origin)) {
+    const publicAuth = publicAuthOrigins.has(origin) && publicAuthRequestAllowed(req.originalUrl || req.url, req.method);
+    if (!origin || (!origins.has(origin) && !publicAuth)) {
       next(csrfError());
       return;
     }
