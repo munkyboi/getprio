@@ -118,12 +118,13 @@ export default function LoginPage() {
   });
 
   useEffect(() => {
+    if (resetToken) return;
     if (user && currentSurface === "customer") {
       navigate(nextPath || "/account/dashboard", { replace: true });
     } else if (user?.tenants?.length) {
       navigate(user.mfaRequired && !user.mfaEnabled ? mfaEnrollmentPath : nextPath || "/dashboard", { replace: true });
     }
-  }, [navigate, nextPath, mfaEnrollmentPath, user]);
+  }, [navigate, nextPath, mfaEnrollmentPath, user, resetToken]);
 
   useEffect(() => {
     resetConfirmForm.setValue("token", resetToken);
@@ -167,7 +168,7 @@ export default function LoginPage() {
     return <LoginPresentation vendor={vendorLogin} busy={false}><Paper className="finazze-auth-card" p="xl">Loading session...</Paper><AuthAppLinks surface={vendorLogin ? "vendor" : "customer"} /></LoginPresentation>;
   }
 
-  if (user && !user.tenants?.length) {
+  if (!resetToken && user && !user.tenants?.length) {
     return <Navigate to={vendorLogin ? "/register/vendor" : nextPath || "/"} replace />;
   }
 

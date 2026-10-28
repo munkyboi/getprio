@@ -37,14 +37,14 @@ test('actual customer registration handler retains ticket claim and only then fo
  });await handler({name:'Local Customer',username:'manual_customer',phone:'',password:'unit-password'});
  assert.deepEqual(events,[['register','manual_customer'],['claim','cookie-session','LOCAL-CLAIM'],['navigate','/account/tickets?claim=done#recent']]);
 });
-function routeApp(file) {
+function routeApp(file, universal = false) {
  const text=fs.readFileSync(path.resolve(__dirname,'../src/surfaces',file),'utf8').replaceAll('import.meta.env','{}');
  const output=ts.transpileModule(text,{compilerOptions:{jsx:ts.JsxEmit.ReactJSX,module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
  const mod={exports:{}};const passthrough=({children})=>React.createElement('div',null,children);
  const fakeRequire=id=>{
   if(id.includes('/pages/'))return {__esModule:true,default:()=>React.createElement('p',null,id.split('/').pop())};
   if(id==='./PublicShell'||id.endsWith('/MaintenanceBoundary'))return {__esModule:true,default:passthrough};
-  if(id==='./PublicAuthRedirect')return {__esModule:true,default:()=>React.createElement('p',null,'PublicAuthRedirect'),publicUniversalAuthEnabled:false};
+  if(id==='./PublicAuthRedirect')return {__esModule:true,default:()=>React.createElement('p',null,'PublicAuthRedirect'),publicUniversalAuthEnabled:universal};
   if(id.endsWith('/AuthContext'))return {useAuth:()=>({user:null,loading:false})};
   if(id.endsWith('/VendorAuthLayout'))return {VendorAuthLayout:passthrough};
   if(id.endsWith('/workspace'))return {activeMemberships:()=>[],readPreference:()=>null,workspacePath:()=>'/dashboard/overview',preferenceKey:()=>''};
@@ -52,7 +52,7 @@ function routeApp(file) {
   if(id==='../queuePaths')return {JOINED_QUEUE_ROUTE_PATH:'/ticket/:tenantSlug/:locationSlug?',MONITOR_ROUTE_PATH:'/monitor/:tenantSlug/:locationSlug?',LEGACY_MONITOR_ROUTE_PATH:'/legacy/:tenantSlug/:locationSlug?'};
   return require(id);
  };
- vm.runInNewContext(output,{module:mod,exports:mod.exports,require:fakeRequire,URL,console});return mod.exports.default;
+ vm.runInNewContext(output,{module:mod,exports:mod.exports,require:fakeRequire,URL,URLSearchParams,console});return mod.exports.default;
 }
 test('separate real route registries own their auth aliases and never mount other application dashboards',()=>{
  for(const [file,cases] of [
@@ -62,6 +62,24 @@ test('separate real route registries own their auth aliases and never mount othe
  ]) {
   const App=routeApp(file);for(const [route,page] of cases){const html=renderToStaticMarkup(React.createElement(MemoryRouter,{initialEntries:[route]},React.createElement(App)));assert.ok(html.includes(page),`${file} ${route} -> ${page}`);}
  }
+});
+test('enabled universal forwarding keeps reset-token handling inside both legacy apps',()=>{
+ for(const file of ['CustomerApp.tsx','VendorApp.tsx']) {
+  const App=routeApp(file,true);
+  for(const route of ['/login?resetToken=offline-secret','/register?resetToken=offline-secret']) {
+   const html=renderToStaticMarkup(React.createElement(MemoryRouter,{initialEntries:[route]},React.createElement(App)));
+   assert.ok(html.includes('LoginPage'),file+' '+route);assert.ok(!html.includes('PublicAuthRedirect'));
+  }
+  const ordinary=renderToStaticMarkup(React.createElement(MemoryRouter,{initialEntries:['/login?next=%2Fdashboard']},React.createElement(App)));
+  assert.ok(ordinary.includes('PublicAuthRedirect'));
+ }
+});
+test('signed-in session bootstrap does not redirect away from an existing reset form',()=>{
+ const navigations=[];
+ const effect=extract('pages/LoginPage.tsx',node=>ts.isArrowFunction(node)&&node.body.getText().includes('if (resetToken) return'),{
+  resetToken:'offline-secret',user:{tenants:[]},currentSurface:'customer',navigate:(...args)=>navigations.push(args),nextPath:'/account/dashboard',mfaEnrollmentPath:'/dashboard/account'
+ });
+ effect();assert.equal(navigations.length,0);
 });
 test('marketing auth provider skips both session and OAuth discovery bootstrap effects',()=>{
  const source=fs.readFileSync(path.resolve(__dirname,'../src/context/AuthContext.tsx'),'utf8');const ast=ts.createSourceFile('AuthContext.tsx',source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TSX);const callbacks=[];

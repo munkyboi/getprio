@@ -1,4 +1,6 @@
 const { authSurface, safeReturnPath } = require("../services/browserSurfaceUrls");
+const { issueBrowserOAuthBinding, consumeBrowserOAuthBinding, clearBrowserOAuthBinding } = require("../services/browserOAuthBinding");
+const { resolveOAuthDestination } = require("../services/oauthDestination");
 const queueBoardReturnPath = require("../services/queueBoardReturnPath");
 const businessCategories = require("../repositories/businessCategories");
 const express = require("express");
@@ -371,20 +373,6 @@ async function findOrCreateOauthUser(profile) {
   return { user, created: false };
 }
 
-function getPostOauthPath(intent, provider, user) {
-  const hasTenantMemberships = Boolean(user.tenantMemberships?.length);
-
-  if (intent === "register_vendor" && !hasTenantMemberships) {
-    return `/register/vendor?oauth=${provider}`;
-  }
-
-  if (hasTenantMemberships) {
-    return "/dashboard";
-  }
-
-  return "/";
-}
-
 function redirectOauthError(res, message, surface) {
   const callbackUrl = buildClientCallbackUrl({ error: message, surface });
   if (!callbackUrl) {
@@ -544,9 +532,11 @@ router.get("/oauth/:provider/start", (req, res) => {
     ensureSupportedProvider(provider);
     ensureValidIntent(intent);
 
-    const state = createOAuthState({ provider, intent, surface, next: surface ? safeReturnPath(req.query.next, surface) : intent === "login" ? queueBoardReturnPath(req.query.next) : null });
+    const browserBinding = issueBrowserOAuthBinding(res, provider);
+    const state = createOAuthState({ provider, intent, surface, browserBinding, next: surface ? safeReturnPath(req.query.next, surface) : intent === "login" ? queueBoardReturnPath(req.query.next) : null });
     res.redirect(buildAuthorizationUrl(provider, state));
   } catch (error) {
+    clearBrowserOAuthBinding(res, provider);
     redirectOauthError(res, error.message || "Unable to start social sign-in.", surface);
   }
 });
@@ -562,10 +552,6 @@ router.all("/oauth/:provider/callback", async (req, res) => {
   try {
     ensureSupportedProvider(provider);
 
-    if (providerError) {
-      throw new Error(providerErrorReason || `${getProviderLabel(provider)} sign-in was cancelled.`);
-    }
-
     const oauthState = readOAuthState(stateValue);
     surface = authSurface(oauthState.surface, oauthState.intent);
     ensureValidIntent(oauthState.intent);
@@ -573,6 +559,8 @@ router.all("/oauth/:provider/callback", async (req, res) => {
     if (oauthState.provider !== provider) {
       throw new Error("OAuth provider mismatch. Please try again.");
     }
+    consumeBrowserOAuthBinding(req, res, provider, oauthState);
+    if (providerError) throw new Error(providerErrorReason || `${getProviderLabel(provider)} sign-in was cancelled.`);
 
     const profile = await exchangeCodeForProfile({
       provider,
@@ -581,9 +569,8 @@ router.all("/oauth/:provider/callback", async (req, res) => {
     });
 
     const { user, created } = await findOrCreateOauthUser(profile);
-    const next = surface === "customer" ? safeReturnPath(oauthState.next, "customer") || "/account/dashboard"
-      : surface === "vendor" ? safeReturnPath(oauthState.next, "vendor") || getPostOauthPath(oauthState.intent, provider, user)
-      : (oauthState.intent === "login" && queueBoardReturnPath(oauthState.next)) || getPostOauthPath(oauthState.intent, provider, user);
+    const next = resolveOAuthDestination({ surface, intent: oauthState.intent, provider, user, next: oauthState.next,
+      legacyNext: oauthState.intent === "login" && queueBoardReturnPath(oauthState.next) });
     const sessionResult = await sessionService.createAuthSession({
       user,
       authMethod: getAuthMethodForProvider(provider),
@@ -614,6 +601,7 @@ router.all("/oauth/:provider/callback", async (req, res) => {
       await welcomeEmailService.sendWelcomeEmail({ user });
     }
   } catch (error) {
+    clearBrowserOAuthBinding(res, provider);
     redirectOauthError(res, error.message || "Social sign-in failed.", surface);
   }
 });

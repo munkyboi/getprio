@@ -17,7 +17,7 @@ import PublicAuthRedirect, { publicUniversalAuthEnabled } from "./PublicAuthRedi
 function VendorAuthEntry({ mode }: { mode: "login" | "register" }) {
   const location = useLocation();
   const { user } = useAuth();
-  if (mode === "login" && new URLSearchParams(location.search).has("resetToken")) return <LoginPage />;
+  if (new URLSearchParams(location.search).has("resetToken")) return <LoginPage />;
   // OAuth's explicit authenticated business-completion form is retained.
   if (mode === "register" && user) return <RegisterVendorPage />;
   return <PublicAuthRedirect surface="vendor" mode={mode} />;

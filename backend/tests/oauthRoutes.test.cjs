@@ -158,6 +158,9 @@ test("oauth start route redirects to the provider authorization URL", () => {
 });
 
 test("oauth callback route completes login and redirects with tokens", async () => {
+  const bindingResponse = createMockRes();
+  const browserBinding = require("../src/services/browserOAuthBinding").issueBrowserOAuthBinding(bindingResponse, "google");
+  const browserCookie = bindingResponse.cookies[0].split(";")[0];
   const sessionResult = {
     accessToken: "access-token",
     refreshToken: "refresh-token",
@@ -166,6 +169,7 @@ test("oauth callback route completes login and redirects with tokens", async () 
   const welcomeCalls = [];
   let existing = false;
   let intent = "login";
+  let surface;
   let next = null;
   let receivedProfile = null;
   let receivedCallbackArgs = null;
@@ -231,7 +235,7 @@ test("oauth callback route completes login and redirects with tokens", async () 
       },
       ensureSupportedProvider: () => {},
       getProviderLabel: (provider) => provider,
-      readOAuthState: () => ({ provider: "google", intent, next })
+      readOAuthState: () => ({ provider: "google", intent, next, surface, browserBinding })
     },
     "../services/notificationService": {},
     "../services/passwordResetService": {},
@@ -248,7 +252,7 @@ test("oauth callback route completes login and redirects with tokens", async () 
     params: { provider: "google" },
     query: { code: "auth-code", state: "oauth-state" },
     body: {},
-    headers: {},
+    headers: { cookie: browserCookie },
     user: null
   };
   const res = createMockRes();
@@ -278,4 +282,22 @@ test("oauth callback route completes login and redirects with tokens", async () 
   intent = "register_vendor";
   await handler(req, createMockRes());
   assert.equal(welcomeCalls.length, 1, "vendor OAuth waits for workspace completion");
+  surface = "vendor";
+  intent = "login";
+  next = "/dashboard";
+  existing = true;
+  await handler(req, createMockRes());
+  assert.equal(receivedCallbackArgs.next, "/register/vendor?oauth=google", "default next cannot bypass onboarding for no membership");
+  oauthUser.tenantMemberships = [{ tenantId: "tenant-1", isActive: false }];
+  await handler(req, createMockRes());
+  assert.equal(receivedCallbackArgs.next, "/register/vendor?oauth=google", "inactive memberships cannot select a Vendor dashboard");
+  oauthUser.tenantMemberships = [{ tenantId: "tenant-1", isActive: true }];
+  next = "/dashboard/queue";
+  await handler(req, createMockRes());
+  assert.equal(receivedCallbackArgs.next, "/dashboard/queue");
+  receivedProfile = null;
+  const missingCookie = createMockRes();
+  await handler({ ...req, headers: {} }, missingCookie);
+  assert.equal(receivedProfile, null, "another browser cannot exchange the authorization code");
+  assert.match(receivedCallbackArgs.error, /browser where it started/);
 });

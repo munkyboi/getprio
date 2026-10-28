@@ -5,6 +5,7 @@ import { appUrl, safeSurfaceNext } from "./surfaceConfig";
 export const publicUniversalAuthEnabled = import.meta.env.VITE_PUBLIC_UNIVERSAL_AUTH === "1";
 export function publicAuthEntry(surface: "customer" | "vendor", mode: "login" | "register", search = "") {
   const original = new URLSearchParams(search);
+  if (original.has("resetToken")) throw new Error("Password recovery must stay in the originating app.");
   const params = new URLSearchParams();
   params.set("app", surface);
   if (original.has("next")) params.set("next", safeSurfaceNext(original.get("next"), surface));

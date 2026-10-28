@@ -19,8 +19,8 @@ import PublicAuthRedirect, { publicUniversalAuthEnabled } from "./PublicAuthRedi
 function CustomerHome() { return <VendorDiscoveryPage />; }
 function CustomerAuthEntry({ mode }: { mode: "login" | "register" }) {
   const location = useLocation();
-  if (mode === "register" && location.state) return <RegisterCustomerPage />;
   if (new URLSearchParams(location.search).has("resetToken")) return <LoginPage />;
+  if (mode === "register" && location.state) return <RegisterCustomerPage />;
   return <PublicAuthRedirect surface="customer" mode={mode} />;
 }
 function LegacyTicketRedirect() {

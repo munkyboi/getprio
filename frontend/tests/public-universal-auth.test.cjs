@@ -31,6 +31,7 @@ test('compatibility forwarding carries allowlisted intent and relative return on
  const {publicAuthEntry}=load('surfaces/PublicAuthRedirect.tsx');
  const url=new URL(publicAuthEntry('customer','register','?app=vendor&next=%2Faccount%2Fbookings%3Fx%3D1%23details&token=secret&email=private'));
  assert.equal(url.origin,'http://127.0.0.1:5190');assert.equal(url.pathname,'/register');assert.equal(url.searchParams.get('app'),'customer');assert.equal(url.searchParams.get('next'),'/account/bookings?x=1#details');assert.equal(url.searchParams.has('token'),false);assert.equal(url.searchParams.has('email'),false);
+ assert.throws(()=>publicAuthEntry('customer','login','?resetToken=offline-secret'),/originating app/);
 });
 test('public login and registration render complete selected forms and accessible tabs',()=>{
  const Page=load('pages/UniversalAuthPage.tsx').default;
