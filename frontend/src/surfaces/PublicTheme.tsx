@@ -1,15 +1,12 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
-import { MantineProvider, useMantineTheme } from "@mantine/core";
 import { PUBLIC_AUTH_THEME_KEY, readPublicAuthTheme, savePublicAuthTheme, type PublicAuthTheme } from "../pages/publicAuthTheme";
 import { readPreference } from "../vendor/workspace";
-import "./public-theme.css";
 
 type PublicThemeState = { theme: PublicAuthTheme; toggleTheme: () => void };
 const PublicThemeContext = createContext<PublicThemeState | null>(null);
 export const usePublicTheme = () => useContext(PublicThemeContext);
 
 export function PublicThemeProvider({ children }: { children: ReactNode }) {
-  const inheritedTheme = useMantineTheme();
   const [theme, setTheme] = useState<PublicAuthTheme>(readPublicAuthTheme);
   useEffect(() => {
     const root = document.documentElement;
@@ -39,5 +36,5 @@ export function PublicThemeProvider({ children }: { children: ReactNode }) {
     savePublicAuthTheme(next);
     setTheme(next);
   };
-  return <PublicThemeContext.Provider value={{ theme, toggleTheme }}><MantineProvider theme={inheritedTheme} forceColorScheme={theme}>{children}</MantineProvider></PublicThemeContext.Provider>;
+  return <PublicThemeContext.Provider value={{ theme, toggleTheme }}>{children}</PublicThemeContext.Provider>;
 }

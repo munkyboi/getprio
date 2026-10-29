@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 220" role="img" aria-labelledby="title desc">
+  <title id="title">Queue journey graphic</title>
+  <desc id="desc">Three connected steps: join queue, track status, continue when called.</desc>
+  <style>
+    :root { color-scheme: light dark; }
+    .canvas { fill: #fff3e8; }
+    .line { stroke: #3159bd; }
+    .node { fill: #ffffff; stroke: #3159bd; }
+    .node-muted { fill: #ffffff; stroke: #91b7ff; }
+    .ink { fill: #282729; }
+    .muted { stroke: #91b7ff; }
+    .brand { stroke: #fd8501; }
+    @media (prefers-color-scheme: dark) {
+      .canvas { fill: #3a2413; }
+      .node, .node-muted { fill: #16212b; stroke: #91b7ff; }
+      .ink { fill: #ffffff; }
+      .line, .muted { stroke: #91b7ff; }
+      .brand { stroke: #fd8501; }
+    }
+  </style>
+  <rect class="canvas" width="640" height="220" rx="24"/>
+  <path class="line" d="M112 102h416" stroke-width="4" stroke-linecap="round" stroke-dasharray="8 12"/>
+  <g font-family="Manrope, Arial, sans-serif" text-anchor="middle">
+    <g transform="translate(112 102)">
+      <circle class="node" r="42" stroke-width="3"/>
+      <path class="brand" d="M-13-7h26M-13 4h18M-13 15h10" fill="none" stroke-width="4" stroke-linecap="round"/>
+      <text class="ink" y="78" font-size="16" font-weight="800">Join queue</text>
+    </g>
+    <g transform="translate(320 102)">
+      <circle class="node-muted" r="42" stroke-width="3"/>
+      <circle class="muted" r="16" fill="none" stroke-width="3"/>
+      <path class="muted" d="M0-16v16l10 7" fill="none" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+      <text class="ink" y="78" font-size="16" font-weight="800">Track status</text>
+    </g>
+    <g transform="translate(528 102)">
+      <circle class="node" r="42" stroke-width="3"/>
+      <path class="brand" d="M-16 0h32M5-11 16 0 5 11" fill="none" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+      <text class="ink" y="78" font-size="16" font-weight="800">Continue</text>
+    </g>
+  </g>
+</svg>
