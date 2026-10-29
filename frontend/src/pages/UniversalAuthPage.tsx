@@ -5,6 +5,7 @@ import { API_BASE_URL, ApiError, publicAuthRequest } from "../api/client";
 import { appUrl, safeSurfaceNext } from "../surfaces/surfaceConfig";
 import { publicUniversalAuthEnabled } from "../surfaces/PublicAuthRedirect";
 import { getErrorMessage } from "../utils/errors";
+import { readPublicAuthTheme, savePublicAuthTheme } from "./publicAuthTheme";
 import "./universal-auth.css";
 
 export function authDestination(surface: "customer" | "vendor", user: UserSummary, next?: string | null) {
@@ -23,7 +24,7 @@ export default function UniversalAuthPage() {
   const [busy, setBusy] = useState(false);
   const commandVersion = useRef(0);
   const [passwordVisible, setPasswordVisible] = useState(false);
-  const [dark, setDark] = useState(() => typeof window !== "undefined" && window.matchMedia?.("(prefers-color-scheme: dark)").matches);
+  const [dark, setDark] = useState(() => readPublicAuthTheme() === "dark");
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [recovery, setRecovery] = useState(false);
@@ -100,7 +101,7 @@ export default function UniversalAuthPage() {
   if (!publicUniversalAuthEnabled) return <section className="universal-auth"><h1>Sign in to GetPrio</h1><p>Choose your application.</p><a href={appUrl("vendor", "/login")}>Vendor login</a> <a href={appUrl("customer", "/login")}>Customer login</a></section>;
   const title = challenge ? "Verify your sign-in" : recovery ? "Reset your password" : register ? "Create your GetPrio account" : "Welcome back";
   return <section className="universal-auth" data-theme={dark ? "dark" : "light"}>
-    <header><button type="button" onClick={() => setDark(value => !value)} aria-label={`Use ${dark ? "light" : "dark"} theme`}>{dark ? "Light theme" : "Dark theme"}</button><p className="universal-auth-eyebrow">One account. Your next destination.</p><h1>{register ? "Start with GetPrio." : "Make room for what matters."}</h1><p>{register ? "Choose how you’ll use GetPrio, then create your account." : "Sign in to your customer account or manage your business."}</p></header>
+    <header><button type="button" onClick={() => { const next = !dark; savePublicAuthTheme(next ? "dark" : "light"); setDark(next); }} aria-label={`Use ${dark ? "light" : "dark"} theme`}>{dark ? "Light theme" : "Dark theme"}</button><p className="universal-auth-eyebrow">One account. Your next destination.</p><h1>{register ? "Start with GetPrio." : "Make room for what matters."}</h1><p>{register ? "Choose how you’ll use GetPrio, then create your account." : "Sign in to your customer account or manage your business."}</p></header>
     <div className="universal-auth-board"><aside><h2>GetPrio</h2><p>Bookings, queues, and your business in one place.</p><Link to="/">Back to home</Link><p>Your account permissions determine which workspaces you can access.</p></aside>
     <div className="universal-auth-card"><h2>{title}</h2>
       <div role="tablist" aria-label="Choose Customer or Vendor" className="universal-auth-tabs" onKeyDown={event => {
