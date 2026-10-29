@@ -3,7 +3,7 @@
 .universal-auth-editorial { padding: 32px 0; }
 .universal-auth-editorial h1 { font-size: clamp(40px, 5vw, 64px); line-height: 1.08; margin-bottom: 28px; }
 .universal-auth-editorial-lead { color: var(--muted-foreground); font-size: 20px; line-height: 1.65; max-width: 30ch; }
-.universal-auth-graphic { display: block; width: min(100%, 360px); height: auto; aspect-ratio: 3 / 2; object-fit: contain; margin: 36px 0; }
+.universal-auth-graphic { display: block; width: 100%; height: auto; aspect-ratio: 3 / 2; object-fit: contain; margin: 36px 0; }
 .universal-auth-card { --card-spacing: 32px; }
 .universal-auth-title { font-size: 28px; font-family: var(--prio-heading-font), Georgia, serif; }
 .universal-auth-tabs { display: flex; width: 100%; min-height: 52px; margin-bottom: 16px; padding: 4px; background: var(--secondary); border-radius: 10px; }
@@ -25,6 +25,6 @@
   .universal-auth { padding: 32px 20px 56px; }
   .universal-auth-board { grid-template-columns: 1fr; gap: 28px; }
   .universal-auth-editorial { padding: 0; }
-  .universal-auth-graphic { width: min(320px, 100%); margin-block: 24px; }
+  .universal-auth-graphic { margin-block: 24px; }
   .universal-auth-card { --card-spacing: 24px; }
 }
