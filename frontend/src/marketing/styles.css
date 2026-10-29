@@ -38,7 +38,7 @@
 :root, html[data-public-theme=light] {
   --background: #f8f5f0; --card: #fff; --foreground: #1f2933;
   --muted-foreground: #4c5b66; --brand: #fd8501;
-  --action: #c94b00; --action-hover: #b94400; --primary: var(--action); --primary-foreground: #fff;
+  --action: var(--brand); --action-hover: var(--brand); --primary: var(--action); --primary-foreground: #fff;
   --secondary: #f0ede8; --border: #dce0e3; --input: #73818c;
   --link: #3159bd; --ring: var(--link); --destructive: #a32735; --success: #276b50;
   --brand-subtle: #fff3e8;
