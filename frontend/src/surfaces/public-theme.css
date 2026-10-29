@@ -1,0 +1,115 @@
+/* Marketing owns these roles. Dashboard surfaces never receive this attribute. */
+html[data-public-theme] {
+  --public-page: #f8f5f0;
+  --public-surface: #fff;
+  --public-soft: #eee8de;
+  --public-ink: #1f2933;
+  --public-muted: #4c5b66;
+  --public-line: #c1c8cd;
+  --public-accent: #9b3d13;
+  --public-link: #0e5d69;
+  --public-action: #9b3d13;
+  --public-action-ink: #fff;
+}
+html[data-public-theme=dark] {
+  --public-page: #0e1720;
+  --public-surface: #16212b;
+  --public-soft: #202f3b;
+  --public-ink: #f5f8fa;
+  --public-muted: #cdd8de;
+  --public-line: #617584;
+  --public-accent: #ffb36b;
+  --public-link: #7fdbe9;
+  --public-action: #ffb36b;
+  --public-action-ink: #271a0e;
+}
+html[data-public-theme] body { background: var(--public-page); }
+.public-marketing-shell, .public-marketing-drawer {
+  --text: var(--public-ink);
+  --muted: var(--public-muted);
+  --primary: var(--public-accent);
+  --line: var(--public-line);
+  --mantine-color-text: var(--public-ink);
+  --mantine-color-dimmed: var(--public-muted);
+  color: var(--public-ink);
+}
+.public-marketing-shell.finazze-app-shell { background: var(--public-page); }
+.public-marketing-shell .finazze-topbar,
+.public-marketing-drawer.mobile-nav-drawer-content, .public-marketing-drawer .mobile-nav-drawer-header {
+  background: var(--public-surface);
+  color: var(--public-ink);
+  border-color: var(--public-line);
+}
+.public-marketing-shell .desktop-nav-links .mantine-Button-root,
+.public-marketing-drawer .mantine-Button-root { color: var(--public-ink); }
+.public-marketing-shell .desktop-nav-links .mantine-Button-root:last-child,
+.public-marketing-drawer .mantine-Button-root:last-child {
+  background: var(--public-action);
+  color: var(--public-action-ink);
+}
+.public-marketing-shell .mobile-nav-trigger { --burger-color: var(--public-ink); }
+.public-marketing-shell .public-theme-toggle {
+  color: var(--public-ink);
+  background: transparent;
+}
+.public-marketing-shell .public-theme-toggle:hover { background: var(--public-soft); }
+.public-marketing-shell :is(a, button, input, select, textarea):focus-visible,
+.public-marketing-drawer :is(a, button):focus-visible { outline: 3px solid var(--public-link); outline-offset: 3px; }
+.public-marketing-shell ::selection { background: var(--public-accent); color: var(--public-page); }
+.public-marketing-shell .universal-auth { background: var(--public-page); }
+.public-marketing-shell .site-footer { background-color: #0f1724; }
+.public-marketing-shell :is(.lp-app-links > span, .lp-orbit-caption, .lp-float-note, .lp-manifesto-bottom p, .lp-stage-label, .lp-stage-foot, .lp-feature-number, .lp-closing-scene-footer) { color: var(--public-muted); }
+.public-marketing-shell :is(.policy-page a, .support-expectations a) { color: var(--public-link); }
+.public-marketing-shell :is(.prio-label, .finazze-section-label) { color: var(--public-accent); }
+.public-marketing-shell :is(.lp-closing-actions, .not-found-actions) .mantine-Button-root {
+  color: var(--public-action-ink);
+  background: var(--public-action);
+}
+.public-marketing-shell .not-found-actions .mantine-Button-root:last-child {
+  color: var(--public-link);
+  background: var(--public-soft);
+}
+.public-marketing-shell .support-vendor-card .mantine-Button-root {
+  color: var(--public-ink);
+  border-color: var(--public-line);
+}
+
+/* Route-specific surfaces keep their existing composition and artwork. */
+html[data-public-theme=dark] .public-marketing-shell :is(.lp-page, .lp-hero, .lp-pricing, .support-page) {
+  background: var(--public-page);
+  color: var(--public-ink);
+}
+html[data-public-theme=dark] .public-marketing-shell :is(.lp-manifesto, .lp-feature-stage, .lp-closing-scene, .support-vendor-card) {
+  background: var(--public-soft);
+  color: var(--public-ink);
+}
+html[data-public-theme=dark] .public-marketing-shell :is(.lp-float-note, .prio-pricing-card, .support-primary-card, .legal-toc-card) {
+  background: var(--public-surface);
+  color: var(--public-ink);
+  border-color: var(--public-line);
+}
+html[data-public-theme=dark] .public-marketing-shell .prio-pricing-card-featured { background: var(--public-soft); }
+html[data-public-theme=dark] .public-marketing-shell :is(.lp-title em, .lp-section-head em, .lp-manifesto h2 em, .lp-eyebrow, .prio-label, .finazze-section-label, .support-eyebrow, .contact-form-eyebrow) { color: var(--public-accent); }
+html[data-public-theme=dark] .public-marketing-shell :is(.lp-hero-copy, .lp-manifesto-bottom p, .lp-section-head > p:last-child, .lp-feature p, .lp-feature-number, .lp-stage-label, .lp-stage-foot, .lp-hero-footer, .lp-orbit-caption, .lp-float-note, .lp-closing-scene-label, .lp-closing-scene-footer, .support-page-intro, .support-card-copy, .support-vendor-card p, .support-muted, .support-message-guide ul, .support-expectations details p) { color: var(--public-muted); }
+html[data-public-theme=dark] .public-marketing-shell .lp-float-note strong { color: var(--public-ink); }
+html[data-public-theme=dark] .public-marketing-shell :is(.lp-feature, .lp-hero-footer, .lp-stage-foot, .lp-closing-scene-footer, .support-message-guide, .support-expectations details) { border-color: var(--public-line); }
+html[data-public-theme=dark] .public-marketing-shell .lp-section-rule { background: var(--public-line); }
+html[data-public-theme=dark] .public-marketing-shell :is(.support-contact-action a:not(.mantine-Button-root), .support-expectations a, .policy-page a) { color: var(--public-link); }
+html[data-public-theme=dark] .public-marketing-shell .support-card-icon { background: var(--public-soft); }
+html[data-public-theme=dark] .public-marketing-shell .support-contact-action .mantine-Button-root { color: var(--public-action-ink); background: var(--public-action); }
+html[data-public-theme=dark] .public-marketing-shell .lp-closing-logo { content: url('/logo-dark.svg'); }
+
+/* Help has its own named roles; bind them to the same public theme. */
+.public-marketing-shell .hp { --hp-muted: var(--public-muted); }
+html[data-public-theme=dark] .public-marketing-shell .hp {
+  --hp-ink: var(--public-ink);
+  --hp-line: var(--public-line);
+  background: var(--public-page);
+}
+html[data-public-theme=dark] .public-marketing-shell :is(.hp-search, .hp-grid > a) { background: var(--public-surface); }
+html[data-public-theme=dark] .public-marketing-shell :is(.hp-contact, .hp-note) { background: var(--public-soft); }
+html[data-public-theme=dark] .public-marketing-shell :is(.hp-hero em, .hp-grid > a > svg) { color: var(--public-accent); }
+html[data-public-theme=dark] .public-marketing-shell .hp-quick button { color: var(--public-link); }
+html[data-public-theme=dark] .public-marketing-shell .hp-contact > a { background: var(--public-action); color: var(--public-action-ink); }
+/* Keep deliberate dark narrative/footer bands readable in both modes. */
+.public-marketing-shell :is(.site-footer, .wf-spotlight, .lp-closing) { color-scheme: dark; }
