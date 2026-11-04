@@ -302,12 +302,12 @@ const moderation: PlatformModerationReadModel = {
 }
 
 const settings: PlatformSettingsReadModel = {
-  settings: { enterpriseInquiryEmail: "carlo.abella@gmail.com", defaultTimezone: "Asia/Manila", mobileApprovedHosts: ["getprio.online", "sandbox.getprio.online"], maxImageUploadKb: 8192 },
+  settings: { enterpriseInquiryEmail: "carlo.abella@gmail.com", defaultTimezone: "Asia/Manila", mobileApprovedHosts: ["getprio.online", "sandbox.getprio.online"], maxImageUploadKb: 200 },
   controls: [
     { label: "Enterprise inquiry routing", state: "configured", detail: "Platform email is configured for inbound enterprise requests." },
     { label: "Default timezone", state: "configured", detail: "Asia/Manila is used when a tenant or location does not override it." },
     { label: "Mobile approved hosts", state: "restricted", detail: "HTTPS host allowlist is maintained by Platform settings permissions." },
-    { label: "Image upload limit", state: "configured", detail: "Maximum accepted image size is 8,192 KB." },
+    { label: "Image upload limit", state: "configured", detail: "Maximum accepted image size is 200 KB." },
   ],
 }
 

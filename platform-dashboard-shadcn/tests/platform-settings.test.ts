@@ -7,6 +7,18 @@ const contracts = readFileSync(new URL("../src/lib/platform-contracts.ts", impor
 const api = readFileSync(new URL("../src/lib/platform-api.ts", import.meta.url), "utf8")
 const editor = readFileSync(new URL("../src/components/platform-settings-editor.tsx", import.meta.url), "utf8")
 const backend = readFileSync(new URL("../../backend/src/routes/platformRoutes.js", import.meta.url), "utf8")
+const uploadLimit = readFileSync(new URL("../../backend/src/utils/imageUploadLimit.js", import.meta.url), "utf8")
+
+test("Image policy preview matches the server default and explains global byte scope", () => {
+  const defaultKb = Number(uploadLimit.match(/DEFAULT_IMAGE_UPLOAD_KB = (\d+)/)?.[1])
+  assert.equal(defaultKb, 200)
+  assert.match(api, new RegExp(`maxImageUploadKb: ${defaultKb}\\b`))
+  assert.match(api, /Maximum accepted image size is 200 KB/)
+  assert.match(editor, /1 KB = 1,024 bytes/)
+  assert.match(editor, /all new image uploads/)
+  assert.match(editor, /Existing images and PDF limits are unchanged/)
+  assert.match(editor, /Default: 200 KB/)
+})
 
 test("Settings editor exposes only validated platform defaults with fixture mode read-only", () => {
   assert.match(app, /<PlatformSettingsEditor settings=\{settings\.settings\}/)
