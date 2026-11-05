@@ -27,6 +27,8 @@ import errorHandler from "./middleware/errorHandler";
 import requestContextModule from "./middleware/requestContext";
 import csrfProtectionModule from "./middleware/csrfProtection";
 import requestLogPathModule from "./middleware/requestLogPath";
+import localApplicationImageStorage from "./services/localApplicationImageStorage";
+import localImageRoutes from "./routes/localImageRoutes";
 
 function normalizeOrigin(origin?: string): string {
   return String(origin || "").replace(/\/$/, "");
@@ -140,6 +142,9 @@ if (localPoolDemoScopeModule.localPoolDemoConfiguration()) {
   if (process.env.LOCAL_IMAGE_STORAGE_ENABLED === "1") {
     app.use("/api/local-image-assets", loadLocalRoute("./routes/localImageRoutes"));
   }
+}
+if (localApplicationImageStorage.configuration()) {
+  app.use("/api/local-image-assets", localImageRoutes);
 }
 app.use("/v1", developerApiRoutes);
 

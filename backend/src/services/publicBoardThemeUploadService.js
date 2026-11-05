@@ -1,3 +1,4 @@
+const { storeApplicationImage } = require("./localApplicationImageStorage");
 const { storeLocalImage } = require("./localImageStorage");
 const { assertImageUploadSize } = require("./imageUploadPolicy");
 const crypto = require("crypto");
@@ -5,6 +6,10 @@ const { PutObjectCommand, S3Client } = require("@aws-sdk/client-s3");
 const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
 const env = require("../config/env");
 const publicBoardThemeRepository = require("../repositories/publicBoardThemes");
+const {
+  buildBinaryAssetContext,
+  createBinaryAsset
+} = require("./publicBoardAssetUploadService");
 
 const ALLOWED_CONTENT_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 const UPLOAD_EXPIRES_SECONDS = 300;
@@ -185,32 +190,12 @@ async function uploadBinary({ tenant, location, user, body, fileBuffer }) {
     fileName,
     contentType
   });
-  let publicUrl;
-  const local = await storeLocalImage({tenant,location,contentType,body:uploadBuffer});
-  if (local) { objectKey=local.objectKey; publicUrl=local.publicUrl; }
-  else {
-    assertB2Configured();
-    publicUrl=buildPublicUrl(objectKey);
-
-    await getS3Client().send(new PutObjectCommand({
-      Bucket: env.b2BucketPublicBoard,
-      Key: objectKey,
-      ContentType: contentType,
-      Body: uploadBuffer
-    }));
-
-  }
-
-  const asset = await publicBoardThemeRepository.createAsset({
-    tenantId: tenant._id,
-    locationId: location?._id,
-    assetType,
-    objectKey,
-    publicUrl,
-    fileName,
-    contentType,
-    sizeBytes,
-    userId: user?._id
+  const binaryAssetContext = buildBinaryAssetContext(storeApplicationImage, storeLocalImage, tenant, location, user?._id, contentType, uploadBuffer, assertB2Configured, getS3Client, env.b2BucketPublicBoard, objectKey, buildPublicUrl(objectKey));
+  const { asset } = await createBinaryAsset({
+    ...binaryAssetContext,
+    purpose: `theme-${assetType}`,
+    create: publicBoardThemeRepository.createAsset,
+    record: { tenant, location, assetType, fileName, contentType, sizeBytes, user }
   });
 
   return {

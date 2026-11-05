@@ -386,6 +386,12 @@ router.patch(
       : null;
     if (location || req.body.applyToAllLocations) {
       await entitlementAdmissionService.admit({ tenantId: tenant._id, featureKey: "branding" });
+      const entitlements = await billingService.getTenantEntitlements(tenant._id);
+      if (!entitlements.brandedQueuePages) {
+        const error = new Error("Public board rebranding is not available for this plan.");
+        error.statusCode = 403;
+        throw error;
+      }
     }
 
     const theme = await publicBoardThemeRepository.saveTheme({
@@ -447,6 +453,12 @@ router.post(
       : null;
     if (location) {
       await entitlementAdmissionService.admit({ tenantId: tenant._id, featureKey: "branding" });
+      const entitlements = await billingService.getTenantEntitlements(tenant._id);
+      if (!entitlements.brandedQueuePages) {
+        const error = new Error("Public board rebranding is not available for this plan.");
+        error.statusCode = 403;
+        throw error;
+      }
     }
     const upload = await publicBoardThemeUploadService.uploadBinary({
       tenant,
@@ -545,7 +557,9 @@ router.post(
     }
     const requestedLocationSlug = normalizeRequestText(req.query.locationSlug);
     const location = requestedLocationSlug
-      ? await getLocationForTenant(tenant, requestedLocationSlug)
+      ? require("../services/localApplicationImageStorage").configuration()
+        ? await storeLocationRepository.findLocationByTenantAndSlug(tenant._id, requestedLocationSlug) || { slug: requestedLocationSlug }
+        : await getLocationForTenant(tenant, requestedLocationSlug)
       : null;
     const upload = await vendorMediaUploadService.uploadBinary({
       tenant,
@@ -764,6 +778,7 @@ router.get(
     res.json(
       await bookingService.createVendorPaymentProofAccess({
         tenant,
+        user: req.user,
         bookingId: req.params.bookingId
       })
     );

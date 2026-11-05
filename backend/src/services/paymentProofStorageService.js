@@ -1,3 +1,4 @@
+const { storeApplicationImage, applicationProofAccess } = require("./localApplicationImageStorage");
 const { storeLocalImage, localProofAccess } = require("./localImageStorage");
 const { assertImageUploadSize } = require("./imageUploadPolicy");
 const crypto = require("crypto");
@@ -195,7 +196,7 @@ async function createUpload({ booking, body }) {
   };
 }
 
-async function uploadBinary({ booking, body, fileBuffer }) {
+async function uploadBinary({ booking, actorUserId, body, fileBuffer }) {
 
   if (!Buffer.isBuffer(fileBuffer)) {
     const error = new Error("Payment proof upload payload is invalid.");
@@ -211,8 +212,15 @@ async function uploadBinary({ booking, body, fileBuffer }) {
   await assertImageUploadSize(sizeBytes);
 
   const objectKey = buildObjectKey({ booking, fileName, contentType });
-  const local=await storeLocalImage({booking,objectKey,contentType,body:uploadBuffer});
-  if (!local) {
+  const applicationAsset = await storeApplicationImage({
+    purpose: "booking-proof",
+    booking,
+    actorUserId,
+    objectKey,
+    contentType,
+    body: uploadBuffer
+  }) || await storeLocalImage({ booking, objectKey, contentType, body: uploadBuffer });
+  if (!applicationAsset) {
     assertPaymentProofStorageConfigured();
     await getS3Client().send(new PutObjectCommand({
       Bucket: env.b2BucketPaymentProof,
@@ -266,15 +274,14 @@ async function uploadGroupFundedBinary({ campaign, user, body, fileBuffer }) {
   };
 }
 
-async function createViewAccess({ booking }) {
-
+async function createViewAccess({ booking, actorUserId, readerKind }) {
   if (!booking.paymentProofObjectKey) {
     const error = new Error("Payment proof has not been submitted for this booking.");
     error.statusCode = 404;
     throw error;
   }
 
-  let url = await localProofAccess(booking);
+  let url = await applicationProofAccess({ booking, actorUserId, readerKind }) || await localProofAccess(booking);
   if (!url) {
     assertPaymentProofStorageConfigured();
     const command = new GetObjectCommand({

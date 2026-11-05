@@ -11,3 +11,10 @@ test('resource HTTP logs omit private selectors/searches, including legacy and v
   assert.equal(requestLogPath('/api/platform/tenants?q=business'), '/api/platform/tenants?q=business');
   assert.equal(requestLogPath('/api/platform/resource-inventory-other?q=test'), '/api/platform/resource-inventory-other?q=test');
 });
+
+test('private local image capability queries are omitted from HTTP logs', () => {
+  assert.equal(
+    requestLogPath('/api/local-image-assets/application-private/abc?expires=1&signature=secret&readerId=12'),
+    '/api/local-image-assets/application-private/abc'
+  );
+});
