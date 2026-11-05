@@ -1,3 +1,4 @@
+const { storeLocalImage } = require("./localImageStorage");
 const { assertImageUploadSize } = require("./imageUploadPolicy");
 const crypto = require("node:crypto");
 const db = require("../config/db");
@@ -41,8 +42,9 @@ function assertConfigured() {
   ].filter(([, value]) => !value).map(([key]) => key);
 
   if (missing.length) {
-    const error = new Error(`Customer avatar uploads are not configured. Missing: ${missing.join(", ")}.`);
+    const error = new Error("Image storage is currently unavailable. Please try again later.");
     error.statusCode = 503;
+    error.code = "IMAGE_UPLOAD_UNAVAILABLE";
     throw error;
   }
 }
@@ -87,7 +89,6 @@ function matchesImageSignature(contentType, fileBuffer) {
 }
 
 async function uploadAvatar({ user, fileName, contentType, fileBuffer }) {
-  assertConfigured();
 
   const normalizedContentType = String(contentType || "").toLowerCase();
   if (!ALLOWED_CONTENT_TYPES.has(normalizedContentType)) {
@@ -119,7 +120,7 @@ async function uploadAvatar({ user, fileName, contentType, fileBuffer }) {
     throw error;
   }
   const objectKey = `user-avatars/users/${userId}/${Date.now()}-${randomId}.${extension}`;
-  const avatarUrl = buildPublicUrl(objectKey);
+  let avatarUrl;
 
   return db.withTransaction(async (client) => {
     // Share the deletion request lock so an already-authorized upload cannot resurrect an avatar.
@@ -129,13 +130,19 @@ async function uploadAvatar({ user, fileName, contentType, fileBuffer }) {
     if (!current || current.deletion_requested_at) {
       throw Object.assign(new Error("This account cannot upload a profile photo."), { statusCode: 403 });
     }
-    await getS3Client().send(new PutObjectCommand({
-      Bucket: env.b2BucketPublicBoard,
-      Key: objectKey,
-      ContentType: normalizedContentType,
-      CacheControl: "no-store",
-      Body: avatarBuffer
-    }));
+    const local = await storeLocalImage({user,contentType:normalizedContentType,body:avatarBuffer});
+    if (local) avatarUrl=local.publicUrl;
+    else {
+      assertConfigured();
+      avatarUrl=buildPublicUrl(objectKey);
+      await getS3Client().send(new PutObjectCommand({
+        Bucket: env.b2BucketPublicBoard,
+        Key: objectKey,
+        ContentType: normalizedContentType,
+        CacheControl: "no-store",
+        Body: avatarBuffer
+      }));
+    }
 
     const updatedUser = await userRepository.updateUser(user._id, { avatarUrl }, { client });
     return {

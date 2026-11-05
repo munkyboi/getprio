@@ -323,4 +323,23 @@ test("wait-time prediction features use the lookup ticket Queue Day", async (t) 
   assert.equal(predictedFeatures[0].position, 2);
   assert.equal(predictedFeatures[0].queuePaused, true);
   assert.ok(predictedFeatures[0].currentTicketElapsedMinutes >= 2);
+  // Dispatch-only exclusion does not remove started work from the full snapshot.
+  const calledRows=[
+    { _id:60,ticketNumber:'Q060',serviceCounterId:'1',status:'called',dateKey:'20260928' },
+    { _id:61,ticketNumber:'Q061',serviceCounterId:'2',status:'called',dateKey:'20260929',serviceStartedAt:new Date('2026-09-29T01:00:00Z') }
+  ];
+  const reads=[];
+  tickets.listCalledTickets=async(_tenantId,options)=>{reads.push(options);return options.excludeAllocatedService?calledRows.slice(0,1):calledRows;};
+  const startedSnapshot=await snapshotHelpersWithPredictorSpy.buildQueueSnapshot(
+    {_id:10,name:'Tenant',slug:'tenant',averageServiceMinutes:10},
+    {lookupCode:lookupTicket.lookupCode,queueDateKey:'20260929'},
+    async()=>({emailsSentThisPeriod:0})
+  );
+  assert.deepEqual(startedSnapshot.calledTickets.map(ticket=>ticket.id),['60','61']);
+  assert.equal(startedSnapshot.counterDispatch[0].blockReason,'COUNTER_OCCUPIED');
+  assert.equal(startedSnapshot.counterDispatch[1].currentTicketId,null);
+  assert.equal(startedSnapshot.counterDispatch[1].canCallNext,true);
+  assert.equal(reads[0].excludeAllocatedService,undefined);
+  assert.equal(reads[1].excludeAllocatedService,true);
+  assert.equal(reads[1].locationId,location._id);
 });

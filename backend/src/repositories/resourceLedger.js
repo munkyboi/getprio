@@ -1,8 +1,9 @@
 const { createHash } = require("node:crypto");
 
-function fail(message, statusCode = 409) {
+function fail(message, statusCode = 409, code = null) {
   const error = new Error(message);
   error.statusCode = statusCode;
+  if (code) error.code = code;
   throw error;
 }
 function id(value) {
@@ -11,7 +12,7 @@ function id(value) {
   return value;
 }
 function normalizedCommand(command, payload) {
-  const fields = { reserve: ["bookingItemId"], cancelReservation: ["reservationId"],
+  const fields = { reserve: ["bookingItemId"], reserveTicket: ["ticketId"], cancelReservation: ["reservationId"],
     allocate: ["ticketId"], release: ["allocationId", "outcome", "reason"] };
   if (!Object.hasOwn(fields, command) || !payload || typeof payload !== "object"
     || Array.isArray(payload) || Object.keys(payload).some(key => !fields[command].includes(key))) {
@@ -30,11 +31,12 @@ function normalizedCommand(command, payload) {
   return normalized;
 }
 async function poolMapping(client, scope, serviceId) {
-  const result = await client.query(`SELECT p.id::text, p.capacity, p.revision AS pool_revision,
+  const result = await client.query(`SELECT p.id::text, p.capacity, p.revision AS pool_revision, to_jsonb(p)->>'archived_at' AS archived_at,
     r.units_required, r.revision AS requirement_revision FROM service_resource_requirements r
     JOIN location_resource_pools p ON (p.id,p.tenant_id,p.location_id) = (r.pool_id,r.tenant_id,r.location_id)
     WHERE r.tenant_id=$1 AND r.location_id=$2 AND r.service_id=$3`, [...scope, serviceId]);
   if (!result.rows[0]) fail("Service resource demand is unknown.");
+  if (result.rows[0].archived_at) fail("This resource pool is archived. Select an active pool before assigning or starting work.", 409, "RESOURCE_POOL_ARCHIVED");
   return result.rows[0];
 }
 
@@ -58,7 +60,7 @@ async function assertCapacity(client, scope, pool, startsAt, endsAt, excludedRes
   let used = active.rows[0].units;
   for (const [, delta] of events) {
     used += delta;
-    if (used > pool.capacity) fail("Protected resource capacity is unavailable.");
+    if (used > pool.capacity) fail("Protected resource capacity is unavailable.", 409, "RESOURCE_CAPACITY_UNAVAILABLE");
   }
 }
 async function reserve(client, scope, payload) {
@@ -84,11 +86,66 @@ async function reserve(client, scope, payload) {
     pool.requirement_revision, pool.units_required, row.scheduled_start_at, row.scheduled_end_at]);
   return { reservationId: result.rows[0].id };
 }
-async function cancelReservation(client, scope, payload) {
-  const result = await client.query(`UPDATE resource_ledger_reservations SET state='cancelled'
-    WHERE tenant_id=$1 AND location_id=$2 AND id=$3 AND state='protected' RETURNING id::text`, [...scope, payload.reservationId]);
-  if (!result.rows.length) fail("Only a protected reservation can be cancelled.");
+async function reserveTicket(client, scope, payload) {
+  const ticket = await client.query(`SELECT t.status,t.join_channel,p.items,to_jsonb(p)->>'contract_version' AS contract_version,
+      clock_timestamp() AS observed_at
+    FROM tickets t LEFT JOIN ticket_service_plans p
+      ON (p.ticket_id,p.tenant_id,p.location_id)=(t.id,t.tenant_id,t.location_id)
+    WHERE t.tenant_id=$1 AND t.location_id=$2 AND t.id=$3 FOR UPDATE OF t`, [...scope, payload.ticketId]);
+  const row = ticket.rows[0];
+  if (!row) fail("Ticket not found.", 404);
+  if (row.status !== "called") fail("Call the ticket before protecting its service interval.");
+  if (['3','4'].includes(row.contract_version)) fail('Use the resource selection command boundary.',409,'USE_NESTED_CHILD_COMMAND');
+  if (row.contract_version === '2') return require('./queueGroupedLedger').reserve(client,scope,payload.ticketId);
+  const item = row.items?.[0];
+  if (row.items?.length !== 1 || !item?.resource?.known
+    || !Number.isInteger(item.durationMinutes) || item.durationMinutes < 5 || item.durationMinutes > 480) {
+    fail("A single-item known executable service plan is required before calling this ticket.", 409, "SERVICE_PLAN_REQUIRED");
+  }
+  const pool = await poolMapping(client, scope, id(item.serviceId));
+  if (pool.id !== item.resource.poolId || pool.pool_revision !== item.resource.poolRevision
+    || pool.requirement_revision !== item.resource.requirementRevision || pool.units_required !== item.resource.unitsRequired) {
+    fail("Service plan resource configuration is stale.", 409, "SERVICE_PLAN_STALE");
+  }
+  const existing = await client.query(`SELECT id::text,state FROM resource_ledger_reservations
+    WHERE tenant_id=$1 AND location_id=$2 AND ticket_id=$3 AND state IN ('protected','converted')
+    FOR UPDATE`, [...scope, payload.ticketId]);
+  if (existing.rows[0]) return { reservationId: existing.rows[0].id };
+  const startsAt = row.observed_at;
+  const endsAt = new Date(startsAt.getTime() + item.durationMinutes * 60000);
+  await assertCapacity(client, scope, pool, startsAt, endsAt);
+  const result = await client.query(`INSERT INTO resource_ledger_reservations
+    (tenant_id,location_id,ticket_id,pool_id,pool_revision,requirement_revision,units,starts_at,ends_at)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT DO NOTHING RETURNING id::text AS id`,
+  [...scope.slice(0, 2), payload.ticketId, pool.id, pool.pool_revision,
+    pool.requirement_revision, pool.units_required, startsAt, endsAt]);
+  if (!result.rows[0]) {
+    const concurrent = await client.query(`SELECT id::text FROM resource_ledger_reservations
+      WHERE tenant_id=$1 AND location_id=$2 AND ticket_id=$3 AND state IN ('protected','converted') FOR UPDATE`, [...scope, payload.ticketId]);
+    if (concurrent.rows[0]) return { reservationId: concurrent.rows[0].id };
+    fail("Ticket resource reservation could not be created.", 409, "TICKET_RESERVATION_CONFLICT");
+  }
   return { reservationId: result.rows[0].id };
+}
+async function cancelReservation(client, scope, payload) {
+  const binding=(await client.query(`SELECT to_jsonb(resource_ledger_reservations)->>'group_id' AS group_id
+    FROM resource_ledger_reservations WHERE tenant_id=$1 AND location_id=$2 AND id=$3`,[...scope,payload.reservationId])).rows[0];
+  if(binding?.group_id){
+    const model=(await client.query("SELECT to_jsonb(queue_reservation_groups)->>'execution_model' AS model FROM queue_reservation_groups WHERE id=$1 AND tenant_id=$2 AND location_id=$3",[binding.group_id,...scope])).rows[0];
+    if(model?.model==='nested')return require('./queueSelectionLedger').cancelProtection(client,scope,payload.reservationId,binding.group_id);
+  }
+  const result = await client.query(`UPDATE resource_ledger_reservations SET state='cancelled'
+    WHERE tenant_id=$1 AND location_id=$2 AND id=$3 AND state='protected' RETURNING id::text,to_jsonb(resource_ledger_reservations)->>'group_id' AS group_id`, [...scope, payload.reservationId]);
+  if (result.rows.length) {
+    const groupId=result.rows[0].group_id;
+    if(groupId)await client.query(`UPDATE queue_reservation_groups SET state='cancelled' WHERE id=$1 AND state='protected'
+      AND NOT EXISTS(SELECT 1 FROM resource_ledger_reservations WHERE group_id=$1 AND state IN('protected','converted'))`,[groupId]);
+    return { reservationId: result.rows[0].id };
+  }
+  const existing = await client.query(`SELECT id::text,state FROM resource_ledger_reservations
+    WHERE tenant_id=$1 AND location_id=$2 AND id=$3`, [...scope, payload.reservationId]);
+  if (existing.rows[0]?.state === "cancelled") return { reservationId: existing.rows[0].id };
+  fail("Only a protected reservation can be cancelled.");
 }
 async function allocationPlan(client, scope, ticketId) {
   const ticket = await client.query(`SELECT t.status,t.join_channel,t.customer_confirmed_at,p.source,p.booking_id,p.items,
@@ -103,7 +160,7 @@ async function allocationPlan(client, scope, ticketId) {
   const item = row.items?.[0];
   if (row.items?.length !== 1 || !item?.resource?.known
     || !Number.isInteger(item.durationMinutes) || item.durationMinutes < 5 || item.durationMinutes > 480) {
-    fail("A single-item known executable service plan is required.");
+    fail("A single-item known executable service plan is required. Select one executable service before starting this ticket.", 409, "SERVICE_PLAN_REQUIRED");
   }
   if (item.scheduledStartAt && new Date(item.scheduledStartAt) > row.observed_at) fail("Booked service is not ready yet.");
   const pool = await poolMapping(client, scope, id(item.serviceId));
@@ -114,6 +171,10 @@ async function allocationPlan(client, scope, ticketId) {
   return { row, item, pool };
 }
 async function allocate(client, scope, payload) {
+  const version = await client.query(`SELECT to_jsonb(p)->>'contract_version' AS version FROM ticket_service_plans p
+    WHERE tenant_id=$1 AND location_id=$2 AND ticket_id=$3`,[...scope,payload.ticketId]);
+  if (version.rows[0]?.version === '2') return require('./queueGroupedLedger').allocate(client,scope,payload.ticketId);
+  if (['3','4'].includes(version.rows[0]?.version)) fail('Use the resource selection command boundary.',409,'USE_NESTED_CHILD_COMMAND');
   const prior = await client.query(`SELECT id FROM resource_allocations
     WHERE tenant_id=$1 AND location_id=$2 AND ticket_id=$3`, [...scope, payload.ticketId]);
   if (prior.rows.length) fail("Ticket already has a resource allocation.");
@@ -137,6 +198,28 @@ async function allocate(client, scope, payload) {
     // Late bookings retain their protected end; extensions require a separately
     // authorized command that checks subsequent reservations.
     endsAt = r.ends_at;
+  } else {
+    const schema = await client.query(`SELECT EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema=current_schema() AND table_name='resource_ledger_reservations' AND column_name='ticket_id'
+    ) AS available`);
+    if (schema.rows[0]?.available) {
+      const binding = await client.query(`SELECT * FROM resource_ledger_reservations
+        WHERE tenant_id=$1 AND location_id=$2 AND ticket_id=$3 AND state='protected' FOR UPDATE`, [...scope, payload.ticketId]);
+      const r = binding.rows[0];
+      if (r && (String(r.pool_id) !== pool.id || r.units !== pool.units_required
+        || r.pool_revision !== pool.pool_revision || r.requirement_revision !== pool.requirement_revision
+        || r.starts_at > row.observed_at || r.ends_at <= row.observed_at)) {
+        fail("Ticket resource reservation is unavailable or stale.", 409, "TICKET_RESERVATION_STALE");
+      }
+      if (r) {
+        reservationId = String(r.id);
+        endsAt = new Date(row.observed_at.getTime() + item.durationMinutes * 60000);
+        await client.query(`UPDATE resource_ledger_reservations SET starts_at=$4,ends_at=$5
+          WHERE tenant_id=$1 AND location_id=$2 AND id=$3 AND state='protected'`,
+        [...scope, reservationId, row.observed_at, endsAt]);
+      }
+    }
   }
   await assertCapacity(client, scope, pool, row.observed_at, endsAt, reservationId);
   const result = await client.query(`INSERT INTO resource_allocations
@@ -148,13 +231,68 @@ async function allocate(client, scope, payload) {
   return { allocationId: result.rows[0].id, reservationId };
 }
 async function release(client, scope, payload) {
+  const grouped = await client.query(`SELECT to_jsonb(a)->>'group_id' AS group_id FROM resource_allocations a
+    WHERE tenant_id=$1 AND location_id=$2 AND id=$3`,[...scope,payload.allocationId]);
+  if (grouped.rows[0]?.group_id) {
+    const model=(await client.query("SELECT to_jsonb(g)->>'execution_model' AS model FROM queue_reservation_groups g JOIN queue_allocation_groups a ON a.reservation_group_id=g.id WHERE a.id=$1 AND a.tenant_id=$2 AND a.location_id=$3",[grouped.rows[0].group_id,...scope])).rows[0];
+    if(model?.model==='nested')fail('Use recorded child outcome commands for this group.',409,'USE_NESTED_CHILD_COMMAND');
+    return require('./queueGroupedLedger').release(client,scope,payload,grouped.rows[0].group_id);
+  }
   const result = await client.query(`UPDATE resource_allocations SET released_at=clock_timestamp(),outcome=$4,reason=$5
     WHERE tenant_id=$1 AND location_id=$2 AND id=$3 AND released_at IS NULL RETURNING id::text`,
   [...scope, payload.allocationId, payload.outcome, payload.reason]);
-  if (!result.rows.length) fail("Allocation already resolved or not found.");
+  if (!result.rows.length) {
+    const existing = await client.query(`SELECT id::text,outcome FROM resource_allocations
+      WHERE tenant_id=$1 AND location_id=$2 AND id=$3`, [...scope, payload.allocationId]);
+    if (existing.rows[0]?.outcome === payload.outcome) return { allocationId: existing.rows[0].id, outcome: existing.rows[0].outcome };
+    fail("Allocation already resolved or not found.");
+  }
   return { allocationId: result.rows[0].id, outcome: payload.outcome };
 }
-const handlers = { reserve, cancelReservation, allocate, release };
+
+async function requiresTicketReservation(client, ticket) {
+  const result = await client.query(`SELECT EXISTS (
+      SELECT 1 FROM location_resource_pools p
+      JOIN ticket_service_plans plan ON plan.ticket_id=$3 AND plan.tenant_id=$1 AND plan.location_id=$2
+      CROSS JOIN LATERAL jsonb_array_elements(plan.items) item
+      WHERE p.tenant_id=$1 AND p.location_id=$2 AND p.tracking_enabled=TRUE AND plan.source='staff_selection'
+        AND (item->'resource'->>'known')::boolean=TRUE
+        AND (item->'resource'->>'poolId')::bigint=p.id
+    ) AND EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema=current_schema() AND table_name='resource_ledger_reservations' AND column_name='ticket_id'
+    ) AS required`, [ticket.tenantId, ticket.locationId, ticket._id]);
+  return result.rows[0]?.required === true;
+}
+
+async function readTicketReservation(client, ticket) {
+  const plan = await client.query(`SELECT source,items FROM ticket_service_plans
+    WHERE ticket_id=$1 AND tenant_id=$2 AND location_id=$3`, [ticket._id, ticket.tenantId, ticket.locationId]);
+  const row = plan.rows[0];
+  if (!row || row.items?.length !== 1) return null;
+  const item = row.items[0];
+  if (row.source === "booking" && item.bookingItemId) {
+    const result = await client.query(`SELECT id::text,state,pool_id::text,units,starts_at,ends_at
+      FROM resource_ledger_reservations WHERE tenant_id=$1 AND location_id=$2 AND booking_item_id=$3
+      ORDER BY id DESC LIMIT 1`, [ticket.tenantId, ticket.locationId, item.bookingItemId]);
+    return mapReservation(result.rows[0]);
+  }
+  const schema = await client.query(`SELECT EXISTS (
+    SELECT 1 FROM information_schema.columns WHERE table_schema=current_schema()
+      AND table_name='resource_ledger_reservations' AND column_name='ticket_id'
+  ) AS available`);
+  if (!schema.rows[0]?.available) return null;
+  const result = await client.query(`SELECT id::text,state,pool_id::text,units,starts_at,ends_at
+    FROM resource_ledger_reservations WHERE tenant_id=$1 AND location_id=$2 AND ticket_id=$3
+    ORDER BY id DESC LIMIT 1`, [ticket.tenantId, ticket.locationId, ticket._id]);
+  return mapReservation(result.rows[0]);
+}
+
+function mapReservation(row) {
+  return row ? { id: row.id, state: row.state, poolId: row.pool_id, units: row.units,
+    startsAt: row.starts_at, endsAt: row.ends_at } : null;
+}
+const handlers = { reserve, reserveTicket, cancelReservation, allocate, release };
 
 // Only this entry point acquires the connection and starts the transaction.
 // Domain adapters must enter here before taking booking/ticket/pool locks.
@@ -415,4 +553,4 @@ async function executeCommand(options) {
   return withScopeTransaction({ ...options, authorize: async () => true },
     async (_client, ledger) => ledger.executeCommand(options));
 }
-module.exports = { withTenantCatalogTransaction, advanceBranchRevisions, executeCommand, withScopeTransaction, withTicketIssuanceTransaction, withSystemExpiryTransaction, withCustomerTicketCancellationTransaction, withCarryOverExpiryTransaction, withQueueDayReconciliationTransaction };
+module.exports = { withTenantCatalogTransaction, advanceBranchRevisions, executeCommand, withScopeTransaction, withTicketIssuanceTransaction, withSystemExpiryTransaction, withCustomerTicketCancellationTransaction, withCarryOverExpiryTransaction, withQueueDayReconciliationTransaction, requiresTicketReservation, readTicketReservation };

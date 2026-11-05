@@ -99,25 +99,41 @@ async function collectRelationalInventory(client, userId) {
     primaryKeysByTable.set(table, keys);
   }
 
+  // Bound expanded information_schema views before joining; retain their caller visibility.
   const { rows: foreignKeys } = await client.query(`
+    WITH user_constraints AS MATERIALIZED (
+      SELECT constraint_catalog,constraint_schema,constraint_name
+      FROM information_schema.constraint_column_usage
+      WHERE table_schema=current_schema() AND table_name='users' AND column_name='id'
+    ), scoped_constraints AS MATERIALIZED (
+      SELECT table_schema,table_name,constraint_catalog,constraint_schema,constraint_name
+      FROM information_schema.table_constraints
+      WHERE constraint_type='FOREIGN KEY' AND table_schema=current_schema()
+        AND EXISTS (SELECT 1 FROM user_constraints u WHERE u.constraint_catalog=information_schema.table_constraints.constraint_catalog AND u.constraint_schema=information_schema.table_constraints.constraint_schema AND u.constraint_name=information_schema.table_constraints.constraint_name)
+    ), scoped_columns AS MATERIALIZED (
+      SELECT table_schema,table_name,column_name,constraint_catalog,constraint_schema,constraint_name
+      FROM information_schema.key_column_usage k WHERE table_schema=current_schema()
+        AND EXISTS (SELECT 1 FROM scoped_constraints sc WHERE sc.constraint_catalog=k.constraint_catalog AND sc.constraint_schema=k.constraint_schema AND sc.constraint_name=k.constraint_name AND sc.table_name=k.table_name)
+    ), scoped_references AS MATERIALIZED (
+      SELECT constraint_catalog,constraint_schema,constraint_name,delete_rule
+      FROM information_schema.referential_constraints r WHERE constraint_schema=current_schema()
+        AND EXISTS (SELECT 1 FROM scoped_constraints sc WHERE sc.constraint_catalog=r.constraint_catalog AND sc.constraint_schema=r.constraint_schema AND sc.constraint_name=r.constraint_name)
+    )
     SELECT tc.table_schema,tc.table_name,kcu.column_name,rc.delete_rule
-    FROM information_schema.table_constraints tc
-    JOIN information_schema.key_column_usage kcu
+    FROM scoped_constraints tc
+    JOIN scoped_columns kcu
       ON kcu.constraint_catalog=tc.constraint_catalog
       AND kcu.constraint_schema=tc.constraint_schema
       AND kcu.constraint_name=tc.constraint_name
       AND kcu.table_schema=tc.table_schema AND kcu.table_name=tc.table_name
-    JOIN information_schema.constraint_column_usage ccu
+    JOIN user_constraints ccu
       ON ccu.constraint_catalog=tc.constraint_catalog
       AND ccu.constraint_schema=tc.constraint_schema
       AND ccu.constraint_name=tc.constraint_name
-    JOIN information_schema.referential_constraints rc
+    JOIN scoped_references rc
       ON rc.constraint_catalog=tc.constraint_catalog
       AND rc.constraint_schema=tc.constraint_schema
       AND rc.constraint_name=tc.constraint_name
-    WHERE tc.constraint_type='FOREIGN KEY'
-      AND tc.table_schema=current_schema()
-      AND ccu.table_schema=current_schema() AND ccu.table_name='users' AND ccu.column_name='id'
   `);
   const deleteRulesBySource = new Map();
   for (const row of foreignKeys) {

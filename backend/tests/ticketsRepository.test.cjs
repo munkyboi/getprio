@@ -81,6 +81,22 @@ function createQueryClient(rows = []) {
   };
 }
 
+test("history includes interrupted and expired tickets within the selected branch and day", async () => {
+  const { calls, client } = createQueryClient([
+    { id: 21, status: "unserved", service_outcome: "interrupted" },
+    { id: 22, status: "expired" }
+  ]);
+  const repository = requireWithMocks("../src/repositories/tickets.js", {
+    "../config/db": { pool: client }
+  });
+  const history = await repository.listHistoryTickets(1, { client, locationId: 10, dateKey: "20261015", limit: 50 });
+  assert.deepEqual(history.map(ticket => [ticket._id, ticket.status]), [["21", "unserved"], ["22", "expired"]]);
+  assert.deepEqual(calls[0].params, [1, ["served", "skipped", "cancelled", "unserved", "expired"], 50, 10, "20261015"]);
+  assert.match(calls[0].query, /status = ANY\(\$2::text\[\]\)/);
+  assert.match(calls[0].query, /location_id = \$4/);
+  assert.match(calls[0].query, /date_key = \$5/);
+});
+
 test("tickets repository orders ready tickets first, then carry-over, recovery, checked-in booking, and normal", async () => {
   const { calls, client } = createQueryClient();
   const ticketsRepository = requireWithMocks("../src/repositories/tickets.js", {

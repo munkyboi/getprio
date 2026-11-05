@@ -17,9 +17,17 @@ async function readState(client, ticket) {
       LEFT JOIN ticket_service_plans p ON (p.booking_id,p.tenant_id,p.location_id)=(r.booking_id,r.tenant_id,r.location_id)
         AND p.source='booking'
       WHERE r.tenant_id=$1 AND r.location_id=$2 AND (b.queue_ticket_id=$3 OR p.ticket_id=$3)) AS bound`, scope);
-  const allocations = await client.query(`SELECT id::text,released_at,outcome FROM resource_allocations
-    WHERE tenant_id=$1 AND location_id=$2 AND ticket_id=$3`, scope);
+  const identity=(await client.query(`SELECT to_jsonb(p)->>'contract_version' AS version,to_jsonb(p)->>'stage_attempt_id' AS stage_attempt_id
+    FROM ticket_service_plans p WHERE tenant_id=$1 AND location_id=$2 AND ticket_id=$3`,scope)).rows[0];
+  const currentStage=identity?.version==='2' ? identity.stage_attempt_id:null;
+  const allocations = await client.query(`SELECT a.id::text,a.released_at,a.outcome,to_jsonb(a)->>'group_id' AS group_id FROM resource_allocations a
+    WHERE a.tenant_id=$1 AND a.location_id=$2 AND a.ticket_id=$3
+    ${currentStage ? 'AND EXISTS(SELECT 1 FROM queue_allocation_groups g WHERE g.id=a.group_id AND g.stage_attempt_id=$4)':''}`,
+  currentStage?[...scope,currentStage]:scope);
   const allocation = allocations.rows[0] || null;
+  const inconsistentGroup=allocations.rows.some(row=>row.group_id) && allocations.rows.some(row=>
+    row.group_id!==allocation.group_id || Boolean(row.released_at)!==Boolean(allocation.released_at) || row.outcome!==allocation.outcome);
+  if(inconsistentGroup)conflict();
   let enabled = flags.rows[0].enabled;
   if (enabled && !allocation && !flags.rows[0].bound) {
     const plans = await client.query(`SELECT items FROM ticket_service_plans
@@ -40,7 +48,22 @@ async function readState(client, ticket) {
     // Missing/invalid service identity remains unknown in a tracked location;
     // it cannot silently bypass allocation as an ordinary selected service.
   }
-  return { allocation, required: !!allocation || enabled || flags.rows[0].bound };
+  let ticketReservationRequired = false;
+  let ticketReservationProtected = false;
+  if (!allocation && !flags.rows[0].bound && ticket.calledAt && enabled) {
+    const plan = await client.query(`SELECT source FROM ticket_service_plans
+      WHERE tenant_id=$1 AND location_id=$2 AND ticket_id=$3`, scope);
+    if (plan.rows[0]?.source === "staff_selection") {
+      ticketReservationRequired = true;
+      const binding = await client.query(`SELECT EXISTS (
+        SELECT 1 FROM resource_ledger_reservations
+        WHERE tenant_id=$1 AND location_id=$2 AND ticket_id=$3 AND state='protected'
+      ) AS protected`, scope);
+      ticketReservationProtected = binding.rows[0]?.protected === true;
+    }
+  }
+  return { allocation, required: !!allocation || enabled || flags.rows[0].bound,
+    ticketReservationRequired, ticketReservationProtected };
 }
 
 function assertStarted(state) {
@@ -50,18 +73,19 @@ function assertStarted(state) {
 async function allocate(ledger, ticket, state) {
   if (state.allocation) conflict();
   if (!state.required) return null;
+  if (state.ticketReservationRequired && !state.ticketReservationProtected) conflict();
   const result = await ledger.executeCommand({ operationKey: `ticket:${ticket._id}:service:start`,
     command: "allocate", payload: { ticketId: String(ticket._id) } });
   return result.allocationId;
 }
 
-async function release(ledger, ticket, state, outcome) {
+async function release(ledger, ticket, state, outcome, reason) {
   assertStarted(state);
   if (!state.allocation) return null;
   await ledger.executeCommand({ operationKey: `ticket:${ticket._id}:service:${outcome}`,
     command: "release", payload: { allocationId: state.allocation.id,
       outcome: outcome === "completed" ? "completed" : "terminated",
-      ...(outcome === "interrupted" ? { reason: "Staff explicitly interrupted service." } : {}) } });
+      ...(outcome === "interrupted" ? { reason: reason || "Staff explicitly interrupted service." } : {}) } });
   return state.allocation.id;
 }
 

@@ -1865,6 +1865,7 @@ test("pricing highlights follow current entitlements instead of stale marketing 
 
 test("privacy policy discloses retained campaign evidence without offering the retired workflow", () => {
   const source = fs.readFileSync(path.resolve(__dirname, "../src/pages/PrivacyPolicyPage.tsx"), "utf8");
+  assert.match(source, /const lastUpdated = "November 5, 2026"/);
   assert.match(source, /Historical campaign records/);
   assert.match(source, /contribution and reimbursement evidence/);
   assert.match(source, /campaign workflow is no longer available/);

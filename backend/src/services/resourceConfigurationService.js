@@ -4,6 +4,7 @@ const repository = require("../repositories/resourceCapacity");
 const resourceLedger = require("../repositories/resourceLedger");
 const { readAuthorizedVendorQueueActor } = require("./vendorQueueTransactionService");
 const permissions = require("./permissions");
+const poolLifecycle = require("./resourcePoolLifecycleService");
 const { assertPublicTextFieldsAllowed } = require("./contentModeration");
 
 function fail(message, statusCode = 400) {
@@ -22,6 +23,7 @@ function units(value) {
 }
 async function read(scope, client) {
   const configuration = await repository.listDraftConfiguration(scope, { client });
+  configuration.pools = await poolLifecycle.describe(client, scope, configuration.pools);
   const services = await client.query(`
     SELECT services.id::text, services.name FROM vendor_services AS services
     JOIN location_services AS locations ON locations.service_id = services.id AND locations.tenant_id = services.tenant_id
@@ -29,7 +31,8 @@ async function read(scope, client) {
       AND services.is_active = TRUE AND locations.is_active = TRUE ORDER BY services.name, services.id
   `, [scope.tenantId, scope.locationId]);
   const version = createHash("sha256").update(JSON.stringify(configuration)).digest("hex");
-  return { ...configuration, version, services: services.rows, trackingAvailable: false };
+  return { ...configuration, version, services: services.rows, trackingAvailable: false,
+    localActivation:await require("./localResourceActivationService").describe(client,scope,configuration.pools) };
 }
 async function getConfiguration(scope) {
   return db.withTransaction(async (client) => {
@@ -50,6 +53,8 @@ async function savePool(scope, body, current, client) {
   if (typeof body.name !== "string" || !body.name.trim() || body.name.trim().length > 120) fail("Resource name must contain 1 to 120 characters.");
   const name = body.name.trim();
   const capacity = units(body.capacity);
+  const displayOrder = body.displayOrder === undefined ? null : Number(body.displayOrder);
+  if (displayOrder !== null && (!Number.isInteger(displayOrder) || displayOrder < 0 || displayOrder > 10000)) fail("List order must be a whole number from 0 to 10000.");
   assertPublicTextFieldsAllowed({ name });
   if (body.poolId === undefined) {
     if (current.pools.length >= 50) fail("A location supports up to 50 resource pools.");
@@ -57,10 +62,11 @@ async function savePool(scope, body, current, client) {
     return true;
   }
   const poolId = id(body.poolId);
-  if (!current.pools.some((item) => item.id === poolId)) fail("Resource pool not found at this location.", 404);
+  const pool = current.pools.find((item) => item.id === poolId);
+  if (!pool) fail("Resource pool not found at this location.", 404);
   if (current.requirements.some((item) => item.pool_id === poolId && item.units_required > capacity)) fail("Capacity cannot be below an existing service requirement.");
-  const updated = await client.query(`UPDATE location_resource_pools SET name = $4, capacity = $5, revision = revision + 1
-    WHERE tenant_id = $1 AND location_id = $2 AND id = $3 AND tracking_enabled = FALSE`, [scope.tenantId, scope.locationId, poolId, name, capacity]);
+  const updated = await client.query(`UPDATE location_resource_pools SET name = $4, capacity = $5, display_order = COALESCE($6, display_order), revision = revision + 1
+    WHERE tenant_id = $1 AND location_id = $2 AND id = $3 AND archived_at IS NULL`, [scope.tenantId, scope.locationId, poolId, name, capacity, displayOrder]);
   if (updated.rowCount !== 1) fail("Resource configuration changed. Reload before saving.", 409);
   return true;
 }
@@ -81,7 +87,7 @@ async function saveRequirement(scope, body, current, client) {
   const poolId = id(body.poolId);
   const unitsRequired = units(body.unitsRequired);
   const pool = current.pools.find((item) => item.id === poolId);
-  if (!pool || unitsRequired > pool.capacity) fail("Select a resource pool with enough capacity.");
+  if (!pool || pool.archived_at || unitsRequired > pool.capacity) fail("Select a resource pool with enough capacity.");
   if (!current.requirements.some((item) => item.service_id === serviceId) && current.requirements.length >= 500) fail("A location supports up to 500 service requirements.");
   await repository.setDraftRequirement(scope, { serviceId, poolId, unitsRequired }, { client });
   return true;
@@ -89,18 +95,26 @@ async function saveRequirement(scope, body, current, client) {
 async function saveConfiguration(scope, body) {
   if (!body || typeof body !== "object" || Array.isArray(body)) fail("Resource configuration is required.");
   const actions = {
-    pool: ["action", "version", "poolId", "name", "capacity"],
+    pool: ["action", "version", "poolId", "name", "capacity", "displayOrder"],
     requirement: ["action", "version", "serviceId", "poolId", "unitsRequired"],
-    removeRequirement: ["action", "version", "serviceId"]
+    removeRequirement: ["action", "version", "serviceId"],
+    deletePool: ["action", "version", "poolId", "operationKey"],
+    archivePool: ["action", "version", "poolId", "operationKey"]
   };
   const allowed = Object.hasOwn(actions, body.action) ? actions[body.action] : null;
   if (!allowed || Object.keys(body).some((key) => !allowed.includes(key))) fail("Unsupported resource configuration fields.");
   if (typeof body.version !== "string" || !/^[a-f0-9]{64}$/u.test(body.version)) fail("Reload resource configuration before saving.");
-  return resourceLedger.withScopeTransaction({
-    pool: db.pool, ...scope, locationKeyShareCompatible: true,
+  let tenantSlug;
+  const result = await resourceLedger.withScopeTransaction({
+    pool: db.pool, ...scope, locationKeyShareCompatible: !["deletePool", "archivePool"].includes(body.action),
     authorize: authorizeConfiguration
   }, async (client) => {
+    tenantSlug = (await client.query("SELECT to_jsonb(tenants)->>'slug' AS slug FROM tenants WHERE id=$1", [scope.tenantId])).rows[0]?.slug;
     const current = await read(scope, client);
+    if (["deletePool", "archivePool"].includes(body.action)) {
+      id(body.poolId);
+      return poolLifecycle.execute(client, scope, body, read, current);
+    }
     if (current.version !== body.version) fail("Resource configuration changed. Reload and review it before saving.", 409);
     const changed = body.action === "pool"
       ? await savePool(scope, body, current, client)
@@ -108,9 +122,14 @@ async function saveConfiguration(scope, body) {
     if (changed) await client.query("UPDATE resource_ledger_scopes SET revision = revision + 1 WHERE tenant_id = $1 AND location_id = $2", [scope.tenantId, scope.locationId]);
     return read(scope, client);
   }).catch((error) => {
+    if (error.code === "23514" && error.constraint === "resource_pool_active_member_capacity") fail("Pool capacity cannot be below its active named members.");
     if (error.code === "23505") fail("A resource pool with that name already exists at this location.", 409);
     if (error.code === "23503") fail("The service or resource changed. Reload before saving.", 409);
     throw error;
   });
+  if (tenantSlug) require("./queueEvents").publish(tenantSlug,
+    {type:"queue-plans-updated",locationId:String(scope.locationId)}, {locationId:scope.locationId});
+  return result;
 }
-module.exports = { getConfiguration, saveConfiguration };
+module.exports = { getConfiguration, saveConfiguration,
+  activateConfiguration:(scope,poolId,body,operationKey)=>require("./localResourceActivationService").activate(scope,poolId,body,operationKey,read) };
