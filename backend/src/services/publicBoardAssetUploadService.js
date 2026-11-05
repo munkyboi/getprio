@@ -82,4 +82,34 @@ async function createBinaryAsset({
   return { asset };
 }
 
-module.exports = { createAsset, createBinaryAsset, uploadPublicBoardObject };
+function buildBinaryAssetContext(
+  applicationStore,
+  legacyStore,
+  tenant,
+  location,
+  actorUserId,
+  contentType,
+  body,
+  assertConfigured,
+  getS3Client,
+  bucket,
+  objectKey,
+  publicUrl
+) {
+  return {
+    applicationStore,
+    legacyStore,
+    tenant,
+    location,
+    actorUserId,
+    contentType,
+    body,
+    assertConfigured,
+    getS3Client,
+    bucket,
+    objectKey,
+    publicUrl
+  };
+}
+
+module.exports = { buildBinaryAssetContext, createAsset, createBinaryAsset, uploadPublicBoardObject };

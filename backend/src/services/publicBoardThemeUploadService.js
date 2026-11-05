@@ -6,7 +6,10 @@ const { PutObjectCommand, S3Client } = require("@aws-sdk/client-s3");
 const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
 const env = require("../config/env");
 const publicBoardThemeRepository = require("../repositories/publicBoardThemes");
-const { createBinaryAsset } = require("./publicBoardAssetUploadService");
+const {
+  buildBinaryAssetContext,
+  createBinaryAsset
+} = require("./publicBoardAssetUploadService");
 
 const ALLOWED_CONTENT_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 const UPLOAD_EXPIRES_SECONDS = 300;
@@ -187,20 +190,10 @@ async function uploadBinary({ tenant, location, user, body, fileBuffer }) {
     fileName,
     contentType
   });
+  const binaryAssetContext = buildBinaryAssetContext(storeApplicationImage, storeLocalImage, tenant, location, user?._id, contentType, uploadBuffer, assertB2Configured, getS3Client, env.b2BucketPublicBoard, objectKey, buildPublicUrl(objectKey));
   const { asset } = await createBinaryAsset({
-    applicationStore: storeApplicationImage,
-    legacyStore: storeLocalImage,
+    ...binaryAssetContext,
     purpose: `theme-${assetType}`,
-    tenant,
-    location,
-    actorUserId: user?._id,
-    contentType,
-    body: uploadBuffer,
-    assertConfigured: assertB2Configured,
-    getS3Client,
-    bucket: env.b2BucketPublicBoard,
-    objectKey,
-    publicUrl: buildPublicUrl(objectKey),
     create: publicBoardThemeRepository.createAsset,
     record: { tenant, location, assetType, fileName, contentType, sizeBytes, user }
   });
