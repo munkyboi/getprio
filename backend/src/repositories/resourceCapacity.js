@@ -17,8 +17,9 @@ async function listDraftConfiguration(scope, options = {}) {
   const values = [scope.tenantId, scope.locationId];
   const client = queryClient(options);
   const pools = await client.query(`
-    SELECT id::text, name, capacity, tracking_enabled, revision
-    FROM location_resource_pools WHERE tenant_id = $1 AND location_id = $2 ORDER BY id
+    SELECT id::text, name, capacity, display_order, tracking_enabled, revision,
+      (to_jsonb(location_resource_pools)->>'archived_at') AS archived_at
+    FROM location_resource_pools WHERE tenant_id = $1 AND location_id = $2 ORDER BY display_order, id
   `, values);
   const requirements = await client.query(`
     SELECT service_id::text, pool_id::text, units_required, revision
@@ -82,8 +83,9 @@ async function createDraftPool(scope, data, options = {}) {
     throw new Error("Pool requires a name up to 120 characters and capacity from 1 to 100.");
   }
   const result = await draftClient(options).query(`
-    INSERT INTO location_resource_pools (tenant_id, location_id, name, capacity)
-    VALUES ($1, $2, $3, $4) RETURNING id::text, name, capacity, tracking_enabled, revision
+    INSERT INTO location_resource_pools (tenant_id, location_id, name, capacity, display_order)
+    VALUES ($1, $2, $3, $4, COALESCE((SELECT max(display_order) + 1 FROM location_resource_pools WHERE tenant_id=$1 AND location_id=$2), 0))
+    RETURNING id::text, name, capacity, display_order, tracking_enabled, revision
   `, [scope.tenantId, scope.locationId, name, data.capacity]);
   return result.rows[0];
 }
@@ -99,7 +101,7 @@ async function setDraftRequirement(scope, data, options = {}) {
   const client = draftClient(options);
   const pool = await client.query(`
     SELECT capacity FROM location_resource_pools
-    WHERE tenant_id = $1 AND location_id = $2 AND id = $3 AND tracking_enabled = FALSE FOR UPDATE
+    WHERE tenant_id = $1 AND location_id = $2 AND id = $3 AND tracking_enabled = FALSE AND (to_jsonb(location_resource_pools)->>'archived_at') IS NULL FOR UPDATE
   `, [scope.tenantId, scope.locationId, data.poolId]);
   if (!pool.rows[0] || data.unitsRequired > pool.rows[0].capacity) throw new Error("Draft pool is missing or demand exceeds capacity.");
   const result = await client.query(`

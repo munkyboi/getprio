@@ -2,7 +2,7 @@ import { Anchor, Container, List, Stack, Text } from "@mantine/core";
 import LegalArticleLayout from "../components/LegalArticleLayout";
 import LegalSection from "../components/LegalSection";
 
-const lastUpdated = "October 1, 2026";
+const lastUpdated = "November 5, 2026";
 
 export default function PrivacyPolicyPage() {
   return (

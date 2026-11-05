@@ -1,5 +1,6 @@
 const { assertImageUploadSize } = require("./imageUploadPolicy");
 const { storeLocalVendorPaymentQr } = require("./localVendorPaymentQrStorage");
+const { storeLocalPaymentQr } = require("./localImageStorage");
 const crypto = require("crypto");
 const { GetObjectCommand, PutObjectCommand, S3Client } = require("@aws-sdk/client-s3");
 const env = require("../config/env");
@@ -46,8 +47,9 @@ function assertB2Configured() {
     .map(([key]) => key);
 
   if (missing.length) {
-    const error = new Error(`Payment QR uploads are not configured. Missing: ${missing.join(", ")}.`);
+    const error = new Error("Image storage is currently unavailable. Please try again later.");
     error.statusCode = 503;
+    error.code = "IMAGE_UPLOAD_UNAVAILABLE";
     throw error;
   }
 }
@@ -141,7 +143,8 @@ async function uploadBinary({ tenant, location, actorUserId, body, fileBuffer })
 
   await assertImageUploadSize(uploadBuffer?.length || 0);
 
-  const localAsset = await storeLocalVendorPaymentQr({ tenant, location, actorUserId, contentType, body: uploadBuffer });
+  const localAsset = await storeLocalVendorPaymentQr({ tenant, location, actorUserId, contentType, body: uploadBuffer })
+    || await storeLocalPaymentQr({ tenant, location, actorUserId, contentType, body: uploadBuffer });
   if (localAsset) return { asset: localAsset };
 
   assertB2Configured();

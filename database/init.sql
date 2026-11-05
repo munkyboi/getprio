@@ -4,6 +4,26 @@ BEGIN;
 -- Docker only runs this file when the Postgres data directory is empty.
 -- Running it manually against an existing database will remove app data.
 
+DROP TABLE IF EXISTS queue_allocation_groups CASCADE;
+DROP TABLE IF EXISTS queue_reservation_groups CASCADE;
+DROP TABLE IF EXISTS queue_service_policy_versions CASCADE;
+DROP TABLE IF EXISTS queue_service_policies CASCADE;
+DROP TABLE IF EXISTS resource_pool_member_versions CASCADE;
+DROP TABLE IF EXISTS resource_pool_members CASCADE;
+DROP TABLE IF EXISTS queue_plan_notification_outbox CASCADE;
+DROP TABLE IF EXISTS queue_plan_versions CASCADE;
+DROP TABLE IF EXISTS queue_stage_attempts CASCADE;
+DROP TABLE IF EXISTS resource_pool_lifecycle_commands CASCADE;
+DROP TABLE IF EXISTS queue_child_attempts CASCADE;
+DROP TABLE IF EXISTS queue_selection_definitions CASCADE;
+DROP TABLE IF EXISTS queue_counter_command_receipts CASCADE;
+DROP TABLE IF EXISTS queue_workflow_configurations CASCADE;
+DROP TABLE IF EXISTS queue_workflow_versions CASCADE;
+DROP TABLE IF EXISTS queue_station_counters CASCADE;
+DROP TABLE IF EXISTS queue_stations CASCADE;
+DROP TABLE IF EXISTS queue_plan_events CASCADE;
+DROP TABLE IF EXISTS queue_plan_command_receipts CASCADE;
+DROP TABLE IF EXISTS queue_plan_drafts CASCADE;
 DROP TABLE IF EXISTS customer_notification_inbox CASCADE;
 DROP TABLE IF EXISTS customer_notification_inbox_policy CASCADE;
 DROP TABLE IF EXISTS queue_board_pairing_requests CASCADE;
@@ -154,6 +174,11 @@ DROP TABLE IF EXISTS tenants CASCADE;
 DROP TABLE IF EXISTS business_category_aliases CASCADE;
 DROP TABLE IF EXISTS business_categories CASCADE;
 
+DROP FUNCTION IF EXISTS assert_named_pool_capacity() CASCADE;
+DROP FUNCTION IF EXISTS protect_queue_child_history() CASCADE;
+DROP FUNCTION IF EXISTS validate_queue_child_dependency() CASCADE;
+DROP FUNCTION IF EXISTS protect_queue_skipped_stage_history() CASCADE;
+DROP FUNCTION IF EXISTS protect_queue_skipped_group_history() CASCADE;
 DROP FUNCTION IF EXISTS set_updated_at() CASCADE;
 
 CREATE TABLE tenants (

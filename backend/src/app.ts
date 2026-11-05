@@ -1,4 +1,5 @@
 import express from "express";
+import { createRequire } from "node:module";
 import cors from "cors";
 import morgan from "morgan";
 import { ipKeyGenerator, rateLimit } from "express-rate-limit";
@@ -18,6 +19,7 @@ import mobileSandboxAuthRoutes from "./routes/mobileSandboxAuthRoutes";
 import mobileTicketLinkRoutes from "./routes/mobileTicketLinkRoutes";
 import mobileTicketRoutes from "./routes/mobileTicketRoutes";
 import vendorRoutes from "./routes/vendorRoutes";
+import localPoolDemoScopeModule from "./services/localPoolDemoScope";
 import developerApiRoutes from "./routes/developerApiRoutes";
 import developerAuthRoutes from "./routes/developerAuthRoutes";
 import developerProjectRoutes from "./routes/developerProjectRoutes";
@@ -71,7 +73,6 @@ const apiRateLimiter = rateLimit({
 });
 
 app.use(createRequestContextMiddleware({ rolloutCohort: env.rolloutCohort }));
-app.use("/api", apiRateLimiter);
 
 app.use(
   cors({
@@ -83,9 +84,13 @@ app.use(
 
       callback(new Error("Origin not allowed by CORS."));
     },
-    credentials: true
+    credentials: true,
+    exposedHeaders: ["Retry-After", "RateLimit-Limit", "RateLimit-Remaining", "RateLimit-Reset"]
   })
 );
+// Allowed browser clients must be able to read throttling responses and honor
+// Retry-After. CORS also completes preflights without consuming API quota.
+app.use("/api", apiRateLimiter);
 app.use("/api/billing/webhooks", paymongoWebhookRoutes);
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
@@ -131,6 +136,13 @@ app.use("/api/mobile", mobileQueueJoinRoutes);
 app.use("/api/queue-board", queueBoardRoutes.publicRouter);
 app.use("/api/vendor", queueBoardRoutes.vendorRouter);
 app.use("/api/vendor", vendorRoutes);
+if (localPoolDemoScopeModule.localPoolDemoConfiguration()) {
+  const loadLocalRoute = createRequire(__filename);
+  app.use("/api/vendor", loadLocalRoute("./routes/localResourceOperationsRoutes"));
+  if (process.env.LOCAL_IMAGE_STORAGE_ENABLED === "1") {
+    app.use("/api/local-image-assets", loadLocalRoute("./routes/localImageRoutes"));
+  }
+}
 if (localApplicationImageStorage.configuration()) {
   app.use("/api/local-image-assets", localImageRoutes);
 }

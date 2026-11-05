@@ -1,4 +1,5 @@
 const { storeApplicationImage, applicationProofAccess } = require("./localApplicationImageStorage");
+const { storeLocalImage, localProofAccess } = require("./localImageStorage");
 const { assertImageUploadSize } = require("./imageUploadPolicy");
 const crypto = require("crypto");
 const { GetObjectCommand, PutObjectCommand, S3Client } = require("@aws-sdk/client-s3");
@@ -49,8 +50,9 @@ function assertPaymentProofStorageConfigured() {
     .map(([key]) => key);
 
   if (missing.length) {
-    const error = new Error(`Payment proof storage is not configured. Missing: ${missing.join(", ")}.`);
+    const error = new Error("Image storage is currently unavailable. Please try again later.");
     error.statusCode = 503;
+    error.code = "IMAGE_UPLOAD_UNAVAILABLE";
     throw error;
   }
 }
@@ -217,7 +219,7 @@ async function uploadBinary({ booking, actorUserId, body, fileBuffer }) {
     objectKey,
     contentType,
     body: uploadBuffer
-  });
+  }) || await storeLocalImage({ booking, objectKey, contentType, body: uploadBuffer });
   if (!applicationAsset) {
     assertPaymentProofStorageConfigured();
     await getS3Client().send(new PutObjectCommand({
@@ -279,7 +281,7 @@ async function createViewAccess({ booking, actorUserId, readerKind }) {
     throw error;
   }
 
-  let url = await applicationProofAccess({ booking, actorUserId, readerKind });
+  let url = await applicationProofAccess({ booking, actorUserId, readerKind }) || await localProofAccess(booking);
   if (!url) {
     assertPaymentProofStorageConfigured();
     const command = new GetObjectCommand({

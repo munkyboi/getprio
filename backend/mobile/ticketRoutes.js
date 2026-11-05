@@ -1,4 +1,5 @@
 const express = require("express");
+const { customerQueueLifecycle } = require('../src/services/customerQueueLifecycle');
 const { rateLimit, ipKeyGenerator } = require("express-rate-limit");
 const { authenticate } = require("../src/middleware/auth");
 const asyncHandler = require("../src/middleware/asyncHandler");
@@ -153,6 +154,7 @@ async function formatMobileTicket(ticket, environment, { developerMetrics: provi
     estimated_wait_minutes: developerMetrics?.estimatedWaitMinutes ?? null,
     can_cancel: canCancel,
     tracking_status: ACTIVE_STATUSES.has(ticket.status) ? "active" : "terminal",
+    queue_lifecycle: customerQueueLifecycle(ticket),
     issued_at: ticket.createdAt,
     updated_at: ticket.updatedAt,
     developer_environment: isDeveloperTicket ? (ticket.developerEnvironment || environment) : null

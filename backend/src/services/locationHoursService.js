@@ -1,9 +1,10 @@
 const db = require("../config/db");
+const queueEvents = require("./queueEvents");
 const locations = require("../repositories/storeLocations");
 const { withVendorQueueTransaction } = require("./vendorQueueTransactionService");
 
 async function replaceLocationHours(tenant, location, hours, { actorUserId }) {
-  return withVendorQueueTransaction({
+  const result = await withVendorQueueTransaction({
     pool: db.pool, tenant, location, actorUserId,
     permission: "tenant.location.manage", lockTenantActivity: true
   }, async (client) => {
@@ -12,6 +13,8 @@ async function replaceLocationHours(tenant, location, hours, { actorUserId }) {
       [tenant._id, location._id]);
     return updatedHours;
   });
+  queueEvents.publish(tenant.slug,{type:"queue-plans-updated",locationId:String(location._id)},{locationId:location._id});
+  return result;
 }
 
 module.exports = { replaceLocationHours };

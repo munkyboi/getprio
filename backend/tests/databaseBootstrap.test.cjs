@@ -23,6 +23,12 @@ test("clean-slate bootstrap removes migration-owned child tables before rebuildi
   for (const tableName of new Set(migrationOwnedTables)) {
     assert.match(initSql, new RegExp(`DROP TABLE IF EXISTS ${tableName} CASCADE;`), `${tableName} must be included in clean-slate bootstrap`);
   }
+  // Dropping tables removes triggers, but their PL/pgSQL functions survive.
+  const migrationOwnedFunctions = [...migrationSql.matchAll(/CREATE FUNCTION ([a-z0-9_]+)\(\)/gi)]
+    .map((match) => match[1]);
+  for (const functionName of new Set(migrationOwnedFunctions)) {
+    assert.ok(initSql.includes(`DROP FUNCTION IF EXISTS ${functionName}() CASCADE;`), `${functionName} must be removed before migration reapplication`);
+  }
 });
 
 test("booking bundle repair restores vendor and location boundary constraints", () => {

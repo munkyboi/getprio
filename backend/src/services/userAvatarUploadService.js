@@ -1,4 +1,5 @@
 const { storeApplicationImage } = require("./localApplicationImageStorage");
+const { storeLocalImage } = require("./localImageStorage");
 const { assertImageUploadSize } = require("./imageUploadPolicy");
 const crypto = require("node:crypto");
 const db = require("../config/db");
@@ -42,8 +43,9 @@ function assertConfigured() {
   ].filter(([, value]) => !value).map(([key]) => key);
 
   if (missing.length) {
-    const error = new Error(`Customer avatar uploads are not configured. Missing: ${missing.join(", ")}.`);
+    const error = new Error("Image storage is currently unavailable. Please try again later.");
     error.statusCode = 503;
+    error.code = "IMAGE_UPLOAD_UNAVAILABLE";
     throw error;
   }
 }
@@ -135,9 +137,10 @@ async function uploadAvatar({ user, fileName, contentType, fileBuffer }) {
       contentType: normalizedContentType,
       body: avatarBuffer
     }, client);
+    const local = applicationAsset || await storeLocalImage({ user, contentType: normalizedContentType, body: avatarBuffer });
     let avatarUrl;
-    if (applicationAsset) {
-      avatarUrl = applicationAsset.publicUrl;
+    if (local) {
+      avatarUrl = local.publicUrl;
     } else {
       assertConfigured();
       avatarUrl = buildPublicUrl(objectKey);

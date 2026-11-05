@@ -163,6 +163,8 @@ function normalizeQueryText(value, fallback = "") {
   return normalizeRequestText(value, fallback);
 }
 
+const { customerQueueLifecycle } = require('../services/customerQueueLifecycle');
+
 function formatCustomerTicket(ticket) {
   return {
     id: ticket._id,
@@ -173,6 +175,7 @@ function formatCustomerTicket(ticket) {
     locationName: ticket.locationName,
     locationSlug: ticket.locationSlug,
     status: ticket.status,
+    queueLifecycle: customerQueueLifecycle(ticket),
     statusReason: ticket.statusReason,
     customerConfirmedAt: ticket.customerConfirmedAt || null,
     serviceStartedAt: ticket.serviceStartedAt || null,

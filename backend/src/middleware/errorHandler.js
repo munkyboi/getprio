@@ -1,3 +1,4 @@
+const serviceHoursError = require("../services/queueServiceHoursErrorResponse");
 function errorHandler(error, req, res, _next) {
   if (error.code === 'PLATFORM_MAINTENANCE') {
     res.setHeader('Cache-Control', 'no-store');
@@ -32,7 +33,9 @@ function errorHandler(error, req, res, _next) {
   res.status(statusCode).json({
     message,
     ...(req.context?.correlationId ? { correlationId: req.context.correlationId } : {}),
-    ...(error.code ? { code: error.code } : {})
+    ...(error.code ? { code: error.code } : {}),
+    ...serviceHoursError.fields(error),
+    ...(error.code === "RESOURCE_POOL_REFERENCED" && error.poolDeletion ? { poolDeletion: error.poolDeletion } : {})
   });
 }
 
