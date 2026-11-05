@@ -528,9 +528,9 @@ router.post(
     }
 
     const upload = await locationPaymentQrUploadService.uploadBinary({
+      actorUserId: req.user._id,
       tenant,
       location: { slug: locationSlug },
-      actorUserId: req.user._id,
       body: {
         fileName: normalizeRequestText(req.query.fileName),
         contentType: req.headers["content-type"],
