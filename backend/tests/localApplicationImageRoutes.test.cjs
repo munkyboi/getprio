@@ -1,0 +1,12 @@
+const{test}=require('node:test');const assert=require('node:assert/strict');const{createLocalImageRouter}=require('../src/routes/localImageRoutes');
+const source={NODE_ENV:'test',DATABASE_URL:'postgres://qa@127.0.0.1/getprio_local_pool_demo_images_test',LOCAL_APPLICATION_IMAGE_STORAGE_ENABLED:'1',LOCAL_APPLICATION_IMAGE_DATABASE:'getprio_local_pool_demo_images_test',LOCAL_APPLICATION_IMAGE_PUBLIC_ORIGIN:'http://127.0.0.1:5094'};
+function run(router,url,remoteAddress='127.0.0.1',query={}){return new Promise((resolve,reject)=>{const headers={},req={method:'GET',url,originalUrl:url,socket:{remoteAddress},query};const res={set(v){Object.assign(headers,v);return this},send(body){resolve({status:200,headers,body})},sendStatus(status){resolve({status,headers})}};router.handle(req,res,e=>e?reject(e):resolve({status:404,headers}));});}
+test('application public/private readers have separate handlers, loopback/config gates and legacy reads remain off',async t=>{
+ const keys=[...Object.keys(source),'LOCAL_POOL_DEMO_ENABLED','LOCAL_IMAGE_STORAGE_ENABLED'],old=Object.fromEntries(keys.map(k=>[k,process.env[k]]));Object.assign(process.env,source);delete process.env.LOCAL_POOL_DEMO_ENABLED;delete process.env.LOCAL_IMAGE_STORAGE_ENABLED;t.after(()=>{for(const[k,v]of Object.entries(old))v===undefined?delete process.env[k]:process.env[k]=v});
+ const calls=[],image={body:Buffer.from('image'),contentType:'image/png',extension:'png'},router=createLocalImageRouter({readApplication:async id=>{calls.push(['public',id]);return image},readApplicationPrivate:async(id,access)=>{calls.push(['private',id,access]);return image},read:async()=>{throw new Error('legacy must not run')}}),id='a'.repeat(48);
+ const pub=await run(router,'/application/'+id);assert.equal(pub.status,200);assert.equal(pub.headers['Cache-Control'],'no-store');assert.equal(pub.headers['X-Content-Type-Options'],'nosniff');assert.equal(pub.headers['Content-Type'],'image/png');
+ const q={expires:'123',signature:'signed',readerKind:'customer',readerId:'12'};assert.equal((await run(router,'/application-private/'+id,'127.0.0.1',q)).status,200);assert.deepEqual(calls,[['public',id],['private',id,q]]);
+ for(const url of ['/application/'+id,'/application-private/'+id])assert.equal((await run(router,url,'10.0.0.1')).status,404);
+ for(const url of ['/legacy-id','/private/legacy-id'])assert.equal((await run(router,url)).status,404);
+ process.env.NODE_ENV='production';assert.equal((await run(router,'/application/'+id)).status,404);
+});

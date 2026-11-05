@@ -1,4 +1,5 @@
 const { assertImageUploadSize } = require("./imageUploadPolicy");
+const { storeLocalVendorPaymentQr } = require("./localVendorPaymentQrStorage");
 const crypto = require("crypto");
 const { GetObjectCommand, PutObjectCommand, S3Client } = require("@aws-sdk/client-s3");
 const env = require("../config/env");
@@ -126,9 +127,8 @@ function getObjectKeyFromPublicUrl(publicUrl) {
   return objectKey;
 }
 
-async function uploadBinary({ tenant, location, body, fileBuffer }) {
+async function uploadBinary({ tenant, location, actorUserId, body, fileBuffer }) {
   const uploadBuffer = Buffer.isBuffer(fileBuffer) ? Buffer.from(fileBuffer) : null;
-  assertB2Configured();
 
   const fileName = normalizeFileName(body.fileName);
   const contentType = String(body.contentType || "").toLowerCase();
@@ -140,6 +140,11 @@ async function uploadBinary({ tenant, location, body, fileBuffer }) {
   }
 
   await assertImageUploadSize(uploadBuffer?.length || 0);
+
+  const localAsset = await storeLocalVendorPaymentQr({ tenant, location, actorUserId, contentType, body: uploadBuffer });
+  if (localAsset) return { asset: localAsset };
+
+  assertB2Configured();
 
   const objectKey = buildObjectKey({ tenant, location, fileName, contentType });
   const publicUrl = buildPublicUrl(objectKey);

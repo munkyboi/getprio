@@ -1,3 +1,4 @@
+const { storeApplicationImage } = require("./localApplicationImageStorage");
 const { assertImageUploadSize } = require("./imageUploadPolicy");
 const crypto = require("crypto");
 const { PutObjectCommand, S3Client } = require("@aws-sdk/client-s3");
@@ -162,7 +163,6 @@ async function createUpload({ tenant, location, user, body }) {
 
 async function uploadBinary({ tenant, location, user, body, fileBuffer }) {
   const uploadBuffer = Buffer.isBuffer(fileBuffer) ? Buffer.from(fileBuffer) : null;
-  assertB2Configured();
 
   const assetType = body.assetType === "logo" ? "logo" : "background";
   const fileName = normalizeFileName(body.fileName);
@@ -177,33 +177,53 @@ async function uploadBinary({ tenant, location, user, body, fileBuffer }) {
 
   await assertImageUploadSize(uploadBuffer?.length || 0);
 
-  const objectKey = buildObjectKey({
+  let objectKey = buildObjectKey({
     tenantId: tenant._id,
     location,
     assetType,
     fileName,
     contentType
   });
-  const publicUrl = buildPublicUrl(objectKey);
-
-  await getS3Client().send(new PutObjectCommand({
-    Bucket: env.b2BucketPublicBoard,
-    Key: objectKey,
-    ContentType: contentType,
-    Body: uploadBuffer
-  }));
-
-  const asset = await publicBoardThemeRepository.createAsset({
-    tenantId: tenant._id,
-    locationId: location?._id,
-    assetType,
-    objectKey,
-    publicUrl,
-    fileName,
+  let publicUrl;
+  const applicationAsset = await storeApplicationImage({
+    purpose: `theme-${assetType}`,
+    tenant,
+    location,
+    actorUserId: user?._id,
     contentType,
-    sizeBytes,
-    userId: user?._id
+    body: uploadBuffer
   });
+  if (applicationAsset) {
+    objectKey = applicationAsset.objectKey;
+    publicUrl = applicationAsset.publicUrl;
+  } else {
+    assertB2Configured();
+    publicUrl = buildPublicUrl(objectKey);
+    await getS3Client().send(new PutObjectCommand({
+      Bucket: env.b2BucketPublicBoard,
+      Key: objectKey,
+      ContentType: contentType,
+      Body: uploadBuffer
+    }));
+  }
+
+  let asset;
+  try {
+    asset = await publicBoardThemeRepository.createAsset({
+      tenantId: tenant._id,
+      locationId: location?._id,
+      assetType,
+      objectKey,
+      publicUrl,
+      fileName,
+      contentType,
+      sizeBytes,
+      userId: user?._id
+    });
+  } catch (error) {
+    await applicationAsset?.cleanup();
+    throw error;
+  }
 
   return {
     asset: {

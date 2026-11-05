@@ -1,3 +1,4 @@
+const { storeApplicationImage, applicationProofAccess } = require("./localApplicationImageStorage");
 const { assertImageUploadSize } = require("./imageUploadPolicy");
 const crypto = require("crypto");
 const { GetObjectCommand, PutObjectCommand, S3Client } = require("@aws-sdk/client-s3");
@@ -193,8 +194,7 @@ async function createUpload({ booking, body }) {
   };
 }
 
-async function uploadBinary({ booking, body, fileBuffer }) {
-  assertPaymentProofStorageConfigured();
+async function uploadBinary({ booking, actorUserId, body, fileBuffer }) {
 
   if (!Buffer.isBuffer(fileBuffer)) {
     const error = new Error("Payment proof upload payload is invalid.");
@@ -210,12 +210,23 @@ async function uploadBinary({ booking, body, fileBuffer }) {
   await assertImageUploadSize(sizeBytes);
 
   const objectKey = buildObjectKey({ booking, fileName, contentType });
-  await getS3Client().send(new PutObjectCommand({
-    Bucket: env.b2BucketPaymentProof,
-    Key: objectKey,
-    ContentType: contentType,
-    Body: uploadBuffer
-  }));
+  const applicationAsset = await storeApplicationImage({
+    purpose: "booking-proof",
+    booking,
+    actorUserId,
+    objectKey,
+    contentType,
+    body: uploadBuffer
+  });
+  if (!applicationAsset) {
+    assertPaymentProofStorageConfigured();
+    await getS3Client().send(new PutObjectCommand({
+      Bucket: env.b2BucketPaymentProof,
+      Key: objectKey,
+      ContentType: contentType,
+      Body: uploadBuffer
+    }));
+  }
 
   return {
     proof: {
@@ -261,22 +272,24 @@ async function uploadGroupFundedBinary({ campaign, user, body, fileBuffer }) {
   };
 }
 
-async function createViewAccess({ booking }) {
-  assertPaymentProofStorageConfigured();
-
+async function createViewAccess({ booking, actorUserId, readerKind }) {
   if (!booking.paymentProofObjectKey) {
     const error = new Error("Payment proof has not been submitted for this booking.");
     error.statusCode = 404;
     throw error;
   }
 
-  const command = new GetObjectCommand({
-    Bucket: env.b2BucketPaymentProof,
-    Key: booking.paymentProofObjectKey
-  });
-  const url = await getSignedUrl(getS3Client(), command, {
-    expiresIn: VIEW_EXPIRES_SECONDS
-  });
+  let url = await applicationProofAccess({ booking, actorUserId, readerKind });
+  if (!url) {
+    assertPaymentProofStorageConfigured();
+    const command = new GetObjectCommand({
+      Bucket: env.b2BucketPaymentProof,
+      Key: booking.paymentProofObjectKey
+    });
+    url = await getSignedUrl(getS3Client(), command, {
+      expiresIn: VIEW_EXPIRES_SECONDS
+    });
+  }
 
   return {
     proof: {

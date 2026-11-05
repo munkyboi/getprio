@@ -1361,6 +1361,7 @@ async function uploadCustomerPaymentProofDirect({ user, bookingId, body, fileBuf
 
   return paymentProofStorageService.uploadBinary({
     booking,
+    actorUserId: user._id,
     body,
     fileBuffer
   });
@@ -1417,10 +1418,10 @@ async function submitCustomerPaymentProof({ user, bookingId, body }) {
 
 async function createCustomerPaymentProofAccess({ user, bookingId }) {
   const booking = await getCustomerOwnedBooking({ user, bookingId });
-  return paymentProofStorageService.createViewAccess({ booking });
+  return paymentProofStorageService.createViewAccess({ booking, actorUserId: user._id, readerKind: "customer" });
 }
 
-async function createVendorPaymentProofAccess({ tenant, bookingId }) {
+async function createVendorPaymentProofAccess({ tenant, user, bookingId }) {
   const booking = await bookingRepository.findBookingById(bookingId);
   if (!booking || String(booking.tenantId) !== String(tenant._id)) {
     const error = new Error("Booking not found.");
@@ -1428,7 +1429,7 @@ async function createVendorPaymentProofAccess({ tenant, bookingId }) {
     throw error;
   }
 
-  return paymentProofStorageService.createViewAccess({ booking });
+  return paymentProofStorageService.createViewAccess({ booking, actorUserId: user?._id, readerKind: "vendor" });
 }
 
 async function withVendorBookingTransaction({ tenant, location, bookingId, user, permission = "tenant.booking.manage", validateUnarrived = true }, callback) {

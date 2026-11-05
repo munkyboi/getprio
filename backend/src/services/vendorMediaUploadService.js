@@ -1,3 +1,4 @@
+const { storeApplicationImage } = require("./localApplicationImageStorage");
 const { assertImageUploadSize } = require("./imageUploadPolicy");
 const crypto = require("crypto");
 const { PutObjectCommand, S3Client } = require("@aws-sdk/client-s3");
@@ -85,7 +86,7 @@ async function createUpload({ tenant, location, user, body, assetType = "locatio
   }
   await assertImageUploadSize(sizeBytes);
 
-  const objectKey = buildObjectKey({ tenantId: tenant._id, location, assetType, fileName, contentType });
+  let objectKey = buildObjectKey({ tenantId: tenant._id, location, assetType, fileName, contentType });
   const publicUrl = buildPublicUrl(objectKey);
   const command = new PutObjectCommand({
     Bucket: env.b2BucketPublicBoard,
@@ -125,7 +126,6 @@ async function createUpload({ tenant, location, user, body, assetType = "locatio
 }
 
 async function uploadBinary({ tenant, location, user, body, fileBuffer, assetType = "location" }) {
-  assertB2Configured();
   const uploadBuffer = Buffer.isBuffer(fileBuffer) ? Buffer.from(fileBuffer) : null;
   const fileName = normalizeFileName(body.fileName, `${assetType}-image`);
   const contentType = String(body.contentType || "").toLowerCase();
@@ -137,26 +137,47 @@ async function uploadBinary({ tenant, location, user, body, fileBuffer, assetTyp
   }
   await assertImageUploadSize(uploadBuffer?.length || 0);
 
-  const objectKey = buildObjectKey({ tenantId: tenant._id, location, assetType, fileName, contentType });
-  const publicUrl = buildPublicUrl(objectKey);
-  await getS3Client().send(new PutObjectCommand({
-    Bucket: env.b2BucketPublicBoard,
-    Key: objectKey,
-    ContentType: contentType,
-    Body: uploadBuffer
-  }));
-
-  const asset = await publicBoardThemeRepository.createAsset({
-    tenantId: tenant._id,
-    locationId: location?._id,
-    assetType,
-    objectKey,
-    publicUrl,
-    fileName,
+  let objectKey = buildObjectKey({ tenantId: tenant._id, location, assetType, fileName, contentType });
+  let publicUrl;
+  const applicationAsset = await storeApplicationImage({
+    purpose: assetType,
+    tenant,
+    location,
+    actorUserId: user?._id,
     contentType,
-    sizeBytes,
-    userId: user?._id
+    body: uploadBuffer
   });
+  if (applicationAsset) {
+    objectKey = applicationAsset.objectKey;
+    publicUrl = applicationAsset.publicUrl;
+  } else {
+    assertB2Configured();
+    publicUrl = buildPublicUrl(objectKey);
+    await getS3Client().send(new PutObjectCommand({
+      Bucket: env.b2BucketPublicBoard,
+      Key: objectKey,
+      ContentType: contentType,
+      Body: uploadBuffer
+    }));
+  }
+
+  let asset;
+  try {
+    asset = await publicBoardThemeRepository.createAsset({
+      tenantId: tenant._id,
+      locationId: location?._id,
+      assetType,
+      objectKey,
+      publicUrl,
+      fileName,
+      contentType,
+      sizeBytes,
+      userId: user?._id
+    });
+  } catch (error) {
+    await applicationAsset?.cleanup();
+    throw error;
+  }
 
   return {
     asset: {

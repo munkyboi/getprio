@@ -25,6 +25,8 @@ import errorHandler from "./middleware/errorHandler";
 import requestContextModule from "./middleware/requestContext";
 import csrfProtectionModule from "./middleware/csrfProtection";
 import requestLogPathModule from "./middleware/requestLogPath";
+import localApplicationImageStorage from "./services/localApplicationImageStorage";
+import localImageRoutes from "./routes/localImageRoutes";
 
 function normalizeOrigin(origin?: string): string {
   return String(origin || "").replace(/\/$/, "");
@@ -129,6 +131,9 @@ app.use("/api/mobile", mobileQueueJoinRoutes);
 app.use("/api/queue-board", queueBoardRoutes.publicRouter);
 app.use("/api/vendor", queueBoardRoutes.vendorRouter);
 app.use("/api/vendor", vendorRoutes);
+if (localApplicationImageStorage.configuration()) {
+  app.use("/api/local-image-assets", localImageRoutes);
+}
 app.use("/v1", developerApiRoutes);
 
 // Keep the legacy namespace available while first-party clients migrate to v1.

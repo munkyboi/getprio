@@ -1,3 +1,4 @@
+const { storeApplicationImage } = require("./localApplicationImageStorage");
 const { assertImageUploadSize } = require("./imageUploadPolicy");
 const crypto = require("node:crypto");
 const db = require("../config/db");
@@ -87,8 +88,6 @@ function matchesImageSignature(contentType, fileBuffer) {
 }
 
 async function uploadAvatar({ user, fileName, contentType, fileBuffer }) {
-  assertConfigured();
-
   const normalizedContentType = String(contentType || "").toLowerCase();
   if (!ALLOWED_CONTENT_TYPES.has(normalizedContentType)) {
     const error = new Error("Only JPEG, PNG, and WebP avatar images are supported.");
@@ -119,9 +118,9 @@ async function uploadAvatar({ user, fileName, contentType, fileBuffer }) {
     throw error;
   }
   const objectKey = `user-avatars/users/${userId}/${Date.now()}-${randomId}.${extension}`;
-  const avatarUrl = buildPublicUrl(objectKey);
-
-  return db.withTransaction(async (client) => {
+  let applicationAsset;
+  try {
+    return await db.withTransaction(async (client) => {
     // Share the deletion request lock so an already-authorized upload cannot resurrect an avatar.
     const { rows: [current] } = await client.query(
       "SELECT deletion_requested_at FROM users WHERE id=$1 FOR UPDATE", [userId]
@@ -129,20 +128,38 @@ async function uploadAvatar({ user, fileName, contentType, fileBuffer }) {
     if (!current || current.deletion_requested_at) {
       throw Object.assign(new Error("This account cannot upload a profile photo."), { statusCode: 403 });
     }
-    await getS3Client().send(new PutObjectCommand({
-      Bucket: env.b2BucketPublicBoard,
-      Key: objectKey,
-      ContentType: normalizedContentType,
-      CacheControl: "no-store",
-      Body: avatarBuffer
-    }));
+    applicationAsset = await storeApplicationImage({
+      purpose: "avatar",
+      user,
+      actorUserId: user._id,
+      contentType: normalizedContentType,
+      body: avatarBuffer
+    }, client);
+    let avatarUrl;
+    if (applicationAsset) {
+      avatarUrl = applicationAsset.publicUrl;
+    } else {
+      assertConfigured();
+      avatarUrl = buildPublicUrl(objectKey);
+      await getS3Client().send(new PutObjectCommand({
+        Bucket: env.b2BucketPublicBoard,
+        Key: objectKey,
+        ContentType: normalizedContentType,
+        CacheControl: "no-store",
+        Body: avatarBuffer
+      }));
+    }
 
     const updatedUser = await userRepository.updateUser(user._id, { avatarUrl }, { client });
     return {
       avatarUrl,
       user: updatedUser
     };
-  });
+    });
+  } catch (error) {
+    await applicationAsset?.cleanup();
+    throw error;
+  }
 }
 
 module.exports = {

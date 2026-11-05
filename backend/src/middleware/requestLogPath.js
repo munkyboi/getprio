@@ -5,6 +5,8 @@ function requestLogPath(value) {
   // Also redact queries from old clients and rejected attempts on these routes.
   if (/^\/(?:api\/(?:v1\/)?)?platform\/resource-inventory(?:\/|$)/i.test(path))
     return path;
+  if (/^\/(?:api\/)?local-image-assets\/application-private(?:\/|$)/i.test(path))
+    return path;
   return url;
 }
 module.exports = { requestLogPath };
