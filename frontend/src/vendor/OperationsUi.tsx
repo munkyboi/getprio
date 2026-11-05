@@ -44,9 +44,9 @@ export function OperationScope({
   );
 }
 
-export function OperationPanel({ children }: { children: ReactNode }) {
+export function OperationPanel({ children, className }: { children: ReactNode; className?: string }) {
   return (
-    <Card>
+    <Card className={className}>
       <CardContent className="ops-panel-content">{children}</CardContent>
     </Card>
   );
@@ -103,6 +103,7 @@ export function OperationSelect({
   data,
   value,
   onChange,
+  icon,
   disabled = false,
   placeholder,
   required = false,
@@ -111,6 +112,7 @@ export function OperationSelect({
   data: Array<{ value: string; label: string; disabled?: boolean }>;
   value: string | null;
   onChange: (value: string | null) => void;
+  icon?: ReactNode;
   disabled?: boolean;
   placeholder?: string;
   required?: boolean;
@@ -128,6 +130,7 @@ export function OperationSelect({
         required={required}
       >
         <SelectTrigger id={id}>
+          {icon}
           <SelectValue
             placeholder={placeholder || `Select ${label.toLowerCase()}`}
           />

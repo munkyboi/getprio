@@ -1,4 +1,4 @@
-export const operationSections = new Set(["queue", "bookings", "clients", "history", "account"]);
+export const operationSections = new Set(["overview", "queue", "bookings", "clients", "history", "account"]);
 
 export function sectionWorkspace(section, requested, canAdmin) {
   if (!canAdmin) return "operations";
@@ -19,7 +19,7 @@ export function workspaceItems(items, workspace) {
 export function workspacePath(section, workspace, search = "", hash = "") {
   const params = new URLSearchParams(search);
   params.set("workspace", workspace);
-  return `/dashboard/${section}?${params.toString()}${hash}`;
+  return `/dashboard/${section === "tenants" ? "locations" : section}?${params.toString()}${hash}`;
 }
 
 export function preferenceKey(userId, tenantSlug) {

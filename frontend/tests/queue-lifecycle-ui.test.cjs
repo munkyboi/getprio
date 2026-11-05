@@ -146,11 +146,15 @@ test("vendor queue UI blocks calling next while a current ticket is unresolved",
 test("vendor overflow identifies tickets saved for carry-over", () => {
   const dashboard = readSource("src/pages/VendorDashboardPage.tsx");
 
-  assert.match(dashboard, /<h3 className="queue-heading">\s*Carry-over tickets\s*<\/h3>/);
-  assert.match(dashboard, /<QueueTableHead scope="col">Status<\/QueueTableHead>/);
-  assert.match(dashboard, /<QueueTableHead scope="col">\s*Activated at\s*<\/QueueTableHead>/);
-  assert.match(dashboard, /getTicketStateSummary\(ticket\.status\)\s*\.label/);
-  assert.match(dashboard, /:\s*"Carried over"/);
+  const recovery = readSource("src/vendor/QueueRecoveryTable.tsx");
+  assert.match(dashboard, /<QueueRecoveryTable/);
+  assert.match(recovery, /Carry-over and missed requests/);
+  assert.match(recovery, /Carried-over tickets are read-only here/);
+  assert.match(recovery, /<TableHead scope="col">Status<\/TableHead>/);
+  assert.match(recovery, /<TableHead scope="col">Activated at<\/TableHead>/);
+  assert.match(recovery, /carryOverStatus\(ticket\.status\)/);
+  assert.match(dashboard, /carryOverStatus=\{status => status === "pending_carry_over" \? getTicketStateSummary\(status\)\.label : "Carried over"\}/);
+  assert.match(recovery, /!carried \? <TableCell data-label="Actions">\{renderRestore\(ticket, priority\)\}/);
 });
 
 test("public and customer queue screens use the authoritative lifecycle state", () => {

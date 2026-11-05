@@ -264,7 +264,7 @@ function DashboardRedirect() {
   return (
     <Navigate
       replace
-      to={workspacePath(workspace === "administration" ? "settings" : "queue", workspace, location.search, location.hash)}
+      to={workspacePath(workspace === "administration" ? "settings" : "overview", workspace, location.search, location.hash)}
     />
   );
 }
@@ -400,6 +400,8 @@ export default function App() {
 
         <Route path="/vendors/:tenantSlug" element={<AppShell><VendorProfilePage /></AppShell>} />
         <Route path="/dashboard" element={<DashboardRedirect />} />
+        <Route path="/dashboard/services/:routeServiceSlug/edit" element={<AppShell><VendorDashboardRoute /></AppShell>} />
+        <Route path="/dashboard/locations/:locationSlug/edit" element={<AppShell><VendorDashboardRoute /></AppShell>} />
         <Route path="/dashboard/:section" element={<AppShell><VendorDashboardRoute /></AppShell>} />
         <Route path="/join/:tenantSlug/:locationSlug?" element={<AppShell><JoinQueuePage /></AppShell>} />
         <Route path="*" element={<AppShell><NotFoundPage /></AppShell>} />

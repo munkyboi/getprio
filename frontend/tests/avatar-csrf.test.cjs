@@ -54,7 +54,7 @@ test('a new storefront tab restores CSRF from account loading before its avatar 
   };
   try {
     await apiRequest('/auth/me', { skipAuthRefresh: true });
-    await apiUpload('/account/profile/avatar?fileName=photo.png', { token: 'cookie-session', body: new Blob(['image'], { type: 'image/png' }), contentType: 'image/png' });
+    await apiUpload('/account/profile/avatar?fileName=photo.png', { token: 'cookie-session', body: new Blob([Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/l9sAAAAASUVORK5CYII=','base64')], { type: 'image/png' }), contentType: 'image/png' });
     assert.equal(uploads, 1);
   } finally {
     for (const [key,value] of Object.entries(saved)) { if (value === undefined) delete global[key]; else global[key] = value; }

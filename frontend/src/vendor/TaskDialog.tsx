@@ -1,5 +1,8 @@
+import { TaskDialogBody } from "./TaskDialogBody";
+import { scrollTaskControlIntoView } from "./taskDialogFocus";
+import { cn } from "cn";
 import { Button } from "./components/ui/button";
-import type { ReactNode } from "react";
+import { useCallback, useRef, type ReactNode, type RefObject } from "react";
 import {
   Dialog,
   DialogContent,
@@ -12,22 +15,70 @@ type Props = {
   opened: boolean;
   onClose: () => void;
   busy?: boolean;
-  eyebrow: string;
+  eyebrow?: string;
+  headingEyebrow?: string;
   title: string;
   description?: string;
   children: ReactNode;
   footer: ReactNode;
+  bodyOverlay?: ReactNode;
+  className?: string;
+  initialFocus?: RefObject<HTMLElement | null>;
 };
 export function TaskDialog({
   opened,
   onClose,
   busy = false,
-  eyebrow,
   title,
+  headingEyebrow,
   description,
   children,
   footer,
+  bodyOverlay,
+  className,
+  initialFocus,
 }: Props) {
+  const stopFocusObserver = useRef<(() => void) | null>(null);
+  const mainRef = useCallback((main: HTMLDivElement | null) => {
+    stopFocusObserver.current?.();
+    stopFocusObserver.current = null;
+    if (!main) return;
+    const revealActive = () => {
+      const control = main.ownerDocument.activeElement;
+      if (control instanceof HTMLElement)
+        scrollTaskControlIntoView(main, control);
+    };
+    const observer =
+      typeof ResizeObserver === "undefined"
+        ? null
+        : new ResizeObserver(revealActive);
+    observer?.observe(main);
+    for (const child of main.children) observer?.observe(child);
+    window.addEventListener("resize", revealActive);
+    window.visualViewport?.addEventListener("resize", revealActive);
+    stopFocusObserver.current = () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", revealActive);
+      window.visualViewport?.removeEventListener("resize", revealActive);
+    };
+  }, []);
+  const main = (
+        <div
+          ref={mainRef}
+          className="queue-dialog-main"
+          onFocusCapture={(event) => {
+            const main = event.currentTarget,
+              control = event.target;
+            if (!(control instanceof HTMLElement)) return;
+            queueMicrotask(() => {
+              if (document.activeElement === control)
+                scrollTaskControlIntoView(main, control);
+            });
+          }}
+        >
+          {children}
+        </div>
+  );
   return (
     <Dialog
       open={opened}
@@ -36,10 +87,14 @@ export function TaskDialog({
       }}
       disablePointerDismissal={busy}
     >
-      <DialogContent showCloseButton={!busy} className="queue-task-dialog">
+      <DialogContent
+        initialFocus={initialFocus}
+        showCloseButton={!busy}
+        className={cn("queue-task-dialog", className)}
+      >
         <DialogHeader className="queue-dialog-header">
           <DialogTitle>
-            <span className="vendor-eyebrow">{eyebrow}</span>
+            {headingEyebrow ? <span className="vendor-eyebrow">{headingEyebrow}</span> : null}
             <span className="queue-dialog-title">{title}</span>
           </DialogTitle>
         </DialogHeader>
@@ -48,7 +103,7 @@ export function TaskDialog({
         >
           {description || "Review the details and choose an action."}
         </DialogDescription>
-        <div className="queue-dialog-main">{children}</div>
+        {bodyOverlay !== undefined ? <TaskDialogBody overlay={bodyOverlay}>{main}</TaskDialogBody> : main}
         <div className="queue-dialog-footer">{footer}</div>
       </DialogContent>
     </Dialog>

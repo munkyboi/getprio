@@ -6,7 +6,7 @@ const { renderToStaticMarkup } = require('react-dom/server');
 const { CounterTickets, LiveQueueSummary, LiveQueueIntake, QueueCopyField } = require('../src/vendor/LiveQueueWidgets.tsx');
 const fixture = require('./fixtures/vendor-live-queue.json');
 const render = (component,props) => renderToStaticMarkup(React.createElement(component,props));
-const ticketProps = {snapshot:fixture,disabled:false,onSelect(){},onEnd(){}};
+const ticketProps = {snapshot:fixture,disabled:false,onSelect(){},onEnd(){},onStart(){}};
 
 test('counter overview shows concurrent tickets with individual service controls',()=>{
   const html=render(CounterTickets,ticketProps);
@@ -22,11 +22,13 @@ test('counter overview shows concurrent tickets with individual service controls
 test('closed queue still exposes authorized resolution of existing service timing',()=>{
   const html=render(CounterTickets,{...ticketProps,snapshot:{...fixture,queueDay:{...fixture.queueDay,state:'closed',isClosed:true}}});
   assert.match(html,/Complete service/);assert.match(html,/Interrupt service/);
-  assert.doesNotMatch(html,/disabled=""/);
+  for (const label of ['Complete service','Interrupt service']) {
+    assert.match(html,new RegExp('<button(?![^>]*\\sdisabled="")[^>]*>'+label));
+  }
 });
 test('busy state disables every counter action while retaining both tickets',()=>{
   const html=render(CounterTickets,{...ticketProps,disabled:true});
-  assert.equal((html.match(/\sdisabled=""/g)||[]).length,4);
+  assert.equal((html.match(/\sdisabled=""/g)||[]).length,5);
   assert.match(html,/QA001/);assert.match(html,/QA002/);
 });
 test('summary distinguishes ticket timing from waiting estimates and unknown values',()=>{
