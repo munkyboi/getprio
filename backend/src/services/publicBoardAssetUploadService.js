@@ -50,10 +50,28 @@ async function uploadPublicBoardObject({
   return { objectKey, publicUrl };
 }
 
-async function createBinaryAsset({ applicationUpload, legacyUpload, remoteUpload, create, record }) {
-  const applicationAsset = await applicationUpload();
-  const localAsset = applicationAsset || await legacyUpload();
-  const resolvedAsset = localAsset || await remoteUpload();
+async function createBinaryAsset({
+  applicationStore,
+  legacyStore,
+  purpose,
+  tenant,
+  location,
+  actorUserId,
+  contentType,
+  body,
+  assertConfigured,
+  getS3Client,
+  bucket,
+  objectKey,
+  publicUrl,
+  create,
+  record
+}) {
+  const applicationAsset = await applicationStore({ purpose, tenant, location, actorUserId, contentType, body });
+  const localAsset = applicationAsset || await legacyStore({ tenant, location, contentType, body });
+  const resolvedAsset = localAsset || await uploadPublicBoardObject({
+    assertConfigured, getS3Client, bucket, objectKey, publicUrl, contentType, body
+  });
   const asset = await createAsset({
     create,
     ...record,
