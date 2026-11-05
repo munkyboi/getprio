@@ -17,8 +17,8 @@ function listAddOns() {
   return JSON.parse(JSON.stringify(ADD_ONS));
 }
 
-async function findPlanBySlug(slug) {
-  return subscriptionPlanRepository.findPlanBySlug(slug);
+async function findPlanBySlug(slug, options = {}) {
+  return subscriptionPlanRepository.findPlanBySlug(slug, options);
 }
 
 async function getPlanEntitlements(planSlug) {

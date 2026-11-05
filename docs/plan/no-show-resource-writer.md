@@ -1,0 +1,11 @@
+# Vendor no-show resource writer
+
+Marking a booking as no-show now uses the location-first transaction. It rechecks current active membership, deletion/suspension and queue-operation permission, then reloads the booking under a row lock and checks persisted tenant/location, arrival, confirmed/rescheduled status and the fifteen-minute late window.
+
+Owners/admins with booking-management permission retain branch-wide access. Queue staff must have a current explicit branch assignment or an assignment to an active counter at that branch. The assignment lookup uses the same transaction client; permission and assignment checks no longer rely solely on the earlier route check. Other vendor booking writers continue to require booking-management permission.
+
+Booking cancellation and no-show timestamp/actor, protected reservation cancellation, receipts and scope revision commit together. Immutable bindings remain authoritative through draft edits and tracking disable. Converted bindings reject cancellation without releasing service occupancy. Competing no-show requests commit and notify once. Email, SMS and push remain postcommit operations; durable delivery is not introduced.
+
+The action no longer expires unrelated tenant bookings before authorization. Automatic expiry remains a separate uncovered writer: it needs explicit system authorization, including bookings whose customer reference is null after account deletion, instead of impersonating a customer actor. Production tracking and writer coverage remain disabled pending expiry, check-in, service sessions, other payment writers and configuration/reconciliation. No activation/backfill, ready snapshot, inference interface or estimate change is included.
+
+Disposable PostgreSQL tests cover frozen binding cancellation after configuration edits, simultaneous requests, rollback, assigned queue staff, active versus inactive counter assignment, membership revocation, suspension, wrong branch, arrival while waiting for the location lock, late-window/status guards, converted occupancy and ordinary bookings. Tests use the actual ledger migration/adapter and assignment repository with minimal transactional booking fixtures. Live authenticated resource no-show execution is not claimed.

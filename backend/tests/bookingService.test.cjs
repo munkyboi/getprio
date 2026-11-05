@@ -2,6 +2,17 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const path = require("node:path");
 
+const FIXED_NOW = Date.parse("2026-07-05T00:00:00.000Z");
+const originalDateNow = Date.now;
+
+test.before(() => {
+  Date.now = () => FIXED_NOW;
+});
+
+test.after(() => {
+  Date.now = originalDateNow;
+});
+
 function resolveMockPath(requestPath, baseDir) {
   if (!requestPath.startsWith(".")) {
     return require.resolve(requestPath, { paths: [baseDir] });
@@ -28,6 +39,8 @@ function resolveMockPath(requestPath, baseDir) {
 }
 
 function requireWithMocks(targetPath, mocks) {
+  const fixture = require('./helpers/maintenanceFixture.cjs');
+  mocks = { '../config/db': fixture.database, './platformMaintenanceService': fixture.maintenance, ...mocks };
   const resolvedTarget = require.resolve(targetPath);
   const originals = new Map();
 
@@ -86,15 +99,23 @@ const service = {
 };
 
 function buildBookingService({
+  sendEmail = async () => {},
+  scopedTransaction,
   serviceOverride = {},
+  servicesBySlug = {},
   locationOverride = {},
+  locationServiceOverride = {},
   availability,
   hours = [],
   countOverlappingActiveBookings = async () => 0,
+  countOverlappingActiveCapacityHolds = async () => 0,
   expirePendingBookings = async () => [],
+  listPendingBookingExpiryScopes = async () => [],
   createBooking = async () => ({ _id: "booking-1", reference: "BKG-TEST", customerEmail: "customer@example.com", notifyBySms: false }),
   findBookingById = async () => null,
-  findBookingByIdForUpdate = async () => null,
+  findBookingByIdForUpdate = findBookingById,
+  listBookingsForCheckInReminder,
+  markBookingCheckInReminderSent,
   updateBooking = async () => null,
   getVerifiedBookingPayload = async () => ({
     otpId: "booking-otp-1",
@@ -124,7 +145,12 @@ function buildBookingService({
   assertQueueIntakeOpen = async () => {},
   maybeNotifyUpcomingTickets = async () => {},
   maybeAutoPauseQueueDay = async () => {},
-  publishSnapshot = async () => ({})
+  publishSnapshot = async () => ({}),
+  pushNotificationService = {
+    notifyVendorBookingIntake: async () => ({}),
+    notifyVendorPaymentProofReview: async () => ({}),
+    notifyCustomerBookingUpdate: async () => ({})
+  }
 }) {
   const queueServiceMock = {
     assertQueueIntakeOpen,
@@ -134,6 +160,18 @@ function buildBookingService({
     publishSnapshot
   };
   const bookingService = requireWithMocks("../src/services/bookingService.js", {
+    "../repositories/resourceLedger": {
+      withSystemExpiryTransaction: async (_options, callback) => callback({query:async () => ({rows:[]})},{}),
+      withScopeTransaction: scopedTransaction || (async (options, callback) => {
+        const client = { query: async (sql) => ({ rows: sql.includes('FROM platform_maintenance') ? [require('./helpers/maintenanceFixture.cjs').row] : sql.includes("FROM users") ? [{ id: options.actorUserId, role: "owner", roles: [] }] : [] }) };
+        if (await options.authorize(client, options) !== true) {
+          const error = new Error("Resource operation is not authorized.");
+          error.statusCode = 403;
+          throw error;
+        }
+        return callback(client, {});
+      })
+    },
     "../config/db": {
       withTransaction: async (callback) => callback({ query: async () => ({ rows: [] }) })
     },
@@ -141,20 +179,50 @@ function buildBookingService({
       createBooking,
       countOverlappingActiveBookings,
       expirePendingBookings,
+      listPendingBookingExpiryScopes,
+      getPendingBookingExpiryCutoff: async () => new Date().toISOString(),
       findBookingById,
       findBookingByIdForUpdate,
+      ...(listBookingsForCheckInReminder ? { listBookingsForCheckInReminder } : {}),
+      ...(markBookingCheckInReminderSent ? { markBookingCheckInReminderSent } : {}),
       updateBooking
     },
+    "../repositories/groupFundedBookings": {
+      countOverlappingActiveCapacityHolds
+    },
     "../repositories/tenants": {
-      findTenantBySlug: async (slug) => (slug === "demo" ? tenant : null)
+      findTenantBySlug: async (slug) => (slug === "demo" ? tenant : null),
+      findTenantById: async (id) => (String(id) === String(tenant._id) ? tenant : null)
     },
     "../repositories/storeLocations": {
       findLocationByTenantAndSlug: async (_tenantId, slug) => (slug === "main" ? { ...location, ...locationOverride } : null),
+      findLocationById: async (id) => (String(id) === String(location._id) ? { ...location, ...locationOverride } : null),
       listHoursByLocationId: async () => hours
+    },
+    "../repositories/locationServices": {
+      findLocationServiceByLocationAndServiceId: async (_tenantId, _locationId, _serviceId) => ({
+        _id: "location-service-1",
+        tenantId: tenant._id,
+        locationId: location._id,
+        serviceId: service._id,
+        capacity: 1,
+        isActive: true,
+        sortOrder: 0,
+        priceAmountCents: null,
+        priceDisplay: null,
+        createdAt: "2026-07-01T00:00:00.000Z",
+        updatedAt: "2026-07-01T00:00:00.000Z",
+        ...locationServiceOverride
+      })
     },
     "../repositories/vendorServices": {
       normalizeServiceSlug: (value) => String(value || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, ""),
-      findServiceByTenantAndSlug: async (_tenantId, slug) => (slug === "consultation" ? { ...service, ...serviceOverride } : null)
+      findServiceByTenantAndId: async (_tenantId, id) =>
+        [{ ...service, ...serviceOverride }, ...Object.values(servicesBySlug)].find(item => item._id === id) || null,
+      findServiceByTenantAndSlug: async (_tenantId, slug) => {
+        if (servicesBySlug[slug]) return servicesBySlug[slug];
+        return slug === "consultation" ? { ...service, ...serviceOverride } : null;
+      }
     },
     "../repositories/vendorAvailability": {
       listAvailabilityByLocation: async () => availability
@@ -169,8 +237,12 @@ function buildBookingService({
       assertPaidBookingSmsPayment
     },
     "./notificationService": {
-      sendEmail: async () => {},
+      sendEmail,
       sendSms: async () => {}
+    },
+    "./pushNotificationService": pushNotificationService,
+    "./entitlementAdmissionService": {
+      admit: async () => ({ allowed: true, enforced: false })
     },
     "./paymentProofStorageService": {
       assertUploadMetadata: () => {},
@@ -302,6 +374,91 @@ test("booking slots use booking quantity to set the customer-facing interval", a
       ["2026-07-06T01:00:00.000Z", "2026-07-06T03:00:00.000Z"],
       ["2026-07-06T03:00:00.000Z", "2026-07-06T05:00:00.000Z"]
     ]
+  );
+});
+
+test("composed slots resolve parallel service intervals only when every court is available", async () => {
+  let occupied = false;
+  const vipCourt = {
+    _id: "service-2", tenantId: "tenant-1", name: "VIP Court", slug: "vip-court",
+    durationMinutes: 60, allowBookingQuantity: false, isActive: true
+  };
+  const bookingService = buildBookingService({
+    servicesBySlug: { "vip-court": vipCourt },
+    countOverlappingActiveBookings: async (_tenantId, options) => occupied && options.startsAt === "2026-07-06T02:00:00.000Z" ? 1 : 0,
+    availability: {
+      blocks: [
+        { _id: "court-1", serviceId: "service-1", weekday: 1, startsAt: "09:00", endsAt: "12:00", capacity: 1, isActive: true },
+        { _id: "vip", serviceId: "service-2", weekday: 1, startsAt: "10:00", endsAt: "12:00", capacity: 1, isActive: true }
+      ],
+      exceptions: []
+    }
+  });
+
+  const request = {
+    tenantSlug: "demo", locationSlug: "main", date: "2026-07-06", executionMode: "parallel",
+    items: [{ serviceSlug: "consultation" }, { serviceSlug: "vip-court" }]
+  };
+  const result = await bookingService.evaluateComposedBookingSlots(request);
+
+  assert.deepEqual(result.slots.map((slot) => slot.startAt), ["2026-07-06T02:00:00.000Z", "2026-07-06T02:30:00.000Z", "2026-07-06T03:00:00.000Z"]);
+  assert.deepEqual(result.slots[0].items.map((item) => [item.serviceSlug, item.startAt, item.endAt]), [
+    ["consultation", "2026-07-06T02:00:00.000Z", "2026-07-06T03:00:00.000Z"],
+    ["vip-court", "2026-07-06T02:00:00.000Z", "2026-07-06T03:00:00.000Z"]
+  ]);
+  occupied = true;
+  const limited = await bookingService.evaluateComposedBookingSlots(request);
+  assert.deepEqual(limited.unavailableReasons, ["capacity_full", "outside_availability"]);
+  assert.deepEqual(limited.slots.map(slot => slot.startAt), ["2026-07-06T02:30:00.000Z", "2026-07-06T03:00:00.000Z"]);
+});
+
+test("composed slots resolve sequential salon-service intervals in the requested order", async () => {
+  const shave = {
+    _id: "service-2", tenantId: "tenant-1", name: "Shave", slug: "shave",
+    durationMinutes: 30, allowBookingQuantity: false, isActive: true
+  };
+  const bookingService = buildBookingService({
+    servicesBySlug: { shave },
+    availability: {
+      blocks: [{ _id: "all", serviceId: null, weekday: 1, startsAt: "09:00", endsAt: "12:00", capacity: 2, isActive: true }],
+      exceptions: []
+    }
+  });
+
+  const result = await bookingService.evaluateComposedBookingSlots({
+    tenantSlug: "demo", locationSlug: "main", date: "2026-07-06", executionMode: "sequential",
+    items: [{ serviceSlug: "consultation" }, { serviceSlug: "shave" }]
+  });
+
+  assert.deepEqual(result.slots[0].items.map((item) => [item.startAt, item.endAt]), [
+    ["2026-07-06T01:00:00.000Z", "2026-07-06T02:00:00.000Z"],
+    ["2026-07-06T02:00:00.000Z", "2026-07-06T02:30:00.000Z"]
+  ]);
+  assert.equal(result.slots[0].endAt, "2026-07-06T02:30:00.000Z");
+});
+
+test("composed slots reject mixed manual-payment requirements", async () => {
+  const manualService = {
+    _id: "service-2", tenantId: "tenant-1", name: "Manual", slug: "manual",
+    durationMinutes: 30, allowBookingQuantity: false, manualPaymentRequired: true, isActive: true
+  };
+  const bookingService = buildBookingService({
+    servicesBySlug: { manual: manualService },
+    locationOverride: {
+      paymentQrActive: true,
+      paymentMethodLabel: "GCash",
+      paymentAccountDisplayName: "Demo account",
+      paymentQrImageUrl: "https://example.com/qr.png"
+    },
+    availability: { blocks: [], exceptions: [] }
+  });
+
+  await assert.rejects(
+    bookingService.evaluateComposedBookingSlots({
+      tenantSlug: "demo", locationSlug: "main", date: "2026-07-06", executionMode: "parallel",
+      items: [{ serviceSlug: "consultation" }, { serviceSlug: "manual" }]
+    }),
+    /same payment requirement/
   );
 });
 
@@ -446,6 +603,61 @@ test("booking slots fall back to store hours when no booking availability exists
   ]);
 });
 
+test("group-funded candidate slots use branch business hours and omit a short overnight remainder", async () => {
+  const bookingService = buildBookingService({
+    availability: { blocks: [], exceptions: [] },
+    hours: [{ weekday: 1, opensAt: "22:00", closesAt: "01:00", isClosed: false }]
+  });
+
+  const slots = await bookingService.listGroupFundedCandidateSlots({
+    tenantSlug: "demo",
+    locationSlug: "main",
+    date: "2026-07-06"
+  });
+
+  assert.equal(slots[0].startAt, "2026-07-06T14:00:00.000Z");
+  assert.equal(slots.at(-1).startAt, "2026-07-06T16:00:00.000Z");
+});
+
+test("booking slots include both dates of an overnight weekly availability rule", async () => {
+  const bookingService = buildBookingService({
+    availability: {
+      blocks: [
+        {
+          _id: "block-overnight",
+          serviceId: "service-1",
+          weekday: 1,
+          startsAt: "07:00",
+          endsAt: "02:00",
+          endsNextDay: true,
+          capacity: 1,
+          isActive: true
+        }
+      ],
+      exceptions: []
+    }
+  });
+
+  const mondaySlots = await bookingService.listBookingSlots({
+    tenantSlug: "demo",
+    locationSlug: "main",
+    serviceSlug: "consultation",
+    date: "2026-07-06"
+  });
+  const tuesdaySlots = await bookingService.listBookingSlots({
+    tenantSlug: "demo",
+    locationSlug: "main",
+    serviceSlug: "consultation",
+    date: "2026-07-07"
+  });
+
+  assert.equal(mondaySlots.at(-1).startAt, "2026-07-06T17:00:00.000Z");
+  assert.deepEqual(tuesdaySlots.map((slot) => slot.startAt), [
+    "2026-07-06T16:00:00.000Z",
+    "2026-07-06T17:00:00.000Z"
+  ]);
+});
+
 test("booking slots omit past slot starts", async () => {
   const bookingService = buildBookingService({
     availability: {
@@ -472,6 +684,53 @@ test("booking slots omit past slot starts", async () => {
   });
 
   assert.deepEqual(slots, []);
+});
+
+test("retired group-funded capacity holds no longer affect booking slots", async () => {
+  const bookingService = buildBookingService({
+    availability: {
+      blocks: [{ _id: "block-1", serviceId: "service-1", weekday: 1, startsAt: "09:00", endsAt: "10:00", capacity: 1, isActive: true }],
+      exceptions: []
+    },
+    countOverlappingActiveCapacityHolds: async () => 1
+  });
+
+  const slots = await bookingService.listBookingSlots({
+    tenantSlug: "demo", locationSlug: "main", serviceSlug: "consultation", date: "2026-07-06", includeGroupFundedHolds: true
+  });
+
+  assert.equal(slots[0].isAvailable, true);
+});
+
+test("group-funded service eligibility checks every half-hour branch candidate", async () => {
+  const bookingService = buildBookingService({
+    availability: {
+      blocks: [{
+        _id: "block-1",
+        serviceId: "service-1",
+        weekday: 1,
+        startsAt: "07:00",
+        endsAt: "02:00",
+        endsNextDay: true,
+        capacity: 1,
+        isActive: true
+      }],
+      exceptions: []
+    },
+    serviceOverride: { allowBookingQuantity: true }
+  });
+
+  const slots = await bookingService.listBookingSlots({
+    tenantSlug: "demo",
+    locationSlug: "main",
+    serviceSlug: "consultation",
+    date: "2026-07-06",
+    bookingQuantity: 4,
+    includeGroupFundedHolds: true,
+    slotIntervalMinutes: 30
+  });
+
+  assert.ok(slots.some((slot) => slot.startAt === "2026-07-06T14:00:00.000Z"));
 });
 
 test("booking slots subtract active overlapping booking capacity", async () => {
@@ -505,6 +764,220 @@ test("booking slots subtract active overlapping booking capacity", async () => {
   assert.equal(slots[0].remainingCapacity, 0);
   assert.equal(slots[0].isAvailable, false);
   assert.equal(slots[0].disabledReason, "capacity_full");
+});
+
+test("booking slots count different-duration service overlaps for branch-wide capacity", async () => {
+  const capacityChecks = [];
+  const existingStart = new Date("2026-07-06T02:00:00.000Z");
+  const existingEnd = new Date("2026-07-06T02:30:00.000Z");
+  const bookingService = buildBookingService({
+    serviceOverride: {
+      durationMinutes: 90,
+      bookingCapacityScope: "location"
+    },
+    availability: {
+      blocks: [
+        {
+          _id: "block-1",
+          serviceId: null,
+          weekday: 1,
+          startsAt: "09:00",
+          endsAt: "12:00",
+          capacity: 1,
+          isActive: true
+        }
+      ],
+      exceptions: []
+    },
+    countOverlappingActiveBookings: async (_tenantId, options) => {
+      capacityChecks.push(options);
+      if (options.serviceId === null) {
+        const candidateStart = new Date(options.startsAt);
+        const candidateEnd = new Date(options.endsAt);
+        return candidateStart < existingEnd && candidateEnd > existingStart ? 1 : 0;
+      }
+
+      return 0;
+    }
+  });
+
+  const slots = await bookingService.listBookingSlots({
+    tenantSlug: "demo",
+    locationSlug: "main",
+    serviceSlug: "consultation",
+    date: "2026-07-06"
+  });
+
+  assert.deepEqual(
+    slots.map((slot) => [slot.startAt, slot.endAt, slot.isAvailable, slot.remainingCapacity]),
+    [
+      ["2026-07-06T01:00:00.000Z", "2026-07-06T02:30:00.000Z", false, 0],
+      ["2026-07-06T02:30:00.000Z", "2026-07-06T04:00:00.000Z", true, 1]
+    ]
+  );
+  assert.equal(capacityChecks.every((options) => options.serviceId === null), true);
+});
+
+test("booking slots keep service-specific court capacity isolated from other services", async () => {
+  const capacityChecks = [];
+  const existingStart = new Date("2026-07-10T05:00:00.000Z");
+  const existingEnd = new Date("2026-07-10T08:00:00.000Z");
+  const bookingService = buildBookingService({
+    serviceOverride: {
+      durationMinutes: 60,
+      bookingCapacityScope: "service"
+    },
+    availability: {
+      blocks: [
+        {
+          _id: "block-1",
+          serviceId: "service-1",
+          weekday: 5,
+          startsAt: "13:00",
+          endsAt: "16:00",
+          capacity: 1,
+          isActive: true
+        }
+      ],
+      exceptions: []
+    },
+    countOverlappingActiveBookings: async (_tenantId, options) => {
+      capacityChecks.push(options);
+      return 0;
+    }
+  });
+
+  const slots = await bookingService.listBookingSlots({
+    tenantSlug: "demo",
+    locationSlug: "main",
+    serviceSlug: "consultation",
+    date: "2026-07-10"
+  });
+
+  assert.deepEqual(
+    slots.map((slot) => [slot.startAt, slot.endAt, slot.isAvailable, slot.remainingCapacity]),
+    [
+      ["2026-07-10T05:00:00.000Z", "2026-07-10T06:00:00.000Z", true, 1],
+      ["2026-07-10T06:00:00.000Z", "2026-07-10T07:00:00.000Z", true, 1],
+      ["2026-07-10T07:00:00.000Z", "2026-07-10T08:00:00.000Z", true, 1]
+    ]
+  );
+  assert.equal(capacityChecks.every((options) => options.serviceId === "service-1"), true);
+});
+
+test("booking slots treat all-service availability blocks as shared branch capacity", async () => {
+  const capacityChecks = [];
+  const existingStart = new Date("2026-07-07T05:00:00.000Z");
+  const existingEnd = new Date("2026-07-07T06:00:00.000Z");
+  const bookingService = buildBookingService({
+    serviceOverride: {
+      durationMinutes: 30,
+      bookingCapacityScope: "service"
+    },
+    availability: {
+      blocks: [
+        {
+          _id: "block-1",
+          serviceId: null,
+          weekday: 2,
+          startsAt: "13:00",
+          endsAt: "15:00",
+          capacity: 2,
+          isActive: true
+        }
+      ],
+      exceptions: []
+    },
+    countOverlappingActiveBookings: async (_tenantId, options) => {
+      capacityChecks.push(options);
+      const candidateStart = new Date(options.startsAt);
+      const candidateEnd = new Date(options.endsAt);
+      return candidateStart < existingEnd && candidateEnd > existingStart ? 1 : 0;
+    }
+  });
+
+  const slots = await bookingService.listBookingSlots({
+    tenantSlug: "demo",
+    locationSlug: "main",
+    serviceSlug: "consultation",
+    date: "2026-07-07"
+  });
+
+  assert.deepEqual(
+    slots.slice(0, 3).map((slot) => [slot.startAt, slot.endAt, slot.remainingCapacity]),
+    [
+      ["2026-07-07T05:00:00.000Z", "2026-07-07T05:30:00.000Z", 1],
+      ["2026-07-07T05:30:00.000Z", "2026-07-07T06:00:00.000Z", 1],
+      ["2026-07-07T06:00:00.000Z", "2026-07-07T06:30:00.000Z", 2]
+    ]
+  );
+  assert.equal(capacityChecks.every((options) => options.serviceId === null), true);
+});
+
+test("service capacity acts as the floor for all-service availability", async () => {
+  const bookingService = buildBookingService({
+    locationServiceOverride: {
+      capacity: 5
+    },
+    availability: {
+      blocks: [
+        {
+          _id: "block-1",
+          serviceId: null,
+          weekday: 2,
+          startsAt: "13:00",
+          endsAt: "14:00",
+          capacity: 1,
+          isActive: true
+        }
+      ],
+      exceptions: []
+    },
+    countOverlappingActiveBookings: async () => 0
+  });
+
+  const slots = await bookingService.listBookingSlots({
+    tenantSlug: "demo",
+    locationSlug: "main",
+    serviceSlug: "consultation",
+    date: "2026-07-07"
+  });
+
+  assert.equal(slots[0].remainingCapacity, 5);
+});
+
+test("booking slots keep same-service capacity isolated by default", async () => {
+  const capacityChecks = [];
+  const bookingService = buildBookingService({
+    availability: {
+      blocks: [
+        {
+          _id: "block-1",
+          serviceId: "service-1",
+          weekday: 1,
+          startsAt: "09:00",
+          endsAt: "10:00",
+          capacity: 1,
+          isActive: true
+        }
+      ],
+      exceptions: []
+    },
+    countOverlappingActiveBookings: async (_tenantId, options) => {
+      capacityChecks.push(options);
+      return 0;
+    }
+  });
+
+  const slots = await bookingService.listBookingSlots({
+    tenantSlug: "demo",
+    locationSlug: "main",
+    serviceSlug: "consultation",
+    date: "2026-07-06"
+  });
+
+  assert.equal(slots.length, 1);
+  assert.equal(capacityChecks[0].serviceId, "service-1");
 });
 
 test("customer booking creation rejects a selected slot when active bookings fill capacity", async () => {
@@ -548,6 +1021,60 @@ test("customer booking creation rejects a selected slot when active bookings fil
       }),
     (error) => error.statusCode === 409 && /slot is no longer available/i.test(error.message)
   );
+});
+
+test("customer booking creation rejects branch-wide overlaps from other services", async () => {
+  const capacityChecks = [];
+  const bookingService = buildBookingService({
+    serviceOverride: {
+      durationMinutes: 90,
+      bookingCapacityScope: "location"
+    },
+    availability: {
+      blocks: [
+        {
+          _id: "block-1",
+          serviceId: null,
+          weekday: 1,
+          startsAt: "09:00",
+          endsAt: "12:00",
+          capacity: 1,
+          isActive: true
+        }
+      ],
+      exceptions: []
+    },
+    countOverlappingActiveBookings: async (_tenantId, options) => {
+      capacityChecks.push(options);
+      return 1;
+    },
+    createBooking: async () => {
+      throw new Error("createBooking should not be called");
+    }
+  });
+
+  await assert.rejects(
+    () =>
+      bookingService.createCustomerBooking({
+        user: {
+          id: "customer-1",
+          name: "Customer One",
+          email: "customer@example.com",
+          phone: "09171234567"
+        },
+        body: {
+          tenantSlug: "demo",
+          locationSlug: "main",
+          serviceSlug: "consultation",
+          scheduledStartAt: "2026-07-06T01:00:00.000Z",
+          bookingVerificationToken: "verified-token"
+        }
+      }),
+    (error) => error.statusCode === 409 && /slot is no longer available/i.test(error.message)
+  );
+  assert.equal(capacityChecks[0].serviceId, null);
+  assert.equal(capacityChecks[0].startsAt, "2026-07-06T01:00:00.000Z");
+  assert.equal(capacityChecks[0].endsAt, "2026-07-06T02:30:00.000Z");
 });
 
 test("customer booking creation blocks manual-payment service when branch QR is inactive", async () => {
@@ -661,6 +1188,60 @@ test("customer booking creation stores quantity and reserves the multiplied serv
   assert.ok(capturedBooking.pendingExpiresAt);
   const pendingExpiresInMinutes = Math.round((new Date(capturedBooking.pendingExpiresAt).getTime() - Date.now()) / 60_000);
   assert.equal(pendingExpiresInMinutes, 15);
+});
+
+test("customer booking creation persists a sequential composed timeline from the shared plan", async () => {
+  let capturedBooking = null;
+  const emails = [];
+  const shave = {
+    _id: "service-2", tenantId: "tenant-1", name: "Shave", slug: "shave",
+    durationMinutes: 30, allowBookingQuantity: false, isActive: true
+  };
+  const bookingService = buildBookingService({
+    sendEmail: async (email) => emails.push(email),
+    servicesBySlug: { shave },
+    availability: {
+      blocks: [{ _id: "all", serviceId: null, weekday: 1, startsAt: "09:00", endsAt: "12:00", capacity: 2, isActive: true }],
+      exceptions: []
+    },
+    getVerifiedBookingPayload: async () => ({
+      otpId: "booking-otp-1", contactVerifiedAt: "2026-07-06T00:30:00.000Z", contactVerificationChannel: "email",
+      payload: {
+        tenantSlug: "demo", locationSlug: "main", serviceSlug: "consultation",
+        scheduledStartAt: "2026-07-06T01:00:00.000Z", bookingQuantity: 1, executionMode: "sequential",
+        bundleItems: [{ serviceSlug: "consultation", bookingQuantity: 1 }, { serviceSlug: "shave", bookingQuantity: 1 }],
+        customerName: "Customer One", customerEmail: "customer@example.com", customerPhone: "09171234567", notifyBySms: false, notes: ""
+      }
+    }),
+    createBooking: async (data) => {
+      capturedBooking = data;
+      return { ...data, _id: "booking-1", reference: "BKG-TEST", notifyBySms: false };
+    }
+  });
+
+  await bookingService.createCustomerBooking({
+    user: { _id: "user-1", name: "Customer One", email: "customer@example.com", phone: "09171234567" },
+    body: {
+      tenantSlug: "demo", locationSlug: "main", serviceSlug: "consultation",
+      scheduledStartAt: "2026-07-06T01:00:00.000Z", executionMode: "sequential",
+      bundleItems: [{ serviceSlug: "consultation", bookingQuantity: 1 }, { serviceSlug: "shave", bookingQuantity: 1 }],
+      bookingVerificationToken: "verified-token"
+    }
+  });
+
+  assert.equal(capturedBooking.executionMode, "sequential");
+  assert.equal(emails.length, 1);
+  for (const body of [emails[0].html, emails[0].text]) {
+    assert.match(body, /Consultation/);
+    assert.match(body, /Shave/);
+    assert.match(body, /Quantity: 1/);
+  }
+  assert.equal(capturedBooking.serviceId, "service-1");
+  assert.equal(capturedBooking.scheduledEndAt, "2026-07-06T02:30:00.000Z");
+  assert.deepEqual(capturedBooking.bundleItems.map((item) => [item.serviceSlug, item.scheduledStartAt, item.scheduledEndAt]), [
+    ["consultation", "2026-07-06T01:00:00.000Z", "2026-07-06T02:00:00.000Z"],
+    ["shave", "2026-07-06T02:00:00.000Z", "2026-07-06T02:30:00.000Z"]
+  ]);
 });
 
 test("customer booking creation rejects quantity when the service does not allow units", async () => {
@@ -795,11 +1376,14 @@ test("vendor reschedule clears linked ticket and check-in state", async () => {
     findBookingById: async () => ({
       _id: "booking-1",
       tenantId: "tenant-1",
+      locationId: "location-1",
       locationSlug: "main",
+      serviceId: "service-1",
       serviceSlug: "consultation",
       bookingQuantity: 1,
       status: "confirmed",
-      scheduledStartAt: "2026-07-06T01:00:00.000Z"
+      scheduledStartAt: "2026-07-06T01:00:00.000Z",
+      scheduledEndAt: "2026-07-06T02:00:00.000Z"
     }),
     updateBooking: async (_id, data) => {
       updates.push(data);
@@ -823,6 +1407,7 @@ test("vendor reschedule clears linked ticket and check-in state", async () => {
 
   await bookingService.rescheduleVendorBooking({
     tenant,
+    user: { _id: "vendor-1" },
     bookingId: "booking-1",
     scheduledStartAt: "2026-07-06T03:00:00.000Z"
   });
@@ -832,6 +1417,51 @@ test("vendor reschedule clears linked ticket and check-in state", async () => {
   assert.equal(updates[0].queueTicketId, null);
   assert.equal(updates[0].checkedInAt, null);
   assert.equal(updates[0].checkedInByUserId, null);
+});
+
+test("vendor reschedule slots exclude the current booking from capacity", async () => {
+  const capacityChecks = [];
+  const bookingService = buildBookingService({
+    findBookingById: async () => ({
+      _id: "booking-1",
+      tenantId: "tenant-1",
+      locationSlug: "main",
+      serviceId: "service-1",
+      serviceSlug: "consultation",
+      bookingQuantity: 1,
+      status: "confirmed",
+      scheduledStartAt: "2026-07-06T01:00:00.000Z",
+      scheduledEndAt: "2026-07-06T02:00:00.000Z"
+    }),
+    availability: {
+      blocks: [
+        {
+          _id: "block-1",
+          serviceId: "service-1",
+          weekday: 1,
+          startsAt: "09:00",
+          endsAt: "10:00",
+          capacity: 1,
+          isActive: true
+        }
+      ],
+      exceptions: []
+    },
+    countOverlappingActiveBookings: async (_tenantId, options) => {
+      capacityChecks.push(options);
+      return 0;
+    }
+  });
+
+  const slots = await bookingService.listVendorBookingRescheduleSlots({
+    tenant,
+    bookingId: "booking-1",
+    date: "2026-07-06"
+  });
+
+  assert.equal(slots.length, 1);
+  assert.equal(capacityChecks[0].excludeBookingId, "booking-1");
+  assert.equal(capacityChecks[0].serviceId, "service-1");
 });
 
 function buildVendorBooking(overrides = {}) {
@@ -850,6 +1480,7 @@ function buildVendorBooking(overrides = {}) {
     serviceId: service._id,
     serviceName: service.name,
     serviceSlug: service.slug,
+    serviceManualPaymentRequired: false,
     customerUserId: "customer-1",
     customerName: "Customer One",
     customerEmail: "customer@example.com",
@@ -884,68 +1515,75 @@ function buildVendorBooking(overrides = {}) {
 }
 
 test("vendor check-in creates a checked-in booking queue ticket and links it once", async () => {
-  const calls = {
-    ticketPayload: null,
-    updatedBooking: null,
-    intakeChecked: false,
-    snapshotPublished: false
-  };
-  const booking = buildVendorBooking();
-  const bookingService = buildBookingService({
-    availability: { blocks: [], exceptions: [] },
-    findBookingByIdForUpdate: async () => booking,
-    updateBooking: async (_bookingId, data) => {
-      calls.updatedBooking = data;
-      return {
-        ...booking,
-        ...data,
-        queueTicketNumber: "D001",
-        queueTicketLookupCode: "LOOKUP1",
-        queueTicketStatus: "waiting"
-      };
-    },
-    assertQueueIntakeOpen: async () => {
-      calls.intakeChecked = true;
-    },
-    createTicketForTenantInTransaction: async (_client, payload) => {
-      calls.ticketPayload = payload;
-      return {
-        _id: "ticket-1",
-        ticketNumber: "D001",
-        lookupCode: "LOOKUP1",
-        status: "waiting"
-      };
-    },
-    publishSnapshot: async () => {
-      calls.snapshotPublished = true;
-      return {};
-    }
-  });
+  const previousDateNow = Date.now;
+  Date.now = () => Date.parse("2026-07-06T01:05:00.000Z");
+  try {
+    const calls = {
+      ticketPayload: null,
+      updatedBooking: null,
+      intakeChecked: false,
+      snapshotPublished: false
+    };
+    const booking = buildVendorBooking();
+    const bookingService = buildBookingService({
+      availability: { blocks: [], exceptions: [] },
+      findBookingById: async () => booking,
+      updateBooking: async (_bookingId, data) => {
+        calls.updatedBooking = data;
+        return {
+          ...booking,
+          ...data,
+          queueTicketNumber: "D001",
+          queueTicketLookupCode: "LOOKUP1",
+          queueTicketStatus: "waiting"
+        };
+      },
+      assertQueueIntakeOpen: async () => {
+        calls.intakeChecked = true;
+      },
+      createTicketForTenantInTransaction: async (_client, payload) => {
+        calls.ticketPayload = payload;
+        return {
+          _id: "ticket-1",
+          ticketNumber: "D001",
+          lookupCode: "LOOKUP1",
+          status: "waiting"
+        };
+      },
+      publishSnapshot: async () => {
+        calls.snapshotPublished = true;
+        return {};
+      }
+    });
 
-  const result = await bookingService.checkInVendorBooking({
-    tenant,
-    location,
-    bookingId: "booking-1",
-    user: { _id: "vendor-user-1" },
-    overrideWindow: false
-  });
+    const result = await bookingService.checkInVendorBooking({
+      tenant,
+      location,
+      bookingId: "booking-1",
+      user: { _id: "vendor-user-1" },
+      overrideWindow: true,
+      overrideReason: "Unit test override"
+    });
 
-  assert.equal(calls.intakeChecked, true);
-  assert.equal(calls.snapshotPublished, true);
-  assert.equal(calls.ticketPayload.servicePriorityBand, "checked_in_booking");
-  assert.equal(calls.ticketPayload.notifyByEmail, true);
-  assert.equal(calls.ticketPayload.notifyBySms, true);
-  assert.equal(calls.ticketPayload.userId, "customer-1");
-  assert.equal(calls.updatedBooking.queueTicketId, "ticket-1");
-  assert.equal(calls.updatedBooking.checkedInByUserId, "vendor-user-1");
-  assert.equal(result.ticket.ticketNumber, "D001");
-  assert.equal(result.booking.linkedTicket, undefined);
+    assert.equal(calls.intakeChecked, true);
+    assert.equal(calls.snapshotPublished, true);
+    assert.equal(calls.ticketPayload.servicePriorityBand, "checked_in_booking");
+    assert.equal(calls.ticketPayload.notifyByEmail, true);
+    assert.equal(calls.ticketPayload.notifyBySms, true);
+    assert.equal(calls.ticketPayload.userId, "customer-1");
+    assert.equal(calls.updatedBooking.queueTicketId, "ticket-1");
+    assert.equal(calls.updatedBooking.checkedInByUserId, "vendor-user-1");
+    assert.equal(result.ticket.ticketNumber, "D001");
+    assert.equal(result.booking.linkedTicket, undefined);
+  } finally {
+    Date.now = previousDateNow;
+  }
 });
 
 test("vendor check-in rejects duplicate linked bookings", async () => {
   const bookingService = buildBookingService({
     availability: { blocks: [], exceptions: [] },
-    findBookingByIdForUpdate: async () => buildVendorBooking({
+    findBookingById: async () => buildVendorBooking({
       queueTicketId: "ticket-1",
       checkedInAt: new Date().toISOString()
     })
@@ -966,7 +1604,7 @@ test("vendor check-in rejects duplicate linked bookings", async () => {
 test("vendor check-in requires late override outside the check-in window", async () => {
   const bookingService = buildBookingService({
     availability: { blocks: [], exceptions: [] },
-    findBookingByIdForUpdate: async () => buildVendorBooking({
+    findBookingById: async () => buildVendorBooking({
       scheduledStartAt: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
       scheduledEndAt: new Date(Date.now() + 30 * 60 * 1000).toISOString()
     })
@@ -983,6 +1621,19 @@ test("vendor check-in requires late override outside the check-in window", async
       }),
     (error) => error.statusCode === 409 && /late check-in override/i.test(error.message)
   );
+});
+
+test("check-in window stays at fifteen minutes around the scheduled time", async () => {
+  const bookingService = buildBookingService({});
+  const windowState = bookingService._getCheckInWindowState({
+    scheduledStartAt: "2026-07-05T06:00:00.000Z",
+    serviceManualPaymentRequired: true,
+    locationTimezone: "Asia/Manila"
+  }, new Date("2026-07-05T05:44:00.000Z"));
+
+  assert.equal(windowState.isTooEarly, true);
+  assert.equal(windowState.isLate, false);
+  assert.equal(windowState.isWithinWindow, false);
 });
 
 test("vendor no-show cancels late confirmed booking and records actor", async () => {
@@ -1040,6 +1691,145 @@ test("vendor payment verification marks submitted proof as paid with actor audit
   assert.equal(result.paymentStatus, "paid");
 });
 
+test("vendor payment verification sends a customer payment-verified push", async () => {
+  const booking = buildVendorBooking({
+    status: "pending",
+    paymentStatus: "pending",
+    paymentProofObjectKey: "payment-proofs/tenants/tenant-1/bookings/booking-1/proof.jpg"
+  });
+  const pushedActions = [];
+  const bookingService = buildBookingService({
+    availability: { blocks: [], exceptions: [] },
+    findBookingById: async () => booking,
+    updateBooking: async (_bookingId, data) => ({ ...booking, ...data }),
+    pushNotificationService: {
+      notifyVendorBookingIntake: async () => ({}),
+      notifyVendorPaymentProofReview: async () => ({}),
+      notifyCustomerBookingUpdate: async ({ action }) => {
+        pushedActions.push(action);
+        return { attempted: 1, sent: 1 };
+      }
+    }
+  });
+
+  await bookingService.verifyVendorBookingPayment({
+    tenant,
+    bookingId: "booking-1",
+    user: { _id: "vendor-user-1" }
+  });
+
+  assert.deepEqual(pushedActions, ["payment_verified"]);
+});
+
+test("pending booking expiration sends customer push notifications", async () => {
+  const expiredBooking = buildVendorBooking({
+    status: "canceled",
+    expiredAt: "2026-07-03T02:00:00.000Z"
+  });
+  const pushedActions = [];
+  const bookingService = buildBookingService({
+    availability: { blocks: [], exceptions: [] },
+    expirePendingBookings: async () => ["booking-1"],
+    listPendingBookingExpiryScopes: async () => [{tenantId:expiredBooking.tenantId,locationId:expiredBooking.locationId}],
+    findBookingById: async () => expiredBooking,
+    pushNotificationService: {
+      notifyVendorBookingIntake: async () => ({}),
+      notifyVendorPaymentProofReview: async () => ({}),
+      notifyCustomerBookingUpdate: async ({ action }) => {
+        pushedActions.push(action);
+        return { attempted: 1, sent: 1 };
+      }
+    }
+  });
+
+  const expired = await bookingService.expirePendingBookingsForTenant("tenant-1");
+
+  assert.deepEqual(expired, ["booking-1"]);
+  assert.deepEqual(pushedActions, ["pending_expired"]);
+});
+
+test("check-in reminder scan sends opening and closing customer pushes once", async () => {
+  const marked = [];
+  const pushedActions = [];
+  const windowBooking = buildVendorBooking({ _id: "booking-window" });
+  const closingBooking = buildVendorBooking({ _id: "booking-closing" });
+  const bookingService = buildBookingService({
+    availability: { blocks: [], exceptions: [] },
+    listBookingsForCheckInReminder: async ({ type }) =>
+      type === "closing" ? [closingBooking] : [windowBooking],
+    markBookingCheckInReminderSent: async (bookingId, type) => {
+      marked.push([bookingId, type]);
+    },
+    pushNotificationService: {
+      notifyVendorBookingIntake: async () => ({}),
+      notifyVendorPaymentProofReview: async () => ({}),
+      notifyCustomerBookingUpdate: async ({ action }) => {
+        pushedActions.push(action);
+        return { attempted: 1, sent: 1 };
+      }
+    }
+  });
+
+  await bookingService.notifyDueCheckInReminderBookings({ tenantId: "tenant-1" });
+
+  assert.deepEqual(pushedActions, ["check_in_window_open", "check_in_closing"]);
+  assert.deepEqual(marked, [
+    ["booking-window", "window"],
+    ["booking-closing", "closing"]
+  ]);
+});
+
+test("customer payment proof submission notifies vendor reviewers when enabled", async () => {
+  const notifications = [];
+  const booking = buildVendorBooking({
+    customerUserId: "customer-1",
+    status: "pending",
+    serviceManualPaymentRequired: true,
+    paymentStatus: "unpaid",
+    paymentProofObjectKey: ""
+  });
+  const updatedBooking = {
+    ...booking,
+    paymentReference: "REF-123",
+    paymentStatus: "pending",
+    paymentProofObjectKey: "payment-proofs/tenants/tenant-1/bookings/booking-1/proof.jpg",
+    paymentProofFileName: "proof.jpg",
+    paymentProofContentType: "image/jpeg",
+    paymentProofSizeBytes: 1024,
+    paymentProofUploadedAt: "2026-07-03T02:00:00.000Z"
+  };
+  const bookingService = buildBookingService({
+    availability: { blocks: [], exceptions: [] },
+    findBookingById: async () => booking,
+    updateBooking: async () => updatedBooking,
+    pushNotificationService: {
+      notifyVendorBookingIntake: async () => ({}),
+      notifyVendorPaymentProofReview: async (input) => {
+        notifications.push(input);
+        return { attempted: 1, sent: 1 };
+      },
+      notifyCustomerBookingUpdate: async () => ({})
+    }
+  });
+
+  const result = await bookingService.submitCustomerPaymentProof({
+    user: { _id: "customer-1" },
+    bookingId: "booking-1",
+    body: {
+      paymentReference: "REF-123",
+      objectKey: "payment-proofs/tenants/tenant-1/bookings/booking-1/proof.jpg",
+      fileName: "proof.jpg",
+      contentType: "image/jpeg",
+      sizeBytes: 1024
+    }
+  });
+
+  assert.equal(result.paymentStatus, "pending");
+  assert.equal(notifications.length, 1);
+  assert.equal(notifications[0].tenant._id, "tenant-1");
+  assert.equal(notifications[0].booking._id, "booking-1");
+});
+
 test("vendor payment rejection cancels booking and requires customer-visible reason", async () => {
   const booking = buildVendorBooking({
     status: "pending",
@@ -1095,6 +1885,7 @@ test("vendor cannot confirm booking while submitted payment proof is awaiting ve
     () =>
       bookingService.updateVendorBookingStatus({
         tenant,
+        user: { _id: "vendor-1" },
         bookingId: "booking-1",
         status: "confirmed"
       }),
@@ -1166,4 +1957,142 @@ test("booking payment proof helpers require ownership and accept submission payl
   });
   assert.equal(submitted.paymentReference, "GCASH-123");
   assert.equal(submitted.paymentStatus, "pending");
+});
+
+test("booking payment proof helpers reject services that do not require manual payment", async () => {
+  const bookingService = buildBookingService({
+    findBookingById: async () => ({
+      _id: "booking-1",
+      customerUserId: "user-1",
+      tenantId: "tenant-1",
+      locationId: "location-1",
+      serviceManualPaymentRequired: false,
+      locationPaymentQrActive: true,
+      status: "pending",
+      customerEmail: "customer@example.com",
+      customerPhone: "09171234567",
+      tenantName: "Demo Tenant",
+      reference: "BKG-TEST"
+    })
+  });
+
+  await assert.rejects(
+    () =>
+      bookingService.createCustomerPaymentProofUpload({
+        user: { _id: "user-1" },
+        bookingId: "booking-1",
+        body: { fileName: "proof.png", contentType: "image/png", sizeBytes: 10 }
+      }),
+    (error) => error.statusCode === 409
+  );
+});
+
+test("booking payment proof helpers reject group-funded bookings", async () => {
+  const bookingService = buildBookingService({
+    findBookingById: async () => ({
+      _id: "booking-1",
+      customerUserId: "user-1",
+      tenantId: "tenant-1",
+      locationId: "location-1",
+      serviceManualPaymentRequired: true,
+      locationPaymentQrActive: true,
+      status: "confirmed",
+      bookingPaymentSource: "group_funded",
+      groupFundedBookingId: "campaign-1",
+      customerEmail: "customer@example.com",
+      customerPhone: "09171234567",
+      tenantName: "Demo Tenant",
+      reference: "BKG-TEST"
+    })
+  });
+
+  await assert.rejects(
+    () =>
+      bookingService.submitCustomerPaymentProof({
+        user: { _id: "user-1" },
+        bookingId: "booking-1",
+        body: {
+          paymentReference: "GCASH-123",
+          objectKey: "payment-proofs/tenants/tenant-1/bookings/booking-1/proof.png",
+          fileName: "proof.png",
+          contentType: "image/png",
+          sizeBytes: 10
+        }
+      }),
+    (error) => error.statusCode === 409 && /group-funded/i.test(error.message)
+  );
+});
+
+test("booking outcome sends retain bundle details and event context in HTML and plain text", async () => {
+  for (const event of ['payment_rejected', 'cancelled', 'no_show']) {
+    const emails = [];
+    const booking = buildVendorBooking({
+      customerUserId: 'customer-1', status: event === 'payment_rejected' ? 'pending' : 'confirmed',
+      paymentStatus: 'pending', paymentProofObjectKey: 'proof.jpg',
+      scheduledStartAt: new Date(Date.now() - 30 * 60_000).toISOString(),
+      scheduledEndAt: new Date(Date.now() + 30 * 60_000).toISOString(),
+      bundleItems: [{ serviceName: 'Haircut', bookingQuantity: 1 }, { serviceName: 'Cut & Shave', bookingQuantity: 2 }]
+    });
+    const service = buildBookingService({
+      findBookingById: async () => booking,
+      updateBooking: async (_id, data) => ({ ...booking, ...data }),
+      sendEmail: async (email) => emails.push(email)
+    });
+    if (event === 'payment_rejected') await service.rejectVendorBookingPayment({ tenant, bookingId: booking._id, user: { _id: 'vendor-1' }, reason: 'Receipt does not match.' });
+    if (event === 'cancelled') await service.cancelCustomerBooking({ user: { _id: 'customer-1' }, bookingId: booking._id });
+    if (event === 'no_show') await service.markVendorBookingNoShow({ tenant, location, bookingId: booking._id, user: { _id: 'vendor-1' } });
+    assert.equal(emails.length, 1, event);
+    assert.equal(emails[0].purpose, `booking_${event}`);
+    assert.equal(emails[0].to, booking.customerEmail);
+    assert.match(emails[0].html, /Cut &amp; Shave/);
+    assert.match(emails[0].text, /Cut & Shave/);
+    for (const body of [emails[0].html, emails[0].text]) {
+      for (const expected of ['Haircut', 'Quantity: 2', booking.reference, 'Ends at', 'Payment status']) assert.ok(body.includes(expected), `${event}: ${expected}`);
+      if (event === 'payment_rejected') assert.ok(body.includes('Receipt does not match.'));
+      if (event === 'no_show') assert.ok(body.includes('no-show'));
+      assert.ok(!body.includes('getprio-booking-confirmation-compact'));
+      assert.ok(!body.includes('proof.jpg'));
+    }
+  }
+});
+
+test("composed catalog loading drains sibling reads before propagating a database failure", async () => {
+  let finishSibling;
+  const sibling = new Promise(resolve => { finishSibling = resolve; });
+  let siblingRequested = false;
+  const servicesBySlug = {};
+  const failedQuery = Promise.reject(new Error("Catalog query failed"));
+  Object.defineProperty(servicesBySlug, "consultation", { get: () => failedQuery });
+  Object.defineProperty(servicesBySlug, "other", { get: () => { siblingRequested = true; return sibling; } });
+  const bookingService = buildBookingService({ servicesBySlug, availability: { blocks: [], exceptions: [] } });
+  let completed = false;
+  const result = bookingService.createComposedBookingPlan({ tenant, location,
+    items: [{ serviceSlug: "consultation" }, { serviceSlug: "other" }], executionMode: "parallel"
+  }).then(() => { completed = true; }, error => { completed = true; return error; });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(siblingRequested, true);
+  assert.equal(completed, false, "the transaction owner must not regain control while a sibling query is pending");
+  finishSibling({ ...service, _id: "other", slug: "other" });
+  assert.match((await result).message, /Catalog query failed/);
+});
+
+test("booking slots enforce configured duration unit bounds including fixed quantities", async () => {
+  const service = buildBookingService({serviceOverride:{allowBookingQuantity:true,bookingQuantityMin:2,bookingQuantityMax:4},availability:{blocks:[],exceptions:[]}});
+  const request = {tenantSlug:"demo",locationSlug:"main",serviceSlug:"consultation",date:"2026-07-06"};
+  for (const quantity of [1,5]) {
+    await assert.rejects(service.listBookingSlots({...request,bookingQuantity:quantity}), {statusCode:400,message:"This service requires between 2 and 4 duration units."});
+  }
+  for (const quantity of [2,4]) await service.listBookingSlots({...request,bookingQuantity:quantity});
+  const fixed = buildBookingService({serviceOverride:{allowBookingQuantity:true,bookingQuantityMin:3,bookingQuantityMax:3},availability:{blocks:[],exceptions:[]}});
+  await fixed.listBookingSlots({...request,bookingQuantity:3});
+  await assert.rejects(fixed.listBookingSlots({...request,bookingQuantity:2}),{statusCode:400});
+});
+
+test("composed plans validate every new item but retain frozen existing quantities", async () => {
+  const bookingService = buildBookingService({serviceOverride:{allowBookingQuantity:true,bookingQuantityMin:2,bookingQuantityMax:4}});
+  const request = {tenant,location,items:[{serviceSlug:"consultation",bookingQuantity:1}],executionMode:"sequential"};
+  await assert.rejects(bookingService.createComposedBookingPlan(request),{statusCode:400});
+  const frozen = await bookingService.createComposedBookingPlan({...request,existingBooking:{serviceId:"service-1",scheduledStartAt:"2026-07-06T01:00:00.000Z",scheduledEndAt:"2026-07-06T02:00:00.000Z"}});
+  assert.equal(frozen.items[0].bookingQuantity,1);
+  assert.equal(frozen.items[0].durationMinutes,60);
 });

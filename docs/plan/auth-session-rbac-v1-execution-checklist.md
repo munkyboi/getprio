@@ -100,7 +100,7 @@ id BIGSERIAL PRIMARY KEY
 user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE
 refresh_token_hash TEXT NOT NULL
 status TEXT NOT NULL CHECK (status IN ('active', 'revoked', 'expired'))
-auth_method TEXT NOT NULL CHECK (auth_method IN ('password', 'google', 'facebook'))
+auth_method TEXT NOT NULL CHECK (auth_method IN ('password', 'google', 'facebook', 'apple'))
 mfa_verified_at TIMESTAMPTZ
 ip_address TEXT
 user_agent TEXT

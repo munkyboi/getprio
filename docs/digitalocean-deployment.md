@@ -5,7 +5,7 @@ This guide targets the current MVP deployment path: a low-budget DigitalOcean Dr
 It matches the current codebase:
 
 - `frontend/dist` served at `getprio.online`
-- `platform-dashboard/dist` served at `platform.getprio.online`
+- the new `platform-dashboard-shadcn` build copied into `platform-dashboard/dist` and served at `platform.getprio.online`
 - backend proxied at `api.getprio.online`
 - Backblaze B2 used for public assets, location QR images, and private payment proofs
 - Resend or SMTP used for email
@@ -14,9 +14,11 @@ It matches the current codebase:
 
 ## Recommended Shape
 
-- `getprio.online` serves `frontend/dist`
-- `platform.getprio.online` serves `platform-dashboard/dist`
+- `app.getprio.online` serves `frontend/dist`
+- `developers.getprio.online` serves the standalone developer portal from `developer-portal/dist`
+- `platform.getprio.online` serves the new `platform-dashboard-shadcn` build copied into `platform-dashboard/dist` during deployment
 - `api.getprio.online` proxies to the backend on `127.0.0.1:5000`
+- `sandbox-api.getprio.online` proxies to the same backend with sandbox host labeling
 - PostgreSQL runs locally on the Droplet, or on managed DigitalOcean Postgres if you prefer not to host the database on the app box
 - PM2 keeps the backend process alive
 - Nginx serves static assets and handles TLS
@@ -29,9 +31,11 @@ For a tiny MVP, start with a 1 GB Droplet and add swap. If the app feels tight, 
 2. Pick the closest region to your users, such as Singapore if available.
 3. Use SSH keys instead of password login.
 4. Point DNS A records to the Droplet IP:
-   - `getprio.online`
+   - `app.getprio.online`
+   - `developers.getprio.online`
    - `platform.getprio.online`
    - `api.getprio.online`
+   - `sandbox-api.getprio.online`
 
 ## 2. Initial Server Setup
 
@@ -125,6 +129,9 @@ If you use managed DigitalOcean Postgres instead of local Postgres:
 
 - Set `DATABASE_URL` to the managed connection string
 - Set `DATABASE_SSL=true`
+- For a Standard Edition cluster, download its CA certificate and set `DATABASE_SSL_CA_FILE` to the absolute path
+- For an Advanced Edition cluster, leave both CA variables empty to use the system trust store
+- The application ignores TLS query options in `DATABASE_URL` while application TLS is enabled, so they cannot override this verification policy
 - Skip installing local PostgreSQL packages and the local `psql` bootstrap above
 
 ## 5. Configure Environment
@@ -141,12 +148,15 @@ POSTGRES_USER=getprio
 POSTGRES_PASSWORD=CHANGE_THIS_PASSWORD
 DATABASE_URL=postgresql://getprio:CHANGE_THIS_PASSWORD@localhost:5432/getprio
 DATABASE_SSL=false
+DATABASE_SSL_CA=
+DATABASE_SSL_CA_FILE=
 
 JWT_SECRET=CHANGE_THIS_TO_A_LONG_RANDOM_SECRET
 
 SERVER_URL=https://api.getprio.online
 CLIENT_URL=https://getprio.online
 APP_BASE_URL=https://getprio.online
+MOBILE_QR_BASE_URL=https://getprio.online
 PLATFORM_DASHBOARD_URL=https://platform.getprio.online
 VITE_API_URL=https://api.getprio.online/api
 
@@ -155,6 +165,10 @@ GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=
 FACEBOOK_APP_ID=
 FACEBOOK_APP_SECRET=
+APPLE_CLIENT_ID=
+APPLE_TEAM_ID=
+APPLE_KEY_ID=
+APPLE_PRIVATE_KEY=
 
 VITE_TURNSTILE_SITE_KEY=
 TURNSTILE_SECRET_KEY=
@@ -179,10 +193,24 @@ TWILIO_ACCOUNT_SID=
 TWILIO_AUTH_TOKEN=
 TWILIO_FROM_NUMBER=
 
-PAYMONGO_SECRET_KEY=
+PAYMONGO_MODE=live
+PAYMONGO_SANDBOX_SECRET_KEY=sk_test_...
+PAYMONGO_SANDBOX_WEBHOOK_SECRET=
+PAYMONGO_LIVE_SECRET_KEY=sk_live_...
+PAYMONGO_LIVE_WEBHOOK_SECRET=
 PAYMONGO_API_URL=https://api.paymongo.com/v1
-PAYMONGO_WEBHOOK_SECRET=
 PAYMONGO_PAYMENT_METHOD_TYPES=card
+
+# Native mobile push through Firebase Cloud Messaging
+FCM_PROJECT_ID=getprio
+FCM_CLIENT_EMAIL=
+FCM_PRIVATE_KEY=
+FCM_SANDBOX_PROJECT_ID=getprio-sandbox
+FCM_SANDBOX_CLIENT_EMAIL=
+FCM_SANDBOX_PRIVATE_KEY=
+
+# Public invitation link for the Sandbox external TestFlight group.
+# SANDBOX_TESTFLIGHT_PUBLIC_URL=https://testflight.apple.com/join/...
 
 B2_S3_ENDPOINT=
 B2_REGION=us-east-005
@@ -193,6 +221,127 @@ B2_APPLICATION_KEY=
 B2_PUBLIC_BASE_URL=
 ```
 
+`PAYMONGO_MODE` must be `live` or `sandbox`. The app selects the matching secret key and webhook secret from the two credential sets, validates the key prefix (`sk_live_` or `sk_test_`), and rejects webhook payloads from the opposite environment. The API URL remains `https://api.paymongo.com/v1` for both modes. The old `PAYMONGO_SECRET_KEY` and `PAYMONGO_WEBHOOK_SECRET` variables remain supported as a compatibility fallback.
+
+The production deployment workflow reads the five PayMongo values from the GitHub `production` Environment secrets and securely synchronizes them to this server `.env` over SSH. Configure `PAYMONGO_MODE`, `PAYMONGO_SANDBOX_SECRET_KEY`, `PAYMONGO_SANDBOX_WEBHOOK_SECRET`, `PAYMONGO_LIVE_SECRET_KEY`, and `PAYMONGO_LIVE_WEBHOOK_SECRET` as protected Environment secrets. The workflow does not print their values.
+
+The production deployment workflow requires both the production FCM values (`FCM_PROJECT_ID`, `FCM_CLIENT_EMAIL`, `FCM_PRIVATE_KEY`) and the Sandbox values (`FCM_SANDBOX_PROJECT_ID`, `FCM_SANDBOX_CLIENT_EMAIL`, `FCM_SANDBOX_PRIVATE_KEY`) in the GitHub `production` Environment. Create each pair from the matching Firebase project's service-account key: use the project ID, the service account's `client_email`, and its `private_key`. Keep private keys out of the repository. The workflow writes both configurations into the server `.env`, validates them, and refuses to restart the API when either configuration is missing or malformed. Store each private key as one secret with its `\\n` line breaks preserved.
+
+## Authenticated Platform post-deploy smoke
+
+After a successful deployment, the GitHub `production` Environment runs a report-only smoke against `api.getprio.online` and `platform.getprio.online`. It signs in through the authenticator-app MFA flow, reads only the Release Readiness API, and confirms both the API and Platform web page serve the deployed commit SHA. A failed smoke is recorded for review and does not roll back or block the deployment.
+
+Configure these additional protected Environment secrets:
+
+- `PLATFORM_SMOKE_EMAIL` and `PLATFORM_SMOKE_PASSWORD`: a dedicated smoke account, not a personal administrator account.
+- `PLATFORM_SMOKE_TOTP_SECRET`: the account's Base32 authenticator setup key. Enroll that exact key in the smoke account's authenticator app; do not use a changing six-digit code.
+- `PLATFORM_RELEASE_EVIDENCE_SECRET`: a separate random signing key, at least 32 bytes, used only for authenticating workflow evidence. Generate a value locally with `openssl rand -hex 32`; do not reuse the TOTP seed, password, or deployment SSH key.
+
+Assign the dedicated smoke account the `platform_release_observer` role and enroll its authenticator; that role has only the Release Readiness read permission and MFA is mandatory. Do not point these secrets at a personal Platform Admin account. The workflow never receives a Platform Admin bearer token for reporting: it submits a short-lived HMAC-signed result, and the API stores only the workflow run, deployed SHA, outcome, summary, and observation time. No credential, OTP, or raw response body is saved in the report.
+
+The Developer Portal reads `SANDBOX_TESTFLIGHT_PUBLIC_URL` only for authenticated project members. Set it to the public invitation URL created for the Sandbox external TestFlight group in App Store Connect, and add the same value as a protected `SANDBOX_TESTFLIGHT_PUBLIC_URL` secret in the GitHub `production` Environment. The deployment workflow validates the Apple TestFlight host and `/join/` path without printing the URL.
+
+Android Sandbox installs are distributed directly from the Developer Portal at `/downloads/getprio-sandbox-android.apk`. The APK is included at `developer-portal/public/downloads/getprio-sandbox-android.apk` and shipped with the portal build; no Google Play tester URL or production secret is used. Remove the retired `SANDBOX_ANDROID_GOOGLE_PLAY_PUBLIC_URL` secret from the GitHub `production` Environment and its old entry from the server `.env` when convenient. Play upload credentials remain scoped to the mobile release workflow and are not used by the portal.
+
+## Sandbox API deployment
+
+The Sandbox API has a separate manually triggered deployment workflow. Configure these values in a GitHub Actions environment named `sandbox` before running it:
+
+- `DO_HOST`, `DO_USER`, `DO_SSH_KEY`, and `DO_APP_DIR` for the Sandbox API server. `DO_SSH_HOST_FINGERPRINT` must hold the server host-key fingerprint verified through a trusted channel; the deployment refuses a mismatch and uses strict host-key checking.
+- `DATABASE_HOST` and `DATABASE_NAME` for the Sandbox PostgreSQL database. The workflow verifies both against the server's `DATABASE_URL` and makes a read-only connection check before it applies migrations.
+- `DO_PORT` is optional and defaults to `22`.
+
+The workflow deploys the current `main` branch, applies migrations, verifies the schema, builds the app, enables `WAIT_TIME_PREDICTION_CAPTURE_ENABLED=true` in the Sandbox server `.env`, and restarts `getprio-api`. It is manual-only and refuses to proceed unless its confirmation input is exactly `sandbox` and the server is configured with `API_ENVIRONMENT=sandbox`.
+
+Sandbox Developer API ticket issuance returns an initial `ticket.estimated_wait_minutes`
+from the existing baseline (waiting position × configured service minutes). With capture
+enabled, issuance stores the matching observation in the ticket transaction, including
+printed-only tickets with no linked mobile user. Calling the ticket completes its wait
+observation; cancellation or another censoring outcome does not count as a completed wait.
+Mobile refreshes can still collect later observations, with one observation per ticket,
+predictor version, and five-minute bucket. An observation write failure rolls back Sandbox
+issuance when capture is enabled. Production Developer API issuance is unchanged.
+
+After deploying this change to Sandbox, issue a new ticket through the Developer API,
+call it using `call-next` without scanning its QR code, then rerun the read-only audit
+from `/var/www/getprio` on the Sandbox Droplet. Set the expected host and database name
+to match the Sandbox `DATABASE_URL` loaded from its environment files:
+
+```bash
+DATABASE_HOST='your-sandbox-db-host' DATABASE_NAME='your-sandbox-db-name' node scripts/wait-time-prediction-audit.mjs --scope developer-sandbox
+```
+
+Use `localhost` and `getprio` only when those are the configured Sandbox database host
+and name. For a managed database, use its configured hostname and database name. The audit
+refuses to connect if these expected values differ from the loaded connection URL.
+
+Review the `developerApiSandbox` section for completed samples. Older printed-only tickets
+are not backfilled because their initial queue state was not observed. These are baseline
+observations for evaluation; they do not enable a trained AI predictor.
+
+## Read-only vendor wait-time audit
+
+The audit accepts both production and Sandbox CLI configurations. Leave `API_ENVIRONMENT`
+as configured on the server; do not override it to label live data as Sandbox. From the
+deployment checkout, specify the expected database hostname and name explicitly. These
+must match the dotenv-loaded `DATABASE_URL`, and the script also checks the connected
+database name before reading samples. It uses a read-only repeatable-read transaction,
+limits each statement to 30 seconds and lock waits to 5 seconds, then rolls back.
+
+```bash
+cd /var/www/getprio
+DATABASE_HOST='your-db-host' DATABASE_NAME='your-db-name' node scripts/wait-time-prediction-audit.mjs --scope vendors
+```
+
+To inspect a dedicated test vendor, use its public vendor slug:
+
+```bash
+DATABASE_HOST='your-db-host' DATABASE_NAME='your-db-name' node scripts/wait-time-prediction-audit.mjs --scope vendors --vendor-slug 'your-test-vendor-slug'
+```
+
+The filter applies to the vendor summary, vendor coverage, and position coverage. An
+unknown vendor slug fails the audit. Coverage counts eligible active, approved vendors;
+the summary includes recorded samples for the selected vendor regardless of its current
+approval status. Vendor Portal samples have no environment tag, so they must not be
+described as Sandbox simply because the audit CLI is configured that way.
+
+For a ticket such as `PB002`, inspect its stored booking link and schedule-duration
+inputs using all three ticket-context flags. Replace the vendor slug, location, business
+date, and database target with the actual values:
+
+```bash
+DATABASE_HOST='your-db-host' DATABASE_NAME='your-db-name' node scripts/wait-time-prediction-audit.mjs --scope vendors --vendor-slug 'your-vendor-slug' --location-slug 'main' --date '2026-10-02' --ticket-number 'PB002'
+```
+
+`ticketContext` shows the booking reference, ticket status, and duration source.
+`booking_schedule` means the linked booking has a valid start/end schedule;
+`vendor_average` means the ticket has no valid linked schedule. A null booking
+reference means no booking link was recorded for that ticket, not that its issuing
+channel proves it was a walk-in. Customer identity, contacts, and lookup codes are omitted.
+The query remains inside the audit's read-only transaction. No booking links are repaired,
+and no ticket is created or updated. The displayed baseline estimate remains unchanged.
+
+The separate [resource-capacity audit](plan/resource-capacity-audit.md) inspects draft pool mappings and overlapping booking-item reservation demand. Apply `20261003_add_resource_capacity_foundation.sql` through the usual additive migration deployment before using it. Tracking is disabled by a database constraint in this release. The report does not infer actual occupancy, change customer estimates, or create service sessions. Empty mappings are expected until the later vendor configuration slice.
+
+`--scope developer-sandbox` reads only Developer API observations explicitly tagged
+`sandbox`. Omitting `--scope` (or using `--scope all`) retains both separate reports.
+With `all`, a vendor slug filters only vendor results; Developer API results stay global.
+Each section reports its own table availability, so a missing vendor table does not
+prevent inspecting Developer API samples.
+
+The report's `target` includes the audit host, checkout directory, configured database
+host/port/name, connected database address/port, and CLI API environment. It contains no
+connection credentials. Compare reports run on the actual API hosts with their deployment
+configuration to establish whether they share a server or database; the `sandbox` GitHub
+Environment name alone does not establish isolation. The repository workflows use
+environment-scoped `DO_HOST` secrets, whose values are not visible in source.
+
+`captureEnabled` describes the configuration loaded by this CLI, not independently
+verified PM2 process state. A newly captured ticket observation is stronger evidence of
+running capture. This audit does not enable capture, restart services, change queue data,
+or enable an AI model. Controlled capture configuration and model evaluation remain
+separate rollout decisions.
+
 OAuth deployment checklist:
 
 1. Create OAuth apps in Google and/or Facebook developer consoles.
@@ -200,7 +349,7 @@ OAuth deployment checklist:
    - `https://api.getprio.online/api/auth/oauth/google/callback`
    - `https://api.getprio.online/api/auth/oauth/facebook/callback`
 3. Set `SERVER_URL` to the API origin and `APP_BASE_URL` to the frontend origin.
-4. Populate `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `FACEBOOK_APP_ID`, and `FACEBOOK_APP_SECRET`.
+4. Populate the configured provider credentials, including `APPLE_CLIENT_ID`, `APPLE_TEAM_ID`, `APPLE_KEY_ID`, and `APPLE_PRIVATE_KEY` when Sign in with Apple is enabled. Store the `.p8` value as a secret with its newlines preserved.
 5. Verify `GET /api/auth/oauth/providers` returns the providers you intend to expose.
 6. Test `GET /api/auth/oauth/:provider/start` and the callback flow with a real provider account.
 
@@ -220,6 +369,8 @@ Notes:
 
 - `VITE_API_URL` should include `/api`.
 - `SERVER_URL` should not include `/api`.
+- `MOBILE_QR_BASE_URL` must be an HTTPS origin whose hostname is included in the mobile app's approved-host configuration. It may differ from `APP_BASE_URL` for enterprise or physical-device testing.
+- `MOBILE_PAYMENT_RETURN_URL` may override the paid mobile return origin; otherwise the backend uses HTTPS `APP_BASE_URL`, or HTTPS `MOBILE_QR_BASE_URL` for local device testing. The resulting `/payment/return` host must be included in the mobile app's approved-host configuration and verified-link setup.
 - `B2_BUCKET_PUBLIC_BOARD` is reused for public board assets and location payment QR images.
 - `B2_BUCKET_PAYMENT_PROOF` should stay private.
 - Payment proof uploads now go through the backend direct-upload route, not direct browser-to-B2 upload.
@@ -227,12 +378,20 @@ Notes:
 ## 6. Build the App
 
 ```bash
+set -e
 cd /var/www/getprio
 npm run typecheck
 npm run test:backend
-npm run build
+deploy_sha="$(git rev-parse HEAD)"
+umask 022
+static_stage="$(mktemp -d /tmp/getprio-static.XXXXXX)"
+trap 'rm -rf -- "$static_stage"' EXIT
+VITE_DEPLOY_SHA="$deploy_sha" VITE_PLATFORM_DATA_SOURCE=live node scripts/static-release.mjs build "$static_stage"
 npm run build:backend
+node scripts/static-release.mjs publish "$static_stage" "$deploy_sha"
 ```
+
+Builds run in a private temporary directory. Publication validates all served sites, copies assets first, and replaces each HTML file with an atomic rename. Prior assets remain available for cached HTML. See [static publication and incident evidence](deployment-static-publication.md) for failure behavior and limitations.
 
 ## 7. Start the Backend
 
@@ -258,9 +417,26 @@ Create `/etc/nginx/sites-available/getprio`:
 ```nginx
 server {
   listen 80;
-  server_name getprio.online;
+  server_name app.getprio.online;
 
   root /var/www/getprio/frontend/dist;
+  index index.html;
+
+  location = /.well-known/apple-app-site-association {
+    default_type application/json;
+    try_files $uri =404;
+  }
+
+  location / {
+    try_files $uri $uri/ /index.html;
+  }
+}
+
+server {
+  listen 80;
+  server_name developers.getprio.online;
+
+  root /var/www/getprio/developer-portal/dist;
   index index.html;
 
   location / {
@@ -282,12 +458,14 @@ server {
 
 server {
   listen 80;
-  server_name api.getprio.online;
+  server_name api.getprio.online sandbox-api.getprio.online;
 
   location / {
     proxy_pass http://127.0.0.1:5000;
     proxy_http_version 1.1;
     proxy_set_header Host $host;
+    # The backend uses this ingress-controlled value for Sandbox test-account isolation.
+    proxy_set_header X-GetPrio-Ingress-Host $host;
     proxy_set_header X-Real-IP $remote_addr;
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     proxy_set_header X-Forwarded-Proto $scheme;
@@ -314,7 +492,7 @@ Install Certbot:
 
 ```bash
 apt install -y certbot python3-certbot-nginx
-certbot --nginx -d getprio.online -d platform.getprio.online -d api.getprio.online
+certbot --nginx -d getprio.online -d developers.getprio.online -d platform.getprio.online -d api.getprio.online -d sandbox-api.getprio.online
 ```
 
 ## 10. Payment Webhook URLs
@@ -330,11 +508,17 @@ If you are only launching the booking/manual-QR flow first, this webhook is not 
 ## 11. Deploy Updates
 
 ```bash
+set -e
 cd /var/www/getprio
 git pull
 npm install
-npm run build
+deploy_sha="$(git rev-parse HEAD)"
+umask 022
+static_stage="$(mktemp -d /tmp/getprio-static.XXXXXX)"
+trap 'rm -rf -- "$static_stage"' EXIT
+VITE_DEPLOY_SHA="$deploy_sha" VITE_PLATFORM_DATA_SOURCE=live node scripts/static-release.mjs build "$static_stage"
 npm run build:backend
+node scripts/static-release.mjs publish "$static_stage" "$deploy_sha"
 pm2 restart getprio-api
 ```
 

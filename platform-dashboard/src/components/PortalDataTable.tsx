@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { Paper, ScrollArea, Table, Text } from "@mantine/core";
 
 export type PortalTableColumn<T extends Record<string, unknown>> = {
@@ -14,7 +14,9 @@ export function PortalDataTable<T extends Record<string, unknown>>({
   emptyLabel,
   minWidth = 680,
   pinFirstColumn = false,
-  pinLastColumn = false
+  pinLastColumn = false,
+  virtualized = false,
+  onRowClick
 }: {
   rows: T[];
   columns: Array<PortalTableColumn<T>>;
@@ -22,15 +24,21 @@ export function PortalDataTable<T extends Record<string, unknown>>({
   minWidth?: number;
   pinFirstColumn?: boolean;
   pinLastColumn?: boolean;
+  virtualized?: boolean;
+  onRowClick?: (row: T) => void;
 }) {
+  const [scrollTop, setScrollTop] = useState(0);
+  const rowHeight = 56;
+  const start = virtualized ? Math.max(0, Math.min(rows.length - 1, Math.floor((scrollTop - 48) / rowHeight) - 3)) : 0;
+  const end = virtualized ? Math.min(rows.length, start + 16) : rows.length;
   const firstColumnKey = columns[0]?.key;
   const lastColumnKey = columns[columns.length - 1]?.key;
 
   return (
     <Paper className="portal-card" p="lg">
-      <ScrollArea type="auto" offsetScrollbars>
+      <ScrollArea type="auto" offsetScrollbars h={virtualized ? 480 : undefined} onScrollPositionChange={virtualized ? ({ y }) => setScrollTop(y) : undefined} viewportProps={{ tabIndex: 0, "aria-label": "Scrollable records table" }}>
         <Table
-          className="portal-data-table"
+          className={`portal-data-table${virtualized ? " portal-data-table--virtual" : ""}`}
           striped
           highlightOnHover
           verticalSpacing="sm"
@@ -58,9 +66,10 @@ export function PortalDataTable<T extends Record<string, unknown>>({
             </Table.Tr>
           </Table.Thead>
           <Table.Tbody>
+            {start > 0 && <Table.Tr aria-hidden="true"><Table.Td colSpan={columns.length} style={{ height: start * rowHeight, padding: 0 }} /></Table.Tr>}
             {rows.length ? (
-              rows.map((row, index) => (
-                <Table.Tr key={String((row.id as string | number | undefined) ?? index)}>
+              rows.slice(start, end).map((row, index) => (
+                <Table.Tr onClick={onRowClick ? (event) => { if (!(event.target as HTMLElement).closest("a, button, input, select, textarea")) onRowClick(row); } : undefined} className={onRowClick ? "portal-data-table__linked-row" : undefined} key={String((row.id as string | number | undefined) ?? index)} style={virtualized ? { height: rowHeight } : undefined}>
                   {columns.map((column) => (
                     <Table.Td
                       key={column.key}
@@ -76,7 +85,7 @@ export function PortalDataTable<T extends Record<string, unknown>>({
                             : undefined
                       }
                     >
-                      {column.render ? column.render(row) : String(row[column.key] ?? "--")}
+                      <div className={virtualized ? "portal-data-table__cell-preview" : undefined} title={virtualized ? String(row[column.key] ?? "") : undefined}>{column.render ? column.render(row) : String(row[column.key] ?? "--")}</div>
                     </Table.Td>
                   ))}
                 </Table.Tr>
@@ -88,6 +97,7 @@ export function PortalDataTable<T extends Record<string, unknown>>({
                 </Table.Td>
               </Table.Tr>
             )}
+          {end < rows.length && <Table.Tr aria-hidden="true"><Table.Td colSpan={columns.length} style={{ height: (rows.length - end) * rowHeight, padding: 0 }} /></Table.Tr>}
           </Table.Tbody>
         </Table>
       </ScrollArea>

@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import {
   Alert,
   Box,
@@ -7,6 +7,7 @@ import {
   Group,
   Modal,
   Paper,
+  ScrollArea,
   SimpleGrid,
   Stack,
   Text,
@@ -16,7 +17,13 @@ import {
   Title
 } from "@mantine/core";
 import {
+  IconArrowDown,
+  IconArrowRight,
+  IconArrowUpRight,
+  IconAsterisk,
   IconBellRinging,
+  IconBrandAndroid,
+  IconBrandApple,
   IconChartBar,
   IconCheck,
   IconClockHour4,
@@ -24,13 +31,23 @@ import {
   IconMessageCircle,
   IconPhone,
   IconQrcode,
-  IconUsersGroup
 } from "@tabler/icons-react";
 import { notifications } from "@mantine/notifications";
 import { Link, useLocation } from "react-router-dom";
-import type { EnterpriseInquiryRequest, EnterpriseInquiryResponse } from "@shared";
+import type { BillingOverviewResponse, EnterpriseInquiryRequest, EnterpriseInquiryResponse, SubscriptionPlan } from "@shared";
+import PhilippineMobileInput from "../components/PhilippineMobileInput";
 import { apiRequest } from "../api/client";
 import { getErrorMessage } from "../utils/errors";
+import { getPlanPriceDisplay } from "../utils/subscriptionPlans";
+import PricingHighlights from "./PricingHighlights";
+
+import WorkflowSpotlight from "./WorkflowSpotlight";
+import LandingRibbons from "./LandingRibbons";
+import HeroPhones from "./HeroPhones";
+import ConnectedScreensParallax from "./ConnectedScreensParallax";
+import { useLandingMotion } from "./useLandingMotion";
+import { usePricingMagnet } from "./usePricingMagnet";
+import "./LandingPageMotion.css";
 
 const services = [
   {
@@ -55,39 +72,18 @@ const services = [
   }
 ] as const;
 
-const steps = [
-  "Scan to join",
-  "See your place",
-  "Get alerted",
-  "Get served"
-] as const;
+const planArt: Record<SubscriptionPlan["slug"], string> = {
+  free: "/illustrations/generated/pricing-economical-transparent.png",
+  economical: "/illustrations/generated/pricing-economical-transparent.png",
+  pro: "/illustrations/generated/pricing-pro-transparent.png",
+  enterprise: "/illustrations/generated/pricing-enterprise-transparent.png"
+};
 
-const pricingPlans = [
-  {
-    name: "Economical",
-    price: "PHP 499/mo",
-    bestFor: "Solo vendors and small shops",
-    art: "/illustrations/generated/pricing-economical-transparent.png",
-    features: ["1 location", "QR join page", "Public board", "500 tickets/mo"],
-    highlight: false
-  },
-  {
-    name: "Pro",
-    price: "PHP 1,499/mo",
-    bestFor: "Growing clinics and busy teams",
-    art: "/illustrations/generated/pricing-pro-transparent.png",
-    features: ["3 locations", "Branded pages", "Analytics", "300 SMS/mo"],
-    highlight: true
-  },
-  {
-    name: "Enterprise",
-    price: "PHP 6,999+/mo",
-    bestFor: "Multi-branch operations",
-    art: "/illustrations/generated/pricing-enterprise-transparent.png",
-    features: ["10+ locations", "Advanced roles", "SLA support", "Custom rollout"],
-    highlight: false
-  }
-] as const;
+const monthlyPriceFormatter = new Intl.NumberFormat("en-PH", {
+  maximumFractionDigits: 2
+});
+const enterpriseMessageMaxLength = 1000;
+const iOSAppStoreUrl = import.meta.env.VITE_GETPRIO_IOS_APP_STORE_URL?.trim();
 
 export default function LandingPage() {
   const location = useLocation();
@@ -97,10 +93,30 @@ export default function LandingPage() {
     contactName: "",
     email: "",
     phone: "",
-    message: ""
+    message: "",
+    honeypot: "",
+    turnstileToken: ""
   });
   const [enterpriseError, setEnterpriseError] = useState("");
   const [enterpriseSubmitting, setEnterpriseSubmitting] = useState(false);
+  const [pricingPlans, setPricingPlans] = useState<SubscriptionPlan[]>([]);
+  const [pricingExpanded, setPricingExpanded] = useState(false);
+  const [pricingError, setPricingError] = useState("");
+  const landingRoot = useRef<HTMLDivElement>(null);
+  useLandingMotion(landingRoot, pricingPlans.length);
+  usePricingMagnet(landingRoot, pricingPlans.length);
+  const enterpriseTurnstileContainerRef = useRef<HTMLDivElement | null>(null);
+  const enterpriseTurnstileWidgetIdRef = useRef<string | null>(null);
+  const enterpriseSubmissionPendingRef = useRef(false);
+  const [enterpriseTurnstileReady, setEnterpriseTurnstileReady] = useState(false);
+  const enterpriseTurnstileSiteKey = import.meta.env.VITE_TURNSTILE_SITE_KEY || "";
+  const shouldUseEnterpriseTurnstile = Boolean(enterpriseTurnstileSiteKey);
+
+  useEffect(() => {
+    apiRequest<BillingOverviewResponse>("/billing/plans")
+      .then((data) => setPricingPlans(data.plans))
+      .catch(() => setPricingError("Pricing is temporarily unavailable. Please try again shortly."));
+  }, []);
 
   useEffect(() => {
     if (!location.hash) {
@@ -108,11 +124,99 @@ export default function LandingPage() {
     }
 
     const section = document.querySelector(location.hash);
-    section?.scrollIntoView({ behavior: "smooth", block: "start" });
+    section?.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth", block: "start" });
   }, [location.hash]);
+
+  useEffect(() => {
+    if (!enterpriseDialogOpen) {
+      return undefined;
+    }
+
+    setEnterpriseForm((current) => ({ ...current, turnstileToken: "" }));
+    if (!shouldUseEnterpriseTurnstile) {
+      setEnterpriseTurnstileReady(true);
+      return undefined;
+    }
+
+    let active = true;
+    setEnterpriseTurnstileReady(false);
+    const existingScript = document.querySelector<HTMLScriptElement>(
+      'script[src^="https://challenges.cloudflare.com/turnstile/v0/api.js"]'
+    );
+
+    function renderTurnstile() {
+      if (
+        !active ||
+        !enterpriseTurnstileContainerRef.current ||
+        !window.turnstile ||
+        enterpriseTurnstileWidgetIdRef.current
+      ) {
+        return;
+      }
+
+      enterpriseTurnstileWidgetIdRef.current = window.turnstile.render(
+        enterpriseTurnstileContainerRef.current,
+        {
+          sitekey: enterpriseTurnstileSiteKey,
+          callback: (token) => {
+            setEnterpriseForm((current) => ({ ...current, turnstileToken: token }));
+            setEnterpriseTurnstileReady(true);
+          },
+          "expired-callback": () => {
+            setEnterpriseForm((current) => ({ ...current, turnstileToken: "" }));
+            setEnterpriseTurnstileReady(false);
+          },
+          "error-callback": () => {
+            setEnterpriseForm((current) => ({ ...current, turnstileToken: "" }));
+            setEnterpriseTurnstileReady(false);
+            setEnterpriseError("Verification could not load. Please refresh and try again.");
+          }
+        }
+      );
+    }
+
+    if (window.turnstile) {
+      renderTurnstile();
+    } else if (existingScript) {
+      existingScript.addEventListener("load", renderTurnstile, { once: true });
+    } else {
+      const script = document.createElement("script");
+      script.src = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
+      script.async = true;
+      script.defer = true;
+      script.addEventListener("load", renderTurnstile, { once: true });
+      document.head.appendChild(script);
+    }
+
+    return () => {
+      active = false;
+      existingScript?.removeEventListener("load", renderTurnstile);
+      if (enterpriseTurnstileWidgetIdRef.current && window.turnstile) {
+        window.turnstile.remove(enterpriseTurnstileWidgetIdRef.current);
+        enterpriseTurnstileWidgetIdRef.current = null;
+      }
+    };
+  }, [enterpriseDialogOpen, enterpriseTurnstileSiteKey, shouldUseEnterpriseTurnstile]);
+
+  function resetEnterpriseTurnstile() {
+    setEnterpriseForm((current) => ({ ...current, turnstileToken: "" }));
+    if (enterpriseTurnstileWidgetIdRef.current && window.turnstile) {
+      setEnterpriseTurnstileReady(false);
+      window.turnstile.reset(enterpriseTurnstileWidgetIdRef.current);
+    }
+  }
 
   async function handleEnterpriseSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (enterpriseSubmissionPendingRef.current) {
+      return;
+    }
+    if (shouldUseEnterpriseTurnstile && !enterpriseForm.turnstileToken) {
+      setEnterpriseError("Complete the security check before sending your request.");
+      return;
+    }
+
+    enterpriseSubmissionPendingRef.current = true;
     setEnterpriseSubmitting(true);
     setEnterpriseError("");
 
@@ -135,189 +239,134 @@ export default function LandingPage() {
         contactName: "",
         email: "",
         phone: "",
-        message: ""
+        message: "",
+        honeypot: "",
+        turnstileToken: ""
       });
     } catch (submitError) {
       setEnterpriseError(getErrorMessage(submitError));
     } finally {
+      enterpriseSubmissionPendingRef.current = false;
       setEnterpriseSubmitting(false);
+      resetEnterpriseTurnstile();
     }
   }
 
   return (
-    <Stack gap={0}>
-      <Box className="prio-hero" id="product">
-        <Container size="xl">
-          <SimpleGrid className="prio-hero-grid" cols={{ base: 1, md: 2 }} spacing={{ base: 36, md: 24 }} verticalSpacing="xl">
-            <Stack justify="center" gap="xl">
-              <Stack gap="md">
-                <Title className="prio-display" order={1}>
-                  Queues that move before customers get restless.
-                </Title>
-                <Text className="prio-lead">
-                  GetPrio keeps every wait predictable with QR entry, live public boards,
-                  near-turn alerts, and vendor tools built for busy service teams.
-                </Text>
-              </Stack>
-              <Group gap="md">
-                <Button component={Link} to="/register/vendor" color="orange" size="lg">
-                  Start free
-                </Button>
-                <Button component={Link} to="/vendors" size="lg" variant="outline" color="dark">
-                  Browse vendors
-                </Button>
-              </Group>
-              <SimpleGrid className="prio-mini-proof" cols={{ base: 1, sm: 3 }}>
-                {services.slice(0, 3).map((service) => {
-                  const Icon = service.icon;
-                  return (
-                    <Group gap="sm" key={service.title} wrap="nowrap">
-                      <ThemeIcon color="orange" radius="xl" size={40} variant="light">
-                        <Icon size={20} />
-                      </ThemeIcon>
-                      <Text fw={700} size="sm">{service.title}</Text>
-                    </Group>
-                  );
-                })}
-              </SimpleGrid>
-            </Stack>
-
-            <Box className="prio-hero-art-wrap">
-              <img
-                alt="Illustration of customers joining and waiting in a GetPrio queue"
-                className="prio-hero-art"
-                src="/illustrations/generated/hero-queue-scene-transparent.png"
-              />
-              <Paper className="prio-dashboard-preview" p="lg">
-                <Text fw={800}>Good morning, Emma 👋</Text>
-                <Text c="dimmed" size="sm">Here&apos;s what&apos;s happening today.</Text>
-                <SimpleGrid cols={2} mt="md" spacing="sm">
-                  <div className="prio-dashboard-tile">
-                    <Text c="dimmed" size="xs">Now serving</Text>
-                    <Text className="prio-dashboard-number">A012</Text>
-                  </div>
-                  <div className="prio-dashboard-tile">
-                    <Text c="dimmed" size="xs">Average wait</Text>
-                    <Text fw={800}>18 min</Text>
-                  </div>
-                </SimpleGrid>
-              </Paper>
-            </Box>
-          </SimpleGrid>
-        </Container>
-      </Box>
-
-      <Box className="prio-section" id="solutions">
-        <Container size="xl">
-          <SimpleGrid cols={{ base: 1, md: 2 }} spacing={{ base: 32, md: 64 }}>
-            <Stack gap="xl">
-                <div>
-                  <Text className="prio-label">Features</Text>
-                  <Title className="prio-section-title" order={2}>
-                  One live system across every screen.
-                  </Title>
-                </div>
-              <Stack gap={0}>
-                {services.map((service) => {
-                  const Icon = service.icon;
-                  return (
-                    <Group className="prio-feature-row" key={service.title} wrap="nowrap">
-                      <ThemeIcon color="orange" radius="xl" size={46} variant="light">
-                        <Icon size={22} />
-                      </ThemeIcon>
-                      <div>
-                        <Text fw={800}>{service.title}</Text>
-                        <Text c="dimmed">{service.text}</Text>
-                      </div>
-                    </Group>
-                  );
-                })}
-              </Stack>
-            </Stack>
-
-              <img
-              alt="Illustration of GetPrio across a customer phone, public queue board, and vendor dashboard"
-                className="prio-feature-art"
-              src="/illustrations/generated/features-ecosystem-transparent.png"
-              />
-          </SimpleGrid>
-        </Container>
-      </Box>
-
-      <Box className="prio-dark-band">
-        <Container size="xl">
-          <Stack gap="xl">
-            <div>
-              <Text className="prio-label prio-label-light">Workflow</Text>
-              <Title c="white" className="prio-section-title" order={2}>
-                From scan to served in four live steps.
-              </Title>
+    <Stack gap={0} ref={landingRoot} className="lp-page">
+      <LandingRibbons />
+      <section className="lp-hero" id="product">
+        <div className="lp-container lp-hero-grid">
+          <div className="lp-hero-content">
+            <p className="lp-eyebrow"><span className="lp-dot" /> LESS WAITING. MORE LIVING.</p>
+            <h1 className="lp-title">
+              <span className="lp-hero-line"><span>Your day.</span></span>
+              <span className="lp-hero-line"><span>Your pace.</span></span>
+              <span className="lp-hero-line"><span><em>Your priority.</em></span></span>
+            </h1>
+            <p className="lp-hero-copy">Life happens beyond the line. Join a queue, follow your place, and get a heads-up when it’s your turn.</p>
+            <div className="lp-hero-actions">
+              <Button className="customer-primary-action" component={Link} to="/vendors" color="dark" size="lg" radius="xl">Find your next stop <IconArrowUpRight size={22} stroke={1.5} aria-hidden="true" /></Button>
+              <a className="lp-text-link" href="#workflow">See how it works <IconArrowDown size={14} aria-hidden="true" /></a>
             </div>
-            <img
-              alt="Four-step queue journey from scan to service"
-              className="prio-workflow-art"
-              src="/illustrations/generated/workflow-strip.png"
-            />
-            <SimpleGrid cols={{ base: 1, sm: 2, md: 4 }}>
-              {steps.map((step, index) => (
-                <Group className="prio-step" gap="md" key={step} wrap="nowrap">
-                  <ThemeIcon color="orange" radius="xl" size={34} variant="filled">
-                    {index + 1}
-                  </ThemeIcon>
-                  <Text c="white" fw={800}>{step}</Text>
-                </Group>
-              ))}
-            </SimpleGrid>
-          </Stack>
-        </Container>
-      </Box>
+            <div className="lp-app-links">
+              <Button component="a" disabled={!iOSAppStoreUrl} href={iOSAppStoreUrl || undefined} target="_blank" rel="noreferrer" variant="subtle" color="dark" leftSection={<IconBrandApple size={20} />}>{iOSAppStoreUrl ? 'Get the iOS app' : 'iOS download coming soon'}</Button>
+              <span><IconBrandAndroid size={17} aria-hidden="true" /> Android — coming soon</span>
+            </div>
+          </div>
+          <div className="lp-hero-visual" id="get-the-app">
+            <div className="lp-orbit-caption" aria-hidden="true">MAKE ROOM FOR YOUR DAY</div>
+            <HeroPhones />
+            <div className="lp-float-note lp-note-top"><IconQrcode size={22} /><span>A quick scan.<br /><strong>And you’re in.</strong></span></div>
+            <div className="lp-float-note lp-note-bottom"><IconBellRinging size={22} /><span>Go live your day.<br /><strong>We’ll keep your place in view.</strong></span></div>
+          </div>
+        </div>
+        <div className="lp-hero-footer lp-container"><span>FOR EVERYDAY PLACES. AND EVERYONE IN THEM.</span><a href="#solutions">EXPLORE GETPRIO <IconArrowDown size={14} aria-hidden="true" /></a></div>
+      </section>
 
-      <Box className="prio-section" id="pricing">
+      <section className="lp-manifesto" aria-labelledby="lp-manifesto-title">
+        <div className="lp-container">
+          <p className="lp-eyebrow" data-reveal>01 / A BETTER KIND OF WAIT</p>
+          <h2 id="lp-manifesto-title">{'A coffee. A conversation. A moment to yourself.'.split(' ').map((word, i) => <span className="lp-manifesto-word" key={i}>{word} </span>)}<em>{'There’s more to your day than waiting.'.split(' ').map((word, i) => <span className="lp-manifesto-word" key={i}>{word} </span>)}</em></h2>
+          <div className="lp-manifesto-bottom"><IconAsterisk className="lp-asterisk" size={65} stroke={1} aria-hidden="true" /><p data-reveal>We give people a clearer wait.<br />And service teams a calmer way to work.</p></div>
+        </div>
+      </section>
+
+      <section className="lp-features" id="solutions">
+        <div className="lp-container">
+          <div className="lp-section-rule" />
+          <header className="lp-section-head" data-reveal><p className="lp-eyebrow">02 / CONNECTED BY DESIGN</p><h2>One rhythm.<br /><em>Every screen.</em></h2><p>From the phone in your hand to the team behind the counter. Everyone sees what’s next.</p></header>
+          <div className="lp-feature-stage">
+            <span className="lp-stage-label">THE WHOLE QUEUE, IN SYNC</span>
+            <ConnectedScreensParallax />
+            <div className="lp-stage-foot"><span>THE PUBLIC BOARD</span><span>YOUR PHONE</span><span>YOUR TEAM</span></div>
+          </div>
+          <div className="lp-feature-list">{services.map((service, index) => {
+            const Icon = service.icon;
+            return <article className="lp-feature" key={service.title}><span className="lp-feature-number">0{index + 1}</span><Icon size={26} stroke={1.5} /><h3>{service.title}</h3><p>{service.text}</p></article>;
+          })}</div>
+        </div>
+      </section>
+
+      <WorkflowSpotlight />
+
+      <Box className="prio-section lp-pricing" id="pricing">
         <Container size="xl">
           <Stack gap="xl">
-            <div className="prio-centered-copy">
-              <Text className="prio-label">Pricing</Text>
+            <div className="prio-centered-copy" data-reveal>
+              <Text className="prio-label">04 / ROOM TO GROW</Text>
               <Title className="prio-section-title" order={2}>
-                Choose the rhythm that fits your operation.
+                A calmer day. At every scale.
               </Title>
             </div>
-            <SimpleGrid cols={{ base: 1, md: 3 }} spacing="lg">
+            {pricingError ? <Alert color="red">{pricingError}</Alert> : null}
+            <SimpleGrid cols={{ base: 1, sm: 2, xl: 4 }} spacing="lg">
               {pricingPlans.map((plan) => (
                 <Paper
-                  className={plan.highlight ? "prio-pricing-card prio-pricing-card-featured" : "prio-pricing-card"}
-                  key={plan.name}
+                  className={plan.slug === "pro" ? "prio-pricing-card prio-pricing-card-featured" : "prio-pricing-card"}
+                  key={plan.slug}
                   p="xl"
                 >
                   <Stack gap="lg" h="100%">
-                    <img alt="" className="prio-plan-art" src={plan.art} />
+                    <img alt="" className="prio-plan-art" src={planArt[plan.slug]} />
                     <div>
                       <Title order={3}>{plan.name}</Title>
-                      <Text className="prio-price">{plan.price}</Text>
+                      <div
+                        aria-label={getPlanPriceDisplay(plan)}
+                        className="prio-price"
+                      >
+                        {plan.slug === "enterprise" ? (
+                          <Text className="prio-price-prefix">Starts at {plan.price.currency}</Text>
+                        ) : (
+                          <Text className="prio-price-currency">{plan.price.currency}</Text>
+                        )}
+                        <div className="prio-price-line">
+                          <span className="prio-price-amount">
+                            {monthlyPriceFormatter.format(plan.price.monthlyAmountCents / 100)}
+                          </span>
+                          <span className="prio-price-period">/mo</span>
+                        </div>
+                      </div>
                       <Text c="dimmed">{plan.bestFor}</Text>
                     </div>
-                    <Stack gap="xs">
-                      {plan.features.map((feature) => (
-                        <Group gap="sm" key={feature} wrap="nowrap">
-                          <ThemeIcon color={plan.highlight ? "orange" : "dark"} radius="xl" size={22} variant="light">
-                            <IconCheck size={14} />
-                          </ThemeIcon>
-                          <Text size="sm">{feature}</Text>
-                        </Group>
-                      ))}
-                    </Stack>
+                    <PricingHighlights
+                      plan={plan}
+                      expanded={pricingExpanded}
+                      onToggle={() => setPricingExpanded(value => !value)}
+                    />
                     {plan.name === "Enterprise" ? (
                       <Button color="dark" mt="auto" onClick={() => setEnterpriseDialogOpen(true)} variant="outline">
                         Request setup
                       </Button>
                     ) : (
                       <Button
-                        color={plan.highlight ? "orange" : "dark"}
+                        color={plan.slug === "pro" ? "orange" : "dark"}
                         component={Link}
                         mt="auto"
                         to="/register/vendor"
-                        variant={plan.highlight ? "filled" : "outline"}
+                        variant={plan.slug === "pro" ? "filled" : "outline"}
                       >
-                        Choose plan
+                        {plan.slug === "free" ? "Start free" : "Choose plan"}
                       </Button>
                     )}
                   </Stack>
@@ -328,42 +377,31 @@ export default function LandingPage() {
         </Container>
       </Box>
 
-      <Box className="prio-cta-section">
-        <Container size="xl">
-          <Paper className="prio-cta" p={{ base: "xl", md: 48 }}>
-            <SimpleGrid cols={{ base: 1, md: 2 }} spacing={{ base: 28, md: 40 }}>
-              <Stack justify="center" gap="md">
-                <ThemeIcon color="orange" radius="xl" size={58} variant="light">
-                  <IconUsersGroup size={30} />
-                </ThemeIcon>
-                <Title className="prio-section-title" order={2}>
-                  Ready to run a calmer queue?
-                </Title>
-                <Text c="dimmed">
-                  Start with a vendor workspace, publish your first public board, and let the line
-                  breathe a little easier.
-                </Text>
-                <Group>
-                  <Button component={Link} to="/register/vendor" color="orange" size="lg">
-                    Get started
-                  </Button>
-                  <Button component={Link} to="/vendors" size="lg" variant="outline" color="dark">
-                    Browse vendors
-                  </Button>
-                </Group>
-              </Stack>
-              <img
-                alt="Illustration of a calm service queue"
-                className="prio-cta-art"
-                src="/illustrations/generated/cta-queue-scene-transparent.png"
-              />
-            </SimpleGrid>
-          </Paper>
-        </Container>
-      </Box>
+      <section id="get-started" className="lp-closing" aria-labelledby="closing-title">
+        <div className="lp-container lp-closing-grid">
+          <div className="lp-closing-copy">
+            <p className="lp-eyebrow" data-closing-reveal>A BETTER DAY STARTS HERE</p>
+            <h2 id="closing-title"><span data-closing-reveal>Good service.</span><br /><em data-closing-reveal>More breathing room.</em></h2>
+            <p data-closing-reveal>Give your customers their time back.<br />Give your team a clearer way to serve.</p>
+            <div className="lp-closing-actions">
+              <Button data-closing-reveal component={Link} to="/register/vendor" color="orange" size="xl" radius="xl" rightSection={<IconArrowUpRight size={22} stroke={1.5} aria-hidden="true" />}>Create your workspace</Button>
+              <a data-closing-reveal href="/vendors" className="lp-text-link">Explore vendors <IconArrowRight size={16} aria-hidden="true" /></a>
+            </div>
+            <div className="lp-closing-footnote" data-closing-reveal>From the first scan to the final smile.</div>
+          </div>
+          <div className="lp-closing-scene">
+            <img className="lp-closing-logo" src="/logo.svg" alt="" aria-hidden="true" />
+            <div className="lp-closing-scene-label"><span className="lp-dot" />LESS WAITING. MORE POSSIBILITY.</div>
+            <img className="lp-closing-art" src="/illustrations/generated/cta-queue-scene-transparent.png" alt="Customers enjoying a calm service queue" loading="lazy" />
+            <div className="lp-closing-scene-footer"><span>YOUR PLACE IS KEPT.</span><span>YOUR DAY IS YOURS. <IconArrowUpRight size={12} aria-hidden="true" /></span></div>
+          </div>
+        </div>
+      </section>
 
       <Modal
         centered
+        className="customer-modal"
+        transitionProps={{ transition: "slide-up", duration: 240, timingFunction: "ease-out" }}
         classNames={{
           body: "enterprise-contact-modal-body",
           content: "enterprise-contact-modal",
@@ -373,41 +411,47 @@ export default function LandingPage() {
         opened={enterpriseDialogOpen}
         onClose={() => setEnterpriseDialogOpen(false)}
         size={1180}
-        title="Enterprise consultation"
-      >
-        <SimpleGrid cols={{ base: 1, md: 2 }} spacing={0}>
-          <Stack className="enterprise-contact-panel" gap="xl" p={{ base: "xl", md: 48 }}>
-            <div>
-              <Text className="finazze-section-label finazze-section-label-light">Contact us</Text>
-              <Title c="white" order={2} mt="sm">
-                Your Enterprise queue rollout starts with a conversation.
-              </Title>
-              <Text c="rgba(255,255,255,0.72)" mt="md">
-                Tell us about your locations, expected queue volume, and support needs. We will
-                route your request to the GetPrio platform team.
-              </Text>
-            </div>
-            <Stack gap="md">
-              {[
-                { icon: IconMessageCircle, label: "Response", value: "Setup consultation" },
-                { icon: IconMail, label: "Sent to", value: "Platform settings email" },
-                { icon: IconPhone, label: "Best for", value: "Multi-branch operations" }
-              ].map(({ icon: Icon, label, value }) => (
-                <Group className="enterprise-contact-info-row" key={label} wrap="nowrap">
-                  <ThemeIcon color="orange" radius="xl" size={44} variant="filled">
-                    <Icon size={22} />
-                  </ThemeIcon>
-                  <div>
-                    <Text c="rgba(255,255,255,0.58)" size="sm">{label}</Text>
-                    <Text c="white" fw={800}>{value}</Text>
-                  </div>
-                </Group>
-              ))}
-            </Stack>
+        title={
+          <Stack className="getprio-modal-title" gap={2}>
+            <Text className="getprio-modal-eyebrow">ENTERPRISE</Text>
+            <Text className="getprio-modal-heading">Enterprise consultation</Text>
           </Stack>
+        }
+      >
+        <Box component="form" className="enterprise-contact-modal-shell" onSubmit={handleEnterpriseSubmit}>
+          <ScrollArea className="enterprise-contact-modal-main" offsetScrollbars scrollbars="y" scrollbarSize={8} type="always">
+            <SimpleGrid cols={{ base: 1, md: 2 }} spacing={0}>
+              <Stack className="enterprise-contact-panel" gap="xl" p={{ base: "xl", md: 48 }}>
+                <div>
+                  <Text className="finazze-section-label finazze-section-label-light">Contact us</Text>
+                  <Title c="white" order={2} mt="sm">
+                    Your Enterprise queue rollout starts with a conversation.
+                  </Title>
+                  <Text c="rgba(255,255,255,0.72)" mt="md">
+                    Tell us about your locations, expected queue volume, and support needs. We will
+                    route your request to the GetPrio platform team.
+                  </Text>
+                </div>
+                <Stack gap="md">
+                  {[
+                    { icon: IconMessageCircle, label: "Response", value: "Setup consultation" },
+                    { icon: IconMail, label: "Sent to", value: "Platform settings email" },
+                    { icon: IconPhone, label: "Best for", value: "Multi-branch operations" }
+                  ].map(({ icon: Icon, label, value }) => (
+                    <Group className="enterprise-contact-info-row" key={label} wrap="nowrap">
+                      <ThemeIcon color="orange" radius="xl" size={44} variant="filled">
+                        <Icon size={22} />
+                      </ThemeIcon>
+                      <div>
+                        <Text c="rgba(255,255,255,0.58)" size="sm">{label}</Text>
+                        <Text c="white" fw={800}>{value}</Text>
+                      </div>
+                    </Group>
+                  ))}
+                </Stack>
+              </Stack>
 
-          <Box p={{ base: "xl", md: 48 }}>
-            <form onSubmit={handleEnterpriseSubmit}>
+              <Box p={{ base: "xl", md: 48 }}>
               <Stack gap="lg">
                 <div>
                   <Text className="finazze-section-label">Send request</Text>
@@ -445,43 +489,74 @@ export default function LandingPage() {
                       setEnterpriseForm((current) => ({ ...current, email: event.target.value }))
                     }
                   />
-                  <TextInput
+                  <PhilippineMobileInput
                     name="phone"
                     label="Phone"
                     size="lg"
                     value={enterpriseForm.phone}
-                    onChange={(event) =>
-                      setEnterpriseForm((current) => ({ ...current, phone: event.target.value }))
+                    onChange={(nextValue) =>
+                      setEnterpriseForm((current) => ({ ...current, phone: nextValue }))
                     }
                   />
                 </SimpleGrid>
-                <Textarea
-                  name="message"
-                  label="Message"
-                  minRows={6}
-                  placeholder="Tell us about branches, expected queue volume, or support needs."
-                  size="lg"
-                  value={enterpriseForm.message}
+                <Box className="enterprise-message-field">
+                  <Textarea
+                    autosize
+                    classNames={{ input: "enterprise-message-input" }}
+                    label="Message"
+                    maxLength={enterpriseMessageMaxLength}
+                    maxRows={10}
+                    minRows={4}
+                    name="message"
+                    placeholder="Tell us about branches, expected queue volume, or support needs."
+                    size="lg"
+                    value={enterpriseForm.message}
+                    onChange={(event) =>
+                      setEnterpriseForm((current) => ({
+                        ...current,
+                        message: event.currentTarget.value.slice(0, enterpriseMessageMaxLength)
+                      }))
+                    }
+                  />
+                  <Text aria-live="polite" className="enterprise-message-counter" c="dimmed" size="xs">
+                    {enterpriseForm.message.length}/{enterpriseMessageMaxLength} characters
+                  </Text>
+                </Box>
+                <TextInput
+                  aria-hidden="true"
+                  autoComplete="off"
+                  className="contact-form-honeypot"
+                  name="honeypot"
                   onChange={(event) =>
-                    setEnterpriseForm((current) => ({ ...current, message: event.target.value }))
+                    setEnterpriseForm((current) => ({ ...current, honeypot: event.currentTarget.value }))
                   }
+                  tabIndex={-1}
+                  value={enterpriseForm.honeypot}
                 />
+                {shouldUseEnterpriseTurnstile ? (
+                  <Box className="turnstile-panel">
+                    <div ref={enterpriseTurnstileContainerRef} />
+                  </Box>
+                ) : null}
                 {enterpriseError ? <Alert color="red">{enterpriseError}</Alert> : null}
-                <Group justify="space-between">
-                  <Text c="dimmed" size="sm">We only use this to respond to your Enterprise request.</Text>
-                  <Group>
-                    <Button size="md" variant="default" onClick={() => setEnterpriseDialogOpen(false)}>
-                      Close
-                    </Button>
-                    <Button color="dark" disabled={enterpriseSubmitting} size="md" type="submit">
-                      {enterpriseSubmitting ? "Sending..." : "Send request"}
-                    </Button>
-                  </Group>
-                </Group>
               </Stack>
-            </form>
-          </Box>
-        </SimpleGrid>
+              </Box>
+            </SimpleGrid>
+          </ScrollArea>
+          <Group className="customer-modal-actions enterprise-contact-modal-footer" justify="space-between">
+            <Text c="dimmed" size="sm">
+              Protected by anti-abuse verification and rate limiting. We only use this to respond to your request.
+            </Text>
+            <Button
+              color="dark"
+              disabled={enterpriseSubmitting || (shouldUseEnterpriseTurnstile && !enterpriseTurnstileReady)}
+              size="md"
+              type="submit"
+            >
+              {enterpriseSubmitting ? "Sending..." : "Send request"}
+            </Button>
+          </Group>
+        </Box>
       </Modal>
     </Stack>
   );

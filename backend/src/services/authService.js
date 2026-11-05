@@ -10,6 +10,37 @@ function normalizeEmail(value) {
     .toLowerCase();
 }
 
+function validateEmail(value) {
+  const email = normalizeEmail(value);
+  const atIndex = email.indexOf("@");
+  const lastAtIndex = email.lastIndexOf("@");
+  const dotIndex = email.lastIndexOf(".");
+  if (
+    typeof value !== "string" ||
+    !email ||
+    email.length > 254 ||
+    atIndex <= 0 ||
+    atIndex !== lastAtIndex ||
+    dotIndex <= atIndex + 1 ||
+    dotIndex >= email.length - 1 ||
+    /\s/.test(email)
+  ) {
+    const error = new Error("Enter a valid email address.");
+    error.statusCode = 400;
+    error.code = "INVALID_REQUEST";
+    throw error;
+  }
+  return email;
+}
+
+function normalizeLoginIdentifier(value) {
+  const identifierValue = String(value || "").trim().toLowerCase();
+  return {
+    identifierType: identifierValue.includes("@") ? "email" : "username",
+    identifierValue
+  };
+}
+
 function getRequestIp(req) {
   return (
     req.headers["cf-connecting-ip"] ||
@@ -55,15 +86,27 @@ async function verifyPasswordLogin(user, password) {
   return bcrypt.compare(password, user.passwordHash);
 }
 
-async function recordLoginAttempt({ email, success, failureReason, user, sessionId, req, client }) {
+async function recordLoginAttempt({
+  email,
+  identifierType,
+  identifierValue,
+  success,
+  failureReason,
+  user,
+  sessionId,
+  req,
+  client
+}) {
   const normalizedEmail = normalizeEmail(email);
+  const normalizedIdentifierValue = String(identifierValue || normalizedEmail).trim().toLowerCase();
+  const normalizedIdentifierType = identifierType || "email";
   const ipAddress = getRequestIp(req);
   const userAgent = getUserAgent(req);
 
   await authLoginAttemptRepository.createAttempt(
     {
-      identifierType: "email",
-      identifierValue: normalizedEmail,
+      identifierType: normalizedIdentifierType,
+      identifierValue: normalizedIdentifierValue,
       ipAddress,
       userAgent,
       success,
@@ -81,8 +124,8 @@ async function recordLoginAttempt({ email, success, failureReason, user, session
       ipAddress,
       userAgent,
       metadata: {
-        identifierType: "email",
-        identifierValue: normalizedEmail,
+        identifierType: normalizedIdentifierType,
+        identifierValue: normalizedIdentifierValue,
         failureReason: failureReason || null
       }
     },
@@ -212,6 +255,8 @@ module.exports = {
   handleSuccessfulPasswordLogin,
   isUserLocked,
   normalizeEmail,
+  validateEmail,
+  normalizeLoginIdentifier,
   recordLockedLoginAttempt,
   recordLoginAttempt,
   verifyPasswordLogin

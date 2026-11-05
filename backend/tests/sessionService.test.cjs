@@ -129,6 +129,8 @@ test("session service uses role-based refresh TTLs and hashes refresh tokens", a
       { expiresIn: "15m" }
     ));
     assert.equal(new Date(createCalls[0].expiresAt).toISOString(), "2026-07-31T00:00:00.000Z");
+    assert.equal(createCalls[0].absoluteExpiresAt, createCalls[0].expiresAt);
+    assert.equal(new Date(createCalls[0].inactivityExpiresAt).toISOString(), "2026-07-08T00:00:00.000Z");
 
     const rotated = await sessionService.rotateRefreshSession({
       session: { _id: "session-1" },
@@ -163,4 +165,133 @@ test("session service uses role-based refresh TTLs and hashes refresh tokens", a
   } finally {
     Date.now = originalNow;
   }
+});
+
+test("developer-only local session override keeps the developer session alive", async () => {
+  const createCalls = [];
+  const sessionService = requireWithMocks("../src/services/sessionService.js", {
+    "../config/env": {
+      nodeEnv: "development",
+      jwtSecret: "test-secret",
+      accessTokenTtlMinutes: 15,
+      developerSessionNoExpiry: true,
+      developerSessionNoExpiryDays: 3650,
+      sessionInactivityMinutes: 60
+    },
+    "../repositories/authSessions": {
+      createSession: async (data) => { createCalls.push(data); return { _id: "developer-session", ...data }; }
+    }
+  });
+
+  const result = await sessionService.createAuthSession({
+    user: { _id: "7", roles: ["developer"], tenantMemberships: [] },
+    authMethod: "password",
+    surface: "developer"
+  });
+  const ttlDays = (new Date(createCalls[0].expiresAt).getTime() - Date.now()) / (24 * 60 * 60 * 1000);
+  assert.ok(ttlDays > 3649);
+  assert.equal(createCalls[0].inactivityExpiresAt.getTime(), createCalls[0].expiresAt.getTime());
+  assert.equal(result.accessToken, jwt.sign(
+    { sub: "7", session_id: "developer-session", roles: ["developer"], surface: "developer" },
+    "test-secret",
+    { expiresIn: "5256000m" }
+  ));
+});
+
+test("suspended accounts cannot create or refresh authenticated sessions", async () => {
+  let repositoryCalls = 0;
+  const sessionService = requireWithMocks("../src/services/sessionService.js", {
+    "../config/env": {
+      jwtSecret: "test-secret",
+      accessTokenTtlMinutes: 15,
+      refreshTokenTtlDaysCustomer: 30,
+      refreshTokenTtlDaysVendorStaff: 14,
+      refreshTokenTtlDaysVendorAdmin: 7,
+      refreshTokenTtlDaysPlatformAdmin: 3
+    },
+    "../repositories/authSessions": {
+      createSession: async () => { repositoryCalls += 1; },
+      rotateSessionRefreshToken: async () => { repositoryCalls += 1; }
+    }
+  });
+  const suspendedUser = {
+    _id: "user-1",
+    roles: ["customer"],
+    tenantMemberships: [],
+    platformAccessSuspendedAt: new Date()
+  };
+
+  await assert.rejects(
+    sessionService.createAuthSession({ user: suspendedUser, authMethod: "password" }),
+    (error) => error.code === "ACCOUNT_ACCESS_SUSPENDED" && error.statusCode === 403
+  );
+  await assert.rejects(
+    sessionService.rotateRefreshSession({ session: { _id: "session-1" }, user: suspendedUser }),
+    (error) => error.code === "ACCOUNT_ACCESS_SUSPENDED" && error.statusCode === 403
+  );
+  assert.equal(repositoryCalls, 0);
+});
+
+test("session service rejects concurrent rotation without revoking the winner", async () => {
+  let revoked = false;
+  const sessionService = requireWithMocks("../src/services/sessionService.js", {
+    "../config/env": {
+      jwtSecret: "test-secret",
+      accessTokenTtlMinutes: 15,
+      refreshTokenTtlDaysCustomer: 30,
+      refreshTokenTtlDaysVendorStaff: 14,
+      refreshTokenTtlDaysVendorAdmin: 7,
+      refreshTokenTtlDaysPlatformAdmin: 7,
+      sessionInactivityMinutes: 10080
+    },
+    "../repositories/authSessions": {
+      rotateSessionRefreshToken: async () => null,
+      findSessionByPreviousRefreshTokenHash: async () => ({
+        _id: "session-1",
+        lastRotatedAt: new Date()
+      }),
+      revokeSession: async () => { revoked = true; }
+    }
+  });
+
+  await assert.rejects(
+    () => sessionService.rotateRefreshSession({
+      session: { _id: "session-1", refreshTokenHash: "old-hash" },
+      user: { _id: "user-1", roles: ["customer"], tenantMemberships: [] }
+    }),
+    (error) => error.statusCode === 409 && error.code === "REFRESH_ALREADY_ROTATED"
+  );
+  assert.equal(revoked, false);
+});
+
+test("session service revokes replayed refresh credentials outside concurrency grace", async () => {
+  let revoked = false;
+  const sessionService = requireWithMocks("../src/services/sessionService.js", {
+    "../config/env": {
+      jwtSecret: "test-secret",
+      accessTokenTtlMinutes: 15,
+      refreshTokenTtlDaysCustomer: 30,
+      refreshTokenTtlDaysVendorStaff: 14,
+      refreshTokenTtlDaysVendorAdmin: 7,
+      refreshTokenTtlDaysPlatformAdmin: 7,
+      sessionInactivityMinutes: 10080
+    },
+    "../repositories/authSessions": {
+      rotateSessionRefreshToken: async () => null,
+      findSessionByPreviousRefreshTokenHash: async () => ({
+        _id: "session-1",
+        lastRotatedAt: new Date(Date.now() - 60_000)
+      }),
+      revokeSession: async () => { revoked = true; }
+    }
+  });
+
+  await assert.rejects(
+    () => sessionService.rotateRefreshSession({
+      session: { _id: "session-1", refreshTokenHash: "old-hash" },
+      user: { _id: "user-1", roles: ["customer"], tenantMemberships: [] }
+    }),
+    (error) => error.statusCode === 401 && error.code === "REFRESH_REUSE_DETECTED"
+  );
+  assert.equal(revoked, true);
 });

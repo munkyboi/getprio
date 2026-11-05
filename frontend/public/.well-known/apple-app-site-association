@@ -1,0 +1,13 @@
+{
+  "applinks": {
+    "details": [
+      {
+        "appIDs": ["9N389C96JP.com.getprio.getprioMobile"],
+        "components": [
+          { "/": "/payment/return" },
+          { "/": "/oauth/mobile/callback" }
+        ]
+      }
+    ]
+  }
+}

@@ -22,7 +22,8 @@ function mapNotificationDelivery(row) {
     errorMessage: row.error_message,
     metadata: row.metadata || {},
     sentAt: row.sent_at,
-    createdAt: row.created_at
+    createdAt: row.created_at,
+    outboxId: row.outbox_id ? String(row.outbox_id) : null
   };
 }
 
@@ -41,14 +42,15 @@ async function recordDelivery(data, options = {}) {
         status,
         error_message,
         metadata,
-        sent_at
+        sent_at,
+        outbox_id
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, CASE WHEN $8 = 'sent' THEN NOW() ELSE NULL END)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, CASE WHEN $8 = 'sent' THEN NOW() ELSE NULL END, $11)
       RETURNING *
     `,
     [
-      data.tenantId ? Number(data.tenantId) : null,
-      data.ticketId ? Number(data.ticketId) : null,
+      data.tenantId ? String(data.tenantId) : null,
+      data.ticketId ? String(data.ticketId) : null,
       data.channel,
       data.purpose || "general",
       data.recipient,
@@ -56,7 +58,8 @@ async function recordDelivery(data, options = {}) {
       data.provider || null,
       data.status,
       data.errorMessage || null,
-      JSON.stringify(data.metadata || {})
+      JSON.stringify(data.metadata || {}),
+      data.outboxId ? String(data.outboxId) : null
     ]
   );
 
@@ -65,7 +68,7 @@ async function recordDelivery(data, options = {}) {
 
 async function countSentEmails(tenantId, options = {}) {
   const queryClient = buildQueryClient(options.client);
-  const values = [Number(tenantId)];
+  const values = [String(tenantId)];
   const filters = ["tenant_id = $1", "channel = 'email'", "status = 'sent'"];
 
   if (options.from) {

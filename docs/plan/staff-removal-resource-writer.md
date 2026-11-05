@@ -1,0 +1,19 @@
+# Staff removal resource writer (B2.2)
+
+Vendor staff deletion uses the existing tenant catalog transaction: lock all current branches in numeric ID order with `FOR NO KEY UPDATE`, then the tenant with `FOR UPDATE`, then current actor and target access grants. Discovery is repeated after tenant acquisition; a concurrent branch insertion causes rollback and a reload/retry. Counter writers and dispatch follow compatible branch-first ordering. Existing tenant-first staff invitation/access editing can still insert branch foreign keys because the branch lock permits key-share.
+
+The actor must currently be an active, nondeleted, nonsuspended vendor owner with `tenant.staff.manage`; actor grants remain shared-locked through commit. The target user is share-locked and its selected membership update-locked, then reread after waits. Compatible user locks permit reciprocal removals across different vendors without an actor/target lock cycle. Self-removal, missing membership and owner removal retain their existing rejection semantics. Inactive/suspended target cleanup remains possible. HTTP deletion still returns 204. Other vendor memberships and their counter assignments are preserved.
+
+Counter assignment deletion reports the branches actually changed. For staff, affected branches are the union of deleted counter assignment branches and explicit branch grants removed with the membership. Administrator removal affects every current branch because administrator access is vendor-wide. Each affected branch advances once regardless of the number of counters. A staff member without branch grants or counter assignments advances no scope. Missing scope storage is initialized and advanced by the existing helper, without asserting coverage. A repeated deletion returns 404 with no additional revision or notification.
+
+Counter deletion, membership/grant deletion, affected branch revisions and existing access-notification outbox intents commit on the same client. Email delivery remains the asynchronous worker's responsibility. Assignment, membership, revision, outbox or commit failure rolls everything back. Identifiers in the selected user read/hydration, location-grant read and membership deletion paths remain exact strings; unsafe numeric request IDs are rejected.
+
+## Acceptance
+
+Disposable PostgreSQL tests cover multi-branch deduplication and unrelated-tenant preservation; administrator and unassigned staff behavior; revision/membership/outbox rollback; revoked owner and promoted target after lock waits; concurrent counter assignment before/after removal; concurrent branch discovery and retry; held grants; adjacent BIGINT identity; and called attribution plus unreleased allocation retention. Existing counter administration and service-session suites must remain compatible.
+
+## Remaining boundaries
+
+No ticket is called, cancelled or served. No reservation/allocation is released. No quota or entitlement policy changes. No UI changes, migration, repair, tracking activation, complete writer-coverage claim or customer inference. Staff invitation/status/role/location edits, platform grant/policy edits, account deletion and direct maintenance writers retain separately inventoried B2 gaps. Historical reconciliation, complete operational snapshot assembly and a live inference consumer remain separate work.
+
+Local verification: 1,324 backend tests passed, 9 optional skips, zero failures using explicit disposable loopback allowance/resource URLs. This includes 12 new PostgreSQL tests and the real counter/dispatch/service-session suites. Backend typecheck, changed-source ESLint and diff checks passed. Standards and specification reviews found no remaining actionable findings after the reciprocal-removal lock fix. Hosted checks and authenticated live staff-removal acceptance remain separate gates.

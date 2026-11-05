@@ -7,7 +7,7 @@ function buildAsyncHandlerMock() {
   return (handler) => (req, res, next) => Promise.resolve(handler(req, res, next)).catch(next);
 }
 
-function buildAuthMock() {
+function buildAuthMock(options = {}) {
   return {
     authenticate(req, _res, next) {
       req.user = {
@@ -18,10 +18,12 @@ function buildAuthMock() {
         phone: "09171234567",
         emailVerified: true,
         mfaEnabled: false,
-        mfaRequired: false
+        mfaRequired: false,
+        ...(options.user || {})
       };
       next();
-    }
+    },
+    assertTenantPermission: options.assertTenantPermission || (() => {})
   };
 }
 
@@ -72,6 +74,7 @@ function buildFutureManilaSlot(weeksAhead = 1, weekday = 1, hour = 10, minute = 
 }
 
 function requireWithMocks(targetPath, mocks) {
+  mocks = { '../services/platformMaintenanceService': require('./helpers/maintenanceFixture.cjs').maintenance, ...mocks };
   const resolvedTarget = require.resolve(targetPath);
   const originals = new Map();
 
@@ -130,12 +133,102 @@ async function stopServer(server) {
   });
 }
 
+test("customer can reach the self-service account deletion options endpoint", async () => {
+  const previousFlag = process.env.ACCOUNT_DELETION_ENABLED;
+  process.env.ACCOUNT_DELETION_ENABLED = "true";
+  const router = requireWithMocks("../src/routes/accountRoutes.js", {
+    "../middleware/auth": {
+      authenticate(req, _res, next) {
+        req.user = { _id: "customer-delete-1", roles: ["customer"], passwordHash: "hash" };
+        req.auth = { session: { authMethod: "password", primaryAuthenticatedAt: new Date() } };
+        next();
+      },
+      assertTenantPermission: () => {}
+    },
+    "../middleware/asyncHandler": buildAsyncHandlerMock()
+  });
+  const { server, baseUrl } = await startServer(router, "/api/account");
+  try {
+    const response = await fetch(`${baseUrl}/deletion-options`);
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { passwordRequired: true });
+  } finally {
+    await stopServer(server);
+    if (previousFlag === undefined) delete process.env.ACCOUNT_DELETION_ENABLED;
+    else process.env.ACCOUNT_DELETION_ENABLED = previousFlag;
+  }
+});
+
+test("customer account deletion request uses only the authenticated account", async () => {
+  const previousFlag = process.env.ACCOUNT_DELETION_ENABLED;
+  process.env.ACCOUNT_DELETION_ENABLED = "true";
+  let requestInput;
+  let sessionCleared = false;
+  const deletionPath = require.resolve("../src/services/accountDeletionService");
+  const browserSessionPath = require.resolve("../src/services/browserSessionService");
+  const previousDeletion = require.cache[deletionPath];
+  const previousBrowserSession = require.cache[browserSessionPath];
+  require.cache[deletionPath] = {
+    id: deletionPath,
+    filename: deletionPath,
+    loaded: true,
+    exports: {
+      requestDeletion: async (input) => {
+        requestInput = input;
+        return { status: "accepted", requestId: "request-1", dueAt: "2026-10-28T00:00:00.000Z" };
+      }
+    }
+  };
+  require.cache[browserSessionPath] = {
+    id: browserSessionPath,
+    filename: browserSessionPath,
+    loaded: true,
+    exports: { clearBrowserSession: () => { sessionCleared = true; } }
+  };
+  const router = requireWithMocks("../src/routes/accountRoutes.js", {
+    "../middleware/auth": {
+      authenticate(req, _res, next) {
+        req.user = { _id: "customer-delete-1", roles: ["customer"], passwordHash: "hash" };
+        req.auth = { session: { authMethod: "password", primaryAuthenticatedAt: new Date() } };
+        next();
+      },
+      assertTenantPermission: () => {}
+    },
+    "../middleware/asyncHandler": buildAsyncHandlerMock()
+  });
+  const { server, baseUrl } = await startServer(router, "/api/account");
+  try {
+    const response = await fetch(`${baseUrl}/delete`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password: "current-password", userId: "another-user" })
+    });
+    assert.equal(response.status, 202);
+    assert.equal((await response.json()).requestId, "request-1");
+    assert.equal(requestInput.userId, "customer-delete-1");
+    assert.equal(requestInput.password, "current-password");
+    assert.equal(sessionCleared, true);
+  } finally {
+    await stopServer(server);
+    if (previousDeletion) require.cache[deletionPath] = previousDeletion;
+    else delete require.cache[deletionPath];
+    if (previousBrowserSession) require.cache[browserSessionPath] = previousBrowserSession;
+    else delete require.cache[browserSessionPath];
+    if (previousFlag === undefined) delete process.env.ACCOUNT_DELETION_ENABLED;
+    else process.env.ACCOUNT_DELETION_ENABLED = previousFlag;
+  }
+});
+
 test("customer account overview and history expose owned tickets only", async () => {
   const tickets = [
     {
       _id: "ticket-1",
       lookupCode: "ABC12345",
       ticketNumber: "DMO-001",
+      customerConfirmedAt: "2026-10-09T04:00:00Z",
+      serviceStartedAt: "2026-10-09T04:01:00Z",
+      serviceEndedAt: "2026-10-09T04:10:00Z",
+      serviceOutcome: "interrupted",
       tenantName: "Demo Tenant",
       tenantSlug: "demo",
       locationName: "Main",
@@ -147,10 +240,27 @@ test("customer account overview and history expose owned tickets only", async ()
   ];
 
   const router = requireWithMocks("../src/routes/accountRoutes.js", {
-    "../middleware/auth": buildAuthMock(),
+    "../middleware/auth": buildAuthMock({
+      user: { roles: ["customer", "platform_release_observer"] }
+    }),
     "../middleware/asyncHandler": buildAsyncHandlerMock(),
     "../repositories/tickets": {
+      getCustomerTicketStats: async () => ({ joined: 75, served: 1 }),
       listTicketsForCustomerAccount: async () => tickets
+    },
+    "../repositories/ratings": {
+      getUserTrustAggregate: async () => ({ average: 4.4, count: 5 })
+    },
+    "../services/mfaFlowService": {
+      getLoginMethods: async (user) => {
+        assert.equal(user._id, "user-1");
+        return ["totp", "recovery", "email"];
+      }
+    },
+    "../services/mfaService": {
+      userRequiresPrivilegedMfa: (user) => (user.roles || []).some((role) =>
+        ["platform_admin", "platform_release_observer"].includes(role)
+      )
     },
     "../services/passwordResetService": {
       changePassword: async () => {}
@@ -166,8 +276,17 @@ test("customer account overview and history expose owned tickets only", async ()
     assert.equal(overviewResponse.status, 200);
     const overview = await overviewResponse.json();
     assert.equal(overview.user.email, "customer@example.com");
+    assert.equal(overview.user.mfaRequired, true);
+    assert.equal(overview.user.totpMfaEnabled, true);
+    assert.equal(overview.user.emailMfaEnabled, true);
+    assert.equal(overview.trustRating, undefined);
+    assert.deepEqual(overview.ticketStats, { joined: 75, served: 1 });
     assert.equal(overview.tickets.length, 1);
     assert.equal(overview.tickets[0].ticketNumber, "DMO-001");
+    assert.equal(overview.tickets[0].serviceStartedAt, "2026-10-09T04:01:00Z");
+    assert.equal(overview.tickets[0].customerConfirmedAt, "2026-10-09T04:00:00Z");
+    assert.equal(overview.tickets[0].serviceEndedAt, "2026-10-09T04:10:00Z");
+    assert.equal(overview.tickets[0].serviceOutcome, "interrupted");
 
     const historyResponse = await fetch(`${baseUrl}/history?limit=500`, {
       headers: { Authorization: "Bearer token" }
@@ -176,6 +295,7 @@ test("customer account overview and history expose owned tickets only", async ()
     const history = await historyResponse.json();
     assert.equal(history.tickets.length, 1);
     assert.equal(history.tickets[0].lookupCode, "ABC12345");
+    assert.equal(history.tickets[0].serviceOutcome, "interrupted");
   } finally {
     await stopServer(server);
   }
@@ -195,6 +315,7 @@ test("customer can update profile name without changing username", async () => {
         return {
           _id: userId,
           name: changes.name,
+          displayName: changes.displayName || "",
           username: "customer_one",
           email: "customer@example.com",
           phone: "09171234567",
@@ -216,18 +337,21 @@ test("customer can update profile name without changing username", async () => {
       method: "PATCH",
       headers: { "Content-Type": "application/json", Authorization: "Bearer token" },
       body: JSON.stringify({
-        name: "Customer Updated"
+        name: "Customer Updated",
+        displayName: "John S."
       })
     });
     assert.equal(response.status, 200);
     const body = await response.json();
     assert.equal(body.user.name, "Customer Updated");
+    assert.equal(body.user.displayName, "John S.");
     assert.equal(body.user.username, "customer_one");
     assert.equal(body.success, true);
     assert.deepEqual(profileUpdates[0], {
       userId: "user-1",
       changes: {
-        name: "Customer Updated"
+        name: "Customer Updated",
+        displayName: "John S."
       }
     });
 
@@ -239,6 +363,449 @@ test("customer can update profile name without changing username", async () => {
       })
     });
     assert.equal(invalidResponse.status, 400);
+  } finally {
+    await stopServer(server);
+  }
+});
+
+test("customer can upload a public profile photo", async () => {
+  const uploads = [];
+  const router = requireWithMocks("../src/routes/accountRoutes.js", {
+    "../middleware/auth": buildAuthMock(),
+    "../middleware/asyncHandler": buildAsyncHandlerMock(),
+    "../services/userAvatarUploadService": {
+      uploadAvatar: async (input) => {
+        uploads.push(input);
+        return {
+          avatarUrl: "https://cdn.example.test/user-avatars/users/user-1/avatar.png",
+          user: {
+            _id: "user-1",
+            name: "Customer One",
+            displayName: "",
+            avatarUrl: "https://cdn.example.test/user-avatars/users/user-1/avatar.png",
+            username: "customer_one",
+            email: "customer@example.com",
+            phone: "09171234567",
+            emailVerified: true,
+            mfaEnabled: false,
+            mfaRequired: false
+          }
+        };
+      }
+    },
+    "../services/passwordResetService": {
+      changePassword: async () => {}
+    }
+  });
+
+  const { server, baseUrl } = await startServer(router, "/api/account");
+
+  try {
+    const response = await fetch(`${baseUrl}/profile/avatar?fileName=portrait.png`, {
+      method: "POST",
+      headers: {
+        Authorization: "Bearer token",
+        "Content-Type": "image/png"
+      },
+      body: Buffer.from("avatar-image")
+    });
+
+    assert.equal(response.status, 201);
+    const body = await response.json();
+    assert.equal(body.user.avatarUrl, "https://cdn.example.test/user-avatars/users/user-1/avatar.png");
+    assert.equal(body.avatarUrl, body.user.avatarUrl);
+    assert.equal(uploads.length, 1);
+    assert.equal(uploads[0].user._id, "user-1");
+    assert.equal(uploads[0].fileName, "portrait.png");
+    assert.equal(uploads[0].contentType, "image/png");
+    assert.deepEqual(uploads[0].fileBuffer, Buffer.from("avatar-image"));
+  } finally {
+    await stopServer(server);
+  }
+});
+
+test("customer can claim a ticket after registration when contact details match", async () => {
+  const ticketClaims = [];
+  const router = requireWithMocks("../src/routes/accountRoutes.js", {
+    "../middleware/auth": buildAuthMock(),
+    "../middleware/asyncHandler": buildAsyncHandlerMock(),
+    "../repositories/tickets": {
+      listTicketsForCustomerAccount: async () => [],
+      findTicketByLookupCode: async (lookupCode) => ({
+        _id: "ticket-1",
+        lookupCode,
+        ticketNumber: "DMO-001",
+        customerEmail: "customer@example.com",
+        customerPhone: "09171234567",
+        userId: null
+      }),
+      claimTicketForUser: async (ticketId, userId) => {
+        ticketClaims.push({ ticketId, userId });
+        return {
+          _id: ticketId,
+          lookupCode: "ABC12345",
+          ticketNumber: "DMO-001",
+          userId
+        };
+      }
+    },
+    "../services/passwordResetService": {
+      changePassword: async () => {}
+    }
+  });
+
+  const { server, baseUrl } = await startServer(router, "/api/account");
+
+  try {
+    const response = await fetch(`${baseUrl}/tickets/abc12345/claim`, {
+      method: "POST",
+      headers: { Authorization: "Bearer token" }
+    });
+    assert.equal(response.status, 200);
+    const payload = await response.json();
+    assert.equal(payload.success, true);
+    assert.equal(ticketClaims.length, 1);
+    assert.deepEqual(ticketClaims[0], { ticketId: "ticket-1", userId: "user-1" });
+  } finally {
+    await stopServer(server);
+  }
+});
+
+test("customer cannot claim a ticket when contact details do not match", async () => {
+  const ticketClaims = [];
+  const router = requireWithMocks("../src/routes/accountRoutes.js", {
+    "../middleware/auth": buildAuthMock(),
+    "../middleware/asyncHandler": buildAsyncHandlerMock(),
+    "../repositories/tickets": {
+      listTicketsForCustomerAccount: async () => [],
+      findTicketByLookupCode: async (lookupCode) => ({
+        _id: "ticket-1",
+        lookupCode,
+        ticketNumber: "DMO-001",
+        customerEmail: "other@example.com",
+        customerPhone: "09991234567",
+        userId: null
+      }),
+      claimTicketForUser: async (ticketId, userId) => {
+        ticketClaims.push({ ticketId, userId });
+        return null;
+      }
+    },
+    "../services/passwordResetService": {
+      changePassword: async () => {}
+    }
+  });
+
+  const { server, baseUrl } = await startServer(router, "/api/account");
+
+  try {
+    const response = await fetch(`${baseUrl}/tickets/abc12345/claim`, {
+      method: "POST",
+      headers: { Authorization: "Bearer token" }
+    });
+    assert.equal(response.status, 403);
+    const payload = await response.json();
+    assert.equal(payload.message, "We could not verify that this ticket belongs to you.");
+    assert.equal(ticketClaims.length, 0);
+  } finally {
+    await stopServer(server);
+  }
+});
+
+test("customer cannot claim a ticket already linked to another account", async () => {
+  const ticketClaims = [];
+  const router = requireWithMocks("../src/routes/accountRoutes.js", {
+    "../middleware/auth": buildAuthMock(),
+    "../middleware/asyncHandler": buildAsyncHandlerMock(),
+    "../repositories/tickets": {
+      listTicketsForCustomerAccount: async () => [],
+      findTicketByLookupCode: async (lookupCode) => ({
+        _id: "ticket-1",
+        lookupCode,
+        ticketNumber: "DMO-001",
+        customerEmail: "customer@example.com",
+        customerPhone: "09171234567",
+        userId: "other-user"
+      }),
+      claimTicketForUser: async (ticketId, userId) => {
+        ticketClaims.push({ ticketId, userId });
+        return null;
+      }
+    },
+    "../services/passwordResetService": {
+      changePassword: async () => {}
+    }
+  });
+
+  const { server, baseUrl } = await startServer(router, "/api/account");
+
+  try {
+    const response = await fetch(`${baseUrl}/tickets/abc12345/claim`, {
+      method: "POST",
+      headers: { Authorization: "Bearer token" }
+    });
+    assert.equal(response.status, 403);
+    assert.equal(ticketClaims.length, 0);
+  } finally {
+    await stopServer(server);
+  }
+});
+
+test("customer claim fails when another account wins the ownership race", async () => {
+  const router = requireWithMocks("../src/routes/accountRoutes.js", {
+    "../middleware/auth": buildAuthMock(),
+    "../middleware/asyncHandler": buildAsyncHandlerMock(),
+    "../repositories/tickets": {
+      listTicketsForCustomerAccount: async () => [],
+      findTicketByLookupCode: async (lookupCode) => ({
+        _id: "ticket-1",
+        lookupCode,
+        ticketNumber: "DMO-001",
+        customerEmail: "customer@example.com",
+        customerPhone: "09171234567",
+        userId: null
+      }),
+      claimTicketForUser: async () => null
+    },
+    "../services/passwordResetService": {
+      changePassword: async () => {}
+    }
+  });
+
+  const { server, baseUrl } = await startServer(router, "/api/account");
+
+  try {
+    const response = await fetch(`${baseUrl}/tickets/abc12345/claim`, {
+      method: "POST",
+      headers: { Authorization: "Bearer token" }
+    });
+    assert.equal(response.status, 409);
+  } finally {
+    await stopServer(server);
+  }
+});
+
+test("account push subscription route creates and updates tenant-scoped subscriptions", async () => {
+  const permissionChecks = [];
+  const saves = [];
+  const router = requireWithMocks("../src/routes/accountRoutes.js", {
+    "../middleware/auth": buildAuthMock({
+      assertTenantPermission: (user, tenantId, permission) => {
+        permissionChecks.push({ userId: user._id, tenantId, permission });
+      }
+    }),
+    "../middleware/asyncHandler": buildAsyncHandlerMock(),
+    "../repositories/tickets": {
+      listTicketsForCustomerAccount: async () => []
+    },
+    "../repositories/tenants": {
+      findTenantBySlug: async (slug, options) => {
+        assert.deepEqual(options, { activeOnly: true });
+        return { _id: "tenant-1", slug };
+      }
+    },
+    "../services/pushNotificationService": {
+      saveSubscription: async (input) => {
+        saves.push(input);
+        return {
+          _id: "subscription-1",
+          userId: input.user._id,
+          tenantId: input.tenant._id,
+          endpoint: input.payload.endpoint,
+          p256dh: input.payload.keys.p256dh,
+          auth: input.payload.keys.auth,
+          userAgent: input.userAgent,
+          isActive: true
+        };
+      }
+    },
+    "../services/passwordResetService": {
+      changePassword: async () => {}
+    }
+  });
+
+  const { server, baseUrl } = await startServer(router, "/api/account");
+
+  try {
+    const createResponse = await fetch(`${baseUrl}/push-subscriptions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer token",
+        "User-Agent": "node-test-agent"
+      },
+      body: JSON.stringify({
+        tenantSlug: "demo-vendor",
+        subscription: {
+          endpoint: "https://push.example.test/subscription-1",
+          keys: {
+            p256dh: "p256dh-key-1",
+            auth: "auth-key-1"
+          }
+        }
+      })
+    });
+    assert.equal(createResponse.status, 201);
+    const created = await createResponse.json();
+    assert.equal(created.subscription.endpoint, "https://push.example.test/subscription-1");
+    assert.equal(created.subscription.p256dh, "p256dh-key-1");
+
+    const updateResponse = await fetch(`${baseUrl}/push-subscriptions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer token",
+        "User-Agent": "node-test-agent"
+      },
+      body: JSON.stringify({
+        tenantSlug: "demo-vendor",
+        subscription: {
+          endpoint: "https://push.example.test/subscription-1",
+          keys: {
+            p256dh: "p256dh-key-2",
+            auth: "auth-key-2"
+          }
+        }
+      })
+    });
+    assert.equal(updateResponse.status, 201);
+    const updated = await updateResponse.json();
+    assert.equal(updated.subscription.p256dh, "p256dh-key-2");
+    assert.equal(updated.subscription.auth, "auth-key-2");
+
+    assert.deepEqual(permissionChecks, [
+      { userId: "user-1", tenantId: "tenant-1", permission: "tenant.queue.read" },
+      { userId: "user-1", tenantId: "tenant-1", permission: "tenant.queue.read" }
+    ]);
+    assert.equal(saves.length, 2);
+    assert.equal(saves[0].user._id, "user-1");
+    assert.equal(saves[0].tenant._id, "tenant-1");
+    assert.equal(saves[0].payload.keys.auth, "auth-key-1");
+    assert.equal(saves[1].payload.keys.auth, "auth-key-2");
+  } finally {
+    await stopServer(server);
+  }
+});
+
+test("account push subscription route rejects invalid payloads and unauthorized tenant scope", async () => {
+  const router = requireWithMocks("../src/routes/accountRoutes.js", {
+    "../middleware/auth": buildAuthMock({
+      assertTenantPermission: () => {
+        const error = new Error("Forbidden.");
+        error.statusCode = 403;
+        throw error;
+      }
+    }),
+    "../middleware/asyncHandler": buildAsyncHandlerMock(),
+    "../repositories/tickets": {
+      listTicketsForCustomerAccount: async () => []
+    },
+    "../repositories/tenants": {
+      findTenantBySlug: async () => ({ _id: "tenant-2", slug: "other-vendor" })
+    },
+    "../services/pushNotificationService": {
+      saveSubscription: async ({ payload }) => {
+        if (!payload?.endpoint || !payload?.keys?.p256dh || !payload?.keys?.auth) {
+          const error = new Error("A valid browser push subscription is required.");
+          error.statusCode = 400;
+          throw error;
+        }
+
+        return { _id: "subscription-1" };
+      }
+    },
+    "../services/passwordResetService": {
+      changePassword: async () => {}
+    }
+  });
+
+  const { server, baseUrl } = await startServer(router, "/api/account");
+
+  try {
+    const invalidResponse = await fetch(`${baseUrl}/push-subscriptions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer token" },
+      body: JSON.stringify({
+        subscription: {
+          endpoint: "https://push.example.test/missing-keys"
+        }
+      })
+    });
+    assert.equal(invalidResponse.status, 400);
+    const invalidBody = await invalidResponse.json();
+    assert.match(invalidBody.message, /valid browser push subscription/);
+
+    const forbiddenResponse = await fetch(`${baseUrl}/push-subscriptions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer token" },
+      body: JSON.stringify({
+        tenantSlug: "other-vendor",
+        subscription: {
+          endpoint: "https://push.example.test/subscription-2",
+          keys: {
+            p256dh: "p256dh-key",
+            auth: "auth-key"
+          }
+        }
+      })
+    });
+    assert.equal(forbiddenResponse.status, 403);
+  } finally {
+    await stopServer(server);
+  }
+});
+
+test("account push subscription route deactivates only the authenticated user's subscription", async () => {
+  const deletions = [];
+  const router = requireWithMocks("../src/routes/accountRoutes.js", {
+    "../middleware/auth": buildAuthMock(),
+    "../middleware/asyncHandler": buildAsyncHandlerMock(),
+    "../repositories/tickets": {
+      listTicketsForCustomerAccount: async () => []
+    },
+    "../services/pushNotificationService": {
+      deleteSubscription: async (input) => {
+        deletions.push(input);
+        if (input.subscriptionId === "missing") {
+          return null;
+        }
+
+        return {
+          _id: input.subscriptionId,
+          userId: input.user._id,
+          isActive: false
+        };
+      }
+    },
+    "../services/passwordResetService": {
+      changePassword: async () => {}
+    }
+  });
+
+  const { server, baseUrl } = await startServer(router, "/api/account");
+
+  try {
+    const deleteResponse = await fetch(`${baseUrl}/push-subscriptions/subscription-1`, {
+      method: "DELETE",
+      headers: { Authorization: "Bearer token" }
+    });
+    assert.equal(deleteResponse.status, 200);
+    const body = await deleteResponse.json();
+    assert.equal(body.subscription._id, "subscription-1");
+    assert.equal(body.subscription.userId, "user-1");
+    assert.equal(body.subscription.isActive, false);
+
+    const missingResponse = await fetch(`${baseUrl}/push-subscriptions/missing`, {
+      method: "DELETE",
+      headers: { Authorization: "Bearer token" }
+    });
+    assert.equal(missingResponse.status, 404);
+
+    assert.equal(deletions.length, 2);
+    assert.equal(deletions[0].user._id, "user-1");
+    assert.equal(deletions[0].subscriptionId, "subscription-1");
+    assert.equal(deletions[1].user._id, "user-1");
+    assert.equal(deletions[1].subscriptionId, "missing");
   } finally {
     await stopServer(server);
   }
@@ -499,6 +1066,91 @@ test("customer booking detail exposes manual payment destination before proof su
   }
 });
 
+test("customer booking detail hides manual payment destination when service does not require proof", async () => {
+  const booking = {
+    _id: "booking-2",
+    reference: "BKG-NOPAY",
+    tenantId: "tenant-1",
+    tenantName: "Demo Tenant",
+    tenantSlug: "demo",
+    locationId: "location-1",
+    locationName: "Main Branch",
+    locationSlug: "main",
+    serviceId: "service-1",
+    serviceName: "Haircut",
+    serviceSlug: "haircut",
+    serviceManualPaymentRequired: false,
+    servicePriceAmountCents: 30000,
+    serviceCurrency: "PHP",
+    servicePriceDisplay: "PHP 300",
+    locationPaymentMethodLabel: "GCash InstaPay QR",
+    locationPaymentAccountDisplayName: "Demo Tenant Main Branch",
+    locationPaymentAccountIdentifierDisplay: "0917 *** 4567",
+    locationPaymentQrImageUrl: "https://cdn.example.test/payment-qr.png",
+    locationPaymentQrActive: true,
+    bookingQuantity: 1,
+    customerUserId: "user-1",
+    customerName: "Customer One",
+    customerEmail: "customer@example.com",
+    customerPhone: "09171234567",
+    scheduledStartAt: "2026-06-29T02:00:00.000Z",
+    scheduledEndAt: "2026-06-29T04:00:00.000Z",
+    status: "pending",
+    notes: "",
+    paymentReference: "",
+    paymentStatus: "unpaid",
+    paymentProofObjectKey: "",
+    paymentVerifiedAt: null,
+    paymentRejectedAt: null,
+    paymentRejectionReason: "",
+    notifyByEmail: true,
+    notifyBySms: false,
+    smsAlertFeePaymentId: "",
+    contactVerifiedAt: "2026-06-23T05:30:00.000Z",
+    contactVerificationChannel: "email",
+    queueTicketId: null,
+    checkedInAt: null,
+    noShowAt: null,
+    createdAt: "2026-06-23T05:00:00.000Z",
+    updatedAt: "2026-06-23T05:00:00.000Z"
+  };
+  const router = requireWithMocks("../src/routes/accountRoutes.js", {
+    "../middleware/auth": buildAuthMock(),
+    "../middleware/asyncHandler": buildAsyncHandlerMock(),
+    "../repositories/tickets": {
+      listTicketsForCustomerAccount: async () => []
+    },
+    "../repositories/bookings": {
+      findBookingById: async () => booking
+    },
+    "../services/bookingService": {
+      expirePendingBookingsForCustomer: async () => []
+    },
+    "../services/passwordResetService": {
+      changePassword: async () => {}
+    }
+  });
+
+  const { server, baseUrl } = await startServer(router, "/api/account");
+
+  try {
+    const response = await fetch(`${baseUrl}/bookings/booking-2`, {
+      headers: { Authorization: "Bearer token" }
+    });
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.booking.manualPaymentDestination, null);
+  } finally {
+    await stopServer(server);
+  }
+});
+
+async function scopedBookingFixture(options, work) {
+  const client = { query: async (sql) => ({ rows: sql.includes('FROM platform_maintenance') ? [require('./helpers/maintenanceFixture.cjs').row] : sql.includes("FROM users") ? [{ id: options.actorUserId }] : [] }) };
+  assert.equal(await options.authorize(client, options), true);
+  return work(client, {});
+}
+
 test("customer bookings can be created only inside vendor availability", async () => {
   const bookings = [];
   const initialScheduledStartAt = buildFutureManilaSlot(1, 1, 10, 0);
@@ -544,6 +1196,10 @@ test("customer bookings can be created only inside vendor availability", async (
       }
     },
     "../services/bookingService": requireWithMocks("../src/services/bookingService.js", {
+      "../repositories/resourceLedger": { withScopeTransaction: scopedBookingFixture },
+      "../config/db": {
+        withTransaction: async (work) => work(null)
+      },
       "../repositories/bookings": {
         countOverlappingActiveBookings: async () => 0,
         createBooking: async (data) => {
@@ -600,6 +1256,16 @@ test("customer bookings can be created only inside vendor availability", async (
                 isActive: true
               }
             : null
+      },
+      "../repositories/locationServices": {
+        findLocationServiceByLocationAndServiceId: async () => ({
+          _id: "location-service-1",
+          tenantId: "tenant-1",
+          locationId: "location-1",
+          serviceId: "service-1",
+          capacity: 1,
+          isActive: true
+        })
       },
       "../repositories/vendorServices": {
         normalizeServiceSlug: (value) => String(value || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, ""),
@@ -717,6 +1383,54 @@ test("customer bookings can be created only inside vendor availability", async (
   }
 });
 
+test("customer bookings route forwards search, status, and date filters", async () => {
+  const captured = [];
+  const router = requireWithMocks("../src/routes/accountRoutes.js", {
+    "../middleware/auth": buildAuthMock(),
+    "../middleware/asyncHandler": buildAsyncHandlerMock(),
+    "../repositories/tickets": {
+      listTicketsForCustomerAccount: async () => []
+    },
+    "../repositories/bookings": {
+      listBookingsForCustomer: async (_userId, options) => {
+        captured.push(options);
+        return [];
+      }
+    },
+    "../services/bookingService": {
+      expirePendingBookingsForCustomer: async () => []
+    },
+    "../services/passwordResetService": {
+      changePassword: async () => {}
+    }
+  });
+
+  const { server, baseUrl } = await startServer(router, "/api/account");
+
+  try {
+    const response = await fetch(
+      `${baseUrl}/bookings?search=Haircut&status=confirmed&scheduledDateFrom=2026-07-01&scheduledDateTo=2026-07-31`,
+      {
+        headers: { Authorization: "Bearer token" }
+      }
+    );
+
+    assert.equal(response.status, 200);
+    assert.equal(captured.length, 1);
+    assert.deepEqual(captured[0], {
+      page: 1,
+      pageSize: 10,
+      offset: 0,
+      search: "Haircut",
+      status: "confirmed",
+      scheduledDateFrom: "2026-07-01",
+      scheduledDateTo: "2026-07-31"
+    });
+  } finally {
+    await stopServer(server);
+  }
+});
+
 test("customer bookings use store hours when no booking availability is configured", async () => {
   const bookings = [];
   const initialScheduledStartAt = buildFutureManilaSlot(1, 1, 10, 0);
@@ -762,6 +1476,10 @@ test("customer bookings use store hours when no booking availability is configur
       }
     },
     "../services/bookingService": requireWithMocks("../src/services/bookingService.js", {
+      "../repositories/resourceLedger": { withScopeTransaction: scopedBookingFixture },
+      "../config/db": {
+        withTransaction: async (work) => work(null)
+      },
       "../repositories/bookings": {
         countOverlappingActiveBookings: async () => 0,
         createBooking: async (data) => {
@@ -816,6 +1534,16 @@ test("customer bookings use store hours when no booking availability is configur
         listHoursByLocationId: async () => [
           { weekday: 1, opensAt: "09:00", closesAt: "17:00", isClosed: false }
         ]
+      },
+      "../repositories/locationServices": {
+        findLocationServiceByLocationAndServiceId: async () => ({
+          _id: "location-service-1",
+          tenantId: "tenant-1",
+          locationId: "location-1",
+          serviceId: "service-1",
+          capacity: 1,
+          isActive: true
+        })
       },
       "../repositories/vendorServices": {
         normalizeServiceSlug: (value) => String(value || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, ""),
@@ -959,6 +1687,7 @@ test("customer can view and cancel own pending booking before check-in", async (
     "../repositories/bookings": {
       listBookingsForCustomer: async () => [...bookings.values()],
       findBookingById: async (bookingId) => bookings.get(String(bookingId)) || null,
+        findBookingByIdForUpdate: async (bookingId) => bookings.get(String(bookingId)) || null,
       updateBooking: async (bookingId, data) => {
         const current = bookings.get(String(bookingId));
         const updated = { ...current, ...data, updatedAt: "2026-07-06T00:40:00.000Z" };
@@ -967,8 +1696,10 @@ test("customer can view and cancel own pending booking before check-in", async (
       }
     },
     "../services/bookingService": requireWithMocks("../src/services/bookingService.js", {
+      "../repositories/resourceLedger": { withScopeTransaction: scopedBookingFixture },
       "../repositories/bookings": {
         findBookingById: async (bookingId) => bookings.get(String(bookingId)) || null,
+        findBookingByIdForUpdate: async (bookingId) => bookings.get(String(bookingId)) || null,
         updateBooking: async (bookingId, data) => {
           const current = bookings.get(String(bookingId));
           const updated = { ...current, ...data, updatedAt: "2026-07-06T00:40:00.000Z" };

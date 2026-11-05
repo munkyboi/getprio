@@ -1,17 +1,21 @@
 const CANONICAL_STATUSES = Object.freeze([
   "waiting",
+  "pending_carry_over",
   "called",
   "served",
   "skipped",
   "cancelled",
-  "unserved"
+  "unserved",
+  "expired"
 ]);
 
 const VALID_TRANSITIONS = Object.freeze({
   waiting: new Set(["called", "cancelled", "skipped", "unserved"]),
+  pending_carry_over: new Set(["waiting", "cancelled", "expired"]),
   called: new Set(["served", "skipped", "cancelled", "unserved"]),
   skipped: new Set(["waiting"]),
-  unserved: new Set(["waiting"]),
+  unserved: new Set(),
+  expired: new Set(),
   served: new Set(),
   cancelled: new Set()
 });
@@ -29,7 +33,7 @@ function isCanonicalStatus(status) {
 }
 
 function isTerminalStatus(status) {
-  return status === "served" || status === "cancelled";
+  return ["served", "cancelled", "unserved", "expired"].includes(status);
 }
 
 function isValidTransition(fromStatus, toStatus) {

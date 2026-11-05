@@ -5,18 +5,22 @@ const queueLifecycle = require("../src/services/queueLifecycle");
 test("queue lifecycle exposes canonical statuses and valid transitions", () => {
   assert.deepEqual(queueLifecycle.CANONICAL_STATUSES, [
     "waiting",
+    "pending_carry_over",
     "called",
     "served",
     "skipped",
     "cancelled",
-    "unserved"
+    "unserved",
+    "expired"
   ]);
 
   assert.equal(queueLifecycle.isValidTransition("waiting", "called"), true);
   assert.equal(queueLifecycle.isValidTransition("called", "served"), true);
   assert.equal(queueLifecycle.isValidTransition("called", "skipped"), true);
   assert.equal(queueLifecycle.isValidTransition("skipped", "waiting"), true);
-  assert.equal(queueLifecycle.isValidTransition("unserved", "waiting"), true);
+  assert.equal(queueLifecycle.isValidTransition("pending_carry_over", "waiting"), true);
+  assert.equal(queueLifecycle.isValidTransition("pending_carry_over", "expired"), true);
+  assert.equal(queueLifecycle.isValidTransition("unserved", "waiting"), false);
   assert.equal(queueLifecycle.isValidTransition("served", "waiting"), false);
   assert.equal(queueLifecycle.isValidTransition("cancelled", "waiting"), false);
   assert.equal(queueLifecycle.isValidTransition("waiting", "served"), false);

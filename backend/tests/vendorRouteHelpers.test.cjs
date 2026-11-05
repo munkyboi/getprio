@@ -2,6 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 
 const helpers = require("../src/routes/vendorRouteHelpers");
+const { resolveMobileQrBaseUrl } = require("../src/config/env");
 
 test("vendor route helpers normalize tenant and location data", async () => {
   const tenantRepository = {
@@ -30,6 +31,7 @@ test("vendor route helpers normalize payloads and format entities", async () => 
   const location = {
     _id: 5,
     tenantId: 10,
+    queueJoinId: "123e4567-e89b-42d3-a456-426614174000",
     name: "Main",
     slug: "main",
     addressLine1: "A",
@@ -58,8 +60,14 @@ test("vendor route helpers normalize payloads and format entities", async () => 
   const formatted = await helpers.formatLocation(location, { slug: "tenant" });
   assert.equal(formatted.slug, "main");
   assert.equal(formatted.hours.length, 1);
+  assert.match(
+    formatted.qrJoinUrl,
+    /^https:\/\/[^/]+\/join\/tenant\/main\?source=qr&id=123e4567-e89b-42d3-a456-426614174000$/
+  );
 
   assert.equal(helpers.normalizeTenantNotificationSettings({ bookingIntake: false }).bookingIntake, false);
+  assert.equal(helpers.normalizeTenantNotificationSettings({ queueJoin: false }).queueJoin, false);
+  assert.equal(helpers.normalizeTenantNotificationSettings({}).queueJoin, true);
   assert.equal(helpers.normalizeCounterSlug("Front Desk"), "front-desk");
   assert.equal(helpers.buildPriceDisplay(1234), "₱12.34");
 
@@ -72,11 +80,205 @@ test("vendor route helpers normalize payloads and format entities", async () => 
   const normalizedService = helpers.normalizeServicePayload({
     name: "  Cut  ",
     durationMinutes: 30,
+    bookingCapacityScope: "location",
     priceAmountCents: 500
   });
   assert.equal(normalizedService.name, "Cut");
   assert.equal(normalizedService.slug, "cut");
+  assert.equal(normalizedService.bookingCapacityScope, "location");
 
-  const formattedService = helpers.formatVendorService({ _id: 1, tenantId: 10, name: "Cut", slug: "cut" });
+  assert.throws(
+    () => helpers.normalizeLocationPayload({ name: "gago branch" }),
+    /Location name contains language/
+  );
+  assert.throws(
+    () => helpers.normalizeServicePayload({
+      name: "Cut",
+      description: "yawa",
+      durationMinutes: 30,
+      priceAmountCents: 500
+    }),
+    /Service description contains language/
+  );
+
+  assert.throws(
+    () =>
+      helpers.normalizeServicePayload({
+        name: "Cut",
+        durationMinutes: 30,
+        bookingCapacityScope: "staff",
+        priceAmountCents: 500
+      }),
+    /bookingCapacityScope must be service or location/
+  );
+
+  const formattedService = helpers.formatVendorService({ _id: 1, tenantId: 10, name: "Cut", slug: "cut", bookingCapacityScope: "location" });
   assert.equal(formattedService.slug, "cut");
+  assert.equal(formattedService.bookingCapacityScope, "location");
+});
+
+test("vendor route helpers build mobile queue QR links from the dedicated HTTPS origin", () => {
+  const links = helpers.buildLocationLinks(
+    {
+      slug: "main",
+      queueBoardId: "123e4567-e89b-42d3-a456-426614174001",
+      queueJoinId: "123e4567-e89b-42d3-a456-426614174000"
+    },
+    { slug: "tenant" },
+    {
+      appBaseUrl: "http://localhost:5173/",
+      mobileQrBaseUrl: "https://192.168.1.22:5173/"
+    }
+  );
+
+  assert.deepEqual(links, {
+    joinUrl: "http://localhost:5173/join/tenant/main",
+    qrJoinUrl:
+      "https://192.168.1.22:5173/join/tenant/main?source=qr&id=123e4567-e89b-42d3-a456-426614174000",
+    monitorUrl: "http://localhost:5173/queue-board/123e4567-e89b-42d3-a456-426614174001"
+  });
+});
+
+test("mobile queue QR configuration requires a path-free HTTPS origin", () => {
+  assert.equal(
+    resolveMobileQrBaseUrl(
+      { MOBILE_QR_BASE_URL: "https://192.168.1.22:5173/" },
+      "http://localhost:5173",
+      5173
+    ),
+    "https://192.168.1.22:5173"
+  );
+  assert.equal(
+    resolveMobileQrBaseUrl({ NODE_ENV: "development" }, "http://localhost:5173", 5173),
+    "https://localhost:5173"
+  );
+  assert.throws(
+    () =>
+      resolveMobileQrBaseUrl(
+        { MOBILE_QR_BASE_URL: "http://192.168.1.22:5173" },
+        "http://localhost:5173",
+        5173
+      ),
+    /MOBILE_QR_BASE_URL must be an HTTPS origin/
+  );
+  assert.throws(
+    () =>
+      resolveMobileQrBaseUrl(
+        { MOBILE_QR_BASE_URL: "https://getprio.example/mobile" },
+        "http://localhost:5173",
+        5173
+      ),
+    /MOBILE_QR_BASE_URL must be an HTTPS origin/
+  );
+});
+
+test("vendor route helpers normalize group-funded location service settings", () => {
+  const disabled = helpers.normalizeGroupFundedLocationServicePayload({});
+  assert.equal(disabled.enabled, false);
+  assert.equal(disabled.allowPublicCampaigns, false);
+
+  const enabled = helpers.normalizeGroupFundedLocationServicePayload({
+    groupFunded: {
+      enabled: true,
+      minRequiredContributors: 2,
+      maxRequiredContributors: 8,
+      defaultRequiredContributors: 7,
+      minContributionAmountCents: 10000,
+      maxContributionAmountCents: 200000,
+      minDeadlineHours: 24,
+      maxDeadlineDays: 7,
+      allowPublicCampaigns: true
+    }
+  });
+
+  assert.deepEqual(enabled, {
+    enabled: true,
+    minRequiredContributors: 2,
+    maxRequiredContributors: 8,
+    defaultRequiredContributors: 4,
+    minContributionAmountCents: null,
+    maxContributionAmountCents: null,
+    minDeadlineHours: 24,
+    maxDeadlineDays: 7,
+    allowPublicCampaigns: true
+  });
+
+  const clampedDefault = helpers.normalizeGroupFundedLocationServicePayload({
+    groupFunded: {
+      enabled: true,
+      minRequiredContributors: 5,
+      maxRequiredContributors: 8,
+      defaultRequiredContributors: 4,
+      minDeadlineHours: 24,
+      maxDeadlineDays: 7
+    }
+  });
+  assert.equal(clampedDefault.defaultRequiredContributors, 5);
+
+  assert.throws(
+    () =>
+      helpers.normalizeGroupFundedLocationServicePayload({
+        groupFunded: {
+          enabled: true,
+          minRequiredContributors: 2,
+          maxRequiredContributors: 8,
+          defaultRequiredContributors: 4,
+          minDeadlineHours: 200,
+          maxDeadlineDays: 7
+        }
+      }),
+    /deadline bounds/
+  );
+
+  const ignoredShareBounds = helpers.normalizeGroupFundedLocationServicePayload({
+    groupFunded: {
+      enabled: true,
+      minRequiredContributors: 2,
+      maxRequiredContributors: 8,
+      defaultRequiredContributors: 4,
+      minContributionAmountCents: 200000,
+      maxContributionAmountCents: 10000,
+      minDeadlineHours: 24,
+      maxDeadlineDays: 7
+    }
+  });
+  assert.equal(ignoredShareBounds.minContributionAmountCents, null);
+  assert.equal(ignoredShareBounds.maxContributionAmountCents, null);
+});
+
+
+test("counter slugs normalize punctuation and long separator inputs", () => {
+  assert.equal(helpers.normalizeCounterSlug(" -- FRONT__Desk 2 -- "), "front-desk-2");
+  assert.equal(helpers.normalizeCounterSlug("-".repeat(100000)), "");
+  assert.equal(helpers.normalizeCounterSlug("-".repeat(100000) + "Desk"), "desk");
+  assert.equal(helpers.normalizeCounterSlug(null), "");
+});
+
+ test("board links normalize trailing base slashes", () => {
+  const boardId = "063b7899-ffbe-482c-9564-91a5a6c79be0";
+  const result = helpers.buildLocationLinks({_id: "1", slug: "main", queueBoardId: boardId}, {slug: "demo"}, {appBaseUrl: "https://getprio.online/"});
+  assert.equal(result.monitorUrl, `https://getprio.online/queue-board/${boardId}`);
+});
+
+test("service duration unit bounds default, preserve partial updates, and reject invalid ranges", () => {
+  const base = {name:"Consultation",durationMinutes:30,allowBookingQuantity:true};
+  assert.equal(helpers.normalizeServicePayload(base).bookingQuantityMin, 1);
+  assert.equal(helpers.normalizeServicePayload(base).bookingQuantityMax, 24);
+  const existing = helpers.normalizeServicePayload({...base,bookingQuantityMin:2,bookingQuantityMax:6});
+  assert.equal(helpers.normalizeServicePayload({name:"Updated"}, existing).bookingQuantityMin, 2);
+  assert.equal(helpers.normalizeServicePayload({name:"Updated"}, existing).bookingQuantityMax, 6);
+  assert.equal(helpers.normalizeServicePayload({bookingQuantityMax:8}, existing).bookingQuantityMin, 2);
+  for (const range of [{bookingQuantityMin:0},{bookingQuantityMax:25},{bookingQuantityMin:1.5},{bookingQuantityMin:null},{bookingQuantityMin:true},{bookingQuantityMin:[2]},{bookingQuantityMin:""},{bookingQuantityMin:7,bookingQuantityMax:6}]) {
+    assert.throws(()=>helpers.normalizeServicePayload({...base,...range}), {statusCode:400});
+  }
+  assert.equal(helpers.formatVendorService({_id:"1",tenantId:"1",...existing}).bookingQuantityMax,6);
+});
+
+test("enabled minimum quantity must fit the booking slot duration ceiling", () => {
+  const base = {name:"Long service",durationMinutes:480,allowBookingQuantity:true,bookingQuantityMin:3,bookingQuantityMax:6};
+  assert.equal(helpers.normalizeServicePayload(base).bookingQuantityMin,3);
+  assert.throws(()=>helpers.normalizeServicePayload({...base,bookingQuantityMin:4}),{statusCode:400});
+  const existing=helpers.normalizeServicePayload({...base,durationMinutes:360,bookingQuantityMin:4});
+  assert.throws(()=>helpers.normalizeServicePayload({durationMinutes:480},existing),{statusCode:400});
+  assert.equal(helpers.normalizeServicePayload({...base,allowBookingQuantity:false,bookingQuantityMin:4}).allowBookingQuantity,false);
 });

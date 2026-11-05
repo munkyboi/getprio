@@ -1,6 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const path = require("node:path");
+const { normalizePhilippineMobileNumber } = require("../src/utils/phone.js");
 
 function resolveMockPath(requestPath, baseDir) {
   if (!requestPath.startsWith(".")) {
@@ -28,6 +29,8 @@ function resolveMockPath(requestPath, baseDir) {
 }
 
 function requireWithMocks(targetPath, mocks) {
+  const fixture = require('./helpers/maintenanceFixture.cjs');
+  mocks = { '../config/db': fixture.database, './platformMaintenanceService': fixture.maintenance, ...mocks };
   const resolvedTarget = require.resolve(targetPath);
   const originals = new Map();
 
@@ -63,7 +66,7 @@ test("booking OTP request and verify returns a server-side booking verification 
   const bookingOtpService = requireWithMocks("../src/services/bookingOtpService.js", {
     "../config/env": { jwtSecret: "test-secret" },
     "../config/db": {
-      withTransaction: async (callback) => callback({})
+      withTransaction: async (callback) => callback({ query: async () => ({ rows: [require('./helpers/maintenanceFixture.cjs').row] }) })
     },
     "../repositories/bookingOtps": {
       createOtp: async (data) => {
@@ -136,6 +139,12 @@ test("booking OTP request and verify returns a server-side booking verification 
   assert.equal(verified.contactVerificationChannel, "email");
 });
 
+test("philippine phone normalization converts common international and local forms", () => {
+  assert.equal(normalizePhilippineMobileNumber("+639171234567"), "09171234567");
+  assert.equal(normalizePhilippineMobileNumber("9171234567"), "09171234567");
+  assert.equal(normalizePhilippineMobileNumber("09171234567"), "09171234567");
+});
+
 test("booking OTP service rejects invalid payloads, resend cooldowns, and verification mismatches", async () => {
   const crypto = require("node:crypto");
   const originalRandomInt = crypto.randomInt;
@@ -149,7 +158,7 @@ test("booking OTP service rejects invalid payloads, resend cooldowns, and verifi
   const bookingOtpService = requireWithMocks("../src/services/bookingOtpService.js", {
     "../config/env": { jwtSecret: "test-secret" },
     "../config/db": {
-      withTransaction: async (callback) => callback({})
+      withTransaction: async (callback) => callback({ query: async () => ({ rows: [require('./helpers/maintenanceFixture.cjs').row] }) })
     },
     "../repositories/bookingOtps": {
       createOtp: async (data) => {

@@ -4,11 +4,12 @@
 
 GetPrio should be priced in PHP and monetized around location count, staff seats, ticket volume, SMS usage, and support level. The main commercial target is the Pro plan, with Economical kept simple for small vendors and Enterprise quoted for larger organizations with heavier onboarding and support needs.
 
-Recommended monthly tiers:
+Settled tiers:
 
-- Economical: `PHP 499/mo`
-- Pro: `PHP 1,499/mo`
-- Enterprise: from `PHP 6,999/mo`
+- Free: `PHP 0`, queue-only, no payment checkout
+- Economical: `PHP 499/mo` or `PHP 4,980/year`
+- Pro: `PHP 1,499/mo` or `PHP 14,990/year`
+- Enterprise: `PHP 6,999/mo` or `PHP 69,990/year`
 
 For the MVP, use PayMongo for local payment checkout and Semaphore for SMS notifications. Later, evaluate Xendit PH for production billing and ITEXMO for production SMS once real usage, approval requirements, support quality, and pricing are clearer.
 
@@ -16,11 +17,28 @@ For the MVP, use PayMongo for local payment checkout and Semaphore for SMS notif
 
 | Tier | Price | Best For | Included |
 | --- | ---: | --- | --- |
-| Economical | `PHP 499/mo` | Solo vendors, small shops, small clinics | 1 location, 1 vendor seat, QR join page, public queue board, basic dashboard, email alerts, 100 transactional emails/mo, 500 tickets/mo, 30-day history |
-| Pro | `PHP 1,499/mo` | Clinics, salons, offices, busier service counters | 3 locations, 10 staff seats, branded queue pages, analytics, CSV export, queue settings, email alerts, 500 transactional emails/mo, 5,000 tickets/mo, 300 SMS/mo |
-| Enterprise | `PHP 6,999+/mo` | Multi-branch businesses, schools, LGUs, hospitals | 10+ locations, advanced roles, SLA/support, 1,095-day history, custom SMS bundle, optional custom domain/SSO |
+| Free | `PHP 0` | Vendors starting with queues | Queue System Access; 500 Queue Tickets per month; unmetered queue email delivery; no Branding, Discovery, or Booking |
+| Economical | `PHP 499/mo` | Solo vendors, small shops, small clinics | Queue, Discovery, and Booking; no public-facing Branding; 1,000 Tickets and 100 Service Bookings per month; unmetered queue email delivery |
+| Pro | `PHP 1,499/mo` | Clinics, salons, offices, busier service counters | Queue, Branding, Discovery, and Booking; 5,000 Tickets and 1,000 Service Bookings per month; unmetered queue email delivery |
+| Enterprise | `PHP 6,999/mo` | Multi-branch businesses, schools, LGUs, hospitals | Queue, Branding, Discovery, and Booking; 50,000 Tickets and 10,000 Service Bookings per month; unmetered queue email delivery |
 
-The `Included` column is both customer-facing pricing copy and the source for backend entitlement rules. Each item should map to a numeric limit, feature flag, support level, or custom-quoted Enterprise entitlement so billing, dashboard display, and future feature gating stay consistent.
+The `Included` column is both customer-facing pricing copy and the source for backend entitlement rules. Each item should map to a numeric limit, feature flag, support level, custom-quoted Enterprise entitlement, or the unconditional unmetered email policy so billing, dashboard display, and future feature gating stay consistent. Queue email delivery has no monthly quota or credit requirement on any plan; notification preferences, OTP limits, lifecycle deduplication, retry safeguards, and provider delivery outcomes still apply.
+
+Branding applies to every public-facing vendor page, not only the queue board. Campaigns are retired and cannot be enabled by any plan or tenant override. Platform Admin may independently enable or disable the customer queue fee and set its amount for each plan; this fee is not part of the vendor's allowance balance.
+
+## Usage Credits
+
+New Usage Credit packs and grants contain Queue Ticket credits only. They let a vendor continue after its monthly Queue Ticket allowance is used. They never enable a disabled feature and never bypass the Service Booking allowance. Queue email delivery does not consume credits.
+
+| Pack | Queue Tickets | Price |
+| --- | ---: | ---: |
+| P100 | 100 | `PHP 99` |
+| P500 | 500 | `PHP 399` |
+| P1000 | 1,000 | `PHP 699` |
+
+A Queue Email Journey retains delivery tracking for the ticket-producing queue flow: up to four OTP messages plus six once-only lifecycle messages. Creating or sending through a Journey no longer consumes an allowance or credit. Queue Ticket credits are auditable lots and are used after the base allowance, with expiring promotional credits before non-expiring promotional and purchased credits.
+
+Historical Journey quantities, pack revisions, purchases, lots, and ledger records remain auditable and retain their original terms, including pending purchase retries and refund accounting. Archived catalog revisions report their stored quantities. Those retained Journey balances do not limit delivery or become newly saleable credits; active catalog revisions contain Ticket credits only.
 
 ## Add-Ons And Setup Fees
 

@@ -1,5 +1,6 @@
 import { Pool, type PoolClient } from "pg";
 import env from "./env";
+import { createDatabasePoolConfig } from "./databaseSsl";
 
 type TransactionCallback<T> = (client: PoolClient) => Promise<T>;
 
@@ -7,10 +8,12 @@ let activePool: Pool | undefined;
 
 function getPool(): Pool {
   if (!activePool) {
-    activePool = new Pool({
+    activePool = new Pool(createDatabasePoolConfig({
       connectionString: env.databaseUrl,
-      ssl: env.databaseSsl ? { rejectUnauthorized: false } : false
-    });
+      enabled: env.databaseSsl,
+      ca: env.databaseSslCa,
+      caFile: env.databaseSslCaFile
+    }));
   }
 
   return activePool;

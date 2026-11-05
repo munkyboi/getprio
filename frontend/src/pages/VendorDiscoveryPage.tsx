@@ -17,6 +17,8 @@ import { Link, useSearchParams } from "react-router-dom";
 import type { PublicVendorListResponse, PublicVendorProfile } from "@shared";
 import { apiRequest } from "../api/client";
 import { getErrorMessage } from "../utils/errors";
+import { resolveVendorProfileMedia } from "../utils/vendorTheme";
+import RichCampaignDescription from "../components/RichCampaignDescription";
 
 function getLocationLabel(vendor: PublicVendorProfile) {
   const parts = [
@@ -39,15 +41,29 @@ function getBranchLabel(location: PublicVendorProfile["locations"][number]) {
 }
 
 function getVendorMediaStyle(vendor: PublicVendorProfile): CSSProperties | undefined {
-  const backgroundImageUrl = vendor.publicBoardTheme?.theme.backgroundImageUrl;
+  const theme = getVendorMediaTheme(vendor);
 
-  if (!backgroundImageUrl) {
+  if (!theme) {
     return undefined;
   }
 
   return {
-    backgroundImage: `linear-gradient(rgba(255,255,255,0.2), rgba(255,255,255,0.2)), url(${backgroundImageUrl})`
-  };
+    "--vendor-theme-card-bg": theme.cardBackgroundColor,
+    "--vendor-theme-logo-fit": "cover",
+    "--vendor-theme-logo-frame-padding": "0px",
+    ...(theme.backgroundImageUrl
+      ? {
+          backgroundImage: `linear-gradient(rgba(255,255,255,0.2), rgba(255,255,255,0.2)), url(${theme.backgroundImageUrl})`
+        }
+      : {})
+  } as CSSProperties;
+}
+
+function getVendorMediaTheme(vendor: PublicVendorProfile) {
+  return resolveVendorProfileMedia(
+    vendor.publicBoardTheme?.theme,
+    vendor.businessProfileTheme?.theme
+  );
 }
 
 export default function VendorDiscoveryPage() {
@@ -106,7 +122,7 @@ export default function VendorDiscoveryPage() {
     <Stack className="vendor-discovery-page" gap="xl">
       <Container size="xl" w="100%">
         <Stack gap="xl">
-          <div>
+          <div className="vendor-discovery-hero">
             <Text className="prio-label">Vendor discovery</Text>
             <Title className="prio-section-title" order={1}>
               Find vendors ready for service.
@@ -118,8 +134,8 @@ export default function VendorDiscoveryPage() {
           </div>
 
           <Paper className="vendor-search-panel" p="lg">
-            <form onSubmit={handleSubmit}>
-              <Group align="flex-end" gap="md">
+            <form className="vendor-search-form" onSubmit={handleSubmit}>
+              <Group className="vendor-search-actions" align="flex-end" gap="md">
                 <TextInput
                   className="vendor-search-input"
                   leftSection={<IconSearch size={18} />}
@@ -128,13 +144,14 @@ export default function VendorDiscoveryPage() {
                   value={search}
                   onChange={(event) => setSearch(event.currentTarget.value)}
                 />
-                <Button color="orange" leftSection={<IconSearch size={18} />} type="submit">
+                <Button color="orange" leftSection={<IconSearch size={18} />} size="lg" type="submit">
                   Search
                 </Button>
                 {searchParams.get("search") ? (
                   <Button
                     color="dark"
                     variant="subtle"
+                    size="lg"
                     onClick={() => {
                       setSearch("");
                       setSearchParams({});
@@ -149,7 +166,7 @@ export default function VendorDiscoveryPage() {
 
           {error ? <Alert color="red">{error}</Alert> : null}
 
-          <Group justify="space-between">
+          <Group className="vendor-discovery-results" justify="space-between">
             <Text c="dimmed" fw={700}>{resultLabel}</Text>
           </Group>
 
@@ -164,19 +181,25 @@ export default function VendorDiscoveryPage() {
             </Paper>
           ) : null}
 
-          <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="lg">
-            {vendors.map((vendor) => (
-              <Paper className="vendor-card" key={vendor.slug} p="lg">
+          <SimpleGrid className="vendor-discovery-grid" cols={{ base: 1, sm: 2, lg: 3 }} spacing="lg">
+            {vendors.map((vendor) => {
+              const theme = getVendorMediaTheme(vendor);
+              return (
+              <Paper className="vendor-card" component={Link} key={vendor.slug} p={{ base: "md", sm: "lg" }} to={`/vendors/${vendor.slug}`}>
                 <Stack gap="md" h="100%">
                   <div
-                    className={vendor.publicBoardTheme?.theme.backgroundImageUrl || vendor.publicBoardTheme?.theme.logoUrl
+                    className={theme?.backgroundImageUrl || theme?.logoUrl
                       ? "vendor-card-image vendor-card-image-themed"
                       : "vendor-card-image"}
                     style={getVendorMediaStyle(vendor)}
                   >
-                    {vendor.publicBoardTheme?.theme.logoUrl ? (
+                    {theme?.logoUrl ? (
                       <div className="vendor-card-logo-frame">
-                        <img alt={`${vendor.name} logo`} src={vendor.publicBoardTheme.theme.logoUrl} />
+                        <img
+                          alt={`${vendor.name} logo`}
+                          src={theme.logoUrl}
+                          style={{ objectFit: "cover" }}
+                        />
                       </div>
                     ) : vendor.imageUrl ? (
                       <img alt="" src={vendor.imageUrl} />
@@ -187,14 +210,12 @@ export default function VendorDiscoveryPage() {
                   <div>
                     {vendor.category ? <Badge color="orange" variant="light">{vendor.category}</Badge> : null}
                     <Title order={3} mt="sm">{vendor.name}</Title>
-                    <Group c="dimmed" gap={6} mt={6} wrap="nowrap">
+                    <Group className="vendor-card-location" c="dimmed" gap={6} mt={6} wrap="nowrap">
                       <IconMapPin size={16} />
                       <Text size="sm">{getLocationLabel(vendor)}</Text>
                     </Group>
                   </div>
-                  <Text c="dimmed" lineClamp={3}>
-                    {vendor.description || "This vendor is preparing a public service profile."}
-                  </Text>
+                  {vendor.description ? <RichCampaignDescription className="vendor-card-description" content={vendor.description} /> : null}
                   <Text c="dimmed" size="sm">
                     {vendor.locations.length === 1 ? "1 active location" : `${vendor.locations.length} active locations`}
                   </Text>
@@ -210,17 +231,30 @@ export default function VendorDiscoveryPage() {
                       </Badge>
                     ))}
                   </div>
-                  <Group mt="auto">
-                    <Button color="dark" component={Link} to={`/vendors/${vendor.slug}`}>
-                      View profile
-                    </Button>
-                    <Button component={Link} to={`/join/${vendor.slug}`} variant="subtle" color="orange">
-                      Join queue
-                    </Button>
-                  </Group>
+                  {vendor.capabilities.booking || vendor.capabilities.queue ? (
+                    <Group className="vendor-card-actions" mt="auto">
+                      {vendor.capabilities.booking ? (
+                        <Button
+                          component={Link}
+                          to={`/vendors/${vendor.slug}/book?location=${encodeURIComponent(vendor.location.slug || vendor.locations[0]?.slug || "")}`}
+                          variant="light"
+                          color="orange"
+                          size="lg"
+                        >
+                          Book in advance
+                        </Button>
+                      ) : null}
+                      {vendor.capabilities.queue ? (
+                        <Button component={Link} to={`/join/${vendor.slug}`} variant="subtle" color="orange" size="lg">
+                          Join queue
+                        </Button>
+                      ) : null}
+                    </Group>
+                  ) : null}
                 </Stack>
               </Paper>
-            ))}
+              );
+            })}
           </SimpleGrid>
         </Stack>
       </Container>

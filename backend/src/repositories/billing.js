@@ -1,4 +1,5 @@
 const db = require("../config/db");
+const { findPlanBySlug } = require("../services/subscriptionPlans");
 
 function buildQueryClient(client) {
   return client || db.pool;
@@ -108,8 +109,9 @@ async function getActiveSubscriptionByTenantId(tenantId, options = {}) {
         END,
         updated_at DESC
       LIMIT 1
+      ${options.forShare ? "FOR SHARE" : ""}
     `,
-    [Number(tenantId)]
+    [tenantId]
   );
 
   return mapSubscription(result.rows[0]);
@@ -182,6 +184,7 @@ async function findCheckoutSessionByProviderId(providerCheckoutSessionId, option
 }
 
 async function findCheckoutSessionById(checkoutId, options = {}) {
+  if (options.forUpdate && !options.client) throw new Error("Locked checkout reads require a transaction client.");
   const queryClient = buildQueryClient(options.client);
   const result = await queryClient.query(
     `
@@ -189,8 +192,9 @@ async function findCheckoutSessionById(checkoutId, options = {}) {
       FROM billing_checkout_sessions
       WHERE id = $1
       LIMIT 1
+      ${options.forUpdate ? "FOR UPDATE" : ""}
     `,
-    [Number(checkoutId)]
+    [String(checkoutId)]
   );
 
   return mapCheckoutSession(result.rows[0]);
@@ -205,7 +209,7 @@ async function markCheckoutSessionPaid(checkoutId, options = {}) {
       WHERE id = $1
       RETURNING *
     `,
-    [Number(checkoutId)]
+    [String(checkoutId)]
   );
 
   return mapCheckoutSession(result.rows[0]);
@@ -234,7 +238,7 @@ async function recordBillingEvent(data, options = {}) {
       data.eventType,
       data.providerCheckoutSessionId || null,
       data.providerPaymentId || null,
-      data.tenantId ? Number(data.tenantId) : null,
+      data.tenantId ? String(data.tenantId) : null,
       JSON.stringify(data.payload || {})
     ]
   );
@@ -242,15 +246,41 @@ async function recordBillingEvent(data, options = {}) {
   return result.rows[0] || null;
 }
 
+async function lockActivationSubscriptions(tenantId, options) {
+  if (options.forUpdateNowait && !options.client) throw new Error("Fail-fast activation requires a transaction client.");
+  const queryClient = buildQueryClient(options.client);
+  try {
+    return await queryClient.query(
+      `SELECT * FROM tenant_subscriptions WHERE tenant_id = $1 AND status IN ('active','past_due','unpaid','suspended') ORDER BY updated_at DESC FOR UPDATE${options.forUpdateNowait ? " NOWAIT" : ""}`,
+      [String(tenantId)]
+    );
+  } catch (error) {
+    if (options.forUpdateNowait && error.code === "55P03") {
+      throw Object.assign(new Error("Subscription is being updated. Retry payment synchronization after that change completes."), {
+        statusCode: 409, code: "SUBSCRIPTION_BUSY"
+      });
+    }
+    throw error;
+  }
+}
+
 async function activateTenantSubscription(data, options = {}) {
   const queryClient = buildQueryClient(options.client);
+  const currentResult = await lockActivationSubscriptions(data.tenantId, options);
+  if (currentResult.rows.length > 1) throw Object.assign(new Error("Multiple current subscription records require reconciliation."), { statusCode: 409, code: "SUBSCRIPTION_AMBIGUOUS" });
+  const current = currentResult.rows[0] || null;
+  if (current && ["past_due", "unpaid", "suspended"].includes(current.status)) throw Object.assign(new Error("Restricted subscriptions require provider recovery before a plan change."), { statusCode: 409, code: "SUBSCRIPTION_RESTRICTED" });
+  const expectedSubscriptionId = data.expectedSubscriptionId ? String(data.expectedSubscriptionId) : null;
+  if ((current ? String(current.id) : null) !== expectedSubscriptionId || (current && data.expectedPlanSlug && current.plan_slug !== data.expectedPlanSlug)) {
+    throw Object.assign(new Error("The subscription changed after checkout began. The paid checkout requires reconciliation before activation."), { statusCode: 409, code: "SUBSCRIPTION_REVISION_CONFLICT" });
+  }
   await queryClient.query(
     `
       UPDATE tenant_subscriptions
       SET status = 'expired'
       WHERE tenant_id = $1 AND status IN ('active', 'past_due', 'unpaid')
     `,
-    [Number(data.tenantId)]
+    [String(data.tenantId)]
   );
 
   const result = await queryClient.query(
@@ -271,7 +301,7 @@ async function activateTenantSubscription(data, options = {}) {
       RETURNING *
     `,
     [
-      Number(data.tenantId),
+      String(data.tenantId),
       data.planSlug,
       data.provider,
       data.providerCheckoutSessionId || null,
@@ -281,6 +311,14 @@ async function activateTenantSubscription(data, options = {}) {
       JSON.stringify(data.entitlements || {}),
       JSON.stringify(data.metadata || {})
     ]
+  );
+
+  await queryClient.query(
+    `INSERT INTO subscription_transitions
+       (tenant_id, from_subscription_id, from_plan_slug, to_plan_slug, transition_type, status, reason, effective_at, completed_at, metadata)
+     VALUES ($1,$2,$3,$4,$5,'effective','Provider-confirmed paid upgrade',NOW(),NOW(),$6::jsonb)`,
+    [String(data.tenantId), current?.id || null, current?.plan_slug || null, data.planSlug,
+      current ? "upgrade" : "admin_resolution", JSON.stringify({ toSubscriptionId: String(result.rows[0].id), provider: data.provider, providerCheckoutSessionId: data.providerCheckoutSessionId || null })]
   );
 
   return mapSubscription(result.rows[0]);
@@ -311,6 +349,9 @@ async function listSubscriptions(options = {}) {
 }
 
 async function createTenantSubscription(data, options = {}) {
+  if (typeof data.tenantId === "number" && !Number.isSafeInteger(data.tenantId)) {
+    throw Object.assign(new Error("Tenant identifier must be an exact integer."), { statusCode: 400, code: "INVALID_TENANT_ID" });
+  }
   const queryClient = buildQueryClient(options.client);
   const timestamps = parseSubscriptionTimestamps(data);
   const result = await queryClient.query(
@@ -327,13 +368,14 @@ async function createTenantSubscription(data, options = {}) {
         current_period_start,
         current_period_end,
         entitlements,
+        entitlement_model_version,
         metadata
       )
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
       RETURNING *
     `,
     [
-      Number(data.tenantId),
+      String(data.tenantId),
       data.planSlug,
       data.status || "unpaid",
       data.provider || "manual",
@@ -344,6 +386,7 @@ async function createTenantSubscription(data, options = {}) {
       timestamps.currentPeriodStart,
       timestamps.currentPeriodEnd,
       JSON.stringify(data.entitlements || {}),
+      Number(data.entitlementModelVersion || 1),
       JSON.stringify(data.metadata || {})
     ]
   );
@@ -353,6 +396,8 @@ async function createTenantSubscription(data, options = {}) {
 
 async function updateTenantSubscription(subscriptionId, changes, options = {}) {
   const queryClient = buildQueryClient(options.client);
+  const nextPlan = changes.planSlug ? await findPlanBySlug(changes.planSlug, { client: queryClient }) : null;
+  const nextEntitlements = changes.entitlements || (changes.planSlug ? nextPlan?.entitlements || {} : null);
   const result = await queryClient.query(
     `
       UPDATE tenant_subscriptions
@@ -385,23 +430,9 @@ async function updateTenantSubscription(subscriptionId, changes, options = {}) {
       changes.billingInterval || null,
       changes.currentPeriodStart ?? null,
       changes.currentPeriodEnd ?? null,
-      changes.entitlements ? JSON.stringify(changes.entitlements) : null,
+      nextEntitlements ? JSON.stringify(nextEntitlements) : null,
       changes.metadata ? JSON.stringify(changes.metadata) : null
     ]
-  );
-
-  return mapSubscription(result.rows[0]);
-}
-
-async function deleteTenantSubscription(subscriptionId, options = {}) {
-  const queryClient = buildQueryClient(options.client);
-  const result = await queryClient.query(
-    `
-      DELETE FROM tenant_subscriptions
-      WHERE id = $1
-      RETURNING *
-    `,
-    [Number(subscriptionId)]
   );
 
   return mapSubscription(result.rows[0]);
@@ -418,6 +449,5 @@ module.exports = {
   activateTenantSubscription,
   listSubscriptions,
   createTenantSubscription,
-  updateTenantSubscription,
-  deleteTenantSubscription
+  updateTenantSubscription
 };

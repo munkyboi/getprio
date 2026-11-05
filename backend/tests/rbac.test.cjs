@@ -25,10 +25,12 @@ function buildAuthMock() {
   return {
     authenticate(req, _res, next) {
       req.user = buildUser(req);
+      req.auth = { sessionId: "session-1", session: { _id: "session-1", mfaVerifiedAt: new Date() } };
       next();
     },
     maybeAuthenticate(req, _res, next) {
       req.user = buildUser(req);
+      req.auth = { sessionId: "session-1", session: { _id: "session-1", mfaVerifiedAt: new Date() } };
       next();
     },
     userHasTenantAccess(user, tenantId) {
@@ -166,12 +168,14 @@ test("permissions map keeps current owner, staff, and platform-admin boundaries"
 
   assert.equal(permissions.userHasPermission(staffUser, "tenant.queue.operate", { tenantId: "tenant-1" }), true);
   assert.equal(permissions.userHasPermission(staffUser, "tenant.staff.read", { tenantId: "tenant-1" }), true);
-  assert.equal(permissions.userHasPermission(staffUser, "tenant.billing.read", { tenantId: "tenant-1" }), true);
+  assert.equal(permissions.userHasPermission(staffUser, "tenant.billing.read", { tenantId: "tenant-1" }), false);
+  assert.equal(permissions.userHasPermission(staffUser, "tenant.capacity.read_operational", { tenantId: "tenant-1" }), true);
   assert.equal(permissions.userHasPermission(staffUser, "tenant.reports.read", { tenantId: "tenant-1" }), true);
   assert.equal(permissions.userHasPermission(staffUser, "tenant.settings.manage", { tenantId: "tenant-1" }), false);
   assert.equal(permissions.userHasPermission(staffUser, "tenant.service.manage", { tenantId: "tenant-1" }), false);
   assert.equal(permissions.userHasPermission(staffUser, "tenant.availability.manage", { tenantId: "tenant-1" }), false);
   assert.equal(permissions.userHasPermission(staffUser, "tenant.booking.manage", { tenantId: "tenant-1" }), false);
+  assert.equal(permissions.userHasPermission(staffUser, "tenant.booking.manage", { tenantId: "tenant-2" }), false);
   assert.equal(permissions.userHasPermission(adminUser, "tenant.settings.manage", { tenantId: "tenant-1" }), true);
   assert.equal(permissions.userHasPermission(adminUser, "tenant.settings.manage_contact", { tenantId: "tenant-1" }), false);
   assert.equal(permissions.userHasPermission(adminUser, "tenant.staff.manage", { tenantId: "tenant-1" }), true);
@@ -179,14 +183,17 @@ test("permissions map keeps current owner, staff, and platform-admin boundaries"
   assert.equal(permissions.userHasPermission(adminUser, "tenant.service.manage", { tenantId: "tenant-1" }), true);
   assert.equal(permissions.userHasPermission(adminUser, "tenant.availability.manage", { tenantId: "tenant-1" }), true);
   assert.equal(permissions.userHasPermission(adminUser, "tenant.booking.manage", { tenantId: "tenant-1" }), true);
+  assert.equal(permissions.userHasPermission(adminUser, "tenant.booking.manage", { tenantId: "tenant-2" }), false);
   assert.equal(permissions.userHasPermission(ownerUser, "tenant.settings.manage", { tenantId: "tenant-1" }), true);
   assert.equal(permissions.userHasPermission(ownerUser, "tenant.settings.manage_contact", { tenantId: "tenant-1" }), true);
   assert.equal(permissions.userHasPermission(ownerUser, "tenant.billing.manage", { tenantId: "tenant-1" }), true);
   assert.equal(permissions.userHasPermission(ownerUser, "tenant.service.manage", { tenantId: "tenant-1" }), true);
   assert.equal(permissions.userHasPermission(ownerUser, "tenant.availability.manage", { tenantId: "tenant-1" }), true);
   assert.equal(permissions.userHasPermission(ownerUser, "tenant.booking.manage", { tenantId: "tenant-1" }), true);
+  assert.equal(permissions.userHasPermission(ownerUser, "tenant.booking.manage", { tenantId: "tenant-2" }), false);
   assert.equal(permissions.userHasPermission(platformAdmin, "platform.users.read"), true);
   assert.equal(permissions.userHasPermission(platformAdmin, "platform.plans.manage"), true);
+  assert.equal(permissions.userHasPermission(platformAdmin, "tenant.booking.manage", { tenantId: "tenant-1" }), false);
 });
 
 test("vendor location payment QR settings are private vendor-managed configuration", async () => {
@@ -217,6 +224,17 @@ test("vendor location payment QR settings are private vendor-managed configurati
   let updatedLocation = null;
 
   const vendorRouter = requireWithMocks("../src/routes/vendorRoutes.js", {
+    "../services/staffAccessEmailService": { change: async (_context, mutate) => mutate({ client: {} }) },
+    "../services/locationCatalogService": {
+      createVendorLocation: async (tenant, body, options) => {
+        assert.equal(tenant._id,"tenant-1");assert.equal(options.actorUserId,"user-1");return {_id:"location-2",...body,tenantId:tenant._id,timezone:"Asia/Manila",isActive:true};
+      },
+      updateVendorLocation: async (tenant, slug, body, options) => {
+        assert.equal(tenant._id,"tenant-1");assert.equal(slug,"main");assert.equal(options.actorUserId,"user-1");
+        const changes=require("../src/routes/vendorRouteHelpers").normalizeLocationPayload(body,locations[0]);
+        updatedLocation={...locations[0],...changes};return updatedLocation;
+      }
+    },
     "../middleware/auth": buildAuthMock(),
     "../middleware/asyncHandler": buildAsyncHandlerMock(),
     "../repositories/tenants": {
@@ -239,6 +257,9 @@ test("vendor location payment QR settings are private vendor-managed configurati
       createDefaultHours: async () => [],
       listHoursByLocationId: async () => [],
       replaceHours: async () => []
+    },
+    "../repositories/platform": {
+      getPlatformSettings: async () => ({ defaultTimezone: "Asia/Manila" })
     },
     "../repositories/tickets": {
       listHistoryTickets: async () => [],
@@ -362,6 +383,11 @@ test("vendor location payment QR settings are private vendor-managed configurati
     const uploadBody = await uploadResponse.json();
     assert.equal(uploadBody.asset.publicUrl, "https://cdn.example.test/payment-qrs/main/test.png");
 
+    const deniedCreate = await fetch(`${baseUrl}/tenant/demo/locations`, { method:"POST",headers:{"Content-Type":"application/json","x-test-tenant-role":"staff"},body:JSON.stringify({name:"New branch"}) });
+    assert.equal(deniedCreate.status,403);
+    const created = await fetch(`${baseUrl}/tenant/demo/locations`, { method:"POST",headers:{"Content-Type":"application/json","x-test-tenant-role":"admin"},body:JSON.stringify({name:"New branch",slug:"new",tenantId:"other",actorUserId:"spoof"}) });
+    assert.equal(created.status,201);assert.equal((await created.json()).location.slug,"new");
+
     const listResponse = await fetch(`${baseUrl}/tenant/demo/locations`, {
       headers: {
         "x-test-tenant-role": "admin"
@@ -397,6 +423,7 @@ test("vendor availability is manageable by vendor admins but denied to staff", a
   let deletedExceptionId = null;
 
   const vendorRouter = requireWithMocks("../src/routes/vendorRoutes.js", {
+    "../services/staffAccessEmailService": { change: async (_context, mutate) => mutate({ client: {} }) },
     "../middleware/auth": buildAuthMock(),
     "../middleware/asyncHandler": buildAsyncHandlerMock(),
     "../repositories/tenants": {
@@ -413,7 +440,9 @@ test("vendor availability is manageable by vendor admins but denied to staff", a
         slug === "main"
           ? { _id: "location-1", tenantId: "tenant-1", name: "Main Branch", slug: "main" }
           : null,
-      listHoursByLocationId: async () => []
+      listHoursByLocationId: async () => [
+        { weekday: 2, opensAt: "09:00", closesAt: "17:00", isClosed: false }
+      ]
     },
     "../repositories/tickets": {
       listHistoryTickets: async () => [],
@@ -439,6 +468,30 @@ test("vendor availability is manageable by vendor admins but denied to staff", a
             }
           : null
     },
+    "../services/availabilityCreationService": { createAvailabilityEntry: async (tenant, location, body, type, options) => {
+      assert.deepEqual(options, { actorUserId: "user-1" });
+      const normalizers = require("../src/services/availabilityPayloadService");
+      const payload = await normalizers[type === "block" ? "normalizeAvailabilityBlockPayload" : "normalizeAvailabilityExceptionPayload"](
+        tenant, { ...body, locationSlug: location.slug }, null,
+        { findServiceByTenantAndSlug: async () => ({ _id: "service-1" }) }, async () => location,
+        { listHoursByLocationId: async () => [{ weekday: 2, opensAt: "09:00", closesAt: "17:00", isClosed: false }] });
+      const entry = { _id: type === "block" ? "block-2" : "exception-2", tenantId: tenant._id, ...payload, createdAt: new Date(), updatedAt: new Date() };
+      if (type === "block") createdBlock = entry; else createdException = entry;
+      return entry;
+    } },
+    "../services/availabilityUpdateService": { updateAvailabilityEntry: async (tenant, id, body, type, options) => {
+      assert.deepEqual(options, { actorUserId: "user-1" });
+      const current = type === "block" ? blocks[0] : { _id: id, tenantId: "tenant-1", locationId: "location-1", serviceId: null,
+        exceptionDate: "2026-07-01", isAvailable: false, reason: "Holiday" };
+      const normalizer = require("../src/services/availabilityPayloadService")[type === "block" ? "normalizeAvailabilityBlockPayload" : "normalizeAvailabilityExceptionPayload"];
+      const payload = await normalizer(tenant, body, current, { findServiceByTenantAndSlug: async () => ({ _id: "service-1" }) },
+        async () => ({ _id: "location-1", slug: "main" }), { listHoursByLocationId: async () => [{ weekday: 2, opensAt: "09:00", closesAt: "17:00", isClosed: false }] });
+      return { ...current, ...payload };
+    } },
+    "../services/availabilityDeletionService": { deleteAvailabilityEntry: async (tenant, entryId, type, options) => {
+      assert.equal(tenant._id, "tenant-1"); assert.equal(type, "exception");
+      assert.deepEqual(options, { actorUserId: "user-1" }); deletedExceptionId=entryId;
+    } },
     "../repositories/vendorAvailability": {
       listAvailabilityByLocation: async () => ({ blocks, exceptions: [] }),
       findBlockByTenantAndId: async (_tenantId, blockId) => blocks.find((block) => block._id === blockId) || null,
@@ -502,6 +555,9 @@ test("vendor availability is manageable by vendor admins but denied to staff", a
       getBillingOverview: async () => ({ subscription: { entitlements: { locations: 1 } }, plans: [] }),
       getTenantEntitlements: async () => ({ staffSeats: 5, counters: 2, brandedQueuePages: true })
     },
+    "../services/entitlementAdmissionService": {
+      admit: async () => ({ admitted: true })
+    },
     "../services/publicBoardThemeUploadService": {
       createUpload: async () => ({})
     },
@@ -534,6 +590,13 @@ test("vendor availability is manageable by vendor admins but denied to staff", a
     });
     assert.equal(listResponse.status, 200);
     assert.equal((await listResponse.json()).blocks.length, 1);
+
+    for (const kind of ["blocks", "exceptions"]) {
+      const deniedCreate = await fetch(`${baseUrl}/tenant/demo/availability/${kind}`, {
+        method: "POST", headers: { "Content-Type": "application/json", "x-test-tenant-role": "staff" }, body: JSON.stringify({ locationSlug: "main" })
+      });
+      assert.equal(deniedCreate.status, 403); assert.equal(createdBlock, null); assert.equal(createdException, null);
+    }
 
     const createBlockResponse = await fetch(`${baseUrl}/tenant/demo/availability/blocks`, {
       method: "POST",
@@ -569,6 +632,27 @@ test("vendor availability is manageable by vendor admins but denied to staff", a
     });
     assert.equal(createExceptionResponse.status, 201);
     assert.equal(createdException.exceptionDate, "2026-07-01");
+
+    for (const [kind, id] of [["blocks", "block-1"], ["exceptions", "exception-1"]]) {
+      const deniedUpdate = await fetch(`${baseUrl}/tenant/demo/availability/${kind}/${id}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json", "x-test-tenant-role": "staff" }, body: JSON.stringify({ locationSlug: "main" })
+      });
+      assert.equal(deniedUpdate.status, 403);
+    }
+
+    for (const body of [{ locationSlug: "main", isAvailable: true }, { isAvailable: false }]) {
+      const updateExceptionResponse = await fetch(`${baseUrl}/tenant/demo/availability/exceptions/exception-1`, {
+        method: "PATCH", headers: { "Content-Type": "application/json", "x-test-tenant-role": "owner" }, body: JSON.stringify(body)
+      });
+      assert.equal(updateExceptionResponse.status, 200);
+      const updated = (await updateExceptionResponse.json()).exception;
+      assert.equal(updated.locationId, "location-1"); assert.equal(updated.isAvailable, body.isAvailable);
+    }
+
+    const deniedDelete = await fetch(`${baseUrl}/tenant/demo/availability/exceptions/exception-1`, {
+      method: "DELETE", headers: { "x-test-tenant-role": "staff" }
+    });
+    assert.equal(deniedDelete.status, 403); assert.equal(deletedExceptionId, null);
 
     const deleteExceptionResponse = await fetch(`${baseUrl}/tenant/demo/availability/exceptions/exception-1`, {
       method: "DELETE",
@@ -608,6 +692,7 @@ test("vendor service catalog is manageable by vendor admins but denied to staff"
   let deactivatedServiceId = null;
 
   const vendorRouter = requireWithMocks("../src/routes/vendorRoutes.js", {
+    "../services/staffAccessEmailService": { change: async (_context, mutate) => mutate({ client: {} }) },
     "../middleware/auth": buildAuthMock(),
     "../middleware/asyncHandler": buildAsyncHandlerMock(),
     "../repositories/tenants": {
@@ -622,6 +707,9 @@ test("vendor service catalog is manageable by vendor admins but denied to staff"
       }),
       listHoursByLocationId: async () => []
     },
+    "../repositories/locationServices": {
+      listLocationServicesByTenantId: async () => []
+    },
     "../repositories/tickets": {
       listHistoryTickets: async () => [],
       listClientTickets: async () => []
@@ -632,6 +720,24 @@ test("vendor service catalog is manageable by vendor admins but denied to staff"
     "../repositories/serviceCounters": {
       listCountersByLocationId: async () => [],
       listAssignedCounterIdsByUserIds: async () => new Map()
+    },
+    "../services/serviceDeactivationService": {
+      createVendorService: async (tenant, body, options) => {
+        assert.equal(tenant._id, "tenant-1"); assert.equal(options.actorUserId, "user-1");
+        createdService = { _id: "service-2", ...require("../src/routes/vendorRouteHelpers").normalizeServicePayload(body), tenantId: tenant._id, createdAt: new Date(), updatedAt: new Date() };
+        return { service: createdService, locationServices: [] };
+      },
+      updateVendorService: async (tenant, slug, body, options) => {
+        assert.equal(tenant._id, "tenant-1"); assert.equal(options.actorUserId, "user-1"); assert.equal(body.isActive,false);
+        return {service:{...services.find(item=>item.slug===slug),...body,isActive:false},locationServices:[]};
+      },
+      deactivateVendorService: async (tenant, slug, options) => {
+        assert.equal(tenant._id, "tenant-1"); assert.equal(options.actorUserId, "user-1");
+        const service = services.find(item => item.slug === slug);
+        if (!service) throw Object.assign(new Error("Service not found."), { statusCode: 404 });
+        deactivatedServiceId = service._id;
+        return { ...service, isActive: false };
+      }
     },
     "../repositories/vendorServices": {
       normalizeServiceSlug: (value) => String(value || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, ""),
@@ -666,6 +772,9 @@ test("vendor service catalog is manageable by vendor admins but denied to staff"
     "../services/billingService": {
       getBillingOverview: async () => ({ subscription: { entitlements: { locations: 1 } }, plans: [] }),
       getTenantEntitlements: async () => ({ staffSeats: 5, counters: 2, brandedQueuePages: true })
+    },
+    "../services/entitlementAdmissionService": {
+      admit: async () => ({ admitted: true })
     },
     "../services/publicBoardThemeUploadService": {
       createUpload: async () => ({})
@@ -722,12 +831,24 @@ test("vendor service catalog is manageable by vendor admins but denied to staff"
     assert.equal(createBody.service.manualPaymentRequired, true);
     assert.equal(createdService.priceDisplay, "₱500");
 
+    const toggleResponse = await fetch(`${baseUrl}/tenant/demo/services/haircut`, {
+      method: "PATCH", headers: { "x-test-tenant-role": "owner", "Content-Type": "application/json" },
+      body: JSON.stringify({isActive:false,name:"Updated haircut",durationMinutes:45})
+    });
+    assert.equal(toggleResponse.status,200);const toggled=await toggleResponse.json();assert.equal(toggled.service.isActive,false);assert.equal(toggled.service.name,"Updated haircut");assert.deepEqual(toggled.locationServices,[]);
+    const deniedToggle = await fetch(`${baseUrl}/tenant/demo/services/haircut`, {
+      method:"PATCH",headers:{"x-test-tenant-role":"staff","Content-Type":"application/json"},body:JSON.stringify({isActive:false})
+    });assert.equal(deniedToggle.status,403);
     const deactivateResponse = await fetch(`${baseUrl}/tenant/demo/services/haircut`, {
       method: "DELETE",
       headers: {
         "x-test-tenant-role": "owner"
       }
     });
+    const deniedDeactivation = await fetch(`${baseUrl}/tenant/demo/services/haircut`, {
+      method: "DELETE", headers: { "x-test-tenant-role": "staff" }
+    });
+    assert.equal(deniedDeactivation.status, 403);
     assert.equal(deactivateResponse.status, 200);
     assert.equal(deactivatedServiceId, "service-1");
     assert.equal((await deactivateResponse.json()).service.isActive, false);
@@ -738,6 +859,7 @@ test("vendor service catalog is manageable by vendor admins but denied to staff"
 
 test("vendor staff is denied owner-only settings route but can operate queue and read staff, clients, and history", async () => {
   const vendorRouter = requireWithMocks("../src/routes/vendorRoutes.js", {
+    "../services/staffAccessEmailService": { change: async (_context, mutate) => mutate({ client: {} }) },
     "../middleware/auth": buildAuthMock(),
     "../middleware/asyncHandler": buildAsyncHandlerMock(),
     "../repositories/tenants": {
@@ -776,6 +898,7 @@ test("vendor staff is denied owner-only settings route but can operate queue and
       getResolvedTheme: async () => ({ scope: "fallback", theme: {} })
     },
     "../repositories/serviceCounters": {
+      findCounterByLocationAndSlug: async () => ({ _id: "1" }),
       listCountersByLocationId: async () => [],
       listAssignedCounterIdsByUserIds: async () => new Map()
     },
@@ -834,7 +957,7 @@ test("vendor staff is denied owner-only settings route but can operate queue and
         "Content-Type": "application/json",
         "x-test-tenant-role": "staff"
       },
-      body: JSON.stringify({})
+      body: JSON.stringify({ counterSlug: "one" })
     });
     assert.equal(queueResponse.status, 200);
 
@@ -867,9 +990,21 @@ test("tenant owner can access billing management routes", async () => {
   const billingRouter = requireWithMocks("../src/routes/billingRoutes.js", {
     "../middleware/auth": buildAuthMock(),
     "../middleware/asyncHandler": buildAsyncHandlerMock(),
+    "../middleware/idempotency": { requireIdempotency: () => (_req, _res, next) => next() },
     "../repositories/tenants": {
       findTenantBySlug: async () => ({ _id: "tenant-1", slug: "demo", name: "Demo Tenant" })
     },
+    "../services/privilegedTransactionService": {
+      issueConfirmation: async () => ({ token: "confirmation-1" }),
+      consumeConfirmation: async () => ({ consumed: true })
+    },
+    "../services/privilegedPreviewService": {
+      resolvePreview: async ({ payload }) => ({ payload, revision: "server-preview-1" })
+    },
+    "../config/db": {
+      withTransaction: async (callback) => callback({ query: async () => ({ rows: [] }) })
+    },
+    "../services/securityAuditService": { record: async () => {} },
     "../services/billingService": {
       getBillingOverview: async () => ({ plans: [], addOns: [], subscription: null }),
       createPayMongoCheckout: async () => ({
@@ -885,13 +1020,34 @@ test("tenant owner can access billing management routes", async () => {
   const { server, baseUrl } = await startServer(billingRouter, "/api/billing");
 
   try {
-    const ownerResponse = await fetch(`${baseUrl}/tenant/demo/checkout`, {
+    const previewResponse = await fetch(`${baseUrl}/tenant/demo/commercial-actions/preview`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "x-test-tenant-role": "owner"
       },
-      body: JSON.stringify({ planSlug: "pro", billingInterval: "monthly" })
+      body: JSON.stringify({
+        action: "subscription.checkout",
+        reason: "Upgrade the tenant subscription",
+        payload: { planSlug: "pro", billingInterval: "monthly" }
+      })
+    });
+    assert.equal(previewResponse.status, 200);
+    const preview = await previewResponse.json();
+
+    const ownerResponse = await fetch(`${baseUrl}/tenant/demo/checkout`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-test-tenant-role": "owner",
+        "x-transaction-confirmation": preview.confirmation.token
+      },
+      body: JSON.stringify({
+        planSlug: "pro",
+        billingInterval: "monthly",
+        reason: "Upgrade the tenant subscription",
+        previewRevision: preview.preview.revision
+      })
     });
     assert.equal(ownerResponse.status, 201);
 
@@ -909,8 +1065,9 @@ test("tenant owner can access billing management routes", async () => {
   }
 });
 
-test("tenant admin cannot add another admin through staff invite", async () => {
+test("staff invitation HTTP route propagates current-domain admin role denial", async () => {
   const vendorRouter = requireWithMocks("../src/routes/vendorRoutes.js", {
+    "../services/staffInvitationResourceService": { invite: async input => { assert.equal(input.role, "admin"); throw Object.assign(new Error("Tenant admins can only invite staff members."), { statusCode: 403 }); } },
     "../middleware/auth": buildAuthMock(),
     "../middleware/asyncHandler": buildAsyncHandlerMock(),
     "../repositories/tenants": {
@@ -997,9 +1154,10 @@ test("tenant admin cannot add another admin through staff invite", async () => {
   }
 });
 
-test("tenant admin can invite a staff member", async () => {
-  let addMembershipCalled = false;
+test("staff invitation HTTP route delegates regular staff admission", async () => {
+  let invitationCalled = false;
   const vendorRouter = requireWithMocks("../src/routes/vendorRoutes.js", {
+    "../services/staffInvitationResourceService": { invite: async input => { assert.equal(input.userId, "invitee-1"); assert.equal(input.role, "staff"); invitationCalled = true; } },
     "../middleware/auth": buildAuthMock(),
     "../middleware/asyncHandler": buildAsyncHandlerMock(),
     "../repositories/tenants": {
@@ -1043,7 +1201,7 @@ test("tenant admin can invite a staff member", async () => {
         tenantMemberships: []
       }),
       addTenantMembership: async (_userId, _tenantId, role) => {
-        addMembershipCalled = role === "staff";
+        invitationCalled = role === "staff";
       }
     },
     "../services/billingService": {
@@ -1080,7 +1238,7 @@ test("tenant admin can invite a staff member", async () => {
       })
     });
     assert.equal(response.status, 201);
-    assert.equal(addMembershipCalled, true);
+    assert.equal(invitationCalled, true);
   } finally {
     await stopServer(server);
   }
@@ -1088,6 +1246,7 @@ test("tenant admin can invite a staff member", async () => {
 
 test("tenant admin cannot change another staff member role", async () => {
   const vendorRouter = requireWithMocks("../src/routes/vendorRoutes.js", {
+    "../services/staffAccessEmailService": { change: async (_context, mutate) => mutate({ client: {} }) },
     "../middleware/auth": buildAuthMock(),
     "../middleware/asyncHandler": buildAsyncHandlerMock(),
     "../repositories/tenants": {
@@ -1171,8 +1330,41 @@ test("tenant admin cannot change another staff member role", async () => {
   }
 });
 
+test("staff access route delegates the exact request scope and preserves response and domain denial", async () => {
+  const calls = [];
+  let denied = false;
+  const vendorRouter = requireWithMocks("../src/routes/vendorRoutes.js", {
+    "../middleware/auth": buildAuthMock(),
+    "../middleware/asyncHandler": buildAsyncHandlerMock(),
+    "../repositories/tenants": { findTenantBySlug: async () => ({ _id: "tenant-1", slug: "demo", name: "Demo" }) },
+    "../services/staffAccessResourceService": { update: async context => {
+      calls.push(context);
+      if (denied) throw Object.assign(new Error("Current staff access was revoked."), { statusCode: 403 });
+    } }
+  });
+  const { server, baseUrl } = await startServer(vendorRouter, "/api/vendor");
+  try {
+    const request = () => fetch(`${baseUrl}/tenant/demo/staff/9007199254740993`, {
+      method: "PATCH", headers: { "Content-Type": "application/json", "x-test-tenant-role": "owner" },
+      body: JSON.stringify({ isActive: false })
+    });
+    const response = await request();
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { userId: "9007199254740993" });
+    assert.equal(calls[0].tenant._id, "tenant-1");
+    assert.equal(calls[0].userId, "9007199254740993");
+    assert.equal(calls[0].actorId, "user-1");
+    assert.deepEqual(calls[0].body, { isActive: false });
+    denied = true;
+    const rejection = await request();
+    assert.equal(rejection.status, 403);
+    assert.match(await rejection.text(), /Current staff access was revoked/);
+  } finally { await stopServer(server); }
+});
+
 test("tenant admin cannot remove another staff member", async () => {
   const vendorRouter = requireWithMocks("../src/routes/vendorRoutes.js", {
+    "../services/staffAccessEmailService": { change: async (_context, mutate) => mutate({ client: {} }) },
     "../middleware/auth": buildAuthMock(),
     "../middleware/asyncHandler": buildAsyncHandlerMock(),
     "../repositories/tenants": {
@@ -1245,8 +1437,9 @@ test("tenant admin cannot remove another staff member", async () => {
   }
 });
 
-test("tenant owner cannot add a second owner through staff invite", async () => {
+test("staff invitation HTTP route propagates current-domain owner restriction", async () => {
   const vendorRouter = requireWithMocks("../src/routes/vendorRoutes.js", {
+    "../services/staffInvitationResourceService": { invite: async input => { assert.equal(input.role, "owner"); throw Object.assign(new Error("Only one tenant owner is allowed per vendor."), { statusCode: 400 }); } },
     "../middleware/auth": buildAuthMock(),
     "../middleware/asyncHandler": buildAsyncHandlerMock(),
     "../repositories/tenants": {

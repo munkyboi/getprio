@@ -8,6 +8,7 @@ const BLOCK_COLUMNS = `
   weekday,
   starts_at,
   ends_at,
+  ends_next_day,
   capacity,
   is_active,
   notes,
@@ -51,6 +52,7 @@ function mapBlock(row) {
     weekday: Number(row.weekday),
     startsAt: mapTime(row.starts_at),
     endsAt: mapTime(row.ends_at),
+    endsNextDay: Boolean(row.ends_next_day),
     capacity: Number(row.capacity),
     isActive: Boolean(row.is_active),
     notes: row.notes || "",
@@ -115,7 +117,7 @@ async function findBlockByTenantAndId(tenantId, blockId, options = {}) {
       SELECT ${BLOCK_COLUMNS}
       FROM vendor_availability_blocks
       WHERE tenant_id = $1 AND id = $2
-      LIMIT 1
+      LIMIT 1${options.forUpdate ? " FOR UPDATE" : ""}
     `,
     [Number(tenantId), Number(blockId)]
   );
@@ -133,11 +135,12 @@ async function createBlock(data, options = {}) {
         weekday,
         starts_at,
         ends_at,
+        ends_next_day,
         capacity,
         is_active,
         notes
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
       RETURNING ${BLOCK_COLUMNS}
     `,
     [
@@ -147,6 +150,7 @@ async function createBlock(data, options = {}) {
       Number(data.weekday),
       data.startsAt,
       data.endsAt,
+      Boolean(data.endsNextDay),
       Number(data.capacity || 1),
       data.isActive !== false,
       data.notes || null
@@ -166,6 +170,7 @@ async function updateBlock(blockId, changes, options = {}) {
     weekday: "weekday",
     startsAt: "starts_at",
     endsAt: "ends_at",
+    endsNextDay: "ends_next_day",
     capacity: "capacity",
     isActive: "is_active",
     notes: "notes"
@@ -208,13 +213,20 @@ async function updateBlock(blockId, changes, options = {}) {
   return mapBlock(result.rows[0]);
 }
 
+async function deleteBlock(blockId, options = {}) {
+  await buildQueryClient(options.client).query(
+    `DELETE FROM vendor_availability_blocks WHERE id = $1`,
+    [Number(blockId)]
+  );
+}
+
 async function findExceptionByTenantAndId(tenantId, exceptionId, options = {}) {
   const result = await buildQueryClient(options.client).query(
     `
       SELECT ${EXCEPTION_COLUMNS}
       FROM vendor_availability_exceptions
       WHERE tenant_id = $1 AND id = $2
-      LIMIT 1
+      LIMIT 1${options.forUpdate ? " FOR UPDATE" : ""}
     `,
     [Number(tenantId), Number(exceptionId)]
   );
@@ -311,6 +323,7 @@ module.exports = {
   findBlockByTenantAndId,
   createBlock,
   updateBlock,
+  deleteBlock,
   findExceptionByTenantAndId,
   createException,
   updateException,

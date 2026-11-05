@@ -1,13 +1,22 @@
 #!/usr/bin/env node
 
+import { createHmac } from "node:crypto";
+
 const API_BASE_URL = process.env.SMOKE_API_URL || process.env.VITE_API_URL || "http://localhost:5001/api";
 const APP_BASE_URL = process.env.SMOKE_APP_URL || process.env.APP_BASE_URL || "http://localhost:5173";
 const PLATFORM_BASE_URL = process.env.SMOKE_PLATFORM_URL || process.env.PLATFORM_BASE_URL || "http://localhost:7100";
 
-const SMOKE_EMAIL = process.env.SMOKE_EMAIL || "carlo.abella+store4@gmail.com";
-const SMOKE_PASSWORD = process.env.SMOKE_PASSWORD || "asdfasdf";
-const PLATFORM_SMOKE_EMAIL = process.env.PLATFORM_SMOKE_EMAIL || "getprio-smoke@getprio.local";
-const PLATFORM_SMOKE_PASSWORD = process.env.PLATFORM_SMOKE_PASSWORD || "Smoke1234!";
+const SMOKE_EMAIL = String(process.env.SMOKE_EMAIL || "").trim();
+const SMOKE_PASSWORD = String(process.env.SMOKE_PASSWORD || "").trim();
+const PLATFORM_SMOKE_EMAIL = String(process.env.PLATFORM_SMOKE_EMAIL || "").trim();
+const PLATFORM_SMOKE_PASSWORD = String(process.env.PLATFORM_SMOKE_PASSWORD || "").trim();
+const PLATFORM_SMOKE_TOTP_SECRET = String(process.env.PLATFORM_SMOKE_TOTP_SECRET || "").trim();
+const PLATFORM_RELEASE_EVIDENCE_SECRET = String(process.env.PLATFORM_RELEASE_EVIDENCE_SECRET || "");
+const SMOKE_EXPECTED_DEPLOY_SHA = String(process.env.SMOKE_EXPECTED_DEPLOY_SHA || "").trim();
+const SMOKE_API_READY_TIMEOUT_MS = Math.max(1, Number.parseInt(process.env.SMOKE_API_READY_TIMEOUT_MS || "90000", 10) || 90_000);
+const SMOKE_API_READY_RETRY_INTERVAL_MS = Math.max(1, Number.parseInt(process.env.SMOKE_API_READY_RETRY_INTERVAL_MS || "2000", 10) || 2_000);
+const VENDOR_STAFF_SMOKE_EMAIL = String(process.env.VENDOR_STAFF_SMOKE_EMAIL || "").trim();
+const VENDOR_STAFF_SMOKE_PASSWORD = String(process.env.VENDOR_STAFF_SMOKE_PASSWORD || "").trim();
 
 function getCliStage() {
   const index = process.argv.indexOf("--stage");
@@ -53,7 +62,8 @@ const platformPages = [
   { path: "/tenants", label: "platform tenants" },
   { path: "/subscriptions", label: "platform subscriptions" },
   { path: "/users", label: "platform users" },
-  { path: "/billing-events", label: "platform billing events" }
+  { path: "/billing-events", label: "platform billing events" },
+  { path: "/rating-disputes", label: "platform rating disputes" }
 ];
 
 function log(message) {
@@ -86,6 +96,54 @@ async function requestJson(url, options = {}) {
   return { response, body, text };
 }
 
+class BrowserSessionClient {
+  constructor() {
+    this.cookies = new Map();
+    this.csrfToken = "";
+  }
+
+  hasAccessCookie() {
+    return Boolean(this.cookies.get("__Host-prio_access") || this.cookies.get("prio_access"));
+  }
+
+  async requestJson(url, options = {}) {
+    const method = String(options.method || "GET").toUpperCase();
+    const headers = {
+      ...(options.headers || {})
+    };
+    if (this.cookies.size) {
+      headers.Cookie = [...this.cookies].map(([name, value]) => `${name}=${value}`).join("; ");
+    }
+    if (this.csrfToken && !["GET", "HEAD", "OPTIONS"].includes(method)) {
+      headers["X-CSRF-Token"] = this.csrfToken;
+      headers.Origin ||= new URL(PLATFORM_BASE_URL).origin;
+    }
+
+    const result = await requestJson(url, { ...options, headers });
+    const setCookieHeaders = typeof result.response.headers.getSetCookie === "function"
+      ? result.response.headers.getSetCookie()
+      : String(result.response.headers.get("set-cookie") || "")
+        .split(/,(?=\s*[^;,=\s]+=[^;,]*)/u)
+        .filter(Boolean);
+    for (const setCookie of setCookieHeaders) {
+      const pair = String(setCookie).split(";", 1)[0];
+      const separator = pair.indexOf("=");
+      if (separator < 1) continue;
+      const name = pair.slice(0, separator).trim();
+      const value = pair.slice(separator + 1).trim();
+      if (!value || /(?:^|;)\s*max-age=0(?:;|$)/iu.test(setCookie)) {
+        this.cookies.delete(name);
+      } else {
+        this.cookies.set(name, value);
+      }
+    }
+    if (typeof result.body?.csrfToken === "string") {
+      this.csrfToken = result.body.csrfToken;
+    }
+    return result;
+  }
+}
+
 async function requestText(url) {
   const response = await fetch(url, {
     headers: {
@@ -108,6 +166,39 @@ function assertContains(text, needle, context) {
   }
 }
 
+async function waitForPlatformApiReadiness() {
+  const deadline = Date.now() + SMOKE_API_READY_TIMEOUT_MS;
+  let latestFailure = "no health response";
+
+  while (Date.now() < deadline) {
+    try {
+      const health = await requestJson(`${API_BASE_URL}/health`, {
+        signal: AbortSignal.timeout(Math.min(10_000, SMOKE_API_READY_TIMEOUT_MS))
+      });
+      const expectedShaMatches = !SMOKE_EXPECTED_DEPLOY_SHA
+        || health.body?.deploymentSha === SMOKE_EXPECTED_DEPLOY_SHA;
+      if (health.response.ok && health.body?.status === "ok" && expectedShaMatches) {
+        log("production API health and deployed revision ok");
+        return;
+      }
+      latestFailure = !health.response.ok
+        ? `HTTP ${health.response.status}`
+        : !expectedShaMatches
+          ? `serving deployment ${health.body?.deploymentSha || "unknown"}`
+          : "health response did not report ok";
+    } catch (error) {
+      latestFailure = error instanceof Error ? error.message : String(error);
+    }
+
+    const remainingMs = deadline - Date.now();
+    if (remainingMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, Math.min(SMOKE_API_READY_RETRY_INTERVAL_MS, remainingMs)));
+    }
+  }
+
+  fail(`production API did not become ready with the expected deployment revision within ${SMOKE_API_READY_TIMEOUT_MS}ms (${latestFailure})`);
+}
+
 async function login(email, password) {
   const result = await requestJson(`${API_BASE_URL}/auth/login`, {
     method: "POST",
@@ -125,6 +216,70 @@ async function login(email, password) {
   return result.body;
 }
 
+function generateTotpCode(secret, timestamp = Date.now()) {
+  const normalized = String(secret || "").replace(/[\s=-]/gu, "").toUpperCase();
+  if (!normalized || !/^[A-Z2-7]+$/u.test(normalized)) {
+    fail("PLATFORM_SMOKE_TOTP_SECRET must be a Base32 authenticator setup key");
+  }
+
+  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+  let bits = "";
+  for (const character of normalized) {
+    bits += alphabet.indexOf(character).toString(2).padStart(5, "0");
+  }
+  const secretBytes = [];
+  for (let index = 0; index + 8 <= bits.length; index += 8) {
+    secretBytes.push(Number.parseInt(bits.slice(index, index + 8), 2));
+  }
+  if (!secretBytes.length) fail("PLATFORM_SMOKE_TOTP_SECRET is not a valid Base32 setup key");
+
+  const counter = Buffer.alloc(8);
+  counter.writeBigUInt64BE(BigInt(Math.floor(timestamp / 30_000)));
+  const digest = createHmac("sha1", Buffer.from(secretBytes)).update(counter).digest();
+  const offset = digest[digest.length - 1] & 0x0f;
+  const binary = ((digest[offset] & 0x7f) << 24)
+    | ((digest[offset + 1] & 0xff) << 16)
+    | ((digest[offset + 2] & 0xff) << 8)
+    | (digest[offset + 3] & 0xff);
+  return String(binary % 1_000_000).padStart(6, "0");
+}
+
+function assertPlatformBrowserSession(result, session, context) {
+  if (!result.body?.user || !session.hasAccessCookie() || !session.csrfToken) {
+    fail(`${context} response did not establish a cookie-backed browser session`);
+  }
+}
+
+async function loginPlatform(email, password, session) {
+  const result = await session.requestJson(`${API_BASE_URL}/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password })
+  });
+  assertOk(result.response, "platform smoke login");
+
+  if (result.body?.user && session.hasAccessCookie() && session.csrfToken) return result.body;
+  if (!result.body?.mfaRequired || !result.body?.challengeToken) {
+    fail("platform smoke login response did not contain a session or MFA challenge");
+  }
+  if (!PLATFORM_SMOKE_TOTP_SECRET) {
+    fail("platform smoke login requires MFA; set PLATFORM_SMOKE_TOTP_SECRET to the account's Base32 authenticator setup key");
+  }
+
+  const verification = await session.requestJson(`${API_BASE_URL}/auth/mfa/verify`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      challengeToken: result.body.challengeToken,
+      method: "totp",
+      code: generateTotpCode(PLATFORM_SMOKE_TOTP_SECRET)
+    })
+  });
+  assertOk(verification.response, "platform smoke MFA verification");
+  assertPlatformBrowserSession(verification, session, "platform smoke MFA verification");
+  return verification.body;
+}
+
 async function smokePublicStage() {
   const health = await requestJson(`${API_BASE_URL}/health`);
   assertOk(health.response, "backend health");
@@ -140,12 +295,43 @@ async function smokePublicStage() {
   }
   log("oauth provider metadata ok");
 
+  const vapid = await requestJson(`${API_BASE_URL}/push/vapid-public-key`);
+  assertOk(vapid.response, "web push vapid metadata");
+  if (!vapid.body || typeof vapid.body.configured !== "boolean" || typeof vapid.body.publicKey !== "string") {
+    fail("web push vapid metadata missing configured/publicKey fields");
+  }
+  log("web push vapid metadata ok");
+
   for (const page of publicPages) {
     const { response, text } = await requestText(`${APP_BASE_URL}${page.path}`);
     assertOk(response, `${page.label} page`);
     assertContains(text, "<div id=\"root\">", `${page.label} page`);
+    if (page.path === "/") {
+      assertContains(text, "href=\"/manifest.webmanifest\"", "landing metadata");
+      assertContains(text, "href=\"/apple-touch-icon.png\"", "landing metadata");
+      assertContains(text, "property=\"og:image\"", "landing metadata");
+      assertContains(text, "name=\"twitter:card\"", "landing metadata");
+    }
     log(`${page.label} page ok`);
   }
+
+  const serviceWorker = await requestText(`${APP_BASE_URL}/service-worker.js`);
+  assertOk(serviceWorker.response, "web push service worker");
+  assertContains(serviceWorker.text, "self.addEventListener(\"push\"", "web push service worker");
+  assertContains(serviceWorker.text, "notificationclick", "web push service worker");
+  log("web push service worker ok");
+
+  const manifest = await requestJson(`${APP_BASE_URL}/manifest.webmanifest`);
+  assertOk(manifest.response, "web app manifest");
+  if (manifest.body?.name !== "GetPrio" || !Array.isArray(manifest.body?.icons)) {
+    fail("web app manifest missing name or icons");
+  }
+  for (const iconSrc of ["/app-icon-192.png", "/app-icon-512.png"]) {
+    if (!manifest.body.icons.some((icon) => icon?.src === iconSrc && icon?.type === "image/png")) {
+      fail(`web app manifest missing icon: ${iconSrc}`);
+    }
+  }
+  log("web app manifest ok");
 
   const platform = await requestText(PLATFORM_BASE_URL);
   assertOk(platform.response, "platform dashboard shell");
@@ -155,7 +341,7 @@ async function smokePublicStage() {
 
 async function smokeCustomerStage() {
   if (!SMOKE_EMAIL || !SMOKE_PASSWORD) {
-    log("customer smoke skipped (set SMOKE_EMAIL and SMOKE_PASSWORD to enable)");
+    log("customer smoke skipped (set SMOKE_EMAIL and SMOKE_PASSWORD to a seeded fixture)");
     return;
   }
 
@@ -180,6 +366,12 @@ async function smokeCustomerStage() {
   assertOk(notificationSettingsBefore.response, "notification settings read");
   if (!notificationSettingsBefore.body?.notificationSettings) {
     fail("notification settings read missing payload");
+  }
+  if (
+    typeof notificationSettingsBefore.body.notificationSettings.bookingAlerts !== "boolean" ||
+    typeof notificationSettingsBefore.body.notificationSettings.queueAlerts !== "boolean"
+  ) {
+    fail("notification settings read missing Web Push status booleans");
   }
   log("notification settings read ok");
 
@@ -211,10 +403,13 @@ async function smokeCustomerStage() {
   assertOk(notificationSettingsRestore.response, "notification settings restore");
   log("notification settings restore ok");
 
-  const bookings = await requestJson(`${API_BASE_URL}/account/bookings?limit=1`, { headers });
+  const bookings = await requestJson(`${API_BASE_URL}/account/bookings?page=1&pageSize=1`, { headers });
   assertOk(bookings.response, "account bookings");
   if (!Array.isArray(bookings.body?.bookings)) {
     fail("account bookings missing bookings array");
+  }
+  if (!bookings.body?.pagination || typeof bookings.body.pagination.page !== "number") {
+    fail("account bookings missing pagination metadata");
   }
   log("account bookings ok");
 
@@ -228,14 +423,14 @@ async function smokeCustomerStage() {
 
 async function smokeBookingStage() {
   if (!SMOKE_EMAIL || !SMOKE_PASSWORD) {
-    log("booking smoke skipped (set SMOKE_EMAIL and SMOKE_PASSWORD to enable)");
+    log("booking smoke skipped (set SMOKE_EMAIL and SMOKE_PASSWORD to a seeded fixture)");
     return;
   }
 
   const auth = await login(SMOKE_EMAIL, SMOKE_PASSWORD);
   const headers = { Authorization: `Bearer ${auth.token}` };
 
-  const vendorSlug = auth.user.tenants?.[0]?.slug || "musashi-pastries";
+  const vendorSlug = process.env.SMOKE_BOOKING_VENDOR_SLUG || auth.user.tenants?.[0]?.slug || "musashi-pastries";
   const tenantProfile = await requestJson(`${API_BASE_URL}/public/vendors/${vendorSlug}`);
   assertOk(tenantProfile.response, "public vendor profile for booking smoke");
   const vendor = tenantProfile.body?.vendor;
@@ -290,7 +485,7 @@ async function smokeBookingStage() {
 
 async function smokeVendorStage() {
   if (!SMOKE_EMAIL || !SMOKE_PASSWORD) {
-    log("vendor smoke skipped (set SMOKE_EMAIL and SMOKE_PASSWORD to enable)");
+    log("vendor smoke skipped (set SMOKE_EMAIL and SMOKE_PASSWORD to a seeded fixture)");
     return;
   }
 
@@ -327,10 +522,30 @@ async function smokeVendorStage() {
   }
   log("vendor staff ok");
 
+  const vendorNotificationSettings = await requestJson(
+    `${API_BASE_URL}/vendor/tenant/${tenant.slug}/notification-settings`,
+    { headers }
+  );
+  assertOk(vendorNotificationSettings.response, "vendor notification settings");
+  if (
+    typeof vendorNotificationSettings.body?.notificationSettings?.queueJoin !== "boolean" ||
+    typeof vendorNotificationSettings.body?.notificationSettings?.bookingIntake !== "boolean" ||
+    typeof vendorNotificationSettings.body?.notificationSettings?.paymentProofReview !== "boolean"
+  ) {
+    fail("vendor notification settings missing Web Push status booleans");
+  }
+  log("vendor notification settings ok");
+
   const services = await requestJson(`${API_BASE_URL}/vendor/tenant/${tenant.slug}/services`, { headers });
   assertOk(services.response, "vendor services");
   if (!Array.isArray(services.body?.services)) {
     fail("vendor services missing services array");
+  }
+  if (
+    services.body.services.length > 0 &&
+    !services.body.services.every((service) => ["service", "location"].includes(service.bookingCapacityScope))
+  ) {
+    fail("vendor services missing valid bookingCapacityScope values");
   }
   log("vendor services ok");
 
@@ -343,39 +558,147 @@ async function smokeVendorStage() {
     fail("vendor availability missing blocks or exceptions arrays");
   }
   log("vendor availability ok");
+
+  const bookings = await requestJson(
+    `${API_BASE_URL}/vendor/tenant/${tenant.slug}/bookings?page=1&pageSize=1&location=${encodeURIComponent(locationSlug)}`,
+    { headers }
+  );
+  assertOk(bookings.response, "vendor bookings");
+  if (!Array.isArray(bookings.body?.bookings)) {
+    fail("vendor bookings missing bookings array");
+  }
+  log("vendor bookings ok");
+
+  const firstBookingId = bookings.body.bookings[0]?.id;
+  if (firstBookingId) {
+    const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const rescheduleSlots = await requestJson(
+      `${API_BASE_URL}/vendor/tenant/${tenant.slug}/bookings/${firstBookingId}/reschedule-slots?date=${tomorrow}`,
+      { headers }
+    );
+    if (rescheduleSlots.response.status === 409) {
+      log("vendor booking reschedule slots skipped (fixture booking is not reschedulable)");
+      return;
+    }
+    assertOk(rescheduleSlots.response, "vendor booking reschedule slots");
+    if (!Array.isArray(rescheduleSlots.body?.slots)) {
+      fail("vendor booking reschedule slots missing slots array");
+    }
+    log("vendor booking reschedule slots ok");
+  } else {
+    log("vendor booking reschedule slots skipped (no vendor booking fixture)");
+  }
 }
 
-async function smokePlatformStage() {
+function assertQueueDayContract(queueDay, context) {
+  if (!queueDay || !["unopened", "open", "closed"].includes(queueDay.state)) {
+    fail(`${context} missing authoritative Queue Day state`);
+  }
+  if (typeof queueDay.availabilityReason !== "string" || typeof queueDay.serverNow !== "string") {
+    fail(`${context} missing availability reason or server clock`);
+  }
+  if (queueDay.state === "open" && !["accepting", "paused"].includes(queueDay.intakeMode)) {
+    fail(`${context} returned an invalid open Queue Day intake mode`);
+  }
+}
+
+async function smokeQueueLifecycleReadStage() {
+  const auth = await login(SMOKE_EMAIL, SMOKE_PASSWORD);
+  const tenant = Array.isArray(auth.user.tenants) ? auth.user.tenants[0] : null;
+  if (!tenant?.slug) {
+    fail("queue lifecycle smoke requires a vendor tenant membership");
+  }
+  const headers = { Authorization: `Bearer ${auth.token}` };
+  const locations = await requestJson(
+    `${API_BASE_URL}/vendor/tenant/${tenant.slug}/locations`,
+    { headers }
+  );
+  assertOk(locations.response, "queue lifecycle vendor locations");
+  const locationSlug = locations.body?.locations?.[0]?.slug;
+  if (!locationSlug) {
+    fail("queue lifecycle smoke requires a vendor location");
+  }
+  const dashboard = await requestJson(
+    `${API_BASE_URL}/vendor/tenant/${tenant.slug}/dashboard?location=${encodeURIComponent(locationSlug)}`,
+    { headers }
+  );
+  assertOk(dashboard.response, "Vendor Admin queue lifecycle snapshot");
+  assertQueueDayContract(dashboard.body?.queueDay, "Vendor Admin queue lifecycle snapshot");
+  log("Vendor Admin queue lifecycle snapshot ok");
+
+  const publicQueue = await requestJson(
+    `${API_BASE_URL}/public/tenant/${tenant.slug}/location/${locationSlug}/queue`
+  );
+  assertOk(publicQueue.response, "public queue lifecycle snapshot");
+  assertQueueDayContract(publicQueue.body?.queueDay, "public queue lifecycle snapshot");
+  log("public queue lifecycle snapshot ok");
+
+  const customerOverview = await requestJson(`${API_BASE_URL}/account/overview`, { headers });
+  assertOk(customerOverview.response, "customer queue history");
+  if (!Array.isArray(customerOverview.body?.tickets)) {
+    fail("customer queue history missing tickets");
+  }
+  log("customer queue history ok");
+
+  if (VENDOR_STAFF_SMOKE_EMAIL && VENDOR_STAFF_SMOKE_PASSWORD) {
+    const staffAuth = await login(VENDOR_STAFF_SMOKE_EMAIL, VENDOR_STAFF_SMOKE_PASSWORD);
+    const staffTenant = Array.isArray(staffAuth.user.tenants)
+      ? staffAuth.user.tenants.find((item) => item.slug === tenant.slug)
+      : null;
+    if (!staffTenant) {
+      fail("Vendor Staff smoke account is not assigned to the queue lifecycle tenant");
+    }
+    const staffDashboard = await requestJson(
+      `${API_BASE_URL}/vendor/tenant/${tenant.slug}/dashboard?location=${encodeURIComponent(locationSlug)}`,
+      { headers: { Authorization: `Bearer ${staffAuth.token}` } }
+    );
+    assertOk(staffDashboard.response, "Vendor Staff queue lifecycle snapshot");
+    assertQueueDayContract(staffDashboard.body?.queueDay, "Vendor Staff queue lifecycle snapshot");
+    log("Vendor Staff queue lifecycle snapshot ok");
+  } else {
+    log("Vendor Staff queue lifecycle smoke skipped (set VENDOR_STAFF_SMOKE_EMAIL and VENDOR_STAFF_SMOKE_PASSWORD)");
+  }
+
   const platformAuth = await login(PLATFORM_SMOKE_EMAIL, PLATFORM_SMOKE_PASSWORD);
-  const platformHeaders = { Authorization: `Bearer ${platformAuth.token}` };
-
-  const platformOverview = await requestJson(`${API_BASE_URL}/platform/overview`, { headers: platformHeaders });
-  assertOk(platformOverview.response, "platform overview api");
-  if (!platformOverview.body?.totals) {
-    fail("platform overview api missing totals");
+  const diagnostics = await requestJson(
+    `${API_BASE_URL}/platform/queue-lifecycle/diagnostics?limit=10`,
+    { headers: { Authorization: `Bearer ${platformAuth.token}` } }
+  );
+  assertOk(diagnostics.response, "Platform Admin queue lifecycle diagnostics");
+  if (!Array.isArray(diagnostics.body?.queueDays)) {
+    fail("Platform Admin queue lifecycle diagnostics missing queueDays");
   }
-  log("platform overview api ok");
+  log("Platform Admin queue lifecycle diagnostics ok");
+}
 
-  const platformPlans = await requestJson(`${API_BASE_URL}/platform/plans`, { headers: platformHeaders });
-  assertOk(platformPlans.response, "platform plans api");
-  if (!Array.isArray(platformPlans.body?.plans)) {
-    fail("platform plans api missing plans array");
-  }
-  log("platform plans api ok");
 
-  const platformQueueFees = await requestJson(`${API_BASE_URL}/platform/queue-fees`, { headers: platformHeaders });
-  assertOk(platformQueueFees.response, "platform queue fees api");
-  if (!Array.isArray(platformQueueFees.body?.queueFees)) {
-    fail("platform queue fees api missing queueFees array");
+async function smokePlatformStage() {
+  if (!PLATFORM_SMOKE_EMAIL || !PLATFORM_SMOKE_PASSWORD) {
+    fail("platform smoke requires PLATFORM_SMOKE_EMAIL and PLATFORM_SMOKE_PASSWORD");
   }
-  log("platform queue fees api ok");
+  if (SMOKE_EXPECTED_DEPLOY_SHA && !/^[a-f0-9]{40}$/u.test(SMOKE_EXPECTED_DEPLOY_SHA)) {
+    fail("SMOKE_EXPECTED_DEPLOY_SHA must be a full commit SHA");
+  }
+  await waitForPlatformApiReadiness();
+  const platformSession = new BrowserSessionClient();
+  await loginPlatform(PLATFORM_SMOKE_EMAIL, PLATFORM_SMOKE_PASSWORD, platformSession);
 
-  const platformSettings = await requestJson(`${API_BASE_URL}/platform/settings`, { headers: platformHeaders });
-  assertOk(platformSettings.response, "platform settings api");
-  if (!platformSettings.body?.settings) {
-    fail("platform settings api missing settings");
+  const releaseReadiness = await platformSession.requestJson(`${API_BASE_URL}/platform/release-readiness/read-model`);
+  assertOk(releaseReadiness.response, "authenticated release readiness api");
+  if (!Array.isArray(releaseReadiness.body?.data?.surfaces)) {
+    fail("authenticated release readiness api response missing surfaces");
   }
-  log("platform settings api ok");
+  log("authenticated release readiness api ok");
+
+  const platformRoot = await requestText(PLATFORM_BASE_URL);
+  assertOk(platformRoot.response, "platform dashboard root");
+  if (SMOKE_EXPECTED_DEPLOY_SHA) {
+    const deployedSha = platformRoot.text.match(/<meta\s+name="getprio-deploy-sha"\s+content="([a-f0-9]{40})"/iu)?.[1];
+    if (deployedSha !== SMOKE_EXPECTED_DEPLOY_SHA) {
+      fail("Platform dashboard is not serving the expected deployment revision");
+    }
+  }
+  log("platform dashboard root and deployed revision ok");
 
   for (const page of platformPages) {
     const { response, text } = await requestText(`${PLATFORM_BASE_URL}${page.path}`);
@@ -383,6 +706,52 @@ async function smokePlatformStage() {
     assertContains(text, "<div id=\"root\">", `${page.label} page`);
     log(`${page.label} page ok`);
   }
+}
+
+async function reportPlatformSmoke(outcome, summary) {
+  if (SMOKE_STAGE === "campaign" || SMOKE_STAGE === "group-funded") {
+    log("retired campaign stage does not produce deployment evidence");
+    return;
+  }
+  if (!process.env.GITHUB_RUN_ID || !SMOKE_EXPECTED_DEPLOY_SHA) {
+    log("deployment evidence report skipped outside a configured GitHub deployment run");
+    return;
+  }
+  if (Buffer.byteLength(PLATFORM_RELEASE_EVIDENCE_SECRET) < 32) {
+    log("::warning::PLATFORM_RELEASE_EVIDENCE_SECRET is missing or shorter than 32 bytes; the Platform dashboard will not receive this smoke result.");
+    throw new Error("Authenticated smoke passed, but its release evidence could not be signed or recorded.");
+  }
+
+  const runId = String(process.env.GITHUB_RUN_ID);
+  const serverUrl = String(process.env.GITHUB_SERVER_URL || "https://github.com").replace(/\/$/u, "");
+  const repository = String(process.env.GITHUB_REPOSITORY || "");
+  const report = {
+    workflowRunId: runId,
+    deploymentSha: SMOKE_EXPECTED_DEPLOY_SHA,
+    workflowUrl: `${serverUrl}/${repository}/actions/runs/${runId}`,
+    outcome,
+    summary: String(summary || "Post-deploy smoke completed.").slice(0, 1000),
+    observedAt: new Date().toISOString()
+  };
+  const rawBody = JSON.stringify(report);
+  const timestamp = String(Math.floor(Date.now() / 1000));
+  const signature = createHmac("sha256", PLATFORM_RELEASE_EVIDENCE_SECRET)
+    .update(`${timestamp}.${rawBody}`)
+    .digest("hex");
+  const response = await requestJson(`${API_BASE_URL}/platform/release-readiness/evidence`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Platform-Evidence-Timestamp": timestamp,
+      "X-Platform-Evidence-Signature": signature
+    },
+    body: rawBody
+  });
+  if (!response.response.ok || response.body?.accepted !== true) {
+    log(`::warning::Platform smoke ran, but evidence was not accepted by the API (HTTP ${response.response.status}).`);
+    throw new Error("Authenticated smoke evidence was not accepted by the Platform API.");
+  }
+  log("post-deploy smoke result recorded in Platform Release Readiness");
 }
 
 async function main() {
@@ -403,6 +772,12 @@ async function main() {
   if (SMOKE_STAGE === "all" || SMOKE_STAGE === "vendor") {
     await smokeVendorStage();
   }
+  if (SMOKE_STAGE === "all" || SMOKE_STAGE === "queue") {
+    await smokeQueueLifecycleReadStage();
+  }
+  if (SMOKE_STAGE === "campaign" || SMOKE_STAGE === "group-funded") {
+    log("campaign smoke stage retired; no campaign operations were performed (not release verification)");
+  }
   if (SMOKE_STAGE === "all" || SMOKE_STAGE === "platform") {
     await smokePlatformStage();
   }
@@ -410,7 +785,15 @@ async function main() {
   log("smoke checks completed");
 }
 
-main().catch((error) => {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exitCode = 1;
-});
+main()
+  .then(() => reportPlatformSmoke("success", "Authenticated release-readiness API and matching Platform dashboard revision passed."))
+  .catch(async (error) => {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(message);
+    try {
+      await reportPlatformSmoke("failure", `Post-deploy smoke needs review: ${message}`);
+    } catch {
+      log("::warning::Unable to submit the post-deploy smoke result to Platform Release Readiness.");
+    }
+    process.exitCode = 1;
+  });

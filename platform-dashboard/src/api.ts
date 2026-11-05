@@ -1,4 +1,36 @@
 const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
+const CSRF_STORAGE_KEY = "prio_csrf";
+
+function readStoredCsrfToken() {
+  try {
+    return window.sessionStorage.getItem(CSRF_STORAGE_KEY) || "";
+  } catch {
+    return "";
+  }
+}
+
+function rememberCsrfToken(data: unknown) {
+  const csrfToken = (data as { csrfToken?: unknown })?.csrfToken;
+  if (typeof csrfToken !== "string" || !csrfToken) {
+    return;
+  }
+
+  try {
+    window.sessionStorage.setItem(CSRF_STORAGE_KEY, csrfToken);
+  } catch {
+    // The API cookie remains available when storage is restricted.
+  }
+}
+
+function readCsrfToken() {
+  const storedToken = readStoredCsrfToken();
+  if (storedToken) {
+    return storedToken;
+  }
+
+  const entry = document.cookie.split(";").map((value) => value.trim()).find((value) => value.startsWith("prio_csrf="));
+  return entry ? decodeURIComponent(entry.slice("prio_csrf=".length)) : "";
+}
 
 export class ApiError extends Error {
   readonly status: number;
@@ -16,18 +48,32 @@ export async function apiRequest<TResponse, TBody = unknown>(
     method?: string;
     body?: TBody;
     token?: string;
+    headers?: Record<string, string>;
+    signal?: AbortSignal;
   } = {}
 ): Promise<TResponse> {
+  const unsafe = !["GET", "HEAD", "OPTIONS"].includes((options.method || "GET").toUpperCase());
+  const idempotencyKey = unsafe && "randomUUID" in crypto ? crypto.randomUUID() : "";
   const response = await fetch(`${API_BASE_URL}${path}`, {
     method: options.method || "GET",
+    credentials: "include",
+    signal: options.signal,
     headers: {
       "Content-Type": "application/json",
-      ...(options.token ? { Authorization: `Bearer ${options.token}` } : {})
+      ...(unsafe && readCsrfToken()
+        ? { "X-CSRF-Token": readCsrfToken() }
+        : {}),
+      ...(idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {}),
+      ...(options.token && options.token !== "cookie-session"
+        ? { Authorization: `Bearer ${options.token}` }
+        : {}),
+      ...(options.headers || {})
     },
     body: options.body ? JSON.stringify(options.body) : undefined
   });
 
   const data = (await response.json().catch(() => ({}))) as { message?: string };
+  rememberCsrfToken(data);
   if (!response.ok) {
     throw new ApiError(data.message || "Request failed.", response.status);
   }

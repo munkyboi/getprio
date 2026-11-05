@@ -1,13 +1,22 @@
+const maintenance = require('./platformMaintenanceService');
 const db = require("../config/db");
 const env = require("../config/env");
 const billingRepository = require("../repositories/billing");
 const paymentRepository = require("../repositories/queueJoinPayments");
 const tenantRepository = require("../repositories/tenants");
 const storeLocationRepository = require("../repositories/storeLocations");
-const { buildMonitorUrl } = require("../publicLinks");
+const queueDayRepository = require("../repositories/queueDays");
 const queueFeeService = require("./queueFeeService");
+const queueDayLifecycleService = require("./queueDayLifecycleService");
+const pushNotificationService = require("./pushNotificationService");
+const allowanceService = require("./allowanceService");
+const storeHoursService = require("./storeHoursService");
+const { getDateKey } = require("./queueHelpers");
 const {
   createTicketForTenantInTransaction,
+  assertQueueIntakeOpen,
+  assertWaitingIntakeCapacityAvailable,
+  recordCreatedTicketEvent,
   maybeNotifyUpcomingTickets,
   publishSnapshot
 } = require("./queueService");
@@ -23,12 +32,14 @@ function getClientUrl(path) {
 }
 
 function buildReturnUrl(tenant, payment, status) {
+  const locationSlug = payment.payload?.locationSlug;
   const params = new URLSearchParams({
     payment: payment._id,
-    payment_status: status
+    payment_status: status,
+    tenantSlug: tenant.slug,
+    ...(locationSlug ? { locationSlug } : {})
   });
 
-  const locationSlug = payment.payload?.locationSlug;
   const path =
     status === "success"
       ? locationSlug
@@ -37,6 +48,12 @@ function buildReturnUrl(tenant, payment, status) {
       : locationSlug
         ? `/join/${tenant.slug}/${locationSlug}`
         : `/join/${tenant.slug}`;
+  const mobileReturnUrl = payment.payload?.mobileReturnUrl;
+  if (mobileReturnUrl) {
+    const mobileUrl = new URL(mobileReturnUrl);
+    mobileUrl.search = params.toString();
+    return mobileUrl.toString();
+  }
   return getClientUrl(`${path}?${params.toString()}`);
 }
 
@@ -46,6 +63,7 @@ function formatPayment(payment) {
     tenantId: payment.tenantId,
     tenantName: payment.tenantName,
     tenantSlug: payment.tenantSlug,
+    locationSlug: payment.locationSlug || payment.payload?.locationSlug || null,
     otpId: payment.otpId,
     planSlug: payment.planSlug,
     provider: payment.provider,
@@ -56,6 +74,10 @@ function formatPayment(payment) {
     status: payment.status,
     ticketId: payment.ticketId,
     ticketLookupCode: payment.ticketLookupCode,
+    queueDayId: payment.queueDayId,
+    queueDayVersionAtCheckout: payment.queueDayVersionAtCheckout,
+    ticketIssuanceStatus: payment.ticketIssuanceStatus,
+    ticketIssuanceReason: payment.ticketIssuanceReason,
     createdAt: payment.createdAt,
     updatedAt: payment.updatedAt
   };
@@ -71,8 +93,8 @@ function buildTicketResponse(ticket) {
   };
 }
 
-function shouldChargeQueueFee(queueFee, payload) {
-  return Boolean(queueFee?.enabled) && Number(queueFee?.amountCents || 0) > 0 && Boolean(payload?.notifyBySms);
+function shouldChargeQueueFee(queueFee) {
+  return Boolean(queueFee?.enabled) && Number(queueFee?.amountCents || 0) > 0;
 }
 
 function normalizeProviderTimestamp(value) {
@@ -141,31 +163,53 @@ async function retrievePayMongoCheckout(providerCheckoutSessionId) {
   return data?.data || null;
 }
 
-async function createPayMongoCheckoutForJoin({ tenant, otpId, payload, queueFee }) {
+async function createPayMongoCheckoutForJoin({ tenant, otpId, payload, queueFee }, admission = {}) {
+  await maintenance.assertNewIntake();
   if (!env.paymongoSecretKey) {
     const error = new Error("PayMongo is not configured.");
     error.statusCode = 503;
     throw error;
   }
 
-  const payment = await paymentRepository.createPayment({
+  const checkoutLocation = payload.locationSlug
+    ? await storeLocationRepository.findLocationByTenantAndSlug(tenant._id, payload.locationSlug)
+    : await storeLocationRepository.findPrimaryLocationByTenantId(tenant._id);
+  if (!checkoutLocation) throw Object.assign(new Error("Queue checkout location not found."), { statusCode: 404 });
+  const checkoutQueueDay = checkoutLocation?.queueLifecycleMode === "enforced"
+    ? await queueDayLifecycleService.assertIntakeOpen(tenant, checkoutLocation)
+    : null;
+  const payment = await db.withTransaction(async client => {
+    await maintenance.assertNewIntake({ client });
+    if (admission.admitOtp) await admission.admitOtp(client);
+    const admitted = await paymentRepository.createPayment({
     tenantId: tenant._id,
     otpId,
     planSlug: queueFee.planSlug,
     provider: PAYMONGO_PROVIDER,
     amountCents: queueFee.amountCents,
     currency: queueFee.currency,
-    payload,
+    payload: { ...payload, locationId: String(checkoutLocation._id), locationSlug: checkoutLocation.slug },
+    queueDayId: checkoutQueueDay?._id,
+    queueDayVersionAtCheckout: checkoutQueueDay?.version,
     metadata: {
       purpose: "queue_join_fee",
+      locationBindingVersion: 1,
       tenantId: String(tenant._id),
       tenantSlug: tenant.slug,
       planSlug: queueFee.planSlug
     }
+    }, { client });
+    await allowanceService.reserveAllowance({
+      tenantId: tenant._id, resourceKey: 'queueTickets', units: 1,
+      reservationKey: `queue-payment:${admitted._id}`, subjectType: 'queue_join_payment',
+      subjectId: admitted._id, expiresAt: new Date(Date.now() + 30 * 60 * 1000)
+    }, { client });
+    return admitted;
   });
 
   let providerCheckoutSessionId = null;
   let checkoutUrl = null;
+  const reservationKey = `queue-payment:${payment._id}`;
 
   try {
     if (payment.providerCheckoutSessionId && payment.checkoutUrl) {
@@ -253,6 +297,7 @@ async function createPayMongoCheckoutForJoin({ tenant, otpId, payload, queueFee 
       providerCheckoutSessionId
     };
   } catch (error) {
+    await allowanceService.releaseReservation({ tenantId: tenant._id, resourceKey: "queueTickets", reservationKey }).catch(() => {});
     try {
       await paymentRepository.markFailed(payment._id, {
         providerCheckoutSessionId: providerCheckoutSessionId || payment.providerCheckoutSessionId || null,
@@ -273,13 +318,13 @@ async function createPayMongoCheckoutForJoin({ tenant, otpId, payload, queueFee 
   }
 }
 
-async function createQueueJoinCheckout({ tenant, otpId, payload, queueFee }) {
+async function createQueueJoinCheckout({ tenant, otpId, payload, queueFee }, admission = {}) {
   const checkout = await createPayMongoCheckoutForJoin({
     tenant,
     otpId,
     payload,
     queueFee
-  });
+  }, admission);
 
   return {
     requiresPayment: true,
@@ -297,15 +342,18 @@ async function createQueueJoinCheckout({ tenant, otpId, payload, queueFee }) {
   };
 }
 
-async function createZeroFeeTicket({ tenant, payload, queueFee }) {
+async function createZeroFeeTicket({ tenant, payload, queueFee }, admission = {}) {
   const location = payload.locationSlug
     ? await storeLocationRepository.findLocationByTenantAndSlug(tenant._id, payload.locationSlug)
     : null;
+  if (payload.locationSlug && !location) {
+    throw Object.assign(new Error("Location not found. Restart your join at the current branch."), { statusCode: 404 });
+  }
   const result = await require("./queueService").createTicket({
     tenant,
     location: location || undefined,
     ...payload
-  });
+  }, admission);
 
   return {
     requiresPayment: false,
@@ -315,11 +363,12 @@ async function createZeroFeeTicket({ tenant, payload, queueFee }) {
   };
 }
 
-async function handleVerifiedJoin({ tenant, otpId, payload }) {
+async function handleVerifiedJoin({ tenant, otpId, payload }, admission = {}) {
+  await maintenance.assertNewIntake();
   await queueFeeService.assertTenantCanAcceptCustomerJoins(tenant._id);
   const queueFee = await queueFeeService.getQueueFeeForTenant(tenant._id);
-  if (!shouldChargeQueueFee(queueFee, payload)) {
-    return createZeroFeeTicket({ tenant, payload, queueFee });
+  if (!shouldChargeQueueFee(queueFee)) {
+    return createZeroFeeTicket({ tenant, payload, queueFee }, admission);
   }
 
   return createQueueJoinCheckout({
@@ -327,19 +376,134 @@ async function handleVerifiedJoin({ tenant, otpId, payload }) {
     otpId,
     payload,
     queueFee
-  });
+  }, admission);
 }
 
 async function handleDirectJoin({ tenant, payload }) {
+  await maintenance.assertNewIntake();
   await queueFeeService.assertTenantCanAcceptCustomerJoins(tenant._id);
   const queueFee = await queueFeeService.getQueueFeeForTenant(tenant._id);
-  if (shouldChargeQueueFee(queueFee, payload)) {
+  if (shouldChargeQueueFee(queueFee)) {
     const error = new Error("Verification is required before continuing to payment for this queue.");
     error.statusCode = 409;
     throw error;
   }
 
   return createZeroFeeTicket({ tenant, payload, queueFee });
+}
+
+async function blockBoundPaidTicket(payment, tenant, location, providerPaymentId, paymentAttributes, options) {
+  const day = await queueDayRepository.findById(payment.queueDayId, { client: options.client, forUpdate: true });
+  if (day?.state === "open" && String(day.tenantId) === String(tenant._id)
+    && String(day.locationId) === String(location._id) && new Date(day.currentClosesAt) <= new Date()) {
+    await queueDayLifecycleService.closeLockedQueueDay(options.client, tenant, location, day, {
+      source: "paid_queue_reconciliation", reason: "effective_hours_ended"
+    });
+  }
+  return recordBlockedPaidTicket(payment, tenant, providerPaymentId, paymentAttributes, options, "bound_queue_day_unavailable");
+}
+
+async function recordBlockedPaidTicket(payment, tenant, providerPaymentId, paymentAttributes, options, reason) {
+  const blocked = await paymentRepository.markPaidTicketBlocked(payment._id, {
+    providerPaymentId, paidAt: normalizeProviderTimestamp(paymentAttributes?.paid_at),
+    reason, metadata: { ticketIssuanceBlocked: true, boundQueueDayId: payment.queueDayId, boundLocationId: getStoredPaymentLocationId(payment) }
+  }, options);
+  await allowanceService.releaseReservation({ tenantId: tenant._id, resourceKey: "queueTickets", reservationKey: `queue-payment:${payment._id}` }, options);
+  return { payment: blocked, tenant, ticket: null, alreadyIssued: false, ticketBlocked: true };
+}
+
+function boundPaidDayAvailable(day, tenant, location) {
+  return !!(day?.state === "open" && day.intakeMode === "accepting"
+    && new Date(day.currentClosesAt) > new Date() && String(day.tenantId) === String(tenant._id)
+    && String(day.locationId) === String(location?._id) && tenant.isActive && location?.isActive
+    && location.queueLifecycleMode === "enforced");
+}
+
+async function boundPaidCustomerAvailable(payment, client) {
+  const userId = payment.payload?.userId;
+  if (userId == null || userId === "") return true;
+  if (typeof userId === "number" && !Number.isSafeInteger(userId)) return false;
+  if (!/^[1-9]\d{0,18}$/u.test(String(userId)) || BigInt(userId) > 9223372036854775807n) return false;
+  const result = await client.query(`SELECT id FROM users WHERE id=$1
+    AND deletion_requested_at IS NULL AND platform_access_suspended_at IS NULL FOR SHARE`, [userId]);
+  return result.rows.length > 0;
+}
+
+async function issueBoundPaidTicket(payment, tenant, location, providerPaymentId, paymentAttributes, options) {
+  if (payment.ticketIssuanceStatus === "refund_pending") {
+    return { payment, tenant, ticket: null, alreadyIssued: true, ticketBlocked: true };
+  }
+  try {
+    await queueFeeService.assertTenantCanAcceptCustomerJoins(payment.tenantId, { ...options, forShare: Boolean(options.client) });
+  } catch (error) {
+    if (error.code !== "SUBSCRIPTION_REQUIRED") throw error;
+    return blockBoundPaidTicket(payment, tenant, location, providerPaymentId, paymentAttributes, options);
+  }
+  const day = await queueDayRepository.findById(payment.queueDayId, { client: options.client, forUpdate: true });
+  if (!boundPaidDayAvailable(day, tenant, location) || !await boundPaidCustomerAvailable(payment, options.client)) {
+    return blockBoundPaidTicket(payment, tenant, location, providerPaymentId, paymentAttributes, options);
+  }
+  await options.client.query("SAVEPOINT bound_paid_issuance");
+  try {
+    await assertWaitingIntakeCapacityAvailable(tenant, location, { client: options.client, queueDateKey: String(day.businessDate).replaceAll("-", ""), issuance: true });
+    const issued = await persistScopedPaidTicket(payment, tenant, location, providerPaymentId, paymentAttributes, options);
+    await options.client.query("RELEASE SAVEPOINT bound_paid_issuance");
+    return issued;
+  } catch (error) {
+    if (!["QUEUE_DAY_OVERDUE", "QUEUE_DAY_UNOPENED", "QUEUE_INTAKE_PAUSED", "QUEUE_STATE_CHANGED", "QUEUE_INTAKE_THRESHOLD_REACHED"].includes(error.code)) throw error;
+    await options.client.query("ROLLBACK TO SAVEPOINT bound_paid_issuance");
+    await options.client.query("RELEASE SAVEPOINT bound_paid_issuance");
+    return blockBoundPaidTicket(payment, tenant, location, providerPaymentId, paymentAttributes, options);
+  }
+}
+
+async function persistScopedPaidTicket(payment, tenant, location, providerPaymentId, paymentAttributes, options) {
+  const ticket = await createTicketForTenantInTransaction(options.client, {
+    ...payment.payload, tenant, location, queueDateKey: options.queueDateKey, allowanceReservationKey: `queue-payment:${payment._id}`
+  }, { existingWork: true });
+  if (payment.queueDayId && String(ticket.currentQueueDayId) !== String(payment.queueDayId)) {
+    throw Object.assign(new Error("Paid ticket admission changed."), { code: "QUEUE_STATE_CHANGED", statusCode: 409 });
+  }
+  await recordCreatedTicketEvent(options.client, ticket, { actorUserId: payment.payload?.userId, actorRole: payment.payload?.userId ? "customer" : null, source: "public" });
+  const updated = await paymentRepository.markPaidWithTicket(payment._id, {
+    providerPaymentId, paidAt: normalizeProviderTimestamp(paymentAttributes?.paid_at), ticketId: ticket._id,
+    ticketLookupCode: ticket.lookupCode, metadata: { paidAmount: paymentAttributes?.amount || payment.amountCents, paidCurrency: paymentAttributes?.currency || payment.currency }
+  }, options);
+  return { payment: updated, tenant, ticket, alreadyIssued: false };
+}
+
+async function issueLocationBoundLegacyPaidTicket(payment, tenant, location, providerPaymentId, paymentAttributes, options) {
+  if (payment.ticketIssuanceStatus === "refund_pending") return { payment, tenant, ticket: null, alreadyIssued: true, ticketBlocked: true };
+  const block = () => recordBlockedPaidTicket(payment, tenant, providerPaymentId, paymentAttributes, options, "bound_location_unavailable");
+  if (!tenant.isActive || !location?.isActive || !["legacy", "shadow"].includes(location.queueLifecycleMode)) return block();
+  try {
+    await queueFeeService.assertTenantCanAcceptCustomerJoins(payment.tenantId, { ...options, forShare: Boolean(options.client) });
+  } catch (error) {
+    if (error.code !== "SUBSCRIPTION_REQUIRED") throw error;
+    return block();
+  }
+  if (!await boundPaidCustomerAvailable(payment, options.client)) return block();
+  let dateKey;
+  try {
+    await options.client.query("SELECT location_id FROM store_hours WHERE location_id=$1 FOR SHARE", [location._id]);
+    const admissionTime = new Date();
+    dateKey = getDateKey(admissionTime, location.timezone);
+    await assertQueueIntakeOpen(tenant, location, { client: options.client, queueDateKey: dateKey });
+    if (!(await storeHoursService.getOpenStatus(location, { client: options.client, now: admissionTime })).isOpen) return block();
+    await assertWaitingIntakeCapacityAvailable(tenant, location, { client: options.client, queueDateKey: dateKey, issuance: true });
+  } catch (error) {
+    if (!["QUEUE_DAY_CLOSED", "QUEUE_INTAKE_PAUSED", "QUEUE_INTAKE_THRESHOLD_REACHED"].includes(error.code)) throw error;
+    return block();
+  }
+  return persistScopedPaidTicket(payment, tenant, location, providerPaymentId, paymentAttributes, { ...options, queueDateKey: dateKey });
+}
+
+function getStoredPaymentLocationId(payment) {
+  return payment.metadata?.locationBindingVersion === 1 ? payment.payload?.locationId : null;
+}
+
+function hasStoredPaymentScope(payment) {
+  return Boolean(payment.queueDayId || payment.metadata?.locationBindingVersion != null);
 }
 
 async function issueTicketForPaidPayment(payment, providerPaymentId, paymentAttributes, options = {}) {
@@ -359,20 +523,26 @@ async function issueTicketForPaidPayment(payment, providerPaymentId, paymentAttr
     };
   }
 
-  await queueFeeService.assertTenantCanAcceptCustomerJoins(payment.tenantId, options);
-  const location = payment.payload?.locationSlug
+  const location = options.boundLocation || (payment.payload?.locationSlug
     ? await storeLocationRepository.findLocationByTenantAndSlug(
         tenant._id,
         payment.payload.locationSlug,
         options
       )
-    : null;
+    : await storeLocationRepository.findPrimaryLocationByTenantId(tenant._id, options));
+
+  if (payment.queueDayId) {
+    return issueBoundPaidTicket(payment, tenant, location, providerPaymentId, paymentAttributes, options);
+  }
+  if (getStoredPaymentLocationId(payment)) return issueLocationBoundLegacyPaidTicket(payment, tenant, location, providerPaymentId, paymentAttributes, options);
+  await queueFeeService.assertTenantCanAcceptCustomerJoins(payment.tenantId, { ...options, forShare: Boolean(options.client) });
 
   const ticket = await createTicketForTenantInTransaction(options.client, {
     tenant,
     location: location || undefined,
-    ...payment.payload
-  });
+    ...payment.payload,
+    allowanceReservationKey: `queue-payment:${payment._id}`
+  }, { existingWork: true });
 
   const updatedPayment = await paymentRepository.markPaidWithTicket(
     payment._id,
@@ -397,33 +567,68 @@ async function issueTicketForPaidPayment(payment, providerPaymentId, paymentAttr
   };
 }
 
-async function activatePaidPayment(paymentId, providerPaymentId, paymentAttributes) {
-  const result = await db.withTransaction(async (client) => {
-    const lockedPayment = await paymentRepository.findPaymentByIdForUpdate(paymentId, { client });
-    if (!lockedPayment) {
-      const error = new Error("Queue join payment not found.");
-      error.statusCode = 404;
-      throw error;
-    }
+async function lockPaidPayment(observed, client) {
+  const current = await paymentRepository.findPaymentByIdForUpdate(observed._id, { client });
+  if (!current) throw Object.assign(new Error("Queue join payment not found."), { statusCode: 404 });
+  if (String(current.tenantId) !== String(observed.tenantId) || current.queueDayId !== observed.queueDayId
+    || current.providerCheckoutSessionId !== observed.providerCheckoutSessionId
+    || String(getStoredPaymentLocationId(current) || "") !== String(getStoredPaymentLocationId(observed) || "")
+    || current.metadata?.locationBindingVersion !== observed.metadata?.locationBindingVersion) {
+    throw Object.assign(new Error("Queue payment scope changed. Refresh and try again."), { statusCode: 409 });
+  }
+  return current;
+}
 
-    return issueTicketForPaidPayment(lockedPayment, providerPaymentId, paymentAttributes, { client });
+async function withPaidPaymentTransaction(observed, callback) {
+  if (!hasStoredPaymentScope(observed)) {
+    return db.withTransaction(async client => callback(await lockPaidPayment(observed, client), { client }));
+  }
+  const advisoryDay = observed.queueDayId ? await queueDayRepository.findById(observed.queueDayId) : null;
+  const advisoryLocationId = advisoryDay?.locationId || getStoredPaymentLocationId(observed);
+  if (!/^[1-9]\d{0,18}$/u.test(String(advisoryLocationId)) || BigInt(advisoryLocationId) > 9223372036854775807n
+    || (observed.queueDayId && (!advisoryDay || String(advisoryDay.tenantId) !== String(observed.tenantId)))
+    || (advisoryDay && getStoredPaymentLocationId(observed) && String(advisoryDay.locationId) !== String(getStoredPaymentLocationId(observed)))) {
+    throw Object.assign(new Error("Queue payment binding needs reconciliation."), { statusCode: 409 });
+  }
+  return db.withTransaction(async client => {
+    const scope = [observed.tenantId, advisoryLocationId];
+    const branch = await client.query("SELECT id FROM store_locations WHERE tenant_id=$1 AND id=$2 FOR UPDATE", scope);
+    if (!branch.rows.length) throw Object.assign(new Error("Queue payment location not found."), { statusCode: 404 });
+    const payment = await lockPaidPayment(observed, client);
+    const boundLocation = await storeLocationRepository.findLocationById(advisoryLocationId, { client });
+    await client.query("SELECT id FROM tenants WHERE id=$1 FOR SHARE", [observed.tenantId]);
+    await client.query("INSERT INTO resource_ledger_scopes (tenant_id,location_id) VALUES ($1,$2) ON CONFLICT DO NOTHING", scope);
+    const result = await callback(payment, { client, boundLocation });
+    if (!result.alreadyIssued) await client.query("UPDATE resource_ledger_scopes SET revision=revision+1 WHERE tenant_id=$1 AND location_id=$2", scope);
+    return { ...result, location: boundLocation };
   });
+}
 
-  if (!result.alreadyIssued) {
+async function activatePaidPayment(observed, providerPaymentId, paymentAttributes) {
+  const result = await withPaidPaymentTransaction(observed, (payment, options) =>
+    issueTicketForPaidPayment(payment, providerPaymentId, paymentAttributes, options));
+
+  if (!result.alreadyIssued && !result.ticketBlocked) {
+    pushNotificationService.notifyCustomerQueueUpdate({
+      tenant: result.tenant, ticket: result.ticket, action: "joined"
+    }).catch((error) => {
+      console.warn("[push-customer-queue-joined-skipped]", error.message);
+    });
     await maybeNotifyUpcomingTickets(result.tenant, {
-      locationSlug: result.payment.payload?.locationSlug
+      ...(result.location ? { location: result.location } : { locationSlug: result.payment.payload?.locationSlug })
     });
   }
 
   const snapshot = await publishSnapshot(result.tenant, {
     lookupCode: result.payment.ticketLookupCode || result.ticket?.lookupCode,
-    locationSlug: result.payment.payload?.locationSlug
+    ...(result.location ? { location: result.location } : { locationSlug: result.payment.payload?.locationSlug })
   });
 
   return {
-    payment: result.payment,
+    payment: { ...result.payment, locationSlug: result.location?.slug || result.payment.payload?.locationSlug },
     ticket: result.ticket,
-    snapshot
+    snapshot,
+    ticketBlocked: Boolean(result.ticketBlocked)
   };
 }
 
@@ -436,14 +641,15 @@ async function syncQueueJoinPayment({ tenant, paymentId }) {
   }
 
   if (payment.status === "paid" && payment.ticketLookupCode) {
-    const snapshot = await publishSnapshot(tenant, {
+    const activated = hasStoredPaymentScope(payment) ? await activatePaidPayment(payment, payment.providerPaymentId, {}) : null;
+    const snapshot = activated?.snapshot || await publishSnapshot(tenant, {
       lookupCode: payment.ticketLookupCode,
       locationSlug: payment.payload?.locationSlug
     });
     return {
       synced: true,
       paid: true,
-      payment: formatPayment(payment),
+      payment: formatPayment(activated?.payment || payment),
       ticket: snapshot.focusTicket
         ? {
             id: snapshot.focusTicket.id,
@@ -477,7 +683,7 @@ async function syncQueueJoinPayment({ tenant, paymentId }) {
   const providerPayment = getFirstPayment(providerCheckout);
   const paymentAttributes = providerPayment?.attributes || {};
   const activated = await activatePaidPayment(
-    payment._id,
+    payment,
     providerPayment?.id || null,
     paymentAttributes
   );
@@ -486,6 +692,7 @@ async function syncQueueJoinPayment({ tenant, paymentId }) {
     synced: true,
     paid: true,
     payment: formatPayment(activated.payment),
+    ticketBlocked: Boolean(activated.ticketBlocked),
     ticket: activated.snapshot.focusTicket
       ? {
           id: activated.snapshot.focusTicket.id,
@@ -531,7 +738,8 @@ async function handlePayMongoPaidCheckout(resource, event, options = {}) {
     options
   );
 
-  if (!eventRecord) {
+  // A durable receipt must not suppress retry of a bound issuance that rolled back.
+  if (!eventRecord && (!hasStoredPaymentScope(existingPayment) || existingPayment.ticketId || existingPayment.ticketIssuanceStatus === "refund_pending")) {
     return {
       handled: true,
       duplicate: true
@@ -539,7 +747,7 @@ async function handlePayMongoPaidCheckout(resource, event, options = {}) {
   }
 
   const activated = await activatePaidPayment(
-    existingPayment._id,
+    existingPayment,
     providerPaymentId,
     paymentAttributes
   );
@@ -560,7 +768,7 @@ async function getMonitorUrlForPayment(payment) {
     return null;
   }
 
-  return `${buildMonitorUrl(env.appBaseUrl, tenant.slug, payment.payload?.locationSlug)}?ticket=${payment.ticketLookupCode}`;
+  return `${env.appBaseUrl.replace(/\/$/, "")}/ticket/${tenant.slug}${payment.payload?.locationSlug ? `/${payment.payload.locationSlug}` : ""}?ticket=${payment.ticketLookupCode}`;
 }
 
 module.exports = {

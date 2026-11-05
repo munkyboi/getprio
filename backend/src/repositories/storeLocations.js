@@ -2,9 +2,13 @@ const db = require("../config/db");
 
 const LOCATION_COLUMNS = `
   id,
+  queue_join_id,
+  queue_board_id,
+  queue_board_public,
   tenant_id,
   name,
   slug,
+  image_url,
   address_line1,
   address_line2,
   city,
@@ -15,10 +19,14 @@ const LOCATION_COLUMNS = `
   contact_phone,
   timezone,
   payment_method_label,
+  payment_bank_name,
   payment_account_display_name,
   payment_account_identifier_display,
   payment_qr_image_url,
   payment_qr_active,
+  queue_lifecycle_mode,
+  customer_self_check_in_enabled,
+  service_timing_enabled,
   is_primary,
   is_active,
   created_at,
@@ -43,9 +51,13 @@ function mapLocation(row) {
 
   return {
     _id: String(row.id),
+    queueJoinId: row.queue_join_id,
+    queueBoardId: row.queue_board_id,
+    queueBoardPublic: row.queue_board_public === true,
     tenantId: String(row.tenant_id),
     name: row.name,
     slug: row.slug,
+    imageUrl: row.image_url || "",
     addressLine1: row.address_line1 || "",
     addressLine2: row.address_line2 || "",
     city: row.city || "",
@@ -56,10 +68,14 @@ function mapLocation(row) {
     contactPhone: row.contact_phone || "",
     timezone: row.timezone || "Asia/Manila",
     paymentMethodLabel: row.payment_method_label || "",
+    paymentBankName: row.payment_bank_name || "",
     paymentAccountDisplayName: row.payment_account_display_name || "",
     paymentAccountIdentifierDisplay: row.payment_account_identifier_display || "",
     paymentQrImageUrl: row.payment_qr_image_url || "",
     paymentQrActive: Boolean(row.payment_qr_active),
+    queueLifecycleMode: row.queue_lifecycle_mode || "legacy",
+    customerSelfCheckInEnabled: row.customer_self_check_in_enabled === true,
+    serviceTimingEnabled: row.service_timing_enabled === true,
     isPrimary: Boolean(row.is_primary),
     isActive: Boolean(row.is_active),
     createdAt: row.created_at,
@@ -89,12 +105,26 @@ function buildQueryClient(client) {
 }
 
 function normalizeSlug(value) {
-  return String(value || "")
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 80);
+  const input = String(value || "").trim().toLowerCase();
+  let slug = "";
+  let pendingDash = false;
+
+  for (const char of input) {
+    if ((char >= "a" && char <= "z") || (char >= "0" && char <= "9")) {
+      if (pendingDash && slug.length > 0) {
+        slug += "-";
+      }
+      slug += char;
+      pendingDash = false;
+      continue;
+    }
+
+    if (slug.length > 0) {
+      pendingDash = true;
+    }
+  }
+
+  return slug.slice(0, 80);
 }
 
 async function listLocationsByTenantId(tenantId, options = {}) {
@@ -106,7 +136,7 @@ async function listLocationsByTenantId(tenantId, options = {}) {
       WHERE tenant_id = $1
       ORDER BY is_primary DESC, name ASC
     `,
-    [Number(tenantId)]
+    [tenantId]
   );
 
   return result.rows.map(mapLocation);
@@ -121,17 +151,46 @@ async function findLocationByTenantAndSlug(tenantId, slug, options = {}) {
       WHERE tenant_id = $1 AND slug = $2
       LIMIT 1
     `,
-    [Number(tenantId), normalizeSlug(slug)]
+    [tenantId, normalizeSlug(slug)]
   );
 
   return mapLocation(result.rows[0]);
+}
+
+async function isLocationSlugAvailable(tenantId, slug, excludeLocationId = null, options = {}) {
+  const normalizedSlug = normalizeSlug(slug);
+  if (!normalizedSlug) {
+    return { available: false, valid: false, message: "Enter a location slug." };
+  }
+
+  const queryClient = buildQueryClient(options.client);
+  const values = [Number(tenantId), normalizedSlug];
+  let query = `
+    SELECT id
+    FROM store_locations
+    WHERE tenant_id = $1 AND slug = $2
+  `;
+
+  if (excludeLocationId) {
+    values.push(Number(excludeLocationId));
+    query += ` AND id <> $${values.length}`;
+  }
+
+  query += " LIMIT 1";
+
+  const result = await queryClient.query(query, values);
+  return {
+    available: result.rows.length === 0,
+    valid: Boolean(normalizedSlug),
+    message: result.rows.length === 0 ? "Slug is available." : "That location slug is already taken."
+  };
 }
 
 async function findLocationById(id, options = {}) {
   const queryClient = buildQueryClient(options.client);
   const result = await queryClient.query(
     `SELECT ${LOCATION_COLUMNS} FROM store_locations WHERE id = $1 LIMIT 1`,
-    [Number(id)]
+    [id]
   );
 
   return mapLocation(result.rows[0]);
@@ -147,7 +206,37 @@ async function findPrimaryLocationByTenantId(tenantId, options = {}) {
       ORDER BY is_primary DESC, created_at ASC
       LIMIT 1
     `,
-    [Number(tenantId)]
+    [String(tenantId)]
+  );
+
+  return mapLocation(result.rows[0]);
+}
+
+async function findLocationByQueueJoinId(queueJoinId, options = {}) {
+  const queryClient = buildQueryClient(options.client);
+  const result = await queryClient.query(
+    `
+      SELECT ${LOCATION_COLUMNS}
+      FROM store_locations
+      WHERE queue_join_id = $1
+      LIMIT 1
+    `,
+    [String(queueJoinId).trim()]
+  );
+
+  return mapLocation(result.rows[0]);
+}
+
+async function regenerateQueueJoinId(locationId, options = {}) {
+  const queryClient = buildQueryClient(options.client);
+  const result = await queryClient.query(
+    `
+      UPDATE store_locations
+      SET queue_join_id = gen_random_uuid()
+      WHERE id = $1
+      RETURNING ${LOCATION_COLUMNS}
+    `,
+    [Number(locationId)]
   );
 
   return mapLocation(result.rows[0]);
@@ -160,7 +249,7 @@ async function createLocation(data, options = {}) {
   if (isPrimary) {
     await queryClient.query(
       `UPDATE store_locations SET is_primary = FALSE WHERE tenant_id = $1`,
-      [Number(data.tenantId)]
+      [data.tenantId]
     );
   }
 
@@ -170,6 +259,7 @@ async function createLocation(data, options = {}) {
         tenant_id,
         name,
         slug,
+        image_url,
         address_line1,
         address_line2,
         city,
@@ -180,20 +270,24 @@ async function createLocation(data, options = {}) {
         contact_phone,
         timezone,
         payment_method_label,
+        payment_bank_name,
         payment_account_display_name,
         payment_account_identifier_display,
         payment_qr_image_url,
         payment_qr_active,
+        customer_self_check_in_enabled,
+        service_timing_enabled,
         is_primary,
         is_active
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
       RETURNING ${LOCATION_COLUMNS}
     `,
     [
-      Number(data.tenantId),
+      data.tenantId,
       data.name,
       normalizeSlug(data.slug || data.name),
+      data.imageUrl || null,
       data.addressLine1 || null,
       data.addressLine2 || null,
       data.city || null,
@@ -204,10 +298,13 @@ async function createLocation(data, options = {}) {
       data.contactPhone || null,
       data.timezone || "Asia/Manila",
       data.paymentMethodLabel || null,
+      data.paymentBankName || null,
       data.paymentAccountDisplayName || null,
       data.paymentAccountIdentifierDisplay || null,
       data.paymentQrImageUrl || null,
       Boolean(data.paymentQrActive),
+      data.customerSelfCheckInEnabled === true,
+      data.serviceTimingEnabled === true,
       isPrimary,
       data.isActive ?? true
     ]
@@ -219,10 +316,11 @@ async function createLocation(data, options = {}) {
 async function updateLocation(locationId, changes, options = {}) {
   const queryClient = buildQueryClient(options.client);
   const updates = [];
-  const values = [Number(locationId)];
+  const values = [locationId];
   const setters = {
     name: "name",
     slug: "slug",
+    imageUrl: "image_url",
     addressLine1: "address_line1",
     addressLine2: "address_line2",
     city: "city",
@@ -233,10 +331,13 @@ async function updateLocation(locationId, changes, options = {}) {
     contactPhone: "contact_phone",
     timezone: "timezone",
     paymentMethodLabel: "payment_method_label",
+    paymentBankName: "payment_bank_name",
     paymentAccountDisplayName: "payment_account_display_name",
     paymentAccountIdentifierDisplay: "payment_account_identifier_display",
     paymentQrImageUrl: "payment_qr_image_url",
     paymentQrActive: "payment_qr_active",
+    customerSelfCheckInEnabled: "customer_self_check_in_enabled",
+    serviceTimingEnabled: "service_timing_enabled",
     isPrimary: "is_primary",
     isActive: "is_active"
   };
@@ -244,7 +345,7 @@ async function updateLocation(locationId, changes, options = {}) {
   if (changes.isPrimary) {
     const existing = await queryClient.query(
       `SELECT tenant_id FROM store_locations WHERE id = $1 LIMIT 1`,
-      [Number(locationId)]
+      [locationId]
     );
     const tenantId = existing.rows[0]?.tenant_id;
     if (tenantId) {
@@ -268,7 +369,7 @@ async function updateLocation(locationId, changes, options = {}) {
   if (!updates.length) {
     const result = await queryClient.query(
       `SELECT ${LOCATION_COLUMNS} FROM store_locations WHERE id = $1 LIMIT 1`,
-      [Number(locationId)]
+      [locationId]
     );
     return mapLocation(result.rows[0]);
   }
@@ -293,35 +394,80 @@ async function listHoursByLocationId(locationId, options = {}) {
       SELECT ${HOUR_COLUMNS}
       FROM store_hours
       WHERE location_id = $1
-      ORDER BY weekday ASC
+      ORDER BY weekday ASC, opens_at ASC NULLS LAST, closes_at ASC NULLS LAST, id ASC
     `,
-    [Number(locationId)]
+    [locationId]
   );
 
   return result.rows.map(mapHour);
 }
 
 async function replaceHours(locationId, hours, options = {}) {
-  const queryClient = buildQueryClient(options.client);
-  await queryClient.query(`DELETE FROM store_hours WHERE location_id = $1`, [Number(locationId)]);
-
-  for (const hour of hours) {
-    await queryClient.query(
-      `
-        INSERT INTO store_hours (location_id, weekday, opens_at, closes_at, is_closed)
-        VALUES ($1, $2, $3, $4, $5)
-      `,
-      [
-        Number(locationId),
-        Number(hour.weekday),
-        hour.opensAt || null,
-        hour.closesAt || null,
-        Boolean(hour.isClosed)
-      ]
-    );
+  const normalizedHours = Array.isArray(hours) ? hours : [];
+  const intervalsByDay = new Map();
+  for (const hour of normalizedHours) {
+    const weekday = Number(hour.weekday);
+    if (!Number.isInteger(weekday) || weekday < 0 || weekday > 6) {
+      const error = new Error("Operating hours must use a weekday from 0 to 6.");
+      error.statusCode = 400;
+      throw error;
+    }
+    if (hour.isClosed) continue;
+    const open = String(hour.opensAt || "");
+    const close = String(hour.closesAt || "");
+    const openMinutes = toMinutes(open);
+    const closeMinutes = toMinutes(close);
+    if (openMinutes == null || closeMinutes == null) {
+      const error = new Error("Open operating intervals require valid start and end times.");
+      error.statusCode = 400;
+      throw error;
+    }
+    const ranges = openMinutes === closeMinutes
+      ? [[0, 1440]]
+      : openMinutes < closeMinutes
+        ? [[openMinutes, closeMinutes]]
+        : [[openMinutes, 1440], [0, closeMinutes]];
+    const existingRanges = intervalsByDay.get(weekday) || [];
+    if (ranges.some(([start, end]) => existingRanges.some(([otherStart, otherEnd]) => start < otherEnd && otherStart < end))) {
+      const error = new Error("Operating intervals cannot overlap on the same day.");
+      error.statusCode = 400;
+      throw error;
+    }
+    intervalsByDay.set(weekday, [...existingRanges, ...ranges]);
   }
+  const persist = async (queryClient) => {
+    const location = await queryClient.query("SELECT id FROM store_locations WHERE id = $1 FOR NO KEY UPDATE", [locationId]);
+    if (!location.rows.length) throw Object.assign(new Error("Operating-hours location not found."), { statusCode: 404 });
+    await queryClient.query(`DELETE FROM store_hours WHERE location_id = $1`, [locationId]);
 
-  return listHoursByLocationId(locationId, { client: queryClient });
+    for (const hour of normalizedHours) {
+      await queryClient.query(
+        `
+          INSERT INTO store_hours (location_id, weekday, opens_at, closes_at, is_closed)
+          VALUES ($1, $2, $3, $4, $5)
+        `,
+        [
+          locationId,
+          Number(hour.weekday),
+          hour.opensAt || null,
+          hour.closesAt || null,
+          Boolean(hour.isClosed)
+        ]
+      );
+    }
+
+    return listHoursByLocationId(locationId, { client: queryClient });
+  };
+  return options.client && options.client !== db.pool ? persist(buildQueryClient(options.client)) : db.withTransaction(persist);
+}
+
+function toMinutes(value) {
+  const match = /^(\d{2}):(\d{2})$/.exec(value);
+  if (!match) return null;
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  if (hours > 23 || minutes > 59) return null;
+  return hours * 60 + minutes;
 }
 
 async function createDefaultHours(locationId, options = {}) {
@@ -352,8 +498,11 @@ module.exports = {
   normalizeSlug,
   listLocationsByTenantId,
   findLocationByTenantAndSlug,
+  isLocationSlugAvailable,
   findLocationById,
+  findLocationByQueueJoinId,
   findPrimaryLocationByTenantId,
+  regenerateQueueJoinId,
   createLocation,
   updateLocation,
   listHoursByLocationId,

@@ -1,6 +1,6 @@
 # OAuth Verification Checklist
 
-Use this checklist after configuring Google and/or Facebook OAuth for GetPrio.
+Use this checklist after configuring Google, Facebook, and/or Sign in with Apple for GetPrio.
 
 ## 1. Preconditions
 
@@ -9,7 +9,8 @@ Use this checklist after configuring Google and/or Facebook OAuth for GetPrio.
 - `OAUTH_CALLBACK_PATH=/oauth/callback`.
 - `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` are set if Google is enabled.
 - `FACEBOOK_APP_ID` and `FACEBOOK_APP_SECRET` are set if Facebook is enabled.
-- The provider console redirect URI matches the backend callback exactly.
+- `APPLE_CLIENT_ID`, `APPLE_TEAM_ID`, `APPLE_KEY_ID`, and `APPLE_PRIVATE_KEY` are set if Sign in with Apple is enabled.
+- Google/Facebook provider console redirect URIs match the backend callback exactly. Apple native sign-in uses the mobile credential endpoint and does not use a browser redirect.
 
 Expected redirect URIs:
 
@@ -26,6 +27,7 @@ Expected:
 
 - `google: true` when Google credentials are present.
 - `facebook: true` when Facebook credentials are present.
+- `apple: true` when all Apple backend credentials are present.
 - Disabled providers remain `false` and their buttons stay disabled on the login page.
 
 ## 3. Start Flow

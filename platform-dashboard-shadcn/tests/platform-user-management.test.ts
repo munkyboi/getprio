@@ -1,0 +1,56 @@
+import assert from "node:assert/strict"
+import { readFileSync } from "node:fs"
+import test from "node:test"
+
+const app = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8")
+const contracts = readFileSync(new URL("../src/lib/platform-contracts.ts", import.meta.url), "utf8")
+const api = readFileSync(new URL("../src/lib/platform-api.ts", import.meta.url), "utf8")
+
+test("User details expose audited global-role, MFA-recovery, and sign-in access controls", () => {
+  assert.match(app, /Manage global roles/)
+  assert.match(app, /Reset MFA enrollment/)
+  assert.match(app, /Suspend sign-in access/)
+  assert.match(app, /Restore sign-in access/)
+  assert.match(app, /Recent MFA assurance is required/)
+  assert.match(app, /Tenant memberships are unchanged/)
+  assert.match(app, /MFA secrets and recovery codes/)
+  assert.match(app, /ACCOUNT MANAGEMENT/)
+  assert.match(app, /ACCOUNT SECURITY/)
+  assert.match(app, /ACCOUNT ACCESS/)
+  assert.match(app, /id: "platform_release_observer", label: "Release Observer"/)
+  assert.match(app, /Read-only access to Platform release readiness; MFA is required\./)
+  assert.match(app, /privileged Platform roles require MFA at the next sign-in/)
+  assert.match(app, /const portalManagedRoleIds = \["developer"\]/)
+  assert.match(app, /min-h-11 w-full sm:w-auto/)
+  assert.match(app, /Discard unsaved changes\?/)
+  assert.match(app, /ROLE_MANAGED_ELSEWHERE|Portal-managed roles remain unchanged here/)
+  assert.match(app, /mfa-enrollment-required/)
+  assert.match(app, /MFA_ENROLLMENT_REQUIRED/)
+  assert.match(app, /onMfaEnrollmentComplete/)
+})
+
+test("user-management API contracts keep previews and confirmed actions separate", () => {
+  assert.match(contracts, /previewUserRolesUpdate\(/)
+  assert.match(contracts, /executeUserRolesUpdate\(/)
+  assert.match(contracts, /previewUserMfaReset\(/)
+  assert.match(contracts, /previewUserAccessUpdate\(/)
+  assert.match(api, /\/platform\/users\/\$\{encodeURIComponent\(preview\.targetId\)\}\/roles/)
+  assert.match(api, /\/platform\/users\/\$\{encodeURIComponent\(preview\.targetId\)\}\/mfa\/reset/)
+  assert.match(api, /\/platform\/users\/\$\{encodeURIComponent\(preview\.targetId\)\}\/access/)
+  assert.match(api, /X-Transaction-Confirmation/)
+  assert.match(api, /mfaRequired: Boolean\(response\.mfaRequired\)/)
+  assert.match(api, /state: response\.state/)
+  assert.match(api, /code: payload\.code/)
+  assert.match(api, /getUsers: \(page = 1, search = ""\)/)
+  assert.match(app, /serverPagination=\{\{ pageIndex: users\.pagination\.page - 1/)
+  assert.match(app, /Search all accounts/)
+})
+
+test("user details expose audited tenant membership management", () => {
+  assert.match(app, /Tenant memberships/)
+  assert.match(app, /Manage tenant membership/)
+  assert.match(app, /The final active owner cannot be removed/)
+  assert.match(contracts, /previewUserTenantMembershipUpdate\(/)
+  assert.match(api, /platform\.user\.tenant_membership\.update/)
+  assert.match(api, /\/tenant-memberships/)
+})

@@ -1,0 +1,7 @@
+# Commercial entitlement transaction client prerequisite
+
+For AI PRD issue #378's pending staff-invitation writer, `billingService.getTenantEntitlements` now forwards optional query options to both the subscription read and the plan-service read. `subscriptionPlans.findPlanBySlug` forwards those options to its repository. Existing callers without options retain default-pool behavior; entitlement composition still overlays subscription values on catalog values and removes retired quota fields.
+
+This also retains clients already supplied by `billingRepository.updateSubscriptionById` to the plan wrapper. It fixes a concrete client escape; it does not establish held commercial policy, publisher lock order, invitation authority, complete writer coverage or snapshot readiness. No additional locks, transaction boundaries, commercial policy changes or inference activation are introduced.
+
+Focused tests cover exact client/options forwarding through the real service wrapper, unchanged inactive/missing-plan behavior, error propagation and existing no-options callers. A disposable PostgreSQL transaction reads caller-private subscription/plan rows, sees an uncommitted plan update, rejects any default-pool escape and verifies rollback removes its private schema. It is transaction-client evidence, not a production financial mutation or concurrency certification. Invitation still requires a reviewed branch/tenant/actor/target/membership/subscription/plan graph and both-order publisher races.

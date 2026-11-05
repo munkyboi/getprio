@@ -1,11 +1,15 @@
 const db = require("../config/db");
 
 const DEFAULT_PUBLIC_BOARD_THEME = {
-  presetId: "classic",
+  presetId: "generic",
   heroTitle: "",
   heroSubtitle: "",
   logoUrl: "",
+  logoFit: "contain",
   backgroundImageUrl: "",
+  backgroundImageFit: "cover",
+  pageBackgroundImageUrl: "",
+  pageBackgroundImageFit: "cover",
   pageBackgroundColor: "#f8efe3",
   cardBackgroundColor: "#fffaf4",
   cardAlpha: 0.9,
@@ -76,6 +80,10 @@ function normalizeUrl(value) {
     return "";
   }
 
+  if (/^\/theme-backgrounds\/[-/a-z0-9_.]+$/i.test(text)) {
+    return text;
+  }
+
   try {
     const url = new URL(text);
     if (url.protocol === "http:" || url.protocol === "https:") {
@@ -89,7 +97,13 @@ function normalizeUrl(value) {
 }
 
 function normalizePresetId(value) {
-  return ["classic", "neura", "clinic"].includes(value) ? value : "classic";
+  return ["classic", "neura", "clinic", "sports", "wellness", "retail", "food", "generic"].includes(value)
+    ? value
+    : "generic";
+}
+
+function normalizeBackgroundImageFit(value, fallback) {
+  return ["cover", "contain"].includes(value) ? value : fallback || "cover";
 }
 
 function normalizeTheme(input = {}, fallback = DEFAULT_PUBLIC_BOARD_THEME) {
@@ -98,7 +112,11 @@ function normalizeTheme(input = {}, fallback = DEFAULT_PUBLIC_BOARD_THEME) {
     heroTitle: normalizeText(input.heroTitle, fallback.heroTitle, 80),
     heroSubtitle: normalizeText(input.heroSubtitle, fallback.heroSubtitle, 220),
     logoUrl: normalizeUrl(input.logoUrl || fallback.logoUrl),
+    logoFit: normalizeBackgroundImageFit(input.logoFit, fallback.logoFit),
     backgroundImageUrl: normalizeUrl(input.backgroundImageUrl || fallback.backgroundImageUrl),
+    backgroundImageFit: normalizeBackgroundImageFit(input.backgroundImageFit, fallback.backgroundImageFit),
+    pageBackgroundImageUrl: normalizeUrl(input.pageBackgroundImageUrl || fallback.pageBackgroundImageUrl),
+    pageBackgroundImageFit: normalizeBackgroundImageFit(input.pageBackgroundImageFit, fallback.pageBackgroundImageFit),
     pageBackgroundColor: normalizeColor(input.pageBackgroundColor, fallback.pageBackgroundColor),
     cardBackgroundColor: normalizeColor(input.cardBackgroundColor, fallback.cardBackgroundColor),
     cardAlpha: clampNumber(input.cardAlpha, 0.15, 1, fallback.cardAlpha),
@@ -115,6 +133,15 @@ function normalizeTheme(input = {}, fallback = DEFAULT_PUBLIC_BOARD_THEME) {
     buttonTextColor: normalizeColor(input.buttonTextColor, fallback.buttonTextColor),
     buttonBorderColor: normalizeColor(input.buttonBorderColor, fallback.buttonBorderColor)
   };
+}
+
+function normalizeProfileMediaTheme(theme) {
+  return normalizeTheme({
+    logoUrl: theme?.logoUrl,
+    logoFit: theme?.logoFit,
+    backgroundImageUrl: theme?.backgroundImageUrl,
+    backgroundImageFit: theme?.backgroundImageFit
+  });
 }
 
 function mapTheme(row) {
@@ -173,27 +200,65 @@ async function findLocationTheme(locationId, options = {}) {
   return mapTheme(result.rows[0]);
 }
 
+async function findLegacyTenantDefaultTheme(tenantId, options = {}) {
+  const queryClient = buildQueryClient(options.client);
+  const result = await queryClient.query(
+    `
+      SELECT
+        public_board_themes.id,
+        public_board_themes.tenant_id,
+        public_board_themes.location_id,
+        public_board_themes.theme,
+        public_board_themes.updated_by_user_id,
+        public_board_themes.created_at,
+        public_board_themes.updated_at
+      FROM public_board_themes
+      INNER JOIN store_locations ON store_locations.id = public_board_themes.location_id
+      WHERE public_board_themes.tenant_id = $1
+        AND public_board_themes.location_id IS NOT NULL
+        AND store_locations.is_primary = TRUE
+        AND (
+          public_board_themes.theme->>'logoUrl' ILIKE '%/tenant-default/%'
+          OR public_board_themes.theme->>'backgroundImageUrl' ILIKE '%/tenant-default/%'
+        )
+      LIMIT 1
+    `,
+    [Number(tenantId)]
+  );
+
+  return mapTheme(result.rows[0]);
+}
+
 async function getResolvedTheme(tenantId, locationId, options = {}) {
+  const formatTheme = (scope, theme) => {
+    const response = {
+      scope,
+      theme: normalizeTheme(theme)
+    };
+
+    return options.mediaOnly
+      ? { ...response, theme: normalizeProfileMediaTheme(response.theme) }
+      : response;
+  };
+
   const locationTheme = locationId ? await findLocationTheme(locationId, options) : null;
   if (locationTheme) {
-    return {
-      scope: "location",
-      theme: normalizeTheme(locationTheme.theme)
-    };
+    return formatTheme("location", locationTheme.theme);
   }
 
   const tenantTheme = await findTenantDefaultTheme(tenantId, options);
   if (tenantTheme) {
-    return {
-      scope: "tenant",
-      theme: normalizeTheme(tenantTheme.theme)
-    };
+    return formatTheme("tenant", tenantTheme.theme);
   }
 
-  return {
-    scope: "fallback",
-    theme: normalizeTheme(DEFAULT_PUBLIC_BOARD_THEME)
-  };
+  if (options.mediaOnly) {
+    const legacyTenantTheme = await findLegacyTenantDefaultTheme(tenantId, options);
+    if (legacyTenantTheme) {
+      return formatTheme("tenant", legacyTenantTheme.theme);
+    }
+  }
+
+  return formatTheme("fallback", DEFAULT_PUBLIC_BOARD_THEME);
 }
 
 async function upsertTenantDefaultTheme({ tenantId, theme, userId }, options = {}) {
@@ -272,6 +337,19 @@ async function saveTheme({ tenantId, locationId, theme, applyToAllLocations, use
       };
     }
 
+    if (!locationId) {
+      const tenantTheme = await upsertTenantDefaultTheme({
+        tenantId,
+        theme: normalizedTheme,
+        userId
+      }, { client });
+
+      return {
+        scope: "tenant",
+        theme: normalizeTheme(tenantTheme.theme)
+      };
+    }
+
     const locationTheme = await upsertLocationTheme({
       tenantId,
       locationId,
@@ -325,6 +403,7 @@ module.exports = {
   normalizeTheme,
   findTenantDefaultTheme,
   findLocationTheme,
+  findLegacyTenantDefaultTheme,
   getResolvedTheme,
   saveTheme,
   createAsset

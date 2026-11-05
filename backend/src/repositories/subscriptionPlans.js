@@ -1,3 +1,4 @@
+const { activeAllowances, activeEntitlements, assertNoRetiredEmailQuotas } = require("../domain/activePlanQuotas");
 const db = require("../config/db");
 
 function buildQueryClient(client) {
@@ -25,14 +26,27 @@ function mapPlan(row) {
     },
     bestFor: row.best_for,
     checkoutEnabled: row.checkout_enabled,
-    entitlements: row.entitlements || {},
-    included: row.included || []
+    sortOrder: Number(row.sort_order || 0),
+    policyRevision: Number(row.policy_revision || 1),
+    features: {
+      queue: Boolean(row.entitlements?.queueSystemAccess),
+      branding: Boolean(row.entitlements?.publicFacingBranding),
+      discovery: Boolean(row.entitlements?.marketplaceDiscovery),
+      booking: Boolean(row.entitlements?.serviceBookingAccess),
+      campaigns: false
+    },
+    allowances: {
+      queueTickets: Number(row.entitlements?.monthlyTickets || 0),
+      serviceBookings: Number(row.entitlements?.monthlyServiceBookings || 0)
+    },
+    entitlements: activeEntitlements({ ...(row.entitlements || {}), groupFundedCampaignAccess: false }),
+    included: (row.included || []).filter(item => !/Queue Email Journey|^(?:monthly|[\d,]+) transactional emails?/i.test(String(item).trim()))
   };
 }
 
 async function listPlans(options = {}) {
   const result = await buildQueryClient(options.client).query(
-    `SELECT * FROM subscription_plans ORDER BY CASE slug WHEN 'economical' THEN 1 WHEN 'pro' THEN 2 ELSE 3 END`
+    `SELECT * FROM subscription_plans ORDER BY sort_order ASC, slug ASC`
   );
   return result.rows.map(mapPlan);
 }
@@ -46,6 +60,21 @@ async function findPlanBySlug(slug, options = {}) {
 }
 
 async function updatePlan(plan, userId, options = {}) {
+  assertNoRetiredEmailQuotas(plan);
+  if (!options.client && typeof db.withTransaction === "function") {
+    return db.withTransaction((client) => updatePlan(plan, userId, { client }));
+  }
+  const entitlements = activeEntitlements({
+    ...(plan.entitlements || {}),
+    queueSystemAccess: Boolean(plan.features?.queue),
+    publicFacingBranding: Boolean(plan.features?.branding),
+    marketplaceDiscovery: Boolean(plan.features?.discovery),
+    serviceBookingAccess: Boolean(plan.features?.booking),
+    groupFundedCampaignAccess: false,
+    monthlyTickets: Number(plan.allowances?.queueTickets || 0),
+    monthlyServiceBookings: Number(plan.allowances?.serviceBookings || 0)
+  });
+  const queryClient = buildQueryClient(options.client);
   const result = await buildQueryClient(options.client).query(
     `
       UPDATE subscription_plans
@@ -57,7 +86,9 @@ async function updatePlan(plan, userId, options = {}) {
         annual_amount_cents = $6,
         entitlements = $7,
         included = $8,
-        updated_by_user_id = $9
+        updated_by_user_id = $9,
+        policy_revision = policy_revision + 1,
+        updated_at = NOW()
       WHERE slug = $1
       RETURNING *
     `,
@@ -68,11 +99,30 @@ async function updatePlan(plan, userId, options = {}) {
       Boolean(plan.checkoutEnabled),
       Number(plan.price.monthlyAmountCents),
       Number(plan.price.annualAmountCents),
-      JSON.stringify(plan.entitlements || {}),
+      JSON.stringify(entitlements),
       JSON.stringify(plan.included || []),
       userId ? Number(userId) : null
     ]
   );
+
+  for (const [featureKey, enabled] of Object.entries({ ...(plan.features || {}), campaigns: false })) {
+    await queryClient.query(
+      `INSERT INTO plan_feature_entitlements (plan_slug, feature_key, enabled, updated_by_user_id)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (plan_slug, feature_key) DO UPDATE
+       SET enabled = EXCLUDED.enabled, updated_by_user_id = EXCLUDED.updated_by_user_id, updated_at = NOW()`,
+      [plan.slug, featureKey, Boolean(enabled), userId ? Number(userId) : null]
+    );
+  }
+  for (const [allowanceKey, monthlyLimit] of Object.entries(activeAllowances(plan.allowances))) {
+    await queryClient.query(
+      `INSERT INTO plan_allowances (plan_slug, allowance_key, monthly_limit, updated_by_user_id)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (plan_slug, allowance_key) DO UPDATE
+       SET monthly_limit = EXCLUDED.monthly_limit, updated_by_user_id = EXCLUDED.updated_by_user_id, updated_at = NOW()`,
+      [plan.slug, allowanceKey, Number(monthlyLimit), userId ? Number(userId) : null]
+    );
+  }
 
   return mapPlan(result.rows[0]);
 }

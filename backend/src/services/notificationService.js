@@ -1,11 +1,11 @@
 const nodemailer = require("nodemailer");
+const { createBrandedEmail } = require("./emailTemplates");
 const env = require("../config/env");
-const billingRepository = require("../repositories/billing");
 const notificationDeliveryRepository = require("../repositories/notificationDeliveries");
-const { getPlanEntitlements } = require("./subscriptionPlans");
+const queueEmailJourneyService = require("./queueEmailJourneyService");
+const { queueLifecycleEmail } = require("./queueEmailTemplates");
 
 let transport;
-const TRANSACTIONAL_EMAIL_PURPOSES = new Set(["almost_there", "called"]);
 
 function formatSender(name, email) {
   return name ? `${name} <${email}>` : email;
@@ -47,59 +47,7 @@ function getEmailProvider() {
   return "console";
 }
 
-function getCurrentMonthStart() {
-  const now = new Date();
-  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
-}
-
-async function getEmailEntitlements(tenantId) {
-  const subscription = await billingRepository.getActiveSubscriptionByTenantId(tenantId);
-
-  if (subscription?.status === "active" && subscription.entitlements) {
-    const planEntitlements = (await getPlanEntitlements(subscription.planSlug)) || {};
-
-    return {
-      entitlements: {
-        ...planEntitlements,
-        ...subscription.entitlements
-      },
-      periodStart: subscription.currentPeriodStart || getCurrentMonthStart(),
-      periodEnd: subscription.currentPeriodEnd || null
-    };
-  }
-
-  return {
-    entitlements: await getPlanEntitlements("economical"),
-    periodStart: getCurrentMonthStart(),
-    periodEnd: null
-  };
-}
-
-async function assertTransactionalEmailAllowance({ tenantId, purpose }) {
-  if (!tenantId || !TRANSACTIONAL_EMAIL_PURPOSES.has(purpose)) {
-    return;
-  }
-
-  const { entitlements, periodStart, periodEnd } = await getEmailEntitlements(tenantId);
-  const limit = entitlements?.emailAlerts ? entitlements.monthlyTransactionalEmails : 0;
-
-  if (limit === null || limit === undefined) {
-    return;
-  }
-
-  const used = await notificationDeliveryRepository.countSentTransactionalEmails(tenantId, {
-    from: periodStart,
-    to: periodEnd
-  });
-
-  if (used >= Number(limit)) {
-    const error = new Error("Transactional email limit reached for this subscription.");
-    error.statusCode = 403;
-    throw error;
-  }
-}
-
-async function recordEmailDelivery({ to, subject, tenantId, ticketId, purpose, provider, status, error, metadata }) {
+async function recordEmailDelivery({ to, subject, tenantId, ticketId, purpose, provider, status, error, metadata, outboxId }) {
   if (!tenantId) {
     return;
   }
@@ -115,84 +63,84 @@ async function recordEmailDelivery({ to, subject, tenantId, ticketId, purpose, p
       provider,
       status,
       errorMessage: error ? String(error.message || error).slice(0, 1000) : null,
-      metadata
+      metadata,
+      outboxId
     });
   } catch (recordError) {
     console.warn("[notification-tracking-failed]", recordError.message);
   }
 }
 
-async function sendEmail({ to, subject, text, tenantId, ticketId, purpose = "general", metadata }) {
+async function requireSuccessfulResponse(response, providerName) {
+  if (response.ok) return;
+  const errorText = await response.text();
+  throw Object.assign(new Error(`${providerName} email delivery failed: ${errorText}`), {
+    deliveryAmbiguous: !(response.status >= 400 && response.status < 500 && ![408, 409].includes(response.status))
+  });
+}
+
+async function deliverWithResend({ to, subject, text, html, idempotencyKey, resendTemplate, resendFrom }) {
+  const response = await fetch(env.resendApiUrl, {
+    method: "POST",
+    ...(idempotencyKey ? { signal: AbortSignal.timeout(20_000) } : {}),
+    headers: {
+      Authorization: `Bearer ${env.resendApiKey}`,
+      "Content-Type": "application/json",
+      ...(idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {})
+    },
+    body: JSON.stringify({
+      from: resendFrom || formatSender(env.resendFromName, env.resendFromEmail),
+      to,
+      subject,
+      ...(resendTemplate ? { template: resendTemplate } : { text, ...(html ? { html } : {}) })
+    })
+  });
+  await requireSuccessfulResponse(response, "Resend");
+}
+
+async function deliverWithSendgrid({ to, subject, text, html }) {
+  const response = await fetch(env.sendgridApiUrl, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${env.sendgridApiKey}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      personalizations: [{ to: [{ email: to }] }],
+      from: { email: env.sendgridFromEmail, name: env.sendgridFromName },
+      subject,
+      content: [{ type: "text/plain", value: text }, ...(html ? [{ type: "text/html", value: html }] : [])]
+    })
+  });
+  await requireSuccessfulResponse(response, "SendGrid");
+}
+
+async function deliverEmail({ provider, to, subject, text, html, idempotencyKey, resendTemplate, resendFrom }) {
+  if (provider === "resend") return deliverWithResend({ to, subject, text, html, idempotencyKey, resendTemplate, resendFrom });
+  if (provider === "sendgrid") return deliverWithSendgrid({ to, subject, text, html });
+  if (provider === "smtp") {
+    try {
+      return await getTransport().sendMail({ from: env.smtpUser, to, subject, text, ...(html ? { html } : {}) });
+    } catch (error) {
+      if (error.responseCode >= 400 && error.responseCode < 600) error.deliveryAmbiguous = false;
+      throw error;
+    }
+  }
+  console.log("[email-fallback]", { to, subject, text, html });
+}
+
+async function sendEmail({ to, subject, text, html, emailTemplate, tenantId, ticketId, purpose = "general", metadata, outboxId, idempotencyKey, resendTemplate, resendFrom, deliveryProvider }) {
   if (!to) {
     return false;
   }
 
-  const provider = getEmailProvider();
+  const provider = deliveryProvider || getEmailProvider();
 
   try {
-    await assertTransactionalEmailAllowance({ tenantId, purpose });
-
-    if (provider === "resend") {
-      const response = await fetch(env.resendApiUrl, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${env.resendApiKey}`,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          from: formatSender(env.resendFromName, env.resendFromEmail),
-          to,
-          subject,
-          text
-        })
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Resend email delivery failed: ${errorText}`);
-      }
-    } else if (provider === "sendgrid") {
-      const response = await fetch(env.sendgridApiUrl, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${env.sendgridApiKey}`,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          personalizations: [
-            {
-              to: [{ email: to }]
-            }
-          ],
-          from: {
-            email: env.sendgridFromEmail,
-            name: env.sendgridFromName
-          },
-          subject,
-          content: [
-            {
-              type: "text/plain",
-              value: text
-            }
-          ]
-        })
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`SendGrid email delivery failed: ${errorText}`);
-      }
-    } else if (provider === "smtp") {
-      const transporter = getTransport();
-      await transporter.sendMail({
-        from: env.smtpUser,
-        to,
-        subject,
-        text
-      });
-    } else {
-      console.log("[email-fallback]", { to, subject, text });
+    // Resend-managed templates may carry a branded inline fallback for other configured providers.
+    if (resendTemplate && provider !== "resend" && !text && !html) {
+      throw new Error("Managed email templates require Resend or an inline fallback");
     }
+    if (!resendTemplate) html = html || createBrandedEmail({ subject, message: text, ...emailTemplate }).html;
+
+    await deliverEmail({ provider, to, subject, text, html, idempotencyKey, resendTemplate, resendFrom });
 
     await recordEmailDelivery({
       to,
@@ -202,7 +150,8 @@ async function sendEmail({ to, subject, text, tenantId, ticketId, purpose = "gen
       purpose,
       provider,
       status: "sent",
-      metadata
+      metadata,
+      outboxId
     });
     return true;
   } catch (error) {
@@ -215,7 +164,8 @@ async function sendEmail({ to, subject, text, tenantId, ticketId, purpose = "gen
       provider,
       status: "failed",
       error,
-      metadata
+      metadata,
+      outboxId
     });
     throw error;
   }
@@ -256,15 +206,23 @@ async function sendSms({ to, body }) {
   return true;
 }
 
+function deliverLifecycleEmail(ticket, slot, logicalMessageKey, payload) {
+  const deliveryPayload = { ...payload, deliveryProvider: getEmailProvider(),
+    ...(getEmailProvider() === "resend" ? { resendFrom: formatSender(env.resendFromName, env.resendFromEmail) } : {}) };
+  return queueEmailJourneyService.withLifecycleSlot(ticket._id, slot, logicalMessageKey,
+    ({ idempotencyKey, deliveryPayload: savedPayload } = {}) => sendEmail({ ...(savedPayload || deliveryPayload), idempotencyKey }),
+    deliveryPayload);
+}
+
 async function notifyAlmostThere({ ticket, tenant, position }) {
   const message = `${tenant.name}: You're almost next. Ticket ${ticket.ticketNumber} is now ${position} in the queue.`;
 
   if (ticket.notifyByEmail && ticket.customerEmail) {
     try {
-      await sendEmail({
+      const email = queueLifecycleEmail({ tenant, ticket, kind: "near_turn", position });
+      await deliverLifecycleEmail(ticket, "near_turn", `ticket:${ticket._id}:near-turn`, {
         to: ticket.customerEmail,
-        subject: `${tenant.name}: you're almost next`,
-        text: message,
+        ...email,
         tenantId: tenant._id,
         ticketId: ticket._id,
         purpose: "almost_there"
@@ -283,14 +241,14 @@ async function notifyAlmostThere({ ticket, tenant, position }) {
 }
 
 async function notifyCalled({ ticket, tenant }) {
-  const message = `${tenant.name}: Ticket ${ticket.ticketNumber} is now being served. Please proceed to the counter.`;
+  const message = `${tenant.name}: Ticket ${ticket.ticketNumber} has been called. Please proceed and present the barcode or ticket code for confirmation.`;
 
   if (ticket.notifyByEmail && ticket.customerEmail) {
     try {
-      await sendEmail({
+      const email = queueLifecycleEmail({ tenant, ticket, kind: "called" });
+      await deliverLifecycleEmail(ticket, "called", `ticket:${ticket._id}:called`, {
         to: ticket.customerEmail,
-        subject: `${tenant.name}: it is your turn`,
-        text: message,
+        ...email,
         tenantId: tenant._id,
         ticketId: ticket._id,
         purpose: "called"
@@ -308,9 +266,30 @@ async function notifyCalled({ ticket, tenant }) {
   }
 }
 
+const JOURNEY_MESSAGE_KINDS = new Set(["joined", "exception", "continuation", "final"]);
+
+async function notifyJourneyLifecycle({ ticket, tenant, slot, action }) {
+  if (!ticket?.notifyByEmail || !ticket?.customerEmail || !JOURNEY_MESSAGE_KINDS.has(slot)) return false;
+  const email = queueLifecycleEmail({ tenant, ticket, kind: slot, action });
+  try {
+    return await deliverLifecycleEmail(ticket, slot, `ticket:${ticket._id}:${slot}`, {
+      to: ticket.customerEmail, ...email,
+      tenantId: tenant._id, ticketId: ticket._id, purpose: `queue_${slot}`
+    });
+  } catch (error) {
+    // Provider response text is retained in delivery tracking, not emitted as
+    // untrusted terminal output. Only controlled categories reach this log.
+    console.warn("[email-journey-notification-skipped]", {
+      category: error.statusCode === 403 ? "policy" : "delivery"
+    });
+    return false;
+  }
+}
+
 module.exports = {
   sendEmail,
   sendSms,
   notifyAlmostThere,
-  notifyCalled
+  notifyCalled,
+  notifyJourneyLifecycle
 };

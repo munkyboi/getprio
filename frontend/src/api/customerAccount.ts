@@ -1,35 +1,98 @@
-import { apiRequest } from "./client";
+import { apiRequest, apiUpload } from "./client";
 import type {
+  BookingPaymentProofUploadResponse,
+  CustomerAvatarUploadResponse,
   CustomerAccountHistoryResponse,
   CustomerAccountOverviewResponse,
   CustomerBookingsResponse,
+
   CustomerNotificationSettings,
   CustomerProfileUpdateRequest,
   CustomerProfileUpdateResponse,
   PasswordChangeRequest,
+
   UpdateCustomerNotificationSettingsRequest,
   UpdateCustomerNotificationSettingsResponse
 } from "@shared";
 
 export const customerAccountApi = {
+
   getOverview(token: string) {
     return Promise.all([
       apiRequest<CustomerAccountOverviewResponse>("/account/overview", { token }),
-      apiRequest<CustomerAccountHistoryResponse>("/account/history", { token }),
-      apiRequest<CustomerBookingsResponse>("/account/bookings", { token }),
       apiRequest<{ notificationSettings: CustomerNotificationSettings }>("/account/notification-settings", { token })
-    ]).then(([overview, ticketHistory, customerBookings, notificationSettingsResponse]) => ({
+    ]).then(([overview, notificationSettingsResponse]) => ({
       overview,
-      ticketHistory,
-      customerBookings,
       notificationSettings: notificationSettingsResponse.notificationSettings
     }));
+  },
+  getTickets(token: string, page: number, pageSize: number) {
+    return apiRequest<CustomerAccountHistoryResponse>(
+      `/account/history?page=${page}&pageSize=${pageSize}`,
+      { token }
+    );
+  },
+  getBookings(
+    token: string,
+    page: number,
+    pageSize: number,
+    filters?: {
+      search?: string;
+      status?: string;
+      scheduledDateFrom?: string;
+      scheduledDateTo?: string;
+    }
+  ) {
+    const params = new URLSearchParams({
+      page: String(page),
+      pageSize: String(pageSize)
+    });
+
+    if (filters?.search?.trim()) {
+      params.set("search", filters.search.trim());
+    }
+
+    if (filters?.status && filters.status !== "all") {
+      params.set("status", filters.status);
+    }
+
+    if (filters?.scheduledDateFrom) {
+      params.set("scheduledDateFrom", filters.scheduledDateFrom);
+    }
+
+    if (filters?.scheduledDateTo) {
+      params.set("scheduledDateTo", filters.scheduledDateTo);
+    }
+
+    return apiRequest<CustomerBookingsResponse>(
+      `/account/bookings?${params.toString()}`,
+      { token }
+    );
   },
   updateProfile(token: string, body: CustomerProfileUpdateRequest) {
     return apiRequest<CustomerProfileUpdateResponse, CustomerProfileUpdateRequest>("/account/profile", {
       method: "PATCH",
       token,
       body
+    });
+  },
+  uploadAvatar(token: string, file: File) {
+    return apiUpload<CustomerAvatarUploadResponse>(
+      `/account/profile/avatar?fileName=${encodeURIComponent(file.name)}`,
+      { token, body: file, contentType: file.type }
+    );
+  },
+  uploadBookingPaymentProof(token: string, bookingId: string, file: File) {
+    return apiUpload<BookingPaymentProofUploadResponse>(
+      `/account/bookings/${encodeURIComponent(bookingId)}/payment-proof/uploads/direct?fileName=${encodeURIComponent(file.name)}`,
+      { token, body: file, contentType: file.type }
+    );
+  },
+
+  claimTicket(token: string, lookupCode: string) {
+    return apiRequest<{ success: boolean }>(`/account/tickets/${encodeURIComponent(lookupCode)}/claim`, {
+      method: "POST",
+      token
     });
   },
   changePassword(token: string, body: PasswordChangeRequest) {

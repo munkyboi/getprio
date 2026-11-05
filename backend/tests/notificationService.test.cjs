@@ -2,6 +2,30 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const path = require("node:path");
 
+test("journey failures cannot inject provider text into terminal logs", async () => {
+  const warnings = [], deliveries = [];
+  const originalFetch = global.fetch, originalWarn = console.warn;
+  const forged = "upstream failure\r\nINFO forged entry\u001b[31m";
+  const service = requireWithMocks("../src/services/notificationService.js", {
+    "../config/env": { resendApiKey: "fixture", resendFromEmail: "sender@example.test", resendApiUrl: "https://example.test/emails" },
+    "../repositories/billing": { getActiveSubscriptionByTenantId: async () => null },
+    "../repositories/notificationDeliveries": { recordDelivery: async data => deliveries.push(data) },
+    "./queueEmailJourneyService": { withLifecycleSlot: async (_ticket, _slot, _key, deliver) => deliver() }
+  });
+  global.fetch = async () => ({ ok: false, status: 502, text: async () => forged });
+  console.warn = (...args) => warnings.push(args);
+  try {
+    assert.equal(await service.notifyJourneyLifecycle({ ticket: { _id: "42", ticketNumber: "Q42", notifyByEmail: true, customerEmail: "customer@example.test" },
+      tenant: { _id: "1", name: "Vendor", slug: "vendor" }, slot: "joined", action: "joined" }), false);
+    assert.deepEqual(warnings, [["[email-journey-notification-skipped]", { category: "delivery" }]]);
+    assert.equal(deliveries[0].status, "failed");
+    assert.ok(deliveries[0].errorMessage.includes(forged), "existing private delivery tracking keeps diagnostic detail");
+  } finally {
+    global.fetch = originalFetch;
+    console.warn = originalWarn;
+  }
+});
+
 function requireWithMocks(targetPath, mocks) {
   const resolvedTarget = require.resolve(targetPath);
   const originals = new Map();
@@ -27,7 +51,7 @@ function requireWithMocks(targetPath, mocks) {
   }
 }
 
-test("notification service selects providers and enforces transactional email limits", async () => {
+test("notification service delivers lifecycle email despite exhausted historical email quota", async () => {
   const deliveryCalls = [];
   const service = requireWithMocks("../src/services/notificationService.js", {
     "../config/env": {
@@ -61,19 +85,11 @@ test("notification service selects providers and enforces transactional email li
   });
 
   assert.equal(await service.sendEmail({ to: "", subject: "x", text: "y" }), false);
-  await assert.rejects(
-    () =>
-      service.sendEmail({
-        to: "customer@example.com",
-        subject: "Hello",
-        text: "Body",
-        tenantId: "tenant-1",
-        purpose: "almost_there"
-      }),
-    (error) => error.statusCode === 403
-  );
+  assert.equal(await service.sendEmail({
+    to: "customer@example.com", subject: "Hello", text: "Body", tenantId: "tenant-1", purpose: "almost_there"
+  }), true);
   assert.equal(deliveryCalls.length, 1);
-  assert.equal(deliveryCalls[0].status, "failed");
+  assert.equal(deliveryCalls[0].status, "sent");
 });
 
 test("notification service falls back to console transport and sms fallback", async () => {
@@ -114,4 +130,113 @@ test("notification service falls back to console transport and sms fallback", as
   }
 
   assert.equal(logs.length >= 1, true);
+});
+
+test("all email providers deliver the shared HTML while retaining the original plain text", async () => {
+  const originalFetch = global.fetch;
+  try {
+    for (const provider of ["resend", "sendgrid", "smtp"]) {
+      let delivered;
+      global.fetch = async (_url, options) => {
+        delivered = JSON.parse(options.body);
+        return { ok: true };
+      };
+      const service = requireWithMocks("../src/services/notificationService.js", {
+        "../config/env": {
+          resendApiKey: provider === "resend" ? "fixture" : "", resendFromEmail: "sender@example.com",
+          sendgridApiKey: provider === "sendgrid" ? "fixture" : "", sendgridFromEmail: "sender@example.com",
+          smtpHost: provider === "smtp" ? "smtp.example.com" : "", smtpUser: "sender@example.com", smtpPass: "fixture"
+        },
+        nodemailer: { createTransport: () => ({ sendMail: async (payload) => { delivered = payload; } }) }
+      });
+      const text = "Use code 012345. Expires in 10 minutes.";
+      await service.sendEmail({ to: "recipient@example.com", subject: "Verify your GetPrio email", text,
+        emailTemplate: { code: "012345", expiryText: "Expires in 10 minutes.", illustration: "account-verification" } });
+      const html = provider === "sendgrid" ? delivered.content.find(item => item.type === "text/html").value : delivered.html;
+      const plain = provider === "sendgrid" ? delivered.content.find(item => item.type === "text/plain").value : delivered.text;
+      assert.equal(plain, text, provider);
+      assert.match(html, /VERIFICATION CODE/, provider);
+      assert.match(html, /012345/, provider);
+      assert.match(html, /getprio-logo.png/, provider);
+      assert.match(html, /#FFFAF4/, provider);
+      await service.sendEmail({ to: "recipient@example.com", subject: "Security update", text: "Your settings changed." });
+      const generic = provider === "sendgrid" ? delivered.content.find(item => item.type === "text/html").value : delivered.html;
+      assert.match(generic, /The GetPrio Team/);
+      assert.doesNotMatch(generic, /VERIFICATION CODE/);
+    }
+  } finally { global.fetch = originalFetch; }
+});
+
+test("Resend receives the saved staff email and stable idempotency header", async () => {
+  const originalFetch = global.fetch;
+  let request;
+  global.fetch = async (_url, options) => { request = options; return { ok: true }; };
+  try {
+    const service = requireWithMocks("../src/services/notificationService.js", {
+      "../config/env": { resendApiKey: "fixture", resendFromEmail: "sender@example.test", resendApiUrl: "https://example.test/emails" },
+      "../repositories/notificationDeliveries": { recordDelivery: async () => {} }
+    });
+    await service.sendEmail({ to: "member@example.test", subject: "Access changed", text: "Saved text", html: "<p>Saved HTML</p>",
+      purpose: "vendor_staff_access", idempotencyKey: "staff-access/event/member" });
+    assert.equal(request.headers["Idempotency-Key"], "staff-access/event/member");
+    assert.equal(JSON.parse(request.body).html, "<p>Saved HTML</p>");
+    assert.equal(JSON.parse(request.body).text, "Saved text");
+    assert.ok(request.signal);
+  } finally { global.fetch = originalFetch; }
+});
+
+test("managed Resend sends template variables without forbidden inline bodies", async () => {
+  const originalFetch = global.fetch; let request;
+  global.fetch = async (_url, options) => { request = options; return { ok: true }; };
+  try {
+    const service = requireWithMocks("../src/services/notificationService.js", {
+      "../config/env": { resendApiKey: "fixture", resendFromEmail: "sender@example.test", resendApiUrl: "https://example.test/emails" },
+      "../repositories/notificationDeliveries": { recordDelivery: async () => {} }
+    });
+    const template = { id: 'getprio-vendor-staff-added', variables: { BUSINESS_TEXT: 'Studio' } };
+    await service.sendEmail({ to: 'member@example.test', subject: 'Added', text: 'Must not be sent', html: '<p>Must not be sent</p>', resendTemplate: template });
+    const body = JSON.parse(request.body);
+    assert.deepEqual(body.template, template);
+    assert.equal('html' in body, false); assert.equal('text' in body, false);
+  } finally { global.fetch = originalFetch; }
+});
+
+test("managed templates fail closed when Resend is not configured", async () => {
+  const service = requireWithMocks("../src/services/notificationService.js", {
+    "../config/env": {}, "../repositories/notificationDeliveries": { recordDelivery: async () => {} }
+  });
+  await assert.rejects(service.sendEmail({ to: 'member@example.test', resendTemplate: { id: 'staff' } }), /require Resend/);
+});
+
+test("lifecycle delivery forwards the slot idempotency key to Resend", async () => {
+  const requests = [];
+  const originalFetch = global.fetch;
+  const service = requireWithMocks("../src/services/notificationService.js", {
+    "../config/env": { resendApiKey: "fixture", resendFromEmail: "sender@example.test", resendApiUrl: "https://example.test/emails" },
+    "../repositories/notificationDeliveries": { recordDelivery: async () => {} },
+    "./queueEmailJourneyService": { withLifecycleSlot: async (_ticket, slot, _key, deliver) => deliver({ idempotencyKey: `stable-${slot}` }) }
+  });
+  global.fetch = async (_url, options) => { requests.push(options); return { ok: true }; };
+  const input = { ticket: { _id: "42", ticketNumber: "Q42", notifyByEmail: true, customerEmail: "customer@example.test" }, tenant: { _id: "1", name: "Vendor", slug: "vendor" } };
+  try {
+    await service.notifyAlmostThere({ ...input, position: 2 });
+    await service.notifyCalled(input);
+    await service.notifyJourneyLifecycle({ ...input, slot: "joined", action: "joined" });
+    assert.deepEqual(requests.map(request => request.headers["Idempotency-Key"]), ["stable-near_turn", "stable-called", "stable-joined"]);
+    assert.ok(requests.every(request => request.signal instanceof AbortSignal));
+  } finally { global.fetch = originalFetch; }
+});
+
+test("provider rejection classification preserves ambiguous timeout and idempotency conflicts", async () => {
+  const originalFetch = global.fetch;
+  const service = requireWithMocks("../src/services/notificationService.js", {
+    "../config/env": { resendApiKey: "fixture", resendFromEmail: "sender@example.test", resendApiUrl: "https://example.test/emails" },
+    "../repositories/notificationDeliveries": { recordDelivery: async () => {} }
+  });
+  try {
+    for (const [status, ambiguous] of [[429, false], [408, true], [409, true], [503, true]]) {
+      global.fetch = async () => ({ ok: false, status, text: async () => 'provider fixture' });
+      await assert.rejects(service.sendEmail({ to: 'customer@example.invalid', subject: 'Fixture', text: 'Fixture' }), error => error.deliveryAmbiguous === ambiguous);
+    }
+  } finally { global.fetch = originalFetch; }
 });

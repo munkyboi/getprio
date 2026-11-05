@@ -12,6 +12,7 @@ test("vendor queue handler rejects missing customer name", async () => {
         getAuthorizedTenant: async () => ({ _id: 1 }),
         assertTenantPermission: () => {},
         getLocationForTenant: async () => ({ _id: 2 }),
+        storeHoursService: { assertLocationOpenForCustomerJoin: async () => {} },
         createTicket: async () => ({})
       }),
     (error) => error.statusCode === 400
@@ -47,6 +48,7 @@ test("vendor queue handler creates tickets through the injected workflow", async
     getAuthorizedTenant: async () => ({ _id: 1 }),
     assertTenantPermission: () => {},
     getLocationForTenant: async () => ({ _id: 2 }),
+    storeHoursService: { assertLocationOpenForCustomerJoin: async () => {} },
     createTicket: async () => {
       createCalls += 1;
       return {

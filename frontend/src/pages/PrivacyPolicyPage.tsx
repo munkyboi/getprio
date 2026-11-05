@@ -2,7 +2,7 @@ import { Anchor, Container, List, Stack, Text } from "@mantine/core";
 import LegalArticleLayout from "../components/LegalArticleLayout";
 import LegalSection from "../components/LegalSection";
 
-const lastUpdated = "September 6, 2026";
+const lastUpdated = "October 1, 2026";
 
 export default function PrivacyPolicyPage() {
   return (
@@ -36,7 +36,9 @@ export default function PrivacyPolicyPage() {
             <Text lh={1.8}>
               GetPrio is a service marketplace and booking platform that helps guests discover
               vendors, customers make bookings, vendors manage services and queues, and platform
-              administrators oversee the system.
+              administrators oversee the system. GetPrio is owned and operated by MNK-Labs
+              Software Development Services, which is responsible for the service and the personal
+              information described in this policy.
             </Text>
           </LegalSection>
 
@@ -51,8 +53,8 @@ export default function PrivacyPolicyPage() {
               <List.Item>Profile details, profile photos you upload, preferences, favorite vendors, and booking contact information.</List.Item>
               <List.Item>Queue and booking data such as vendor, service selected, ticket identifiers, position, join and service times, estimated waits, notes, status, and payment reference.</List.Item>
               <List.Item>Payment proof uploads and verification records when manual payment is required.</List.Item>
-              <List.Item>Organizer campaign details, contributor membership, payment instructions, contribution and reimbursement evidence, review decisions, reports, and audit events.</List.Item>
-              <List.Item>Public vendor reviews and private role-scoped user trust ratings, including rating appeals and moderation decisions.</List.Item>
+              <List.Item>Historical campaign records from participation before retirement, including organizer and contributor membership, payment instructions, contribution and reimbursement evidence, reports, review decisions, and audit events. The campaign workflow is no longer available; retained records remain subject to the access limits and purpose-based retention described below.</List.Item>
+              <List.Item>Public vendor reviews, including review appeals and moderation decisions. Customers do not receive ratings. Historical customer-rating and private role-scoped trust-rating records may be retained for existing disputes and audit obligations.</List.Item>
               <List.Item>Notification preferences and push registration data linked to your account, including an app installation identifier, notification token, platform, app version, app locale, and delivery success or failure records. Browser notifications use a push subscription endpoint and encryption keys.</List.Item>
               <List.Item>Vendor and staff records such as business names, locations, roles, schedules, and assigned bookings.</List.Item>
               <List.Item>Security and diagnostic data such as login attempts, audit logs, timestamps, IP address, and device metadata.</List.Item>
@@ -65,6 +67,7 @@ export default function PrivacyPolicyPage() {
               <List.Item>To process bookings, display vendor profiles and saved favorites, manage queue tickets, and calculate and update estimated waiting times.</List.Item>
               <List.Item>To verify manual payment proof and confirm or reject bookings where needed.</List.Item>
               <List.Item>To send confirmations, reminders, status updates, and service notifications.</List.Item>
+
               <List.Item>To monitor abuse, troubleshoot issues, and maintain audit trails.</List.Item>
               <List.Item>To improve product performance, usability, and service reliability.</List.Item>
             </List>
@@ -104,7 +107,7 @@ export default function PrivacyPolicyPage() {
               handled under that provider’s privacy policy. GetPrio receives the transaction
               information needed to associate payments with your queue or booking.
             </Text>
-            <Text lh={1.8} mt="sm">Campaign payment instructions and evidence are limited to the organizer and the relevant contributor. Vendors and public viewers do not receive campaign payment references, proof files, contributor identities, reimbursement records, or private trust-rating notes. Platform Admin access is case-scoped to a report, dispute, or audit need.</Text>
+            <Text lh={1.8} mt="sm">Payment evidence and private account records are accessible only to authorized participants and staff with an operational, dispute, or audit need. Campaign payment instructions and evidence are limited to the organizer and the relevant contributor. Vendors and public viewers do not receive campaign payment references, proof files, contributor identities, reimbursement records, or private trust-rating notes. Platform Admin access is case-scoped to a report, dispute, or audit need.</Text>
           </LegalSection>
 
           <LegalSection id="retention" title="6. Retention">
@@ -114,6 +117,7 @@ export default function PrivacyPolicyPage() {
               and support system security. Some audit logs and transactional records may be retained
               longer for compliance and fraud prevention.
             </Text>
+            <Text lh={1.8}>Historical records, review disputes, and audit records follow a documented purpose-based retention schedule and are deleted or de-identified when no longer needed for an active booking, complaint, legal obligation, security investigation, or data-subject request. Production launch requires that schedule and storage deletion process to be approved in the Privacy Impact Assessment.</Text>
             <Text lh={1.8}>Retention varies by record type and purpose; there is no single deletion period for all records. Contact us to request deletion or information about retention of your records. Turning off notification permission or uninstalling the app does not itself delete your account, transaction history, or server-side notification registration records.</Text>
           </LegalSection>
 
@@ -124,6 +128,7 @@ export default function PrivacyPolicyPage() {
               tampering, and leakage. No online system is completely secure, so we also review access
               patterns and limit privileged data exposure where possible.
             </Text>
+            <Text lh={1.8}>Notification messages, including future silent push notifications, contain only the minimum event context and never include payment instructions, proof images, payment references, private notes, or bank details.</Text>
             <Text lh={1.8}>Queue notifications may include a service or vendor name, ticket identifier, and status information. Depending on your device settings, notifications may be visible on your lock screen. You can hide previews or disable notifications in your device settings.</Text>
           </LegalSection>
 
@@ -140,6 +145,16 @@ export default function PrivacyPolicyPage() {
               <Anchor href="/contact">contact page</Anchor> and identify the account concerned.
               We may need to verify your identity before acting on a request. Please do not send
               your password or authentication codes. Removing the app does not close your account.
+            </Text>
+            <Text lh={1.8}>
+              Where Delete account is available in Profile &gt; Security, you can confirm deletion
+              directly in the app. When we accept your verified request, account access stops and
+              waiting queue tickets, including pending carry-over tickets, are cancelled. Tickets
+              already called for service remain with the vendor. We provide a request reference and
+              a deadline within 30 days, then notify you when deletion is complete. Only records
+              with a documented retention basis may remain, with the applicable reason and period
+              explained in the completion notice. Deletion does not automatically refund payments
+              or cancel bookings with a vendor.
             </Text>
             <Text lh={1.8}>
               Camera access supports QR scanning; photo access lets you

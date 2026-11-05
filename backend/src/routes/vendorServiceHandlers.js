@@ -1,55 +1,45 @@
-const { formatVendorService, normalizeServicePayload } = require("./vendorRouteHelpers");
+const { formatVendorService } = require("./vendorRouteHelpers");
 
-async function handleListServices({ req, res, getAuthorizedTenant, assertTenantPermission, vendorServiceRepository }) {
+async function handleListServices({ req, res, getAuthorizedTenant, assertTenantPermission, vendorServiceRepository, locationServiceRepository }) {
   const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
   assertTenantPermission(req.user, tenant._id, "tenant.service.manage");
   const services = await vendorServiceRepository.listServicesByTenantId(tenant._id);
-  res.json({ services: services.map(formatVendorService) });
+  const locationServices = await locationServiceRepository.listLocationServicesByTenantId(tenant._id);
+  res.json({ services: services.map(formatVendorService), locationServices });
 }
 
-async function handleCreateService({ req, res, getAuthorizedTenant, assertTenantPermission, vendorServiceRepository }) {
+async function handleCreateService({ req, res, getAuthorizedTenant, assertTenantPermission, serviceDeactivationService }) {
   const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
   assertTenantPermission(req.user, tenant._id, "tenant.service.manage");
-  const service = await vendorServiceRepository.createService({
-    tenantId: tenant._id,
-    ...normalizeServicePayload(req.body || {})
-  });
-  res.status(201).json({ service: formatVendorService(service) });
+  const result = await serviceDeactivationService.createVendorService(tenant, req.body || {}, { actorUserId: req.user._id });
+  res.status(201).json({ service: formatVendorService(result.service), locationServices: result.locationServices });
 }
 
-async function handleUpdateService({ req, res, getAuthorizedTenant, assertTenantPermission, vendorServiceRepository }) {
+async function handleUpdateService({ req, res, getAuthorizedTenant, assertTenantPermission, serviceDeactivationService }) {
   const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
   assertTenantPermission(req.user, tenant._id, "tenant.service.manage");
-  const service = await vendorServiceRepository.findServiceByTenantAndSlug(
+  const result = await serviceDeactivationService.updateVendorService(tenant, req.params.serviceSlug, req.body || {}, { actorUserId: req.user._id });
+  res.json({ service: formatVendorService(result.service), locationServices: result.locationServices });
+}
+
+async function handleDeleteService({ req, res, getAuthorizedTenant, assertTenantPermission, serviceDeactivationService }) {
+  const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+  assertTenantPermission(req.user, tenant._id, "tenant.service.manage");
+  const service = await serviceDeactivationService.deactivateVendorService(tenant, req.params.serviceSlug, { actorUserId: req.user._id });
+  res.json({ service: formatVendorService(service) });
+}
+
+async function handleCheckServiceSlugAvailability({ req, res, getAuthorizedTenant, assertTenantPermission, vendorServiceRepository }) {
+  const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
+  assertTenantPermission(req.user, tenant._id, "tenant.service.manage");
+  const serviceSlug = req.query.serviceSlug || req.query.slug || "";
+  const excludeServiceId = req.query.excludeServiceId || req.query.serviceId || null;
+  const result = await vendorServiceRepository.isServiceSlugAvailable(
     tenant._id,
-    req.params.serviceSlug
+    serviceSlug,
+    excludeServiceId
   );
-  if (!service) {
-    const error = new Error("Service not found.");
-    error.statusCode = 404;
-    throw error;
-  }
-  const updatedService = await vendorServiceRepository.updateService(
-    service._id,
-    normalizeServicePayload(req.body || {}, service)
-  );
-  res.json({ service: formatVendorService(updatedService) });
+  res.json({ serviceSlug: String(serviceSlug || ""), ...result });
 }
 
-async function handleDeleteService({ req, res, getAuthorizedTenant, assertTenantPermission, vendorServiceRepository }) {
-  const tenant = await getAuthorizedTenant(req.user, req.params.tenantSlug);
-  assertTenantPermission(req.user, tenant._id, "tenant.service.manage");
-  const service = await vendorServiceRepository.findServiceByTenantAndSlug(
-    tenant._id,
-    req.params.serviceSlug
-  );
-  if (!service) {
-    const error = new Error("Service not found.");
-    error.statusCode = 404;
-    throw error;
-  }
-  const deactivatedService = await vendorServiceRepository.deactivateService(service._id);
-  res.json({ service: formatVendorService(deactivatedService) });
-}
-
-module.exports = { handleListServices, handleCreateService, handleUpdateService, handleDeleteService };
+module.exports = { handleListServices, handleCreateService, handleUpdateService, handleDeleteService, handleCheckServiceSlugAvailability };

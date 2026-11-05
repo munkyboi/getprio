@@ -28,6 +28,7 @@ function requireWithMocks(targetPath, mocks) {
 
 test("payment proof storage validates metadata and booking ownership", async () => {
   const service = requireWithMocks("../src/services/paymentProofStorageService.js", {
+    "../repositories/platform": { getImageUploadLimitKb: async () => 200 },
     "../config/env": {
       b2Region: "us-west-004",
       b2S3Endpoint: "https://s3.example.test",
@@ -55,6 +56,7 @@ test("payment proof storage validates metadata and booking ownership", async () 
 
 test("payment proof storage creates uploads and binary access records", async () => {
   const service = requireWithMocks("../src/services/paymentProofStorageService.js", {
+    "../repositories/platform": { getImageUploadLimitKb: async () => 200 },
     "../config/env": {
       b2Region: "us-west-004",
       b2S3Endpoint: "https://s3.example.test",

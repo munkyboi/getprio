@@ -1,0 +1,15 @@
+.connected-parallax {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1690 / 931;
+  margin: 30px auto 20px;
+  isolation: isolate;
+}
+.connected-parallax-static { display: block; width: 100%; height: auto; }
+.connected-parallax-layers { display: none; position: absolute; inset: 0; pointer-events: none; }
+.connected-parallax-layers img { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.connected-parallax.is-layered .connected-parallax-static { visibility: hidden; }
+.connected-parallax.is-layered .connected-parallax-layers { display: block; }
+@media (min-width: 768px) {
+  .connected-parallax { margin-top: 45px; margin-bottom: 35px; }
+}

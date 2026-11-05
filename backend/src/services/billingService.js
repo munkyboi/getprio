@@ -1,15 +1,16 @@
+const { activeEntitlements } = require("../domain/activePlanQuotas");
 const crypto = require("crypto");
 const db = require("../config/db");
 const env = require("../config/env");
 const billingRepository = require("../repositories/billing");
 const {
   findPlanBySlug,
-  getPlanEntitlements,
   listAddOns,
   listPlans
 } = require("./subscriptionPlans");
 const queueJoinPaymentService = require("./queueJoinPaymentService");
 const bookingSmsAlertPaymentService = require("./bookingSmsAlertPaymentService");
+const usageCreditService = require("./usageCreditService");
 
 const PAYMONGO_PROVIDER = "paymongo";
 
@@ -89,6 +90,37 @@ function formatPlanResponse(plan) {
   };
 }
 
+function normalizeCheckoutBillingOptions({ billingMode, paymentMethod } = {}) {
+  const hasExplicitMode = billingMode !== undefined || paymentMethod !== undefined;
+  const normalizedMode = String(billingMode || (hasExplicitMode ? "manual" : "legacy")).toLowerCase();
+  const normalizedMethod = String(paymentMethod || (normalizedMode === "manual" ? "qrph" : "")).toLowerCase();
+
+  if (!["manual", "automatic", "legacy"].includes(normalizedMode)) {
+    throw Object.assign(new Error("Unknown subscription payment mode."), { statusCode: 400, code: "BILLING_MODE_INVALID" });
+  }
+
+  if (normalizedMode === "manual" && normalizedMethod !== "qrph") {
+    throw Object.assign(new Error("Manual subscription payments currently use QRPh."), { statusCode: 400, code: "PAYMENT_METHOD_INVALID" });
+  }
+
+  if (normalizedMode === "automatic") {
+    if (!["card", "maya"].includes(normalizedMethod)) {
+      throw Object.assign(new Error("Automatic recurring payments support card or Maya."), { statusCode: 400, code: "PAYMENT_METHOD_INVALID" });
+    }
+
+    throw Object.assign(
+      new Error("Automatic recurring payments are not enabled for this PayMongo account yet."),
+      { statusCode: 503, code: "PAYMONGO_SUBSCRIPTIONS_UNAVAILABLE" }
+    );
+  }
+
+  return {
+    billingMode: normalizedMode,
+    paymentMethod: normalizedMethod || null,
+    paymentMethodTypes: normalizedMode === "manual" ? ["qrph"] : env.paymongoPaymentMethodTypes
+  };
+}
+
 async function buildSubscriptionResponse(subscription) {
   if (!subscription) {
     return null;
@@ -102,13 +134,15 @@ async function buildSubscriptionResponse(subscription) {
     planName: plan?.name || subscription.planSlug,
     status: subscription.status,
     provider: subscription.provider,
+    billingMode: subscription.metadata?.billingMode || "legacy",
+    paymentMethod: subscription.metadata?.paymentMethod || null,
     billingInterval: subscription.billingInterval,
     currentPeriodStart: subscription.currentPeriodStart,
     currentPeriodEnd: subscription.currentPeriodEnd,
-    entitlements: {
+    entitlements: activeEntitlements({
       ...(plan?.entitlements || {}),
       ...(subscription.entitlements || {})
-    }
+    })
   };
 }
 
@@ -123,16 +157,43 @@ async function getBillingOverview(tenantId) {
   };
 }
 
-async function getTenantEntitlements(tenantId) {
+async function getTenantEntitlements(tenantId, options = {}) {
+  const subscription = tenantId
+    ? await billingRepository.getActiveSubscriptionByTenantId(tenantId, options)
+    : null;
+
+  if (subscription?.status === "active") {
+    const plan = await findPlanBySlug(subscription.planSlug, options);
+    return activeEntitlements({
+      ...(plan?.entitlements || {}),
+      ...(subscription.entitlements || {})
+    });
+  }
+
+  return {};
+}
+
+async function getTenantPlanSummary(tenantId) {
   const subscription = tenantId
     ? await billingRepository.getActiveSubscriptionByTenantId(tenantId)
     : null;
+  const plan = subscription?.planSlug ? await findPlanBySlug(subscription.planSlug) : null;
 
-  if (subscription?.status === "active" && subscription.entitlements) {
-    return subscription.entitlements;
+  return {
+    planName: subscription?.status === "active" ? (plan?.name || subscription.planSlug || null) : null,
+    planSlug: subscription?.status === "active" ? subscription.planSlug : null,
+    subscriptionStatus: subscription?.status || null
+  };
+}
+
+async function assertPaidReviewAccess(tenantId) {
+  const plan = await getTenantPlanSummary(tenantId);
+  if (plan.subscriptionStatus !== "active" || !plan.planSlug || plan.planSlug === "free") {
+    const error = new Error("Review controls require an active paid plan.");
+    error.statusCode = 403;
+    error.code = "PAID_PLAN_REQUIRED";
+    throw error;
   }
-
-  return getPlanEntitlements("economical");
 }
 
 async function createPayMongoCheckout({
@@ -140,13 +201,23 @@ async function createPayMongoCheckout({
   user,
   planSlug,
   billingInterval = "monthly",
+  billingMode,
+  paymentMethod,
   requestOrigin
 }) {
+  const billingOptions = normalizeCheckoutBillingOptions({ billingMode, paymentMethod });
+  const currentSubscription = await billingRepository.getActiveSubscriptionByTenantId(tenant._id);
+  if (["past_due", "unpaid", "suspended"].includes(currentSubscription?.status)) throw Object.assign(new Error("Please resolve the current subscription balance before starting a new plan checkout."), { statusCode: 409, code: "SUBSCRIPTION_RESTRICTED" });
   const plan = await findPlanBySlug(planSlug);
   if (!plan) {
     const error = new Error("Unknown subscription plan.");
     error.statusCode = 400;
     throw error;
+  }
+  if (currentSubscription?.status === "active") {
+    const currentPlan = await findPlanBySlug(currentSubscription.planSlug);
+    const isManualRenewal = billingOptions.billingMode === "manual" && plan.slug === currentSubscription.planSlug;
+    if (currentPlan && Number(plan.sortOrder) <= Number(currentPlan.sortOrder) && !isManualRenewal) throw Object.assign(new Error("Use a scheduled plan transition for a downgrade or paid-plan exit."), { statusCode: 409, code: "SUBSCRIPTION_TRANSITION_REQUIRED" });
   }
 
   if (!plan.checkoutEnabled) {
@@ -183,7 +254,11 @@ async function createPayMongoCheckout({
       tenantSlug: tenant.slug,
       planSlug: plan.slug,
       userId: String(user._id),
-      billingInterval
+      billingInterval,
+      billingMode: billingOptions.billingMode,
+      paymentMethod: billingOptions.paymentMethod,
+      expectedSubscriptionId: currentSubscription?._id || null,
+      expectedPlanSlug: currentSubscription?.planSlug || null
     }
   });
 
@@ -202,13 +277,15 @@ async function createPayMongoCheckout({
             description: plan.included.join(", ")
           }
         ],
-        payment_method_types: env.paymongoPaymentMethodTypes,
+        payment_method_types: billingOptions.paymentMethodTypes,
         metadata: {
           localCheckoutId: checkout._id,
           tenantId: String(tenant._id),
           tenantSlug: tenant.slug,
           planSlug: plan.slug,
-          billingInterval
+          billingInterval,
+          billingMode: billingOptions.billingMode,
+          paymentMethod: billingOptions.paymentMethod
         },
         send_email_receipt: true,
         show_description: true,
@@ -267,6 +344,8 @@ async function createPayMongoCheckout({
       status: updatedCheckout.status,
       planSlug: updatedCheckout.planSlug,
       billingInterval,
+      billingMode: billingOptions.billingMode,
+      paymentMethod: billingOptions.paymentMethod,
       amountCents: updatedCheckout.amountCents,
       currency: updatedCheckout.currency
     }
@@ -316,6 +395,9 @@ function safeCompare(left, right) {
 }
 
 function verifyPayMongoWebhook({ rawBody, signatureHeader, livemode }) {
+  if (env.paymongoMode && Boolean(livemode) !== (env.paymongoMode === "live")) {
+    return false;
+  }
   if (!env.paymongoWebhookSecret) {
     return true;
   }
@@ -401,18 +483,37 @@ async function activateCheckoutSession(checkout, providerCheckoutSessionId, paym
       currentPeriodEnd: addMonths(now, checkout.metadata?.billingInterval === "annual" ? 12 : 1),
       entitlements: plan.entitlements,
       metadata: {
+        billingMode: checkout.metadata?.billingMode || "legacy",
+        paymentMethod: checkout.metadata?.paymentMethod || null,
         providerPaymentId,
         paidAt: normalizeProviderTimestamp(paymentAttributes.paid_at),
         amount: paymentAttributes.amount || checkout.amountCents,
         currency: paymentAttributes.currency || checkout.currency
-      }
+      },
+      expectedSubscriptionId: checkout.metadata?.expectedSubscriptionId || null,
+      expectedPlanSlug: checkout.metadata?.expectedPlanSlug || null
     },
-    options
+    { ...options, forUpdateNowait: true }
   );
 
   return {
     subscription: await buildSubscriptionResponse(subscription)
   };
+}
+
+async function lockSubscriptionCheckout(checkout, client) {
+  // Serialize before event foreign-key checks or checkout/subscription writes.
+  const tenant = await client.query("SELECT id FROM tenants WHERE id = $1 FOR UPDATE", [checkout.tenantId]);
+  if (!tenant.rows.length) return null;
+  const current = await billingRepository.findCheckoutSessionById(checkout._id, { client, forUpdate: true });
+  if (!current) return null;
+  if (current.tenantId !== checkout.tenantId || current.planSlug !== checkout.planSlug ||
+      current.providerCheckoutSessionId !== checkout.providerCheckoutSessionId) {
+    throw Object.assign(new Error("Checkout changed while payment was being processed. Reconciliation is required."), {
+      statusCode: 409, code: "SUBSCRIPTION_CHECKOUT_CHANGED"
+    });
+  }
+  return current;
 }
 
 async function syncPayMongoCheckout({ tenant, checkoutId }) {
@@ -452,19 +553,26 @@ async function syncPayMongoCheckout({ tenant, checkoutId }) {
   const paymentAttributes = payment?.attributes || {};
   const providerPaymentId = payment?.id || null;
 
-  const activation = await db.withTransaction(async (client) =>
-    activateCheckoutSession(
-      checkout,
+  const activation = await db.withTransaction(async (client) => {
+    const current = await lockSubscriptionCheckout(checkout, client);
+    if (!current) throw Object.assign(new Error("Checkout session not found."), { statusCode: 404 });
+    if (current.status === "paid") {
+      return { alreadyPaid: true, subscription: await buildSubscriptionResponse(
+        await billingRepository.getActiveSubscriptionByTenantId(current.tenantId, { client })
+      ) };
+    }
+    return activateCheckoutSession(
+      current,
       providerCheckout.id || checkout.providerCheckoutSessionId,
       paymentAttributes,
       providerPaymentId,
       { client }
-    )
-  );
+    );
+  });
 
   return {
     synced: true,
-    paid: Boolean(activation.subscription),
+    paid: Boolean(activation.subscription) || Boolean(activation.alreadyPaid),
     subscription: activation.subscription || null,
     billing: await getBillingOverview(tenant._id)
   };
@@ -517,6 +625,16 @@ async function handlePayMongoWebhook(rawBody, signatureHeader) {
   const payment = getFirstPayment(resource);
   const paymentAttributes = payment?.attributes || {};
   const providerPaymentId = payment?.id || null;
+  const usageCreditPayment = await usageCreditService.handlePaidCheckout(resource);
+  if (usageCreditPayment.handled) {
+    await billingRepository.recordBillingEvent({
+      provider: PAYMONGO_PROVIDER,
+      providerEventId: eventId,
+      eventType,
+      payload: event
+    });
+    return { eventType, usageCreditPayment };
+  }
   const queueJoinPayment = await queueJoinPaymentService.handlePayMongoPaidCheckout(
     resource,
     event
@@ -542,10 +660,11 @@ async function handlePayMongoWebhook(rawBody, signatureHeader) {
   }
 
   return db.withTransaction(async (client) => {
-    const checkout = await billingRepository.findCheckoutSessionByProviderId(
+    const locatedCheckout = await billingRepository.findCheckoutSessionByProviderId(
       providerCheckoutSessionId,
       { client }
     );
+    const checkout = locatedCheckout ? await lockSubscriptionCheckout(locatedCheckout, client) : null;
 
     const eventRecord = await billingRepository.recordBillingEvent(
       {
@@ -607,8 +726,10 @@ async function handlePayMongoWebhook(rawBody, signatureHeader) {
 }
 
 module.exports = {
+  assertPaidReviewAccess,
   getBillingOverview,
   getTenantEntitlements,
+  getTenantPlanSummary,
   createPayMongoCheckout,
   syncPayMongoCheckout,
   handlePayMongoWebhook

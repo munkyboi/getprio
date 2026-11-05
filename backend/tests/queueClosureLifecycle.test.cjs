@@ -332,7 +332,7 @@ test("vendor call-next returns 409 when queue day is closed", async () => {
       listHistoryTickets: async () => []
     },
     "../repositories/serviceCounters": {
-      findCounterByLocationAndSlug: async () => null
+      findCounterByLocationAndSlug: async () => ({ _id: "1", isActive: true })
     },
     "../repositories/users": {
       listUsersByTenantId: async () => []
@@ -372,7 +372,7 @@ test("vendor call-next returns 409 when queue day is closed", async () => {
         "Content-Type": "application/json",
         "x-test-tenant-role": "staff"
       },
-      body: JSON.stringify({})
+      body: JSON.stringify({ counterSlug: "one" })
     });
     assert.equal(response.status, 409);
     const body = await response.json();
@@ -542,7 +542,7 @@ test("vendor call-next returns 400 when a ticket is already active", async () =>
       listHistoryTickets: async () => []
     },
     "../repositories/serviceCounters": {
-      findCounterByLocationAndSlug: async () => null
+      findCounterByLocationAndSlug: async () => ({ _id: "1", isActive: true })
     },
     "../repositories/users": {
       listUsersByTenantId: async () => []
@@ -581,7 +581,7 @@ test("vendor call-next returns 400 when a ticket is already active", async () =>
         "Content-Type": "application/json",
         "x-test-tenant-role": "staff"
       },
-      body: JSON.stringify({})
+      body: JSON.stringify({ counterSlug: "one" })
     });
     assert.equal(response.status, 400);
     const body = await response.json();
@@ -611,7 +611,7 @@ test("vendor call-next returns an empty-queue snapshot when there are no waiting
       listHistoryTickets: async () => []
     },
     "../repositories/serviceCounters": {
-      findCounterByLocationAndSlug: async () => null
+      findCounterByLocationAndSlug: async () => ({ _id: "1", isActive: true })
     },
     "../repositories/users": {
       listUsersByTenantId: async () => []
@@ -646,7 +646,7 @@ test("vendor call-next returns an empty-queue snapshot when there are no waiting
         "Content-Type": "application/json",
         "x-test-tenant-role": "staff"
       },
-      body: JSON.stringify({})
+      body: JSON.stringify({ counterSlug: "one" })
     });
     assert.equal(response.status, 200);
     const body = await response.json();
