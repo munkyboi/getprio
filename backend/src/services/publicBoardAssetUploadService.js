@@ -1,3 +1,5 @@
+const { PutObjectCommand } = require("@aws-sdk/client-s3");
+
 async function createAsset({
   create,
   tenant,
@@ -29,4 +31,37 @@ async function createAsset({
   }
 }
 
-module.exports = { createAsset };
+async function uploadPublicBoardObject({
+  assertConfigured,
+  getS3Client,
+  bucket,
+  objectKey,
+  publicUrl,
+  contentType,
+  body
+}) {
+  assertConfigured();
+  await getS3Client().send(new PutObjectCommand({
+    Bucket: bucket,
+    Key: objectKey,
+    ContentType: contentType,
+    Body: body
+  }));
+  return { objectKey, publicUrl };
+}
+
+async function createBinaryAsset({ applicationUpload, legacyUpload, remoteUpload, create, record }) {
+  const applicationAsset = await applicationUpload();
+  const localAsset = applicationAsset || await legacyUpload();
+  const resolvedAsset = localAsset || await remoteUpload();
+  const asset = await createAsset({
+    create,
+    ...record,
+    objectKey: resolvedAsset.objectKey,
+    publicUrl: resolvedAsset.publicUrl,
+    cleanup: applicationAsset?.cleanup
+  });
+  return { asset };
+}
+
+module.exports = { createAsset, createBinaryAsset, uploadPublicBoardObject };
