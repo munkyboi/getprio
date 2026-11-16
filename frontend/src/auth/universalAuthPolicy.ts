@@ -26,5 +26,7 @@ export function safeNext(value: string | null, surface: Surface): string {
   } catch { return fallback; }
 }
 export function canEnter(surface: Surface, result: AuthResult): boolean {
+  if (!result || typeof result !== 'object' || !result.user || typeof result.user !== 'object' || Array.isArray(result.user)) throw new Error('Invalid auth result');
+  if (result.user.tenants !== undefined && (!Array.isArray(result.user.tenants) || result.user.tenants.some(tenant => !tenant || typeof tenant !== 'object'))) throw new Error('Invalid memberships');
   return surface === 'customer' || !!result.user.tenants?.some(tenant => tenant.isActive !== false);
 }
