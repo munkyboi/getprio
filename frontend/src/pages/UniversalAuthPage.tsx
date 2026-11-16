@@ -22,11 +22,11 @@ export function UniversalAuthPreparation({ adapter, onComplete, surface = 'custo
   }
   function acceptChallenge(value: OtpChallenge) {
     const expiry = Date.parse(value.expiresAt);
-    if (!value.challengeId || value.challengeId.length > 256 || value.step !== 'email_otp' || !Number.isFinite(expiry) || expiry <= Date.now() || typeof value.deliveryTarget !== 'string' || value.deliveryTarget.length > 254 || /[\u0000-\u001f\u007f]/.test(value.deliveryTarget)) throw new Error('Invalid challenge');
+    if (typeof value.challengeId !== 'string' || !value.challengeId || value.challengeId.length > 256 || value.step !== 'email_otp' || !Number.isFinite(expiry) || expiry <= Date.now() || typeof value.deliveryTarget !== 'string' || value.deliveryTarget.length > 254 || /[\u0000-\u001f\u007f]/.test(value.deliveryTarget)) throw new Error('Invalid challenge');
     setChallenge(value);
   }
   function start(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault(); const form = event.currentTarget; const values = new FormData(form);
+    event.preventDefault(); if (flight.current || unknown) return; const form = event.currentTarget; const values = new FormData(form);
     const payload = { name: String(values.get('name') || ''), username: String(values.get('username') || ''), email: String(values.get('email') || ''), password: String(values.get('password') || '') };
     form.reset(); if (Object.values(payload).some(value => !value || value.length > 256)) { setUnknown(true); return; } void run(() => adapter.startCustomer(payload), acceptChallenge);
   }
