@@ -2,7 +2,7 @@
 export const UNIVERSAL_AUTH_ENABLED = false as const;
 export type Surface = 'customer' | 'vendor';
 export type OtpChallenge = { challengeId: string; step: 'email_otp'; deliveryTarget: string; expiresAt: string };
-export type AuthResult = { user: { tenants?: Array<{ isActive?: boolean }> } };
+export type AuthResult = { user: { tenants?: Array<{ id: string; name: string; slug: string; role: string; isActive: boolean }> } };
 export interface UniversalAuthFakeAdapter {
   login?(input: { identifier: string; password: string; surface: Surface }): Promise<AuthResult | { mfaRequired: true; challengeToken: string }>;
   verifyMfa?(input: { challengeToken: string; code: string; surface: Surface }): Promise<AuthResult>;
@@ -27,6 +27,6 @@ export function safeNext(value: string | null, surface: Surface): string {
 }
 export function canEnter(surface: Surface, result: AuthResult): boolean {
   if (!result || typeof result !== 'object' || !result.user || typeof result.user !== 'object' || Array.isArray(result.user)) throw new Error('Invalid auth result');
-  if (result.user.tenants !== undefined && (!Array.isArray(result.user.tenants) || result.user.tenants.some(tenant => !tenant || typeof tenant !== 'object'))) throw new Error('Invalid memberships');
-  return surface === 'customer' || !!result.user.tenants?.some(tenant => tenant.isActive !== false);
+  if (result.user.tenants !== undefined && (!Array.isArray(result.user.tenants) || result.user.tenants.some(tenant => !tenant || typeof tenant !== 'object' || Array.isArray(tenant) || typeof tenant.isActive !== 'boolean' || !['id', 'name', 'slug', 'role'].every(key => typeof (tenant as unknown as Record<string, unknown>)[key] === 'string' && Boolean((tenant as unknown as Record<string, string>)[key]))))) throw new Error('Invalid memberships');
+  return surface === 'customer' || !!result.user.tenants?.some(tenant => tenant.isActive === true);
 }
