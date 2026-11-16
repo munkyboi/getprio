@@ -4,6 +4,11 @@ export type Surface = 'customer' | 'vendor';
 export type OtpChallenge = { challengeId: string; step: 'email_otp'; deliveryTarget: string; expiresAt: string };
 export type AuthResult = { user: { tenants?: Array<{ isActive?: boolean }> } };
 export interface UniversalAuthFakeAdapter {
+  login?(input: { identifier: string; password: string; surface: Surface }): Promise<AuthResult | { mfaRequired: true; challengeToken: string }>;
+  verifyMfa?(input: { challengeToken: string; code: string; surface: Surface }): Promise<AuthResult>;
+  startVendor?(input: { name: string; username: string; email: string; password: string; tenantName: string; tenantSlug: string; categoryId: string }): Promise<AuthResult>;
+  startOAuth?(provider: 'google' | 'facebook', intent: 'login' | 'register_customer' | 'register_vendor', surface: Surface): Promise<void>;
+  providers?: { google: boolean; facebook: boolean };
   startCustomer(input: { name: string; username: string; email: string; password: string }): Promise<OtpChallenge>;
   resendCustomer(challengeId: string): Promise<OtpChallenge>;
   verifyCustomer(challengeId: string, code: string): Promise<AuthResult>;

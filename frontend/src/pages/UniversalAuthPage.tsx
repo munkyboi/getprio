@@ -6,6 +6,9 @@ import './universal-auth.css';
 
 /** Unmounted fake-adapter prototype. Never pass real transport until security gates are satisfied. */
 export function UniversalAuthPreparation({ adapter, onComplete, surface = 'customer', next = null }: { adapter: UniversalAuthFakeAdapter; onComplete: (path: string) => void; surface?: Surface; next?: string | null }) {
+  const [activeSurface, setActiveSurface] = useState<Surface>(surface);
+  const [mode, setMode] = useState<'login' | 'register'>('register');
+  const [mfa, setMfa] = useState('');
   const [challenge, setChallenge] = useState<OtpChallenge | null>(null);
   const [busy, setBusy] = useState(false);
   const [unknown, setUnknown] = useState(false);
@@ -17,7 +20,7 @@ export function UniversalAuthPreparation({ adapter, onComplete, surface = 'custo
     if (flight.current || unknown) return;
     flight.current = true; setBusy(true); const current = generation.current;
     try { const result = await request(); if (current === generation.current) success(result); }
-    catch { if (current === generation.current) { setCode(''); setChallenge(null); setUnknown(true); } }
+    catch { if (current === generation.current) { setCode(''); setMfa(''); setChallenge(null); setUnknown(true); } }
     finally { if (current === generation.current) { flight.current = false; setBusy(false); } }
   }
   function acceptChallenge(value: OtpChallenge) {
@@ -32,9 +35,21 @@ export function UniversalAuthPreparation({ adapter, onComplete, surface = 'custo
   }
   function verify(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); if (!challenge || !/^\d{6}$/.test(code) || (!Number.isFinite(Date.parse(challenge.expiresAt)) || Date.parse(challenge.expiresAt) <= Date.now())) return;
-    void run(() => adapter.verifyCustomer(challenge.challengeId, code), (result: AuthResult) => { setCode(''); setChallenge(null); if (canEnter(surface, result)) onComplete(safeNext(next, surface)); });
+    void run(() => adapter.verifyCustomer(challenge.challengeId, code), (result: AuthResult) => { setCode(''); setChallenge(null); if (canEnter(activeSurface, result)) onComplete(safeNext(next, activeSurface)); });
   }
-  return <section className="universal-auth-preparation"><h1>Create Customer account</h1>{unknown ? <p role="alert">We could not confirm the result. Return to sign in and try again later.</p> : challenge ? <form onSubmit={verify}><p>Enter the code sent to {challenge.deliveryTarget}.</p><label>Verification code<input value={code} onChange={event => setCode(event.target.value.replace(/\D/g, '').slice(0, 6))} autoComplete="one-time-code" inputMode="numeric" /></label><button disabled={busy || code.length !== 6}>Verify</button><button type="button" disabled={busy} onClick={() => void run(() => adapter.resendCustomer(challenge.challengeId), value => { acceptChallenge(value); setCode(''); })}>Send a new code</button></form> : <form onSubmit={start}><label>Name<input name="name" required autoComplete="name" /></label><label>Username<input name="username" required autoComplete="username" /></label><label>Email<input name="email" type="email" required autoComplete="email" /></label><label>Password<input name="password" type="password" required autoComplete="new-password" /></label><button disabled={busy}>Continue</button></form>}<div aria-label="Social sign-in preview"><button type="button" aria-label="Continue with Google" disabled><img src={googleIcon} alt="" width={32} height={32} /></button><button type="button" aria-label="Continue with Facebook" disabled><img src={facebookIcon} alt="" width={32} height={32} /></button></div></section>;
+  function submitAlternate(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); if (flight.current || unknown) return;
+    const form = event.currentTarget; const values = new FormData(form);
+    const field = (name: string) => String(values.get(name) || '');
+    const input = { name: field('name'), username: field('username'), email: field('email'), password: field('password'), tenantName: field('tenantName'), tenantSlug: field('tenantSlug'), categoryId: field('categoryId') };
+    const identifier = field('identifier'); const mfaCode = field('mfaCode'); form.reset();
+    const finish = (result: AuthResult) => { setMfa(''); if (canEnter(activeSurface, result)) onComplete(safeNext(next, activeSurface)); else setUnknown(true); };
+    if (mfa && adapter.verifyMfa) { if (!/^\d{6}$/.test(mfaCode)) return; void run(() => adapter.verifyMfa!({ challengeToken: mfa, code: mfaCode, surface: activeSurface }), finish); }
+    else if (mode === 'login' && adapter.login) { if (!identifier || !input.password || identifier.length > 256 || input.password.length > 256) return; void run(() => adapter.login!({ identifier, password: input.password, surface: activeSurface }), result => { if ('mfaRequired' in result) { if (typeof result.challengeToken !== 'string' || !result.challengeToken || result.challengeToken.length > 4096) throw new Error('Invalid challenge'); setMfa(result.challengeToken); } else finish(result); }); }
+    else if (mode === 'register' && activeSurface === 'vendor' && adapter.startVendor) { if (Object.values(input).some(value => !value || value.length > 256)) return; void run(() => adapter.startVendor!(input), finish); }
+  }
+  function choose(nextSurface: Surface, nextMode: 'login' | 'register') { if (flight.current) return; generation.current += 1; setActiveSurface(nextSurface); setMode(nextMode); setMfa(''); setChallenge(null); setCode(''); setUnknown(false); }
+  return <section className="universal-auth-preparation"><h1>{mode === 'login' ? 'Sign in' : 'Create account'}</h1><div><button type="button" disabled={busy} onClick={() => choose('customer', mode)}>Customer</button><button type="button" disabled={busy} onClick={() => choose('vendor', mode)}>Vendor</button><button type="button" disabled={busy} onClick={() => choose(activeSurface, mode === 'login' ? 'register' : 'login')}>{mode === 'login' ? 'Create account' : 'Sign in'}</button></div>{unknown ? <p role="alert">We could not confirm the result. Return to sign in and try again later.</p> : (mode === 'login' || activeSurface === 'vendor') ? <form onSubmit={submitAlternate}>{mfa ? <label>Verification code<input name="mfaCode" inputMode="numeric" autoComplete="one-time-code" required /></label> : mode === 'login' ? <><label>Email or username<input name="identifier" autoComplete="username" required /></label><label>Password<input name="password" type="password" autoComplete="current-password" required /></label></> : <>{['name','username','email','password','tenantName','tenantSlug','categoryId'].map(name => <label key={name}>{name}<input name={name} type={name === 'password' ? 'password' : name === 'email' ? 'email' : 'text'} required /></label>)}</>}<button disabled={busy}>Continue</button></form> : challenge ? <form onSubmit={verify}><p>Enter the code sent to {challenge.deliveryTarget}.</p><label>Verification code<input value={code} onChange={event => setCode(event.target.value.replace(/\D/g, '').slice(0, 6))} autoComplete="one-time-code" inputMode="numeric" /></label><button disabled={busy || code.length !== 6}>Verify</button><button type="button" disabled={busy} onClick={() => void run(() => adapter.resendCustomer(challenge.challengeId), value => { acceptChallenge(value); setCode(''); })}>Send a new code</button></form> : <form onSubmit={start}><label>Name<input name="name" required autoComplete="name" /></label><label>Username<input name="username" required autoComplete="username" /></label><label>Email<input name="email" type="email" required autoComplete="email" /></label><label>Password<input name="password" type="password" required autoComplete="new-password" /></label><button disabled={busy}>Continue</button></form>}<div aria-label="Social sign-in preview">{([['google', googleIcon], ['facebook', facebookIcon]] as const).map(([provider, icon]) => <button key={provider} type="button" aria-label={`Continue with ${provider}`} disabled={busy || unknown || !adapter.startOAuth || !adapter.providers?.[provider]} onClick={() => void run(() => adapter.startOAuth!(provider, mode === 'login' ? 'login' : activeSurface === 'customer' ? 'register_customer' : 'register_vendor', activeSurface), () => {})}><img src={icon} alt="" width={32} height={32} /></button>)}</div></section>;
 }
 /** This component is intentionally unmounted and cannot be enabled by configuration. */
 export default function UniversalAuthPage() { return UNIVERSAL_AUTH_ENABLED ? <p>Unavailable</p> : null; }
