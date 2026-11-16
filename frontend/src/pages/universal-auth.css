@@ -1,0 +1,3 @@
+.universal-auth-preparation { display: grid; gap: 1rem; max-width: 32rem; }
+.universal-auth-preparation form, .universal-auth-preparation label { display: grid; gap: .5rem; }
+.universal-auth-preparation input, .universal-auth-preparation button { min-height: 44px; }
