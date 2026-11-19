@@ -52,7 +52,7 @@ test('nested form keeps duration choices per child and shows an invalid retained
  const {NamedQueueSelectionFields}=require('../src/vendor/NamedQueueSelectionFields.tsx');
  const bad=updateExtraSelection(selections,'rental','court-three','equipment-three',{durationMinutes:'90'});
  const html=renderToStaticMarkup(React.createElement(NamedQueueSelectionFields,{selections:bad,options:[{id:'pickleball',name:'Pickleball court rental',durationOptionsMinutes:[60,120,180],resourceMembers:[{id:'member-one',name:'Court 1'},{id:'member-two',name:'Court 2'},{id:'member-three',name:'Court 3'}],extras:[{id:'equipment',name:'Basic equipment',quantityMin:1,quantityMax:8,durationOptionsMinutes:[30,60,90,120]},{id:'trainer',name:'Trainer',quantityMin:1,quantityMax:4,durationOptionsMinutes:[30,60]}]}],busy:false,onChange(){}}));
- assert.match(html.replace(/<[^>]*>/g,''),/Extra duration for service 1, resource 3, extra 1/);
+ assert.match(Array.from(html.matchAll(/>([^<]+)/g), match => match[1]).join(""),/Extra duration for service 1, resource 3, extra 1/);
  assert.match(html,/90 minutes · Review duration/);assert.match(html,/cannot outlast its configured duration/);
  assert.match(html,/One named resource/);assert.match(html,/do not reserve resources/);
 });
@@ -60,7 +60,7 @@ test('nested form keeps duration choices per child and shows an invalid retained
 test('shared resource editor labels are business neutral while configured service and resource names remain visible',()=>{
  const {NamedQueueSelectionFields}=require('../src/vendor/NamedQueueSelectionFields.tsx');
  const html=renderToStaticMarkup(React.createElement(NamedQueueSelectionFields,{selections:[{serviceSelectionId:'service',serviceId:'consultation',courts:[{courtSelectionId:'resource',resourceMemberId:'room',durationMinutes:'60',extras:[]}]}],options:[{id:'consultation',name:'Consultation',durationOptionsMinutes:[60],resourceMembers:[{id:'room',name:'Room A'}],extras:[]}],busy:false,onChange(){}}));
- const text=html.replace(/<[^>]*>/g,'');
+ const text=Array.from(html.matchAll(/>([^<]+)/g), match => match[1]).join("");
  assert.match(text,/Consultation/);assert.match(text,/Room A/);assert.match(text,/Add resource/);
  assert.doesNotMatch(text,/court|rental|pickleball/i);
  assert.doesNotMatch(html,/aria-label="[^"]*(?:Courts|Rental)/);
