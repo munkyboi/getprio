@@ -2,6 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 
 process.env.APP_BASE_URL = "https://getprio.online/";
+process.env.VENDOR_APP_URL = "https://getprio.online/";
 require("tsx/cjs");
 
 const queueSnapshotHelpers = require("../src/services/queueSnapshotHelpers");

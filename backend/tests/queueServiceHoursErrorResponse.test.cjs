@@ -15,7 +15,7 @@ test('unrelated error codes and malformed/unbounded window values cannot expose 
 test('special command HTTP error.plan response preserves both authoritative plan and bounded hours metadata',async()=>{
  const source=fs.readFileSync(path.join(__dirname,'../src/routes/vendorRoutes.js'),'utf8');const start=source.indexOf("for(const action of ['call','start','complete'");const end=source.indexOf("router.get('/tenant/:tenantSlug/queue/workflow'",start);assert.ok(start>=0&&end>start);
  const handlers=new Map(),plan={id:'plan',planRevision:'7'},error=Object.assign(new Error('Choose a shorter duration'),{code:'SERVICE_DURATION_EXCEEDS_STORE_HOURS',statusCode:409,plan,serviceHoursWindow:{...window,internal:'not-for-client'}});
- vm.runInNewContext(source.slice(start,end),{router:{post:(route,handler)=>handlers.set(route,handler)},asyncHandler:handler=>handler,queuePlanContext:async()=>({}),normalizeRequestText:value=>value,require:id=>id==='../services/queuePlanCommandService'?{execute:async()=>{throw error;}}:serializer});
+ vm.runInNewContext(source.slice(start,end),{router:{post:(route,handler)=>handlers.set(route,handler),get:()=>{},put:()=>{}},asyncHandler:handler=>handler,queuePlanContext:async()=>({}),normalizeRequestText:value=>value,require:id=>id==='../services/queuePlanCommandService'?{execute:async()=>{throw error;}}:serializer});
  const res=response();await handlers.get('/tenant/:tenantSlug/queue/plans/:planId/start')({params:{planId:'plan'},body:{},get:()=> 'normal-key'},res);
  assert.equal(res.statusCode,409);assert.deepEqual(res.body,{code:error.code,message:error.message,plan,serviceHoursWindow:window});
 });
