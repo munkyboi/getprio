@@ -1,4 +1,4 @@
-import { type FormEvent, type ReactNode, type Dispatch, type SetStateAction, useCallback, useEffect, useState } from "react";
+import { type FormEvent, type ReactNode, type Dispatch, type SetStateAction, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {  Alert, Badge, Button, Card, Container, FileInput, Group, Image, Modal, Paper, ScrollArea, SimpleGrid,  Stack, Text, Textarea, TextInput, ThemeIcon, Title } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import { IconAlertCircle, IconArrowLeft, IconBuildingBank, IconBuildingStore, IconCalendar, IconCircleCheck, IconExternalLink, IconEye, IconReceipt, IconStar, IconTicket, IconUpload,  IconX } from "@tabler/icons-react";
@@ -155,10 +155,38 @@ export interface CustomerBookingDetailPresentationModel {
  ratingStars:number;setRatingStars:Dispatch<SetStateAction<number>>;ratingComment:string;setRatingComment:Dispatch<SetStateAction<string>>;ratingSubmitted:boolean;submitVendorRating:()=>Promise<void>;
 }
 // CUSTOMER PRESENTATION CONTRACT END
-export default function CustomerBookingDetailPage({renderPresentation,renderUnavailable,renderLoading}:{renderUnavailable?:(model:{error:string;status:number|null;backTo:string;onRetry:()=>void})=>ReactNode;renderPresentation?:(model:CustomerBookingDetailPresentationModel)=>ReactNode;renderLoading?:()=>ReactNode}={}) {
+export function createBookingScopeGate() {
+  let active = false;
+  let generation = 0;
+  let epoch = 0;
+  return {
+    mount() { active = true; },
+    unmount() { active = false; generation += 1; epoch += 1; },
+    capture() { return epoch; },
+    sameScope(value: number) { return active && value === epoch; },
+    invalidate() { generation += 1; },
+    begin() { return ++generation; },
+    current(request?: number) { return active && (request === undefined || request === generation); }
+  };
+}
+export function bookingDetailScopeKey(bookingId: string, token: string, userId: string | null, loading: boolean): string {
+  return JSON.stringify([bookingId, token, userId, loading]);
+}
+type CustomerBookingDetailPageProps = {renderUnavailable?:(model:{error:string;status:number|null;backTo:string;onRetry:()=>void})=>ReactNode;renderPresentation?:(model:CustomerBookingDetailPresentationModel)=>ReactNode;renderLoading?:()=>ReactNode};
+export default function CustomerBookingDetailPage(props: CustomerBookingDetailPageProps = {}) {
+  const { bookingId = "" } = useParams<{ bookingId: string }>();
+  const { token, user, loading } = useAuth();
+  // A new observed identity or route gets a fresh component before it can render.
+  const scope = bookingDetailScopeKey(bookingId, token, user?.id || null, loading);
+  return <OwnedBookingDetail key={scope} {...props} />;
+}
+function OwnedBookingDetail({renderPresentation,renderUnavailable,renderLoading}: CustomerBookingDetailPageProps) {
   const { bookingId = "" } = useParams<{ bookingId: string }>();
 
   const { token, user, loading: authLoading } = useAuth();
+  const gate = useRef(createBookingScopeGate()).current;
+  useLayoutEffect(() => { gate.mount(); return () => gate.unmount(); }, [gate]);
+  const isCurrent = (scope: number) => gate.sameScope(scope);
   const [booking, setBooking] = useState<CustomerBookingDetailResponse["booking"] | null>(null);
   const [reason, setReason] = useState("");
   const [paymentReference, setPaymentReference] = useState("");
@@ -183,16 +211,21 @@ export default function CustomerBookingDetailPage({renderPresentation,renderUnav
 
   async function markArrival() {
     if (!booking || !token || arrivalBusy) return;
+    const actionScope = gate.capture();
     setArrivalBusy(true);
     try {
       const data = await apiRequest<CustomerBookingResponse>(`/account/bookings/${booking.id}/arrival`, { method: "POST", token });
+      if (!isCurrent(actionScope)) return;
+      if (data.booking.id !== booking.id || data.booking.tenantId !== booking.tenantId) throw new Error("Booking response does not match this page.");
+      gate.invalidate();
       setBooking(current => mergeOwnedBookingSummary(current, data.booking));
       notifications.show({ title: "Arrival recorded", message: "Your queue ticket is ready. The vendor can call it at or after your booked time.", color: "teal" });
     } catch (arrivalError) {
+      if (!isCurrent(actionScope)) return;
       showCustomerError(getErrorMessage(arrivalError), "Could not record arrival");
       await loadBooking();
     } finally {
-      setArrivalBusy(false);
+      if (isCurrent(actionScope)) setArrivalBusy(false);
     }
   }
 
@@ -201,20 +234,25 @@ export default function CustomerBookingDetailPage({renderPresentation,renderUnav
       return;
     }
 
+    const generation = gate.begin();
     if (options.showLoading) {
       setLoading(true);
     }
 
     try {
       const data = await apiRequest<CustomerBookingDetailResponse>(`/account/bookings/${bookingId}`, { token });
+      if (!gate.current(generation)) return;
+      if (String(data.booking.id) !== bookingId) throw new Error("Booking does not match this page.");
       setBooking(data.booking);
       setError("");
       setResponseStatus(null);
     } catch (loadError) {
+      if (!gate.current(generation)) return;
+      if (loadError instanceof ApiError && [401, 403, 404].includes(loadError.status)) setBooking(null);
       setResponseStatus(loadError instanceof ApiError ? loadError.status : null);
       setError(getErrorMessage(loadError));
     } finally {
-      if (options.showLoading) {
+      if (gate.current(generation)) {
         setLoading(false);
       }
     }
@@ -222,32 +260,21 @@ export default function CustomerBookingDetailPage({renderPresentation,renderUnav
 
   async function submitVendorRating() {
     if (!token || !booking || !ratingStars) return;
+    const actionScope = gate.capture();
     setBusy(true);
     try {
       await apiRequest(`/account/bookings/${booking.id}/rating`, { method: "POST", token, body: { stars: ratingStars, comment: ratingComment } });
+      if (!isCurrent(actionScope)) return;
       setRatingSubmitted(true);
       notifications.show({ color: "teal", title: "Rating submitted", message: "Thank you for rating this vendor." });
-    } catch (ratingError) { showCustomerError(getErrorMessage(ratingError), "Could not submit rating"); }
-    finally { setBusy(false); }
+    } catch (ratingError) { if (isCurrent(actionScope)) showCustomerError(getErrorMessage(ratingError), "Could not submit rating"); }
+    finally { if (isCurrent(actionScope)) setBusy(false); }
   }
 
   useEffect(() => {
-    let active = true;
-
-    if (!token || !bookingId) {
-      return undefined;
-    }
-
-    setLoading(true);
-    loadBooking({ showLoading: false }).finally(() => {
-      if (active) {
-        setLoading(false);
-      }
-    });
-
-    return () => {
-      active = false;
-    };
+    if (!token || !bookingId) return undefined;
+    void loadBooking({ showLoading: true });
+    return () => { gate.invalidate(); };
   }, [bookingId, loadBooking, token]);
 
   useEffect(() => {
@@ -290,21 +317,24 @@ export default function CustomerBookingDetailPage({renderPresentation,renderUnav
     }
 
     const controller = new AbortController();
+    const scope = gate.capture();
+    let active = true;
     apiRequest<PublicVendorProfileResponse>(`/public/vendors/${booking.tenantSlug}`, { signal: controller.signal })
       .then((data) => {
+        if (!active || !gate.sameScope(scope)) return;
         setVendorTheme(resolveVendorProfileMedia(data.vendor.publicBoardTheme?.theme, data.vendor.businessProfileTheme?.theme));
         setVendorProfile(data.vendor);
       })
       .catch((themeError) => {
-        if (!controller.signal.aborted) {
+        if (active && gate.sameScope(scope) && !controller.signal.aborted) {
           setVendorTheme(null);
           setVendorProfile(null);
           console.error(themeError);
         }
       });
 
-    return () => controller.abort();
-  }, [booking?.tenantSlug]);
+    return () => { active = false; controller.abort(); };
+  }, [booking?.tenantSlug, gate]);
 
   useEffect(() => {
     const intervalId = window.setInterval(() => setCurrentTime(Date.now()), 1000);
@@ -326,6 +356,7 @@ export default function CustomerBookingDetailPage({renderPresentation,renderUnav
       return;
     }
 
+    const actionScope = gate.capture();
     setBusy(true);
     setError("");
     try {
@@ -337,6 +368,9 @@ export default function CustomerBookingDetailPage({renderPresentation,renderUnav
           body: { reason }
         }
       );
+      if (!isCurrent(actionScope)) return;
+      if (data.booking.id !== booking.id || data.booking.tenantId !== booking.tenantId) throw new Error("Booking response does not match this page.");
+      gate.invalidate();
       setBooking(current => mergeOwnedBookingSummary(current, data.booking));
       setReason("");
       setCancelModalOpen(false);
@@ -346,9 +380,10 @@ export default function CustomerBookingDetailPage({renderPresentation,renderUnav
         message: `${data.booking.reference} was cancelled.`
       });
     } catch (cancelError) {
+      if (!isCurrent(actionScope)) return;
       showCustomerError(getErrorMessage(cancelError), "Could not cancel booking");
     } finally {
-      setBusy(false);
+      if (isCurrent(actionScope)) setBusy(false);
     }
   }
 
@@ -368,10 +403,12 @@ export default function CustomerBookingDetailPage({renderPresentation,renderUnav
       return;
     }
 
+    const actionScope = gate.capture();
     setProofBusy(true);
     setError("");
     try {
       const uploadData = await customerAccountApi.uploadBookingPaymentProof(token, booking.id, paymentProofFile);
+      if (!isCurrent(actionScope)) return;
 
       const payload: SubmitBookingPaymentProofRequest = {
         paymentReference: trimmedReference,
@@ -388,6 +425,9 @@ export default function CustomerBookingDetailPage({renderPresentation,renderUnav
           body: payload
         }
       );
+      if (!isCurrent(actionScope)) return;
+      if (data.booking.id !== booking.id || data.booking.tenantId !== booking.tenantId) throw new Error("Booking response does not match this page.");
+      gate.invalidate();
       setBooking(current => mergeOwnedBookingSummary(current, data.booking));
       setPaymentReference("");
       setPaymentProofFile(null);
@@ -397,9 +437,10 @@ export default function CustomerBookingDetailPage({renderPresentation,renderUnav
         message: `${data.booking.reference} is waiting for vendor verification.`
       });
     } catch (proofError) {
+      if (!isCurrent(actionScope)) return;
       showCustomerError(getErrorMessage(proofError), "Could not submit payment proof");
     } finally {
-      setProofBusy(false);
+      if (isCurrent(actionScope)) setProofBusy(false);
     }
   }
 
@@ -408,6 +449,7 @@ export default function CustomerBookingDetailPage({renderPresentation,renderUnav
       return;
     }
 
+    const actionScope = gate.capture();
     setProofViewBusy(true);
     setError("");
     try {
@@ -415,12 +457,14 @@ export default function CustomerBookingDetailPage({renderPresentation,renderUnav
         `/account/bookings/${booking.id}/payment-proof`,
         { token }
       );
+      if (!isCurrent(actionScope)) return;
       setProofAccessUrl(data.access.url);
       setProofModalOpen(true);
     } catch (viewError) {
+      if (!isCurrent(actionScope)) return;
       showCustomerError(getErrorMessage(viewError), "Could not open payment proof");
     } finally {
-      setProofViewBusy(false);
+      if (isCurrent(actionScope)) setProofViewBusy(false);
     }
   }
 
