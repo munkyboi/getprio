@@ -20,6 +20,7 @@ test("board HTTP reads and streams enforce grants; staff cannot publish or appro
     nextUp: [{ id: "2", ticketNumber: "P002", lookupCode: "SECRET" }] };
   const denied = () => { throw Object.assign(new Error("Denied"), { statusCode: 403 }); };
   const mocks = {
+    "../services/browserSurfaceUrls": require("../src/services/browserSurfaceUrls"),
     express,
     "node:crypto": require("node:crypto"),
     "express-rate-limit": { rateLimit: () => (_req, _res, next) => next(), ipKeyGenerator: (ip) => ip },

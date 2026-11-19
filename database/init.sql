@@ -4,6 +4,12 @@ BEGIN;
 -- Docker only runs this file when the Postgres data directory is empty.
 -- Running it manually against an existing database will remove app data.
 
+DROP TABLE IF EXISTS booking_v4_command_receipts CASCADE;
+DROP TABLE IF EXISTS booking_v4_reservations CASCADE;
+DROP TABLE IF EXISTS booking_v4_selection_leaves CASCADE;
+DROP TABLE IF EXISTS booking_v4_selection_versions CASCADE;
+DROP FUNCTION IF EXISTS protect_booking_v4_reservation_identity() CASCADE;
+DROP FUNCTION IF EXISTS protect_booking_v4_selection_history() CASCADE;
 DROP TABLE IF EXISTS queue_allocation_groups CASCADE;
 DROP TABLE IF EXISTS queue_reservation_groups CASCADE;
 DROP TABLE IF EXISTS queue_service_policy_versions CASCADE;
