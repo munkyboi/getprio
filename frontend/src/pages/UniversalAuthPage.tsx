@@ -3,7 +3,7 @@ import { Link, useLocation, useSearchParams } from "react-router-dom";
 import type { OAuthProvidersResponse, UserSummary } from "@shared";
 import { API_BASE_URL, publicAuthRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
-import { appUrl, safeSurfaceNext, keepSurfaceReturnPath } from "../surfaces/surfaceConfig";
+import { appUrl, safeSurfaceNext, keepSurfaceReturnPath, initialAuthSurface } from "../surfaces/surfaceConfig";
 import { publicUniversalAuthEnabled } from "../surfaces/publicAuthEnabled";
 import { getErrorMessage } from "../utils/errors";
 import { readPublicAuthTheme } from "./publicAuthTheme";
@@ -35,7 +35,7 @@ export default function UniversalAuthPage() {
   const auth = useAuth();
   const location = useLocation();
   const [params, setParams] = useSearchParams();
-  const app = params.get("app") === "customer" ? "customer" : params.get("app") === "vendor" ? "vendor" : !params.has("app") && location.pathname.endsWith("/customer") ? "customer" : "vendor";
+  const app = initialAuthSurface(location.pathname, params);
   const register = location.pathname.startsWith("/register");
   const [busy, setBusy] = useState(false);
   const commandVersion = useRef(0);

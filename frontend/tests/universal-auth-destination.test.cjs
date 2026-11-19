@@ -1,7 +1,17 @@
 require("tsx/cjs");
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { safeSurfaceNext, createAppUrls, keepSurfaceReturnPath } = require("../src/surfaces/surfaceConfig.ts");
+const { safeSurfaceNext, createAppUrls, keepSurfaceReturnPath, initialAuthSurface } = require("../src/surfaces/surfaceConfig.ts");
+test("universal login and registration default to customer while preserving vendor intent", () => {
+  for (const path of ["/login", "/register"]) {
+    assert.equal(initialAuthSurface(path, new URLSearchParams()), "customer");
+    assert.equal(initialAuthSurface(path, new URLSearchParams("app=vendor")), "vendor");
+    assert.equal(initialAuthSurface(path, new URLSearchParams("next=%2Fdashboard%2Fsettings")), "vendor");
+    assert.equal(initialAuthSurface(path, new URLSearchParams("app=customer&next=%2Fdashboard")), "customer");
+    assert.equal(initialAuthSurface(path, new URLSearchParams("next=https%3A%2F%2Fevil.invalid")), "customer");
+  }
+  assert.equal(initialAuthSurface("/register/vendor", new URLSearchParams()), "vendor");
+});
 test("universal auth keeps destinations on the selected application", () => {
   assert.equal(safeSurfaceNext("/account/bookings?tab=upcoming#today", "customer"), "/account/bookings?tab=upcoming#today");
   assert.equal(safeSurfaceNext("/dashboard/settings?x=1#queue", "vendor"), "/dashboard/settings?x=1#queue");

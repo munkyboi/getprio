@@ -52,6 +52,13 @@ export function keepSurfaceReturnPath(value: string | null, surface: "customer" 
   return value && safeSurfaceNext(value, surface) === value ? value : null;
 }
 
+export function initialAuthSurface(pathname: string, params: URLSearchParams): "customer" | "vendor" {
+  const app = params.get("app");
+  if (app === "customer" || app === "vendor") return app;
+  if (pathname.endsWith("/vendor") || keepSurfaceReturnPath(params.get("next"), "vendor")) return "vendor";
+  return "customer";
+}
+
 const frontendEnv = import.meta.env || {};
 export const currentSurface = frontendEnv.VITE_APP_SURFACE as BrowserSurface | undefined;
 export function appUrl(purpose: AppPurpose, path = "/") {
