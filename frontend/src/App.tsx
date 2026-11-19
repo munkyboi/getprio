@@ -11,6 +11,7 @@ import LoginPage from "./pages/LoginPage";
 import UniversalAuthPage from "./pages/UniversalAuthPage";
 import { PublicThemeProvider } from "./surfaces/PublicTheme";
 import { publicUniversalAuthEnabled } from "./surfaces/publicAuthEnabled";
+import { needsLegacyRegistration } from "./surfaces/registrationHandoff";
 import OAuthCallbackPage from "./pages/OAuthCallbackPage";
 import PrivacyPolicyPage from "./pages/PrivacyPolicyPage";
 import ContactPage from "./pages/ContactPage";
@@ -347,6 +348,17 @@ function ScrollToTop() {
   return null;
 }
 
+function UniversalOrLegacyRegistration({ surface }: { surface: "customer" | "vendor" }) {
+  const location = useLocation();
+  const { user, loading } = useAuth();
+  const params = new URLSearchParams(location.search);
+  const selectedSurface = location.pathname === "/register" && params.get("app") === "vendor" ? "vendor" : surface;
+  if (selectedSurface === "vendor" && loading) return <p role="status">Loading session…</p>;
+  const preserveLegacy = !publicUniversalAuthEnabled || needsLegacyRegistration(selectedSurface, Boolean(user), params.has("oauth"), Boolean(location.state));
+  if (preserveLegacy) return selectedSurface === "vendor" ? <RegisterVendorPage /> : <RegisterCustomerPage />;
+  return <PublicThemeProvider><UniversalAuthPage /></PublicThemeProvider>;
+}
+
 export default function App() {
   const isDeveloperHostname = typeof window !== "undefined" && ["developers.getprio.online"].includes(window.location.hostname);
   const isLocalPrototypePreview = import.meta.env.DEV && typeof window !== "undefined" && window.location.pathname === "/prototype";
@@ -376,15 +388,15 @@ export default function App() {
         <Route path={LEGACY_MONITOR_ROUTE_PATH} element={<LegacyMonitorRedirect />} />
         <Route path="/" element={<AppShell><LandingPage /></AppShell>} />
         <Route path="/login" element={<AppShell>{publicUniversalAuthEnabled && !new URLSearchParams(window.location.search).has("resetToken") ? <PublicThemeProvider><UniversalAuthPage /></PublicThemeProvider> : <LoginPage />}</AppShell>} />
-        <Route path="/register" element={<AppShell>{publicUniversalAuthEnabled ? <PublicThemeProvider><UniversalAuthPage /></PublicThemeProvider> : <RegisterCustomerPage />}</AppShell>} />
+        <Route path="/register" element={<AppShell><UniversalOrLegacyRegistration surface="customer" /></AppShell>} />
         <Route path="/oauth/callback" element={<AppShell><OAuthCallbackPage /></AppShell>} />
         <Route path="/payment/return" element={<AppShell><PaymentReturnPage /></AppShell>} />
         <Route path="/privacy-policy" element={<AppShell><PrivacyPolicyPage /></AppShell>} />
         <Route path="/help" element={<AppShell><HelpPage /></AppShell>} />
         <Route path="/contact" element={<AppShell><ContactPage /></AppShell>} />
         <Route path="/terms" element={<AppShell><TermsPage /></AppShell>} />
-        <Route path="/register/vendor" element={<AppShell>{publicUniversalAuthEnabled ? <PublicThemeProvider><UniversalAuthPage /></PublicThemeProvider> : <RegisterVendorPage />}</AppShell>} />
-        <Route path="/register/customer" element={<AppShell>{publicUniversalAuthEnabled ? <PublicThemeProvider><UniversalAuthPage /></PublicThemeProvider> : <RegisterCustomerPage />}</AppShell>} />
+        <Route path="/register/vendor" element={<AppShell><UniversalOrLegacyRegistration surface="vendor" /></AppShell>} />
+        <Route path="/register/customer" element={<AppShell><UniversalOrLegacyRegistration surface="customer" /></AppShell>} />
         <Route path="/account" element={<Navigate to="/account/dashboard" replace />} />
         <Route path="/account/dashboard" element={<AppShell><CustomerDashboardPage /></AppShell>} />
         <Route path="/account/dashboard-prototype" element={<Navigate to="/account/dashboard" replace />} />
