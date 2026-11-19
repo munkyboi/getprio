@@ -150,7 +150,16 @@ test(
       await pool.query(`CREATE SCHEMA ${schema};CREATE TABLE users(id BIGINT PRIMARY KEY,name TEXT DEFAULT 'Operator',display_name TEXT,roles TEXT[] DEFAULT '{}',deletion_requested_at TIMESTAMPTZ,platform_access_suspended_at TIMESTAMPTZ);INSERT INTO users(id) VALUES(1),(2),(3);
    CREATE TABLE tenants(id BIGINT PRIMARY KEY,is_active BOOLEAN,auto_pause_enabled BOOLEAN,auto_pause_threshold INTEGER,queue_prefix TEXT);
    INSERT INTO tenants VALUES(1,TRUE,FALSE,NULL,'Q');
-   CREATE TABLE store_locations(id BIGINT,tenant_id BIGINT,is_active BOOLEAN,queue_lifecycle_mode TEXT,timezone TEXT,service_timing_enabled BOOLEAN DEFAULT TRUE,UNIQUE(id,tenant_id));
+   CREATE TABLE store_locations(id BIGINT,tenant_id BIGINT,is_active BOOLEAN,queue_lifecycle_mode TEXT,timezone TEXT,service_timing_enabled BOOLEAN DEFAULT TRUE,queue_type TEXT DEFAULT 'resource',UNIQUE(id,tenant_id));
+   CREATE TABLE tenant_subscriptions(id BIGINT PRIMARY KEY,tenant_id BIGINT,plan_slug TEXT,status TEXT,current_period_start TIMESTAMPTZ,current_period_end TIMESTAMPTZ,entitlements JSONB,entitlement_model_version INTEGER,entitlement_comparison_hash TEXT,created_at TIMESTAMPTZ,updated_at TIMESTAMPTZ);
+   CREATE TABLE entitlement_rollout_anomalies(id BIGINT PRIMARY KEY,tenant_id BIGINT,blocking BOOLEAN,resolved_at TIMESTAMPTZ);
+   CREATE TABLE subscription_plans(slug TEXT PRIMARY KEY,policy_revision INTEGER,entitlements JSONB);
+   CREATE TABLE plan_feature_entitlements(plan_slug TEXT,feature_key TEXT,enabled BOOLEAN);
+   CREATE TABLE plan_allowances(plan_slug TEXT,allowance_key TEXT,monthly_limit INTEGER);
+   CREATE TABLE tenant_entitlement_overrides(id BIGINT PRIMARY KEY,subscription_id BIGINT,policy_key TEXT,value JSONB,reason TEXT,expires_at TIMESTAMPTZ,revoked_at TIMESTAMPTZ);
+   INSERT INTO tenant_subscriptions VALUES(1,1,'pro','active',NOW()-interval '1 day',NOW()+interval '1 year','{}',2,NULL,NOW(),NOW());
+   INSERT INTO subscription_plans VALUES('pro',1,'{}');
+   INSERT INTO plan_feature_entitlements VALUES('pro','queue',TRUE),('pro','resourceQueue',TRUE),('pro','workflowQueue',TRUE);
    INSERT INTO store_locations(id,tenant_id,is_active,queue_lifecycle_mode,timezone) VALUES(10,1,TRUE,'enforced','Asia/Manila');
    CREATE TABLE service_counters(id BIGINT PRIMARY KEY,tenant_id BIGINT,location_id BIGINT,name TEXT,slug TEXT,is_active BOOLEAN);
    INSERT INTO service_counters VALUES(1,1,10,'Counter A','counter-a',TRUE),(2,1,10,'Counter B','counter-b',TRUE);
@@ -161,7 +170,9 @@ test(
    CREATE TABLE service_counter_assignments(counter_id BIGINT,user_id BIGINT);
    INSERT INTO service_counter_assignments VALUES(1,2),(2,3);
    CREATE TABLE tickets(id BIGSERIAL PRIMARY KEY,tenant_id BIGINT,location_id BIGINT,ticket_number TEXT,status TEXT,join_channel TEXT DEFAULT 'vendor',customer_confirmed_at TIMESTAMPTZ,service_started_at TIMESTAMPTZ,service_ended_at TIMESTAMPTZ,service_outcome TEXT,service_counter_id BIGINT,date_key TEXT DEFAULT '20261017',called_at TIMESTAMPTZ,skipped_at TIMESTAMPTZ,rejoin_deadline_at TIMESTAMPTZ,notified_called_at TIMESTAMPTZ,service_priority_band TEXT DEFAULT 'normal',sequence BIGINT DEFAULT 1,created_at TIMESTAMPTZ DEFAULT NOW(),updated_at TIMESTAMPTZ DEFAULT NOW(),UNIQUE(id,tenant_id,location_id));
-   CREATE TABLE ticket_service_plans(ticket_id BIGINT PRIMARY KEY,tenant_id BIGINT,location_id BIGINT,source TEXT,execution_mode TEXT,items JSONB,created_by_user_id BIGINT,created_at TIMESTAMPTZ DEFAULT NOW());
+   CREATE TABLE ticket_service_plans(ticket_id BIGINT PRIMARY KEY,tenant_id BIGINT,location_id BIGINT,source TEXT,booking_id BIGINT,execution_mode TEXT,items JSONB,created_by_user_id BIGINT,created_at TIMESTAMPTZ DEFAULT NOW());
+   CREATE TABLE bookings(id BIGINT PRIMARY KEY,tenant_id BIGINT,location_id BIGINT,queue_ticket_id BIGINT,selection_contract_version INTEGER,selection_revision BIGINT);
+   CREATE TABLE queue_day_closures(id BIGINT PRIMARY KEY,tenant_id BIGINT,location_id BIGINT,queue_date_key TEXT,next_queue_date_key TEXT,closed_at TIMESTAMPTZ,closure_reason TEXT,affected_ticket_ids BIGINT[],waiting_carried_count INTEGER,called_unserved_count INTEGER,closed_by_user_id BIGINT,reopened_by_user_id BIGINT,reopened_at TIMESTAMPTZ,created_at TIMESTAMPTZ,updated_at TIMESTAMPTZ);
    CREATE TABLE allowance_audit(ticket_id BIGINT,units INTEGER);
    CREATE TABLE usage_accounts(id BIGSERIAL PRIMARY KEY,tenant_id BIGINT,resource_key TEXT,UNIQUE(tenant_id,resource_key));
    CREATE TABLE subscription_allowance_periods(id BIGSERIAL PRIMARY KEY,subscription_id BIGINT,period_start TIMESTAMPTZ,period_end TIMESTAMPTZ,UNIQUE(subscription_id,period_start));
@@ -260,6 +271,7 @@ test(
       await pool.query(fs.readFileSync(path.join(__dirname,"../../database/migrations/20261017_named_extra_members_v1.sql"),"utf8"));
       await pool.query(fs.readFileSync(path.join(__dirname,"../../database/migrations/20261017_queue_plan_skip_recall_v1.sql"),"utf8"));
       await pool.query(fs.readFileSync(path.join(__dirname,"../../database/migrations/20261020_add_resource_display_order.sql"),"utf8"));
+      await pool.query(fs.readFileSync(path.join(__dirname,"../../database/migrations/20261026_queue_workflow_arrival.sql"),"utf8"));
       catalogRevision = (await readCatalog(pool, scope)).catalogRevision;
       await t.test(
         "parallel snapshot treats quantity separately from duration and rejects excess or multi-pool demand",
@@ -1359,15 +1371,19 @@ test(
       await t.test(
         "publication pins required stages, leaves future stages pending and protects only the current stage",
         async () => {
+          await pool.query("UPDATE store_locations SET queue_type='workflow' WHERE id=10");
+          catalogRevision = (await readCatalog(pool, scope)).catalogRevision;
           multi = await publishNew("station-plan", 1);
           assert.equal(multi.workflow.mode, "multi_station");
           assert.equal(multi.workflow.configurationRevision, "2");
           assert.deepEqual(
             multi.stages.map((stage) => stage.state),
-            ["waiting", "pending"],
+            ["awaiting_arrival", "pending"],
           );
           assert.equal(multi.currentStage.stationId, stationA);
           assert.equal(multi.reservationGroups.length, 0);
+          multi = (await invoke(multi, "arrive", "station-one-arrive")).plan;
+          assert.equal(multi.currentStage.state, "waiting");
           await workflowService.put(
             context,
             {
@@ -1640,6 +1656,7 @@ test(
       await t.test('completed historical stages and interrupted old attempts do not block archive',async()=>{
         assert.equal(await require('../src/services/resourcePoolLifecycleService').archiveBlock(pool,scope,'1'),null);
       });
+      await pool.query("UPDATE store_locations SET queue_type='resource' WHERE id=10");
       const named = loadModuleWithMocks(
         require.resolve(
           "../src/services/queueNamedResourceConfigurationService",
