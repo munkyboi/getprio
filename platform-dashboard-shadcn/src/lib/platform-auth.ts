@@ -1,8 +1,9 @@
+const surfaceCsrfCookie = `${import.meta.env.VITE_BROWSER_COOKIE_PREFIX ? `${import.meta.env.VITE_BROWSER_COOKIE_PREFIX}_` : ""}prio_csrf`
 import { resolvePlatformApiBaseUrl } from "@/lib/platform-api-url"
 import { requiresPlatformSignIn } from "@/lib/platform-session-recovery"
 
-const API_BASE_URL = resolvePlatformApiBaseUrl(import.meta.env.VITE_API_URL, window.location.hostname, import.meta.env.DEV)
-const CSRF_STORAGE_KEY = "prio_csrf"
+const API_BASE_URL = resolvePlatformApiBaseUrl(import.meta.env.VITE_API_URL, window.location.hostname, import.meta.env.DEV || import.meta.env.VITE_LOCAL_SURFACES === "1")
+const CSRF_STORAGE_KEY = surfaceCsrfCookie
 
 export interface PlatformAuthUser {
   id: string
@@ -101,8 +102,8 @@ function rememberCsrfToken(data: unknown) {
 }
 
 function readCsrfToken() {
-  const entry = document.cookie.split(";").map((value) => value.trim()).find((value) => value.startsWith("prio_csrf="))
-  if (entry) return decodeURIComponent(entry.slice("prio_csrf=".length))
+  const entry = document.cookie.split(";").map((value) => value.trim()).find((value) => value.startsWith(`${surfaceCsrfCookie}=`))
+  if (entry) return decodeURIComponent(entry.slice(surfaceCsrfCookie.length + 1))
   return readStoredCsrfToken()
 }
 

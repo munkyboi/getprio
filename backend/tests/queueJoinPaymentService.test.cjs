@@ -533,6 +533,7 @@ test(`free ticket completes after commit when joined push ${pending ? "stays pen
   const pushes = [];
   const location = { _id: '4' };
   const service = requireWithMocks('../src/services/queueService.js', {
+    './queueTypeService': { assertAdmission: async () => ({ type: 'simple' }) },
     '../config/db': { withTransaction: async (fn) => { const result = await fn(require('./helpers/maintenanceFixture.cjs').database.pool); committed = true; return result; } },
     '../repositories/queueDayClosures': { findActiveClosure: async () => null },
     '../repositories/queueDayPauses': { findActivePause: async () => null },

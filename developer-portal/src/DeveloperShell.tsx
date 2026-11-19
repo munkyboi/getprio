@@ -1,3 +1,4 @@
+import { marketingOrigin } from "./surfaceUrls";
 import { IconCreditCard, IconListDetails, IconLogout, IconMoon, IconShieldLock, IconSun, IconUser, IconUsers } from "@tabler/icons-react";
 import { ActionIcon, Avatar, Menu } from "@mantine/core";
 import type { MouseEvent, ReactNode } from "react";
@@ -87,7 +88,7 @@ export default function DeveloperShell({ children, light, onToggleTheme, path, a
           <a href="/faq">FAQ</a>
           <a href="/help">Help</a>
           <a href="/changelog">Changelog</a>
-          <a href="https://getprio.online/privacy-policy">Privacy</a>
+          <a href={`${marketingOrigin}/privacy-policy`}>Privacy</a>
         </nav>
       </footer>
     </>

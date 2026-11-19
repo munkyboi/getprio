@@ -31,7 +31,7 @@ export default function MaintenanceBoundary({ children }: { children: ReactNode 
   const status = useQuery({
     queryKey: ['public-maintenance'],
     queryFn: ({ signal }) => readStatus(signal),
-    staleTime: 0, refetchInterval: 15_000, refetchOnWindowFocus: true, retry: 1,
+    staleTime: 60_000, refetchInterval: 60_000, refetchOnWindowFocus: false, retry: 1,
   });
   const staffPath = pathname.startsWith('/dashboard') && activeMemberships(user?.tenants || []).length > 0;
   // This only keeps the return UI reachable. The backend independently verifies

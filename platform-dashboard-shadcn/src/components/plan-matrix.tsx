@@ -16,8 +16,8 @@ import type { PlanPolicyPreview, PlatformPlanMatrix } from "@/lib/platform-contr
 import { planPolicyPayload, type PlanPolicyPublication } from "../../../shared/planPolicyPayload"
 
 const features = [
-  ["queue", "Queue system"], ["branding", "Branded experience"], ["discovery", "Marketplace discovery"],
-  ["booking", "Service bookings"],
+  ["queue", "Simple queue and service setup"], ["resourceQueue", "Resource queue"], ["workflowQueue", "Workflow queue"], ["branding", "Branded experience"], ["discovery", "Marketplace discovery"],
+  ["booking", "Bookings, schedules and payment settings"],
 ] as const
 const allowances = [
   ["queueTickets", "Queue tickets / month"], ["serviceBookings", "Service bookings / month"],
@@ -179,7 +179,7 @@ export function PlanMatrix() {
         </div>
         <ToggleField label="Allow self-serve checkout" checked={plan.checkoutEnabled} disabled={!canPublishPlan} onChange={(checkoutEnabled) => updatePlan((current) => ({ ...current, checkoutEnabled }))} />
         <div className="grid gap-5 xl:grid-cols-2">
-          <div className="space-y-3"><h2 className="text-base font-medium">Feature entitlements</h2><div className="grid gap-2">{features.map(([key, label]) => <ToggleField key={key} label={label} checked={Boolean(plan.features?.[key])} disabled={!canPublishPlan || (key === "queue" && plan.slug === "free")} onChange={(checked) => updatePlan((current) => ({ ...current, features: { queue: false, branding: false, discovery: false, booking: false, campaigns: false, ...current.features, [key]: checked, ...(key === "booking" && !checked ? { campaigns: false } : {}) } }))} />)}</div></div>
+          <div className="space-y-3"><h2 className="text-base font-medium">Feature entitlements</h2><p className="text-sm text-muted-foreground">Simple Queue includes service setup within the plan’s location, counter and staff limits. Resource Queue enables resource mappings and policies; Workflow Queue enables sequential station journeys. Advanced queue types require Simple Queue access. Workflow resource stages also require Resource Queue. Setup does not use ticket credits. Booking schedules and payment settings are controlled separately.</p><div className="grid gap-2">{features.map(([key, label]) => <ToggleField key={key} label={label} checked={Boolean(plan.features?.[key])} disabled={!canPublishPlan || (key === "queue" && plan.slug === "free")} onChange={(checked) => updatePlan((current) => ({ ...current, features: { queue: false, branding: false, discovery: false, booking: false, campaigns: false, ...current.features, [key]: checked, ...(key === "booking" && !checked ? { campaigns: false } : {}) } }))} />)}</div></div>
           <div className="space-y-3"><h2 className="text-base font-medium">Monthly allowances</h2><div className="grid gap-3 sm:grid-cols-2">{allowances.map(([key, label]) => <NumericField key={key} label={label} value={plan.allowances?.[key] ?? 0} disabled={!canPublishPlan} onChange={(value) => updatePlan((current) => ({ ...current, allowances: { ...(current.allowances ?? { queueTickets: 0, queueEmailJourneys: 0, serviceBookings: 0 }), [key]: value } }))} />)}</div></div>
         </div>
         <div className="grid gap-5 xl:grid-cols-2">

@@ -283,7 +283,7 @@ export function PlatformHelpCenterManager({ page, onNavigate }: ManagerProps) {
 
   return <div className="grid gap-5">
     <header className="flex flex-col justify-between gap-4 xl:flex-row xl:items-end">
-      <div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-brand">Help Center management</p><h1 className="text-3xl font-semibold tracking-tight md:text-4xl">{isEditingCurrentSection ? title || `Untitled ${editing?.kind}` : pageCopy[page].title}</h1><p className="mt-1 max-w-3xl text-muted-foreground">{isEditingCurrentSection ? "Edit customer-facing content and its internal review record." : pageCopy[page].description}</p></div>
+      <div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-foreground">Help Center management</p><h1 className="text-3xl font-semibold tracking-tight md:text-4xl">{isEditingCurrentSection ? title || `Untitled ${editing?.kind}` : pageCopy[page].title}</h1><p className="mt-1 max-w-3xl text-muted-foreground">{isEditingCurrentSection ? "Edit customer-facing content and its internal review record." : pageCopy[page].description}</p></div>
       <div className="flex flex-wrap items-center gap-2"><Badge variant="secondary">Live revision {publishedRevision ?? "—"}</Badge>{draftRevision ? <Badge variant="warning">Draft {draftRevision}</Badge> : null}</div>
     </header>
 

@@ -77,7 +77,7 @@ Usage:
   scripts/db-apply.sh bootstrap
 
 Commands:
-  migrate   Apply all SQL files under database/migrations/ in filename order.
+  migrate   Apply SQL files in filename order with reviewed dependency overrides.
   migrate-free-tier Apply only the reviewed Free-tier/security migration manifest.
   bootstrap Rebuild from database/init.sql, then apply all migrations.
 
@@ -100,6 +100,10 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 init_sql="$repo_root/database/init.sql"
 migrations_dir="$repo_root/database/migrations"
 mode="$1"
+
+# Resolve ordering before any database writes. Command substitution propagates
+# graph errors; process substitution would hide a failed ordering subprocess.
+ordered_migration_files="$(node "$repo_root/scripts/helpers/migration-order.cjs" "$migrations_dir")"
 
 load_env_file "$repo_root/.env"
 
@@ -188,6 +192,7 @@ should_apply_file() {
 }
 
 while IFS= read -r file; do
+  [[ -z "$file" ]] && continue
   filename="$(basename "$file")"
   if ! should_apply_file "$filename"; then
     continue
@@ -203,6 +208,6 @@ INSERT INTO schema_migrations (filename)
 VALUES (:'filename')
 ON CONFLICT (filename) DO NOTHING;
 SQL
-done < <(find "$migrations_dir" -maxdepth 1 -type f -name '*.sql' | sort)
+done <<< "$ordered_migration_files"
 
 echo "Database SQL apply complete."

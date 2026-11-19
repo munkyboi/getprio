@@ -333,3 +333,9 @@ test('token issuance forwards the validated return target only into the email li
   assert.equal(Object.hasOwn(calls[0], 'next'), false);
   assert.equal(Object.hasOwn(events[0].metadata, 'next'), false);
 });
+test('dedicated recovery URLs use trusted customer/vendor origins and preserve their own paths',()=>{
+ const service=requireWithMocks('../src/services/passwordResetService.js',{'../config/env':{clientUrl:'http://127.0.0.1:5191',appBaseUrl:'http://127.0.0.1:5191',customerAppUrl:'http://127.0.0.1:5191',vendorAppUrl:'http://127.0.0.1:5192'},'../config/db':{},'./sessionService':{},'./securityEventService':{}});
+ const customer=new URL(service.buildPasswordResetUrl('unit-token','/account/bookings?tab=active#today','customer'));assert.equal(customer.origin,'http://127.0.0.1:5191');assert.equal(customer.searchParams.get('next'),'/account/bookings?tab=active#today');
+ const vendor=new URL(service.buildPasswordResetUrl('unit-token','/dashboard/queue?boardPairing=ABC','vendor'));assert.equal(vendor.origin,'http://127.0.0.1:5192');assert.equal(vendor.searchParams.get('next'),'/dashboard/queue?boardPairing=ABC');
+ assert.equal(new URL(service.buildPasswordResetUrl('unit-token','/dashboard','customer')).searchParams.has('next'),false);
+});

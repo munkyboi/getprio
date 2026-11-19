@@ -1,3 +1,4 @@
+const queueTypes = require("./queueTypeService");
 const maintenance = require('./platformMaintenanceService');
 const ticketServicePlanService = require("./ticketServicePlanService");
 const bookingRepository = require("../repositories/bookings");
@@ -293,6 +294,8 @@ async function notifyDueCheckInReminderBookings(options = {}) {
 }
 
 function assertVerifiedPayloadMatchesRequest(verifiedPayload, requestBody) {
+  require('./bookingSelectionServiceV4').assertVerifiedSelections(verifiedPayload,requestBody);
+
   const expected = {
     tenantSlug: String(requestBody.tenantSlug || "").trim().toLowerCase(),
     locationSlug: String(requestBody.locationSlug || "").trim().toLowerCase(),
@@ -673,7 +676,7 @@ function completedPlanLookups(results) {
   return results.map(result => result.value);
 }
 
-async function loadComposedBookingPlan({ tenant, location, items: itemValues, executionMode: executionModeValue, client, existingBooking }) {
+async function loadComposedBookingPlan({ tenant, location, items: itemValues, executionMode: executionModeValue, client, existingBooking, resourceSelectionV4 = false }) {
   const executionMode = normalizeExecutionMode(executionModeValue);
   const requestedItems = normalizeComposedPlanItems(itemValues);
   // Drain all bounded read requests before propagating failure, especially when
@@ -705,7 +708,7 @@ async function loadComposedBookingPlan({ tenant, location, items: itemValues, ex
       throw error;
     }
 
-    const bookingQuantity = existingBooking ? normalizeBookingQuantity(requestedItem.bookingQuantity)
+    const bookingQuantity = resourceSelectionV4 ? 1 : existingBooking ? normalizeBookingQuantity(requestedItem.bookingQuantity)
       : normalizeServiceBookingQuantity(service, requestedItem.bookingQuantity);
     if (!existingBooking) assertManualPaymentDestinationAvailable({ service, location });
     items.push({
@@ -717,7 +720,7 @@ async function loadComposedBookingPlan({ tenant, location, items: itemValues, ex
     });
   }
 
-  if (!existingBooking && new Set(items.map((item) => Boolean(item.service.manualPaymentRequired))).size > 1) {
+  if (!existingBooking && !resourceSelectionV4 && new Set(items.map((item) => Boolean(item.service.manualPaymentRequired))).size > 1) {
     const error = new Error("Selected services must use the same payment requirement.");
     error.statusCode = 400;
     throw error;
@@ -743,6 +746,12 @@ function selectedBookingItems(booking) {
   })) : [{ serviceSlug: booking.serviceSlug, bookingQuantity: booking.bookingQuantity, sortOrder: 0 }];
 }
 
+function applySelectionDurations(plan,snapshot){
+  const roots=snapshot.captured.serviceSelections;
+  if(plan.executionMode!=='parallel'||roots.length!==plan.items.length||plan.items.some((item,index)=>String(item.service._id)!==roots[index].serviceId))
+    throw Object.assign(new Error('The selected resources must match the booking services in order.'),{statusCode:400,code:'BOOKING_SELECTION_SERVICE_MISMATCH'});
+  return{...plan,items:plan.items.map((item,index)=>({...item,bookingQuantity:1,durationMinutes:Math.max(...snapshot.captured.items.filter(leaf=>leaf.serviceSelectionId===roots[index].serviceSelectionId&&leaf.selectionKind==='resource').map(leaf=>leaf.durationMinutes))}))};
+}
 function materializeComposedPlanAt({ plan, scheduledStartAt }) {
   let cursorAt = new Date(scheduledStartAt);
   const items = plan.items.map((item) => {
@@ -1069,6 +1078,7 @@ async function listVendorBookingRescheduleSlots({ tenant, bookingId, date }) {
     throw error;
   }
 
+  if(booking.selectionContractVersion===4)return (await require('./bookingSelectionServiceV4').slots(db.pool,{tenantId:booking.tenantId,locationId:booking.locationId},{date},booking)).slots;
   const result = await evaluateComposedBookingSlots({
     tenantSlug: tenant.slug, locationSlug: booking.locationSlug, date,
     items: selectedBookingItems(booking), executionMode: booking.executionMode || "parallel",
@@ -1081,7 +1091,11 @@ async function createCustomerBooking({ user, body }) {
   // A stored paid booking-alert checkout may predate maintenance. A supplied
   // ID alone grants nothing: verify its OTP binding and paid state below and
   // re-read it under lock in the booking transaction.
-  if (!String(body.smsAlertFeePaymentId || '').trim()) await maintenance.assertNewIntake();
+  const isV4=body.selectionContractVersion===4;
+  const v4=require('./bookingSelectionServiceV4');
+  if(isV4)v4.assertEnabled();
+  else if(body.selectionContractVersion!==undefined||body.serviceSelections!==undefined)throw Object.assign(new Error('Choose a supported booking selection version.'),{statusCode:400});
+  if (!isV4 && !String(body.smsAlertFeePaymentId || '').trim()) await maintenance.assertNewIntake();
   const tenantSlug = String(body.tenantSlug || "").trim().toLowerCase();
   const locationSlug = String(body.locationSlug || "").trim().toLowerCase();
   const serviceSlug = vendorServiceRepository.normalizeServiceSlug(body.serviceSlug);
@@ -1096,7 +1110,7 @@ async function createCustomerBooking({ user, body }) {
     throw error;
   }
 
-  if (!scheduledStartAt || scheduledStartAt.getTime() <= Date.now()) {
+  if (!scheduledStartAt || (!isV4 && scheduledStartAt.getTime() <= Date.now())) {
     const error = new Error("scheduledStartAt must be a future date and time.");
     error.statusCode = 400;
     throw error;
@@ -1116,6 +1130,22 @@ async function createCustomerBooking({ user, body }) {
     throw error;
   }
 
+  const v4Scope={tenantId:String(tenant._id),locationId:String(location._id)};
+
+  const v4Hash=isV4?v4.commandHash('create',body):null;
+  if(isV4){
+    const actor=await db.pool.query('SELECT id FROM users WHERE id=$1 AND deletion_requested_at IS NULL AND platform_access_suspended_at IS NULL',[user._id]);
+    if(actor.rows.length!==1)throw Object.assign(new Error('Booking access is unavailable.'),{statusCode:403});
+    const replay=await v4.readReceipt(db.pool,v4Scope,String(user._id),body.requestKey,v4Hash);
+    if(replay)return replay.booking;
+    // An exact completed command remains replayable after its original start.
+    // Only fresh resource bookings must still have a future scheduled time.
+    if(scheduledStartAt.getTime()<=Date.now()) {
+      const error=new Error("scheduledStartAt must be a future date and time.");
+      error.statusCode=400;
+      throw error;
+    }
+  }
   const service = await vendorServiceRepository.findServiceByTenantAndSlug(tenant._id, serviceSlug);
   if (!service || !service.isActive) {
     const error = new Error("Service not found.");
@@ -1129,6 +1159,12 @@ async function createCustomerBooking({ user, body }) {
     throw error;
   }
   const requestedBundleItems = normalizeBookingBundleItems(body, serviceSlug);
+  if(!isV4&&v4.enabled()){
+    const mapped=(await db.pool.query(`SELECT 1 FROM service_resource_requirements r JOIN vendor_services s ON(s.id,s.tenant_id)=(r.service_id,r.tenant_id)
+      WHERE r.tenant_id=$1 AND r.location_id=$2 AND s.slug=ANY($3::text[]) LIMIT 1`,[tenant._id,location._id,requestedBundleItems.map(item=>item.serviceSlug)])).rows;
+    if(mapped.length)throw Object.assign(new Error('Choose resources and duration in the resource booking form for this service.'),{statusCode:409,code:'BOOKING_RESOURCE_SELECTION_REQUIRED'});
+  }
+
   if (requestedBundleItems[0]?.serviceSlug !== serviceSlug) {
     const error = new Error("The selected service must be the first item in the booking bundle.");
     error.statusCode = 400;
@@ -1163,8 +1199,11 @@ async function createCustomerBooking({ user, body }) {
   const verifiedCustomerPhone = verifiedBooking.payload.customerPhone || customerPhone;
   const notifyBySms = Boolean(verifiedBooking.payload.notifyBySms);
 
+  const initialSelectionCapture=isV4?await v4.capturePlan(db.pool,v4Scope,body):null;
+  if(initialSelectionCapture?.paymentRequired)assertManualPaymentDestinationAvailable({service:{manualPaymentRequired:true},location});
+  const initialComposed=await loadComposedBookingPlan({tenant,location,items:requestedBundleItems,executionMode,resourceSelectionV4:isV4});
   const composedPlan = materializeComposedPlanAt({
-    plan: await loadComposedBookingPlan({ tenant, location, items: requestedBundleItems, executionMode }),
+    plan: initialSelectionCapture ? applySelectionDurations(initialComposed,initialSelectionCapture) : initialComposed,
     scheduledStartAt
   });
   const bookingQuantity = composedPlan.items[0].bookingQuantity;
@@ -1173,7 +1212,7 @@ async function createCustomerBooking({ user, body }) {
     tenant._id,
     location._id
   );
-  const availabilityResult = await evaluateComposedPlanAvailability({
+  const availabilityResult = isV4 ? {available:true} : await evaluateComposedPlanAvailability({
     tenant, location, availability, plan: composedPlan
   });
   if (!availabilityResult.available) {
@@ -1218,10 +1257,14 @@ async function createCustomerBooking({ user, body }) {
       return true;
     }
   }, async (client, ledger) => {
-    const lockedPlan = materializeComposedPlanAt({
-      plan: await loadComposedBookingPlan({ tenant: lockedTenant, location: lockedLocation,
-        items: requestedBundleItems, executionMode, client }), scheduledStartAt
-    });
+    if(isV4){const replay=await v4.readReceipt(client,v4Scope,String(user._id),body.requestKey,v4Hash);if(replay)return{...replay.booking,_v4Replay:true};}
+    const lockedVerification=await bookingOtpService.getVerifiedBookingPayload({tenant:lockedTenant,token:bookingVerificationToken,client});
+    assertVerifiedPayloadMatchesRequest(lockedVerification.payload,body);
+    if(lockedVerification.otpId!==verifiedBooking.otpId)throw Object.assign(new Error('Please verify this booking again.'),{statusCode:409});
+    await entitlementAdmissionService.admit({tenantId:tenant._id,featureKey:'booking',client,lockPolicy:true});
+    const lockedSelectionCapture=isV4?await v4.capturePlan(client,v4Scope,body):null;
+    const lockedComposed=await loadComposedBookingPlan({tenant:lockedTenant,location:lockedLocation,items:requestedBundleItems,executionMode,client,resourceSelectionV4:isV4});
+    const lockedPlan = materializeComposedPlanAt({plan:lockedSelectionCapture?applySelectionDurations(lockedComposed,lockedSelectionCapture):lockedComposed,scheduledStartAt});
     const lockedItems = snapshotBookingBundleItems(lockedPlan);
     if (JSON.stringify(lockedItems) !== JSON.stringify(bookingBundleItems)
       || lockedPlan.items.some((item, index) => Boolean(item.service.manualPaymentRequired) !== Boolean(composedPlan.items[index].service.manualPaymentRequired))) {
@@ -1235,7 +1278,7 @@ async function createCustomerBooking({ user, body }) {
       throw error;
     }
     const lockedAvailability = await vendorAvailabilityRepository.listAvailabilityByLocation(lockedTenant._id, lockedLocation._id, { client });
-    const lockedDecision = await evaluateComposedPlanAvailability({ tenant: lockedTenant, location: lockedLocation,
+    const lockedDecision = isV4?{available:true}:await evaluateComposedPlanAvailability({ tenant: lockedTenant, location: lockedLocation,
       availability: lockedAvailability, plan: lockedPlan, client });
     if (!lockedDecision.available) {
       const error = new Error(lockedDecision.reason === "capacity_full"
@@ -1283,13 +1326,16 @@ async function createCustomerBooking({ user, body }) {
       actorUserId: user._id,
       reason: "Service Booking created"
     }, { client });
-    await bookingResourceReservationService.reserveCreatedBooking({ client, ledger, booking: createdBooking });
+    if(isV4){await v4.persist(client,createdBooking,lockedSelectionCapture,String(user._id));createdBooking.selectionContractVersion=4;createdBooking.selectionRevision='1';createdBooking.serviceManualPaymentRequired=Boolean(lockedSelectionCapture.paymentRequired);}
+    else await bookingResourceReservationService.reserveCreatedBooking({ client, ledger, booking: createdBooking });
     await client.query(`UPDATE resource_ledger_scopes SET revision=revision+1
       WHERE tenant_id=$1 AND location_id=$2`, [tenant._id, location._id]);
+    await bookingOtpService.consumeBookingVerificationToken(verifiedBooking.otpId,{client});
+    if(isV4)await v4.writeReceipt(client,v4Scope,String(user._id),body.requestKey,v4Hash,{booking:createdBooking});
     return createdBooking;
   });
 
-  await bookingOtpService.consumeBookingVerificationToken(verifiedBooking.otpId);
+  if(booking._v4Replay){delete booking._v4Replay;return booking;}
   await sendBookingSubmittedNotification({ tenant, booking });
   await publishBookingSnapshot(tenant, location);
   if (tenant.notificationSettings?.bookingIntake !== false) {
@@ -1474,7 +1520,7 @@ async function advanceBookingScope(client, booking) {
     WHERE tenant_id=$1 AND location_id=$2`, [booking.tenantId, booking.locationId]);
 }
 
-async function updateVendorBookingStatus({ tenant, bookingId, status, user }) {
+async function updateVendorBookingStatus({ tenant, bookingId, status, user, operationKey }) {
   const allowedStatuses = new Set(["confirmed", "canceled"]);
   if (!allowedStatuses.has(status)) {
     const error = new Error("status must be confirmed or canceled.");
@@ -1482,13 +1528,19 @@ async function updateVendorBookingStatus({ tenant, bookingId, status, user }) {
     throw error;
   }
 
-  const updated = await withVendorBookingTransaction({ tenant, bookingId, user }, async ({ client, ledger, booking }) => {
+  const updated = await withVendorBookingTransaction({ tenant, bookingId, user, validateUnarrived:false }, async ({ client, ledger, booking }) => {
+    const v4=require('./bookingSelectionServiceV4'),scope={tenantId:booking.tenantId,locationId:booking.locationId};
+    const hash=booking.selectionContractVersion===4?v4.commandHash('status',{bookingId,status}):null;
+    if(hash){const replay=await v4.readReceipt(client,scope,String(user._id),operationKey,hash);if(replay)return replay.booking;}
+    if(status==='canceled'&&booking.selectionContractVersion===4&&booking.queueTicketId)booking=await v4.detachUnstartedForStaffResolution(client,ledger,booking,'staff_cancelled_booking');
+    assertCustomerBookingCancellable(booking);
     if (status === "confirmed") assertPendingBookingNotExpired(booking);
     if (status === "confirmed" && booking.paymentStatus === "pending") {
       const error = new Error("Payment evidence must be verified before this booking can be confirmed.");
       error.statusCode = 409;
       throw error;
     }
+    if(status==='confirmed'&&booking.selectionContractVersion===4)await v4.confirm(client,booking);
     const result = await bookingRepository.updateBooking(booking._id, { status }, { client, requireUnarrived: true });
     if (status === "canceled") {
       await bookingResourceReservationService.cancelBookingReservations({ client, ledger, booking });
@@ -1496,6 +1548,7 @@ async function updateVendorBookingStatus({ tenant, bookingId, status, user }) {
       await bookingResourceReservationService.assertBookingReservationCurrent({ client, booking });
     }
     await advanceBookingScope(client, booking);
+    if(hash)await v4.writeReceipt(client,scope,String(user._id),operationKey,hash,{booking:result});
     return result;
   });
   pushNotificationService.notifyCustomerBookingUpdate({
@@ -1729,15 +1782,23 @@ async function notifyCustomerBookingCancellation(updated) {
   }
 }
 
-async function rescheduleVendorBooking({ tenant, bookingId, user, scheduledStartAt: scheduledStartAtValue }) {
+async function rescheduleVendorBooking({ tenant, bookingId, user, scheduledStartAt: scheduledStartAtValue, operationKey }) {
   const scheduledStartAt = normalizeDateTime(scheduledStartAtValue);
   if (!scheduledStartAt || scheduledStartAt.getTime() <= Date.now()) {
     const error = new Error("scheduledStartAt must be a future date and time.");
     error.statusCode = 400;
     throw error;
   }
-  const updated = await withVendorBookingTransaction({ tenant, bookingId, user }, async ({ client, ledger, booking }) => {
-    assertPendingBookingNotExpired(booking);
+  const updated = await withVendorBookingTransaction({ tenant, bookingId, user, validateUnarrived:false }, async ({ client, ledger, booking }) => {
+    if(booking.selectionContractVersion===4){
+      const v4=require('./bookingSelectionServiceV4'),scope={tenantId:booking.tenantId,locationId:booking.locationId},hash=v4.commandHash('reschedule',{bookingId,scheduledStartAt:scheduledStartAt.toISOString()});
+      const replay=await v4.readReceipt(client,scope,String(user._id),operationKey,hash);if(replay)return replay.booking;
+      if(booking.queueTicketId)booking=await v4.detachUnstartedForStaffResolution(client,ledger,booking,'staff_rescheduled_booking');
+      assertCustomerBookingCancellable(booking);assertPendingBookingNotExpired(booking);
+      const result=await v4.reschedule(client,booking,scheduledStartAt.toISOString(),String(user._id));
+      await advanceBookingScope(client,booking);await v4.writeReceipt(client,scope,String(user._id),operationKey,hash,{booking:result});return result;
+    }
+    assertCustomerBookingCancellable(booking);assertPendingBookingNotExpired(booking);
     const location = await storeLocationRepository.findLocationByTenantAndSlug(tenant._id, booking.locationSlug, { client });
     if (!location || String(location._id) !== String(booking.locationId) || String(location.tenantId) !== String(tenant._id)) {
       const error = new Error("Booking location is no longer available.");
@@ -1809,6 +1870,7 @@ async function checkInBooking({ tenant, location, bookingId, user, overrideWindo
     }
     tenant = currentTenant;
     location = currentLocation;
+    require('./bookingSelectionServiceV4').assertPaymentVerified(booking);
     if (customerArrival) {
       // Recheck ownership under the same lock used by staff check-in.
       if (!user?._id || String(booking.customerUserId) !== String(user._id)) {
@@ -1843,6 +1905,9 @@ async function checkInBooking({ tenant, location, bookingId, user, overrideWindo
       throw error;
     }
 
+    if (booking.selectionContractVersion===4 && booking.queueTicketId) {
+      return{booking,ticket:{_id:booking.queueTicketId,ticketNumber:booking.queueTicketNumber,lookupCode:booking.queueTicketLookupCode,status:booking.queueTicketStatus},alreadyCheckedIn:true};
+    }
     if (booking.queueTicketId || booking.checkedInAt) {
       const error = new Error("This booking has already been checked in.");
       error.statusCode = 409;
@@ -1864,6 +1929,9 @@ async function checkInBooking({ tenant, location, bookingId, user, overrideWindo
     }
 
     await bookingResourceReservationService.assertBookingReservationCurrent({ client, booking });
+    const queueExecution=await queueTypes.execution(client,{tenantId:String(tenant._id),locationId:String(location._id)});
+    const expectedExecution=booking.selectionContractVersion===4?'resource':'simple';
+    if(queueExecution.type!==expectedExecution||!queueExecution.capabilities[expectedExecution])throw Object.assign(new Error('This booking needs staff review before check-in because the location’s queue setup or plan changed. Its reservation has been kept.'),{statusCode:409,code:'BOOKING_QUEUE_TYPE_RESOLUTION_REQUIRED'});
     await queueService.assertQueueIntakeOpen(tenant, location, { client });
     const ticket = await queueService.createTicketForTenantInTransaction(client, {
       tenant,
@@ -1880,9 +1948,12 @@ async function checkInBooking({ tenant, location, bookingId, user, overrideWindo
         windowState.isLate ? `Late override: ${String(overrideReason || "vendor override").trim()}` : ""
       ].filter(Boolean).join(" "),
       servicePriorityBand: "checked_in_booking"
-    }, { existingWork: true });
+    }, { existingWork: true, queueExecutionType:booking.selectionContractVersion===4?"resource":"simple" });
 
-    await ticketServicePlanService.captureBookingPlan(client, {
+    if(booking.selectionContractVersion===4)await require('./bookingQueuePlanAdapterV4').captureLinkedPlan(client,{
+      tenant,location,ticket,booking,actorUserId:user?._id,actorRole:customerArrival?'customer':'vendor'
+    });
+    else await ticketServicePlanService.captureBookingPlan(client, {
       tenant, location, ticket, booking, actorUserId: user?._id
     });
 

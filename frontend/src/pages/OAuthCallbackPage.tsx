@@ -1,3 +1,4 @@
+import { currentSurface, safeSurfaceNext } from "../surfaces/surfaceConfig";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button, Loader } from "@mantine/core";
 import { Alert, LoginPresentation, Paper, Stack, Text, Title } from "../vendor/LoginPresentation";
@@ -15,7 +16,7 @@ export default function OAuthCallbackPage() {
   const [error, setError] = useState("");
   const { hash } = useLocation();
   const callbackParams = useMemo(() => new URLSearchParams(hash.replace(/^#/, "")), [hash]);
-  const next = callbackParams.get("next") || "/";
+  const next = currentSurface === "vendor" || currentSurface === "customer" ? safeSurfaceNext(callbackParams.get("next"), currentSurface, true) : callbackParams.get("next") || "/";
   const vendor = isVendorLoginContext(next);
 
   useEffect(() => {

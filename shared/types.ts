@@ -1,3 +1,4 @@
+import type { BookingServiceSelectionV4, BookingSelectionDisplayV4 } from "./bookingSelectionV4";
 export type OAuthProviderId = "google" | "facebook" | "apple";
 export type AuthIntent = "login" | "register_customer" | "register_vendor";
 export type UserRole = "customer" | "vendor" | "platform_admin";
@@ -22,12 +23,14 @@ export type SubscriptionPaymentMethod = "qrph" | "card" | "maya";
 export type SmsBundleType = "none" | "fixed" | "custom";
 export type SupportLevel = "self_serve" | "standard" | "sla";
 export type HistoryExportRange = "today" | "week" | "month" | "quarter" | "year";
-export type PlanFeatureKey = "queue" | "branding" | "discovery" | "booking" | "campaigns";
+export type PlanFeatureKey = "queue" | "resourceQueue" | "workflowQueue" | "branding" | "discovery" | "booking" | "campaigns";
 export type AllowanceResourceKey = "queueTickets" | "queueEmailJourneys" | "serviceBookings";
 export type ActiveAllowanceResourceKey = Exclude<AllowanceResourceKey, "queueEmailJourneys">;
 export type EntitlementValueSource = "plan" | "override" | "restriction";
 
 export interface SubscriptionEntitlements {
+  resourceQueueAccess?: boolean;
+  workflowQueueAccess?: boolean;
   locations: number;
   counters: number;
   staffSeats: number;
@@ -78,7 +81,7 @@ export interface SubscriptionPlan {
   included: string[];
   sortOrder?: number;
   policyRevision?: number;
-  features?: Record<PlanFeatureKey, boolean>;
+  features?: Record<Exclude<PlanFeatureKey, "resourceQueue" | "workflowQueue">, boolean> & Partial<Record<"resourceQueue" | "workflowQueue", boolean>>;
   allowances?: Record<ActiveAllowanceResourceKey, number> & Partial<Record<"queueEmailJourneys", number>>;
 }
 
@@ -488,7 +491,8 @@ export interface BookingManualPaymentDestination {
   accountDisplayName: string;
   accountIdentifierDisplay: string;
   qrImageUrl?: string;
-  amountCents: number;
+  amountCents: number | null;
+  amountPendingConfirmation?: boolean;
   currency: "PHP";
   unitPriceDisplay: string;
 }
@@ -529,6 +533,8 @@ export interface BookingGroupFundedCampaignSummary {
 }
 
 export interface CustomerBookingSummary {
+  selectionContractVersion?: 1 | 4;
+  resourceSelection?: BookingSelectionDisplayV4 | null;
   id: string;
   reference: string;
   tenantId: string;
@@ -588,6 +594,10 @@ export interface CustomerBookingsResponse {
 }
 
 export interface CreateCustomerBookingRequest {
+  selectionContractVersion?: 4;
+  catalogVersion?: string;
+  serviceSelections?: BookingServiceSelectionV4[];
+  requestKey?: string;
   tenantSlug: string;
   locationSlug: string;
   serviceSlug: string;
@@ -1155,10 +1165,12 @@ export interface VendorBookingsResponse {
 }
 
 export interface UpdateVendorBookingStatusRequest {
+  requestKey?: string;
   status: Extract<BookingStatus, "confirmed" | "canceled">;
 }
 
 export interface RescheduleVendorBookingRequest {
+  requestKey?: string;
   scheduledStartAt: string;
 }
 
@@ -1389,6 +1401,7 @@ export interface QueueHistoryTicket {
 }
 
 export interface QueueFocusTicket {
+  journey?: import("./queueJourneyProgress").QueueJourneyProgress;
   id: string;
   lookupCode: string;
   ticketNumber: string;

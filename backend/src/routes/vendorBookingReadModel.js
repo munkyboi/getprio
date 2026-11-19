@@ -2,7 +2,7 @@
 // must be explicitly added to this allowlist if a future operational flow needs it.
 function projectOperationalBooking(booking) {
   const fields = [
-    "id", "reference", "tenantId", "tenantName", "tenantSlug",
+    "selectionContractVersion", "resourceSelection", "id", "reference", "tenantId", "tenantName", "tenantSlug",
     "locationId", "locationName", "locationSlug", "serviceId", "serviceName", "serviceSlug",
     "serviceManualPaymentRequired", "servicePriceAmountCents", "serviceCurrency", "servicePriceDisplay",
     "bundleItems", "executionMode", "bookingQuantity", "customerName", "customerPhone", "customerEmail",

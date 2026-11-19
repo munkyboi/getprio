@@ -1,4 +1,6 @@
+const { surfaceOrigins } = require("./browserSurfaceUrls");
 const counterDispatchService = require("./counterDispatchService");
+const { customerQueueLifecycle } = require('./customerQueueLifecycle');
 const { EMAIL_QUOTA_POLICY } = require("./queueEmailJourneyService");
 const serviceCounterRepository = require("../repositories/serviceCounters");
 const queueDayRepository = require("../repositories/queueDays");
@@ -74,12 +76,17 @@ async function buildQueueSnapshot(tenant, options = {}, getTenantUsage) {
   // visible across days for counter occupancy and explicit staff resolution.
   const currentDayCalled = called.find(ticket => ticket.dateKey === dateKey) || null;
   const calledTickets = called.map(counterDispatchService.formatCalledTicket);
+  // Preserve all called/started tickets above for history, timing and explicit
+  // outcomes. Dispatch advice uses the same resource-backed lane rule as claim.
+  const dispatchCalled = await ticketRepository.listCalledTickets(tenant._id, {
+    locationId, excludeAllocatedService: true
+  });
   const counters = locationId ? await serviceCounterRepository.listCountersByLocationId(locationId) : [];
   const readyWaitingCount = locationId
     ? await ticketRepository.countReadyWaitingTickets(tenant._id, { locationId, dateKey }) : 0;
   const queueOpen = !queueDayClosure && (locationToUse?.queueLifecycleMode !== "enforced"
     || await queueDayRepository.isOpenForDispatch(tenant._id, locationId, dateKey));
-  const counterDispatch = counterDispatchService.buildCounterDispatch(counters, calledTickets, readyWaitingCount, queueOpen);
+  const counterDispatch = counterDispatchService.buildCounterDispatch(counters, dispatchCalled.map(counterDispatchService.formatCalledTicket), readyWaitingCount, queueOpen);
   const waitingTickets = await ticketRepository.listWaitingTickets(tenant._id, { locationId, dateKey });
   const overflowTickets = await ticketRepository.listWaitingTickets(tenant._id, {
     locationId,
@@ -246,6 +253,7 @@ async function buildQueueSnapshot(tenant, options = {}, getTenantUsage) {
       customerName: lookupTicket.customerName,
       customerDisplayName: lookupTicket.customerDisplayName || null,
       status: lookupTicket.status,
+      queueLifecycle: customerQueueLifecycle(lookupTicket),
       customerConfirmedAt: lookupTicket.customerConfirmedAt || null,
       barcodeRotationRequired: Boolean(lookupTicket.barcodeRotationEnabled || (lookupTicket.userId && !lookupTicket.developerProjectId)),
       serviceStartedAt: lookupTicket.serviceStartedAt || null,
@@ -288,8 +296,8 @@ async function buildQueueSnapshot(tenant, options = {}, getTenantUsage) {
       autoPauseThreshold: tenant.autoPauseThreshold ?? null,
       autoResumeEnabled: Boolean(tenant.autoResumeEnabled),
       autoResumeVacancyPercent: tenant.autoResumeVacancyPercent ?? null,
-      joinUrl: buildJoinUrl(env.appBaseUrl, tenant.slug, locationToUse?.slug),
-      monitorUrl: locationToUse?.queueBoardId ? `${env.appBaseUrl.replace(/\/+$/, "")}/queue-board/${locationToUse.queueBoardId}` : "",
+      joinUrl: buildJoinUrl(surfaceOrigins(env).customer, tenant.slug, locationToUse?.slug),
+      monitorUrl: locationToUse?.queueBoardId ? `${surfaceOrigins(env).vendor}/queue-board/${locationToUse.queueBoardId}` : "",
       isActive: Boolean(activeSubscription),
       queueFee
     }),
@@ -310,8 +318,8 @@ async function buildQueueSnapshot(tenant, options = {}, getTenantUsage) {
             serviceTimingEnabled: locationToUse.serviceTimingEnabled === true,
             isPrimary: locationToUse.isPrimary,
             isActive: locationToUse.isActive,
-            joinUrl: buildJoinUrl(env.appBaseUrl, tenant.slug, locationToUse.slug),
-            monitorUrl: locationToUse.queueBoardId ? `${env.appBaseUrl.replace(/\/+$/, "")}/queue-board/${locationToUse.queueBoardId}` : "",
+            joinUrl: buildJoinUrl(surfaceOrigins(env).customer, tenant.slug, locationToUse.slug),
+            monitorUrl: locationToUse.queueBoardId ? `${surfaceOrigins(env).vendor}/queue-board/${locationToUse.queueBoardId}` : "",
             openStatus,
             hours: hours.map((hour) => ({
               weekday: hour.weekday,

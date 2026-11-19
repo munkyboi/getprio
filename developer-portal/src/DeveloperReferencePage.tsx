@@ -1,3 +1,4 @@
+import { coreApiBase, sandboxApiBase } from "./surfaceUrls";
 import { useEffect, useState, type ReactElement } from "react";
 import { Button } from "@mantine/core";
 import { IconBuildingStore, IconLink, IconTicket, IconWebhook } from "@tabler/icons-react";
@@ -378,7 +379,7 @@ export default function DeveloperReferencePage() {
           <section>
             <BookmarkableHeading id="environments">Choose an environment</BookmarkableHeading>
             <p>Sandbox and Production are separate API surfaces with separate keys and data. Build and verify against Sandbox first; Production access requires the Developer Portal approval path.</p>
-            <div className="developer-reference-table-wrap"><table className="developer-reference-table"><caption>Environment endpoints</caption><thead><tr><th>Environment</th><th>Base URL</th><th>Use it for</th></tr></thead><tbody><tr><th scope="row">Sandbox</th><td><code>https://sandbox-api.getprio.online/v1</code></td><td>Integration tests and test accounts</td></tr><tr><th scope="row">Production</th><td><code>https://api.getprio.online/v1</code></td><td>Approved live applications</td></tr></tbody></table></div>
+            <div className="developer-reference-table-wrap"><table className="developer-reference-table"><caption>Environment endpoints</caption><thead><tr><th>Environment</th><th>Base URL</th><th>Use it for</th></tr></thead><tbody><tr><th scope="row">Sandbox</th><td><code>{sandboxApiBase}</code></td><td>Integration tests and test accounts</td></tr><tr><th scope="row">Production</th><td><code>{coreApiBase}</code></td><td>Approved live applications</td></tr></tbody></table></div>
             <p className="developer-reference-note">A Sandbox key sent to the Production host, or a Production key sent to Sandbox, is rejected as an invalid environment credential.</p>
           </section>
 
@@ -478,7 +479,7 @@ export default function DeveloperReferencePage() {
             const active = activeSection === id;
             return <a key={id} href={`#${id}`} onClick={() => setActiveSection(id)} className={active ? "is-active" : undefined} aria-current={active ? "location" : undefined}>{label}</a>;
           })}
-          <a className="developer-reference-openapi" href="https://api.getprio.online/v1/openapi.json">Download OpenAPI 3.1</a>
+          <a className="developer-reference-openapi" href={`${coreApiBase}/openapi.json`}>Download OpenAPI 3.1</a>
         </aside>
         </main>
       </DeveloperShell>

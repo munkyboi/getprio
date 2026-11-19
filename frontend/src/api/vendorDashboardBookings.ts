@@ -148,14 +148,14 @@ export function updateBookingStatus(
 ) {
   return apiRequest<VendorBookingResponse, UpdateVendorBookingStatusRequest>(
     `/vendor/tenant/${tenantSlug}/bookings/${bookingId}/status`,
-    { method: "PATCH", token, body: { status } }
+    { method: "PATCH", token, body: { status, requestKey:crypto.randomUUID() } }
   );
 }
 
 export function rescheduleBooking(token: string, tenantSlug: string, bookingId: string, scheduledStartAt: string) {
   return apiRequest<VendorBookingResponse, RescheduleVendorBookingRequest>(
     `/vendor/tenant/${tenantSlug}/bookings/${bookingId}/reschedule`,
-    { method: "PATCH", token, body: { scheduledStartAt } }
+    { method: "PATCH", token, body: { scheduledStartAt, requestKey:crypto.randomUUID() } }
   );
 }
 

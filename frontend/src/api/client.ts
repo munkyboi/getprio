@@ -1,3 +1,5 @@
+import type { PublicImageUploadPolicy } from "../../../shared/imageUploadPolicy";
+import { prepareImageUpload } from "../utils/prepareImageUpload";
 import { publicAuthPathAllowed } from "../../../shared/publicAuthPolicy";
 import { publicUniversalAuthEnabled } from "../surfaces/publicAuthEnabled";
 const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
@@ -31,8 +33,7 @@ const API_BASE_URL = resolveApiBaseUrl(
   Boolean(import.meta.env?.DEV || import.meta.env?.VITE_LOCAL_SURFACES === "1")
 );
 const publicMarketing = import.meta.env?.VITE_APP_SURFACE === "marketing";
-const browserCookiePrefix = import.meta.env?.VITE_BROWSER_COOKIE_PREFIX;
-const CSRF_STORAGE_KEY = browserCookiePrefix ? `${browserCookiePrefix}_prio_csrf` : "prio_csrf";
+const CSRF_STORAGE_KEY = `${import.meta.env?.VITE_BROWSER_COOKIE_PREFIX ? `${import.meta.env.VITE_BROWSER_COOKIE_PREFIX}_` : ""}prio_csrf`;
 
 type RefreshTokenHandler = () => Promise<string | null>;
 type AuthFailureHandler = () => void;
@@ -76,11 +77,18 @@ function readCsrfToken(): string {
 export class ApiError extends Error {
   readonly status: number;
 
-  constructor(message: string, status: number) {
+  constructor(message: string, status: number, readonly code?: string, readonly retryAt?: number) {
     super(message);
     this.name = "ApiError";
     this.status = status;
   }
+}
+
+export function retryAfterDeadline(value: string | null | undefined, now=Date.now()): number | undefined {
+  if (!value?.trim()) return undefined;
+  const seconds=Number(value);
+  const deadline=Number.isFinite(seconds) && seconds>=0 ? now+seconds*1000 : Date.parse(value);
+  return Number.isFinite(deadline) ? Math.max(now,deadline) : undefined;
 }
 
 export interface ApiRequestOptions<TBody = unknown> {
@@ -160,13 +168,13 @@ async function performRequest<TResponse, TBody>(path: string, options: ApiReques
     }
   }
 
-  const data = (await response.json().catch(() => ({}))) as { message?: string };
+  const data = (await response.json().catch(() => ({}))) as { message?: string; code?: string };
   rememberCsrfToken(data);
   if (!response.ok) {
     if (response.status === 401 && authFailureHandler && skipAuthRefresh) {
       authFailureHandler();
     }
-    throw new ApiError(data.message || "Request failed.", response.status);
+    throw new ApiError(data.message || "Request failed.", response.status, data.code, response.status === 429 ? retryAfterDeadline(response.headers?.get?.("Retry-After")) : undefined);
   }
 
   return data as TResponse;
@@ -176,6 +184,7 @@ export async function apiUpload<TResponse>(
   path: string,
   options: {
     body: BodyInit;
+    onPreparedImage?: (blob: Blob) => void;
     contentType: string;
     token?: string;
     signal?: AbortSignal;
@@ -183,12 +192,12 @@ export async function apiUpload<TResponse>(
     headers?: Record<string, string>;
   }
 ): Promise<TResponse> {
-  const { body, contentType, token, signal, skipAuthRefresh = false, headers = {} } = options;
+  const { contentType, token, signal, skipAuthRefresh = false, headers = {} } = options;
+  let body = options.body;
   if (contentType.startsWith("image/") && body instanceof Blob) {
-    const policy = await apiRequest<{ maxImageUploadKb: number; maxImageUploadBytes: number }>("/public/upload-policy", { signal });
-    if (body.size < 1 || body.size > policy.maxImageUploadBytes) {
-      throw new ApiError(`Image must be between 1 byte and ${policy.maxImageUploadKb} KB. Choose a smaller image or compress it before uploading.`, 400);
-    }
+    const policy = await apiRequest<PublicImageUploadPolicy>("/public/upload-policy", { signal });
+    try { body = await prepareImageUpload(body, policy.maxImageUploadBytes, signal); options.onPreparedImage?.(body); }
+    catch (error) { if (signal?.aborted) throw error; throw new ApiError(error instanceof Error ? error.message : "This image could not be prepared for upload.", 400); }
   }
   const makeRequest = async (authToken?: string) =>
     fetch(`${API_BASE_URL}${path}`, {
@@ -219,13 +228,13 @@ export async function apiUpload<TResponse>(
     }
   }
 
-  const data = (await response.json().catch(() => ({}))) as { message?: string };
+  const data = (await response.json().catch(() => ({}))) as { message?: string; code?: string };
   rememberCsrfToken(data);
   if (!response.ok) {
     if (response.status === 401 && authFailureHandler && skipAuthRefresh) {
       authFailureHandler();
     }
-    throw new ApiError(data.message || "Request failed.", response.status);
+    throw new ApiError(data.message || "Request failed.", response.status, data.code, response.status === 429 ? retryAfterDeadline(response.headers?.get?.("Retry-After")) : undefined);
   }
 
   return data as TResponse;

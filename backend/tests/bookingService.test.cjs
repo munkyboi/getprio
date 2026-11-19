@@ -160,6 +160,7 @@ function buildBookingService({
     publishSnapshot
   };
   const bookingService = requireWithMocks("../src/services/bookingService.js", {
+    "./queueTypeService": { execution: async () => ({ type: "simple", capabilities: { simple: true } }) },
     "../repositories/resourceLedger": {
       withSystemExpiryTransaction: async (_options, callback) => callback({query:async () => ({rows:[]})},{}),
       withScopeTransaction: scopedTransaction || (async (options, callback) => {

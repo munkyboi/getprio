@@ -133,7 +133,9 @@ test("vendor routes queue mutations invoke the queue service helpers", async () 
       },
       callNextTicket: async (...args) => {
         calls.push(["callNextTicket", args]);
-        return { ticket: { _id: "ticket-1", ticketNumber: "A001", status: "called" }, snapshot: { ok: true } };
+        return { ticket: { _id: "ticket-1", ticketNumber: "A001", status: "called" },
+          reservation: { id: "reservation-9", state: "protected", poolId: "pool-2", units: 1,
+            startsAt: "2026-10-15T02:00:00.000Z", endsAt: "2026-10-15T03:00:00.000Z" }, snapshot: { ok: true } };
       },
       confirmCurrentTicket: async (...args) => {
         calls.push(["confirmCurrentTicket", args]);
@@ -315,6 +317,11 @@ test("vendor routes queue mutations invoke the queue service helpers", async () 
       body: JSON.stringify({ counterSlug: "counter-1" })
     });
     assert.equal(callNextRes.status, 200);
+    const callNextBody = await callNextRes.json();
+    assert.deepEqual(callNextBody.ticket.serviceReservation, {
+      id: "reservation-9", state: "protected", poolId: "pool-2", units: 1,
+      startsAt: "2026-10-15T02:00:00.000Z", endsAt: "2026-10-15T03:00:00.000Z"
+    });
 
     const confirmCurrentRes = await fetch(`${baseUrl}/tenant/demo/queue/current/confirm?location=main`, {
       method: "POST",

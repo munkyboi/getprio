@@ -24,3 +24,11 @@ test("workspace navigation preserves approval/payment return queries and hash", 
 test("unavailable preference storage cannot block dashboard access", () => {
   assert.equal(readPreference("key", { getItem() { throw new Error("blocked"); } }), null);
 });
+
+test('Dashboard belongs to Operations for staff and appears before Live queue', () => {
+  assert.equal(sectionWorkspace('overview', 'administration', true), 'operations');
+  assert.equal(sectionWorkspace('overview', 'administration', false), 'operations');
+  const items = [{section:'overview'},{section:'queue'},{section:'settings'}];
+  assert.deepEqual(workspaceItems(items, 'operations'), items.slice(0,2));
+  assert.equal(workspacePath('overview','operations','?next=keep','#pool'), '/dashboard/overview?next=keep&workspace=operations#pool');
+});

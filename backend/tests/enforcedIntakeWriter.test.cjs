@@ -119,7 +119,9 @@ test('enforced vendor Queue Day writers use location-first PostgreSQL transactio
       CREATE TABLE tickets(id BIGINT PRIMARY KEY,tenant_id BIGINT,location_id BIGINT,status TEXT,current_queue_day_id BIGINT,
         carry_over_consumed BOOLEAN DEFAULT FALSE,notify_by_email BOOLEAN DEFAULT FALSE,user_id BIGINT,status_reason TEXT,
         pending_carry_over_since TIMESTAMPTZ,carry_over_expires_at TIMESTAMPTZ,unserved_at TIMESTAMPTZ,terminal_at TIMESTAMPTZ,updated_at TIMESTAMPTZ,service_started_at TIMESTAMPTZ,service_ended_at TIMESTAMPTZ,ticket_number TEXT,sequence INTEGER,date_key TEXT,queue_date_key TEXT,carried_over_at TIMESTAMPTZ,carry_over_count INTEGER DEFAULT 0,service_priority_band TEXT,UNIQUE(id,tenant_id,location_id));
-      CREATE TABLE bookings(id BIGINT PRIMARY KEY,queue_ticket_id BIGINT,status TEXT,fulfillment_outcome_reason TEXT,
+      CREATE TABLE queue_stage_attempts(id UUID PRIMARY KEY,ticket_id BIGINT,tenant_id BIGINT,location_id BIGINT,revision BIGINT,station_queue_sequence BIGINT,station_waiting_at TIMESTAMPTZ,station_queue_date_key TEXT,arrived_at TIMESTAMPTZ,arrival_contract_version INTEGER,state TEXT,started_at TIMESTAMPTZ);
+      CREATE TABLE ticket_service_plans(ticket_id BIGINT PRIMARY KEY,stage_attempt_id UUID,workflow_mode TEXT,ticket_revision BIGINT);
+      CREATE TABLE bookings(id BIGINT PRIMARY KEY,tenant_id BIGINT,location_id BIGINT,queue_ticket_id BIGINT,status TEXT,fulfillment_outcome_reason TEXT,
         refund_eligible BOOLEAN,fulfillment_resolved_at TIMESTAMPTZ,updated_at TIMESTAMPTZ);
       CREATE TABLE queue_ticket_segments(ticket_id BIGINT,queue_day_id BIGINT,priority_band TEXT,ended_at TIMESTAMPTZ,segment_outcome TEXT,outcome_reason TEXT,display_number TEXT,sequence INTEGER,UNIQUE(ticket_id,queue_day_id));
       CREATE TABLE queue_day_closures(id BIGINT PRIMARY KEY); CREATE TABLE queue_day_pauses(id BIGINT PRIMARY KEY);
@@ -132,6 +134,7 @@ test('enforced vendor Queue Day writers use location-first PostgreSQL transactio
       '20261007_add_resource_ledger_foundation.sql']) {
       await pool.query(fs.readFileSync(path.resolve(__dirname, '../../database/migrations', migration), 'utf8'));
     }
+    await pool.query('ALTER TABLE resource_ledger_reservations ADD COLUMN ticket_id BIGINT');
     async function pendingCarryOver() {
       await history();
       await pool.query("UPDATE tickets SET status='pending_carry_over',current_queue_day_id=NULL,carry_over_expires_at=clock_timestamp()+interval '1 hour' WHERE id=1; DELETE FROM queue_ticket_segments");

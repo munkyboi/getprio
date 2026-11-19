@@ -13,9 +13,12 @@ dotenv.config({ path: rootEnvPath });
 
 const backendEnvPath = path.resolve(__dirname, "../../.env");
 dotenv.config({ path: backendEnvPath, override: false });
-// Worktree-local overrides are ignored by git and loaded last.
-dotenv.config({ path: path.resolve(__dirname, "../../../.env.local"), override: true });
-dotenv.config({ path: path.resolve(__dirname, "../../.env.local"), override: true });
+// Explicit local surface profiles are fully pinned by the guarded launcher.
+// Re-reading an overriding worktree file after validation would change its identity.
+if (!process.env.LOCAL_API_PROFILE) {
+  dotenv.config({ path: path.resolve(__dirname, "../../../.env.local"), override: true });
+  dotenv.config({ path: path.resolve(__dirname, "../../.env.local"), override: true });
+}
 
 export const port = Number(process.env.PORT || process.env.BACKEND_PORT || 5001);
 const frontendPort = Number(process.env.FRONTEND_PORT || 5173);
@@ -35,6 +38,11 @@ export const jwtSecret = process.env.JWT_SECRET || "change-me";
 export const serverUrl = process.env.SERVER_URL || `http://localhost:${port}`;
 export const clientUrl = process.env.CLIENT_URL || `http://localhost:${frontendPort}`;
 export const appBaseUrl = process.env.APP_BASE_URL || `http://localhost:${frontendPort}`;
+export const customerAppUrl = process.env.CUSTOMER_APP_URL || "";
+export const vendorAppUrl = process.env.VENDOR_APP_URL || "";
+export const marketingUrl = process.env.MARKETING_URL || "";
+export const localApiProfile = process.env.LOCAL_API_PROFILE || "";
+export const localApiOrigin = process.env.LOCAL_API_ORIGIN || "";
 export const emailAssetBaseUrl = process.env.EMAIL_ASSET_BASE_URL || appBaseUrl;
 export const mobileQrBaseUrl = resolveMobileQrBaseUrl(process.env, appBaseUrl, frontendPort);
 export const mobilePaymentReturnUrl = process.env.MOBILE_PAYMENT_RETURN_URL || "";
@@ -189,6 +197,11 @@ const env = {
   serverUrl,
   clientUrl,
   appBaseUrl,
+  customerAppUrl,
+  vendorAppUrl,
+  marketingUrl,
+  localApiProfile,
+  localApiOrigin,
   emailAssetBaseUrl,
   mobileQrBaseUrl,
   mobilePaymentReturnUrl,

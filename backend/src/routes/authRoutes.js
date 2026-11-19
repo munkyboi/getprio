@@ -1,4 +1,5 @@
-const { getPostOauthPath, normalizeOAuthSurface } = require("../services/oauthDestination");
+const { authSurface, safeReturnPath } = require("../services/browserSurfaceUrls");
+const { getPostOauthPath } = require("../services/oauthDestination");
 const queueBoardReturnPath = require("../services/queueBoardReturnPath");
 const businessCategories = require("../repositories/businessCategories");
 const express = require("express");
@@ -49,7 +50,7 @@ const {
 const router = express.Router();
 const authHttpLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  limit: 100,
+  limit: Math.max(1, env.authHttpRateLimit || 100),
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: (req) => ipKeyGenerator(req.ip || req.socket?.remoteAddress || "unknown"),
@@ -61,7 +62,7 @@ const OAUTH_INTENTS = new Set(["login", "register_customer", "register_vendor"])
 const normalizeEmail = authService.normalizeEmail;
 const authAttemptLimiter = asyncHandler(async (req, _res, next) => {
   const key = crypto.createHash("sha256").update(String(req.ip || req.socket?.remoteAddress || "unknown")).digest("hex");
-  await securityRateLimitService.consume({ bucketKey: `auth-attempt:${key}`, limit: 100, windowSeconds: 15 * 60, blockedMessage: "Too many authentication attempts. Please try again later." });
+  await securityRateLimitService.consume({ bucketKey: `auth-attempt:${key}`, limit: Math.max(1, env.authAttemptRateLimit || 100), windowSeconds: 15 * 60, blockedMessage: "Too many authentication attempts. Please try again later." });
   next();
 });
 const customerRegistrationOtpLimiter = rateLimit({
@@ -358,8 +359,8 @@ async function findOrCreateOauthUser(profile) {
 }
 
 
-function redirectOauthError(res, message) {
-  const callbackUrl = buildClientCallbackUrl({ error: message });
+function redirectOauthError(res, message, surface) {
+  const callbackUrl = buildClientCallbackUrl({ error: message, surface });
   if (!callbackUrl) {
     const error = new Error("Unable to build OAuth callback URL.");
     error.statusCode = 500;
@@ -510,15 +511,17 @@ router.post(
 router.get("/oauth/:provider/start", (req, res) => {
   const provider = String(req.params.provider || "").toLowerCase();
   const intent = String(req.query.intent || "login");
+  let surface;
 
   try {
+    surface = authSurface(req.query.surface, intent);
     ensureSupportedProvider(provider);
     ensureValidIntent(intent);
 
-    const state = createOAuthState({ provider, intent, surface: normalizeOAuthSurface(req.query.surface), next: intent === "login" ? queueBoardReturnPath(req.query.next) : null });
+    const state = createOAuthState({ provider, intent, surface, next: surface ? safeReturnPath(req.query.next, surface) : intent === "login" ? queueBoardReturnPath(req.query.next) : null });
     res.redirect(buildAuthorizationUrl(provider, state));
   } catch (error) {
-    redirectOauthError(res, error.message || "Unable to start social sign-in.");
+    redirectOauthError(res, error.message || "Unable to start social sign-in.", surface);
   }
 });
 
@@ -528,6 +531,7 @@ router.all("/oauth/:provider/callback", async (req, res) => {
   const providerErrorReason = req.method === "POST" ? req.body.error_description : req.query.error_description;
   const stateValue = req.method === "POST" ? req.body.state : req.query.state;
   const code = req.method === "POST" ? req.body.code : req.query.code;
+  let surface;
 
   try {
     ensureSupportedProvider(provider);
@@ -537,6 +541,7 @@ router.all("/oauth/:provider/callback", async (req, res) => {
     }
 
     const oauthState = readOAuthState(stateValue);
+    surface = authSurface(oauthState.surface, oauthState.intent);
     ensureValidIntent(oauthState.intent);
 
     if (oauthState.provider !== provider) {
@@ -550,7 +555,9 @@ router.all("/oauth/:provider/callback", async (req, res) => {
     });
 
     const { user, created } = await findOrCreateOauthUser(profile);
-    const next = (oauthState.intent === "login" && queueBoardReturnPath(oauthState.next)) || getPostOauthPath(oauthState.intent, provider, user, oauthState.surface);
+    const next = surface === "customer" ? safeReturnPath(oauthState.next, "customer") || "/account/dashboard"
+      : surface === "vendor" ? safeReturnPath(oauthState.next, "vendor") || getPostOauthPath(oauthState.intent, provider, user, surface)
+      : (oauthState.intent === "login" && queueBoardReturnPath(oauthState.next)) || getPostOauthPath(oauthState.intent, provider, user, surface);
     const sessionResult = await sessionService.createAuthSession({
       user,
       authMethod: getAuthMethodForProvider(provider),
@@ -574,14 +581,14 @@ router.all("/oauth/:provider/callback", async (req, res) => {
 
     res.redirect(
       buildClientCallbackUrl({
-        next
+        next, ...(surface ? { surface } : {})
       })
     );
     if (created && oauthState.intent !== "register_vendor") {
       await welcomeEmailService.sendWelcomeEmail({ user });
     }
   } catch (error) {
-    redirectOauthError(res, error.message || "Social sign-in failed.");
+    redirectOauthError(res, error.message || "Social sign-in failed.", surface);
   }
 });
 
@@ -1279,7 +1286,8 @@ router.post(
           user,
           req,
           client,
-          next: req.body.next
+          next: req.body.next,
+          surface: authSurface(req.body.surface)
         });
       });
 

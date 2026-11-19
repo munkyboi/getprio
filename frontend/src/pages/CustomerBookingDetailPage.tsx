@@ -500,7 +500,7 @@ export default function CustomerBookingDetailPage() {
   const bookingTotalFeeCents = groupFundedCampaign
     ? fundingTargetAmountCents
     : bookingServiceItems.reduce((total, item) => total + Number(item.priceAmountCents || 0), 0);
-  const bookingTotalFeeDisplay = formatPaymentAmount(
+  const bookingTotalFeeDisplay = booking.resourceSelection?"Amount confirmed by vendor":formatPaymentAmount(
     bookingTotalFeeCents,
     groupFundedCampaign?.currency || booking.serviceCurrency
   );
@@ -569,6 +569,7 @@ export default function CustomerBookingDetailPage() {
 
               <Paper className="booking-detail-services-card" p="md">
                 <Stack gap="sm">
+                  {booking.resourceSelection?<Stack gap="xs">{booking.resourceSelection.warning?<Alert color="yellow">{booking.resourceSelection.warning}</Alert>:null}{booking.resourceSelection.services.map((service,index)=><div key={index}><Text fw={600}>{service.name}</Text>{service.resources.map((resource,i)=><Text key={i} size="sm">{resource.name} · {resource.quantity} × {resource.durationMinutes} minutes{resource.extras.map(extra=>` · ${extra.name}: ${extra.quantity} × ${extra.durationMinutes} minutes`).join('')}</Text>)}</div>)}</Stack>:null}
                   <Text className="finazze-section-label">{bookingServiceModeLabel}</Text>
                   {bookingServiceItemsWithImages.map((item, index) => (
                     <Paper className="group-funded-bundle-item" key={`${item.serviceName}-${index}`} p="sm">
@@ -590,7 +591,7 @@ export default function CustomerBookingDetailPage() {
                             <Badge variant="light">x{item.bookingQuantity}</Badge>
                           </Group>
                           <Text c="dimmed" size="sm">
-                            {formatBookingScheduleTimeRange(item.scheduledStartAt, item.scheduledEndAt)} · {formatPaymentAmount(item.priceAmountCents, item.currency)}
+                            {formatBookingScheduleTimeRange(item.scheduledStartAt, item.scheduledEndAt)} · {booking.resourceSelection?"Amount confirmed by vendor":formatPaymentAmount(item.priceAmountCents, item.currency)}
                           </Text>
                         </Stack>
                       </Group>
@@ -797,7 +798,7 @@ export default function CustomerBookingDetailPage() {
                         <Text c="dimmed" size="sm">{manualPaymentDestination.accountIdentifierDisplay}</Text>
                       ) : null}
                       <Text fw={700} mt="xs">
-                        Total payable: {formatPaymentAmount(manualPaymentDestination.amountCents, manualPaymentDestination.currency)}
+                        {manualPaymentDestination.amountCents === null ? 'Amount confirmed by the vendor. Please confirm the amount before paying.' : `Total payable: ${formatPaymentAmount(manualPaymentDestination.amountCents, manualPaymentDestination.currency)}`}
                       </Text>
                       <Text c="dimmed" size="sm">
                         {manualPaymentDestination.unitPriceDisplay} x {booking.bookingQuantity}

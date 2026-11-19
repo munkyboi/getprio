@@ -51,6 +51,7 @@ function buildService(overrides = {}) {
       activateTenantSubscription: async (data) => ({ _id: "subscription-1", ...data }),
       recordBillingEvent: async () => ({ _id: "event-1" })
     },
+    "./entitlementResolver": { resolveTenantPolicy: async () => ({features:{resourceQueue:{enabled:false},workflowQueue:{enabled:false}}}) },
     "./subscriptionPlans": {
       findPlanBySlug: async (slug) => ({
         slug,
@@ -268,13 +269,19 @@ test("entitlement reads preserve the caller client through the plan service wrap
         return { status: "active", planSlug: "pro", entitlements: { staffSeats: 5 } };
       }
     },
-    "./subscriptionPlans": plans
+    "./subscriptionPlans": plans,
+    "./entitlementResolver": {resolveTenantPolicy: async (tenantId,supplied) => {
+      calls.push(["resolver",tenantId,supplied]);
+      return {features:{resourceQueue:{enabled:false},workflowQueue:{enabled:true}}};
+    }}
   });
   const result = await service.getTenantEntitlements("9007199254740993", options);
   assert.equal(result.staffSeats, 5);
   assert.equal(result.emailAlerts, true);
+  assert.equal(result.resourceQueueAccess, false);
+  assert.equal(result.workflowQueueAccess, true);
   assert.equal(Object.hasOwn(result, "monthlyTransactionalEmails"), false);
-  assert.deepEqual(calls.map(call => call.slice(0, 2)), [["subscription", "9007199254740993"], ["plan", "pro"]]);
+  assert.deepEqual(calls.map(call => call.slice(0, 2)), [["subscription", "9007199254740993"], ["plan", "pro"], ["resolver", "9007199254740993"]]);
   for (const call of calls) assert.equal(call[2], options);
 });
 
@@ -340,4 +347,13 @@ test("entitlement services read caller-private PostgreSQL changes and preserve r
   assert.equal(result.emailAlerts, true);
   await client.query("ROLLBACK");
   assert.equal((await client.query("SELECT EXISTS(SELECT 1 FROM pg_namespace WHERE nspname=$1) AS exists", [schema])).rows[0].exists, false);
+});
+
+
+test("advanced queue entitlements use current resolved policy over a stale subscription",async()=>{
+ const service=buildService({
+  "../repositories/billing":{getActiveSubscriptionByTenantId:async()=>({status:"active",planSlug:"pro",entitlements:{resourceQueueAccess:true,workflowQueueAccess:true}})},
+  "./entitlementResolver":{resolveTenantPolicy:async()=>({features:{resourceQueue:{enabled:false},workflowQueue:{enabled:false}}})}
+ });
+ const result=await service.getTenantEntitlements("1");assert.equal(result.resourceQueueAccess,false);assert.equal(result.workflowQueueAccess,false);
 });

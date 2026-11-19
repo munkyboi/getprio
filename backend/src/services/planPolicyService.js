@@ -37,6 +37,16 @@ function validatePlanMutation(plan) {
     error.code = "FREE_QUEUE_REQUIRED";
     throw error;
   }
+  for (const key of ["resourceQueue", "workflowQueue"]) {
+    if (features[key] !== undefined && typeof features[key] !== "boolean") {
+      const error = new Error(`${key} must be a boolean.`);
+      error.statusCode = 400; error.code = "QUEUE_TYPE_CAPABILITY_INVALID"; throw error;
+    }
+    if (features[key] === true && features.queue !== true) {
+      const error = new Error("Advanced queue types require Simple Queue access.");
+      error.statusCode = 400; error.code = "QUEUE_TYPE_QUEUE_DEPENDENCY"; throw error;
+    }
+  }
   if (features.campaigns && !features.booking) {
     const error = new Error("Group-funded campaigns require Service Booking Access.");
     error.statusCode = 400;

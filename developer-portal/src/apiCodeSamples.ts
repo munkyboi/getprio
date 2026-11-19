@@ -1,3 +1,4 @@
+import { sandboxApiBase } from "./surfaceUrls";
 export const codeLanguages = ["cURL", "JavaScript", "Python", "Java", "Go", "Kotlin", "Objective-C", "PHP", "ASP", "Ruby", "Swift"] as const;
 export type CodeLanguage = typeof codeLanguages[number];
 export type CodeSamples = Partial<Record<CodeLanguage, string>>;
@@ -15,7 +16,7 @@ function csharpValue(value: unknown): string {
   return JSON.stringify(value);
 }
 
-const apiBase = "https://sandbox-api.getprio.online/v1";
+const apiBase = sandboxApiBase;
 
 export function requestSamples({ method, path, body, idempotencyKey }: RequestSampleOptions): CodeSamples {
   const url = apiBase + path;

@@ -8,6 +8,7 @@ function conflict(message) {
 }
 
 async function reserveCreatedBooking({ client, ledger, booking }) {
+  if(booking.selectionContractVersion===4)return; // Future V4 protection begins at confirmation only.
   const scope = [booking.tenantId, booking.locationId];
   const tracking = await client.query(`SELECT EXISTS (SELECT 1 FROM location_resource_pools
     WHERE tenant_id=$1 AND location_id=$2 AND tracking_enabled=TRUE) AS enabled`, scope);
@@ -33,6 +34,7 @@ async function reserveCreatedBooking({ client, ledger, booking }) {
 }
 
 async function cancelBookingReservations({ client, ledger, booking, operation = "cancel" }) {
+  if(booking.selectionContractVersion===4)return require("./bookingSelectionServiceV4").cancel(client,booking,operation);
   // Existing immutable bindings survive configuration edits or tracking changes.
   const bindings = await client.query(`SELECT id::text,state FROM resource_ledger_reservations
     WHERE tenant_id=$1 AND location_id=$2 AND booking_id=$3 AND state IN ('protected','converted')
@@ -83,6 +85,7 @@ async function currentProtectedItem({ client, booking }) {
 }
 
 async function assertBookingReservationCurrent(options) {
+  if(options.booking.selectionContractVersion===4)return require("./bookingSelectionServiceV4").assertCurrentProtection(options.client,options.booking);
   await currentProtectedItem(options);
 }
 

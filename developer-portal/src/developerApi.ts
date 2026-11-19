@@ -52,7 +52,17 @@ export class DeveloperApiError extends Error {
 // local developer service. The standalone production portal is hosted on a
 // separate origin, so its default must point at the public API service.
 const defaultApiOrigin = import.meta.env.DEV ? "" : "https://api.getprio.online";
-const apiBase = (import.meta.env.VITE_DEVELOPER_API_ORIGIN || defaultApiOrigin).replace(/\/$/, "");
+function portalApiOrigin() {
+  const configured = (import.meta.env.VITE_DEVELOPER_API_ORIGIN || defaultApiOrigin).replace(/\/$/, "");
+  if (import.meta.env.VITE_LOCAL_SURFACES === "1" && typeof window !== "undefined" && ["localhost", "127.0.0.1"].includes(window.location.hostname)) {
+    const url = new URL(configured);
+    if (url.protocol !== "http:" || !["localhost", "127.0.0.1"].includes(url.hostname)) throw new Error("Local portal requires an explicit loopback API origin.");
+    url.hostname = window.location.hostname;
+    return url.origin;
+  }
+  return configured;
+}
+const apiBase = portalApiOrigin();
 let csrfTokenCache: string | undefined;
 let refreshInFlight: Promise<string | undefined> | undefined;
 

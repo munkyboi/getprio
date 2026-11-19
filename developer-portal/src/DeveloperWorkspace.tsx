@@ -1,3 +1,4 @@
+import { sandboxApiBase } from "./surfaceUrls";
 import { Fragment, useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Badge, Button, FloatingIndicator, Modal, Paper, Select, Switch, Textarea, TextInput } from "@mantine/core";
 import { IconBrandAndroid, IconBrandApple, IconCheck, IconCopy, IconDownload, IconExternalLink, IconKey, IconPencil, IconPlus, IconRefresh, IconWebhook, IconX } from "@tabler/icons-react";
@@ -171,7 +172,7 @@ function ApiKeyCreatePage({ project, profiles, busy, onCreate, onBack, onDirtyCh
       <p className="developer-workspace-key-note">API actions do not grant portal billing, team management or webhook administration access.</p>
       <div className="dpp-key-create-action"><Button type="submit" className="developer-workspace-primary" loading={busy === "key"} disabled={!selectedScopes.length || (profileAccess === "selected" && !selectedProfiles.length) || busy === "key"} leftSection={<IconKey size={16} />}>Generate Sandbox key</Button></div>
       <p>Base URL</p>
-      <code>https://sandbox-api.getprio.online/v1</code>
+      <code>{sandboxApiBase}</code>
     </Paper>
   </section>;
 }

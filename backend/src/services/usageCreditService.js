@@ -2,6 +2,7 @@ const { activeAllowances } = require("../domain/activePlanQuotas");
 const crypto = require("node:crypto");
 const db = require("../config/db");
 const env = require("../config/env");
+const { surfaceOrigins, surfaceOriginSet } = require("./browserSurfaceUrls");
 const releaseControls = require("../config/releaseControls");
 const repository = require("../repositories/usageCredits");
 const allowanceLedgerRepository = require("../repositories/allowanceLedger");
@@ -185,7 +186,8 @@ async function createCheckout({ tenant, user, packCode, purchaseKey, requestOrig
   const purchase = await repository.createPurchase({ tenantId: tenant._id, packId: pack.id, packRevisionId: pack.revision_id, purchaseKey, ticketUnits: pack.ticket_units, journeyUnits: pack.journey_units, amountCents: pack.price_cents, currency: pack.currency, provider: "paymongo", actorId: user._id });
   if (String(purchase.pack_id) !== String(pack.id)) throw Object.assign(new Error("This purchase key belongs to another credit pack."), { statusCode: 409, code: "CREDIT_PURCHASE_KEY_CONFLICT" });
   if (purchase.provider_checkout_id) return { purchaseId: String(purchase.id), checkoutUrl: purchase.checkout_url };
-  const origin = [env.clientUrl, env.appBaseUrl].map((v) => String(v || "").replace(/\/$/, "")).includes(String(requestOrigin || "").replace(/\/$/, "")) ? String(requestOrigin).replace(/\/$/, "") : String(env.clientUrl).replace(/\/$/, "");
+  const requestedOrigin = String(requestOrigin || "").replace(/\/$/, "");
+  const origin = surfaceOriginSet(env, "vendor").has(requestedOrigin) ? requestedOrigin : surfaceOrigins(env).vendor;
   const returnParams = new URLSearchParams({ credits: "success", purchase: String(purchase.id) });
   const body = { data: { attributes: {
     description: `${pack.name} for ${tenant.name}`,

@@ -5,6 +5,11 @@ async function getImageUploadPolicy() {
   return { maxImageBytes: limitKb * 1024 };
 }
 
+async function getPublicImageUploadPolicy() {
+  const { maxImageBytes } = await getImageUploadPolicy();
+  return { maxImageUploadKb: maxImageBytes / 1024, maxImageUploadBytes: maxImageBytes };
+}
+
 async function assertImageUploadSize(sizeBytes) {
   const { maxImageBytes } = await getImageUploadPolicy();
   if (!Number.isInteger(sizeBytes) || sizeBytes < 1 || sizeBytes > maxImageBytes) {
@@ -16,4 +21,4 @@ async function assertImageUploadSize(sizeBytes) {
   }
 }
 
-module.exports = { getImageUploadPolicy, assertImageUploadSize };
+module.exports = { getImageUploadPolicy, getPublicImageUploadPolicy, assertImageUploadSize };

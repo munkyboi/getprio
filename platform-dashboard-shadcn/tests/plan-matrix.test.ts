@@ -34,3 +34,19 @@ test("Plan Matrix preserves review gates, audits reasons, and keeps credit catal
   assert.match(matrix, /Review and publish/)
   assert.doesNotMatch(matrix, /Usage Credit catalog|CreditTaskModal/)
 })
+
+test("Simple queue setup and paid booking policy remain independently editable", () => {
+  assert.match(matrix, /Simple queue and service setup/)
+  assert.match(matrix, /Bookings, schedules and payment settings/)
+  assert.match(matrix, /Setup does not use ticket credits/)
+  assert.match(matrix, /key === "queue" && plan.slug === "free"/)
+  assert.match(matrix, /key === "booking" && !checked/)
+  assert.doesNotMatch(matrix, /queueServiceSetupAccess|queueServiceCredits/)
+})
+
+test('queue type features are separately editable from booking', () => {
+  const source = readFileSync(new URL('../src/components/plan-matrix.tsx', import.meta.url), 'utf8')
+  assert.ok(source.includes('["resourceQueue", "Resource queue"]'))
+  assert.ok(source.includes('["workflowQueue", "Workflow queue"]'))
+  assert.ok(source.includes('["booking", "Bookings, schedules and payment settings"]'))
+})

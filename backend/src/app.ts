@@ -1,4 +1,5 @@
 import express from "express";
+import { createRequire } from "node:module";
 import cors from "cors";
 import morgan from "morgan";
 import { ipKeyGenerator, rateLimit } from "express-rate-limit";
@@ -18,6 +19,7 @@ import mobileSandboxAuthRoutes from "./routes/mobileSandboxAuthRoutes";
 import mobileTicketLinkRoutes from "./routes/mobileTicketLinkRoutes";
 import mobileTicketRoutes from "./routes/mobileTicketRoutes";
 import vendorRoutes from "./routes/vendorRoutes";
+import localPoolDemoScopeModule from "./services/localPoolDemoScope";
 import developerApiRoutes from "./routes/developerApiRoutes";
 import developerAuthRoutes from "./routes/developerAuthRoutes";
 import developerProjectRoutes from "./routes/developerProjectRoutes";
@@ -25,43 +27,20 @@ import errorHandler from "./middleware/errorHandler";
 import requestContextModule from "./middleware/requestContext";
 import csrfProtectionModule from "./middleware/csrfProtection";
 import requestLogPathModule from "./middleware/requestLogPath";
+import browserSurfaceUrlsModule from "./services/browserSurfaceUrls";
+import developerApiEnvironmentModule from "./services/developerApiEnvironment";
 
-function normalizeOrigin(origin?: string): string {
-  return String(origin || "").replace(/\/$/, "");
-}
-
-function buildAllowedOrigins(): Set<string> {
-  const origins = new Set<string>();
-  const configuredOrigins = [env.clientUrl, env.appBaseUrl, env.platformDashboardUrl, env.developerPortalUrl]
-    .filter(Boolean)
-    .map((origin) => normalizeOrigin(origin));
-
-  for (const origin of configuredOrigins) {
-    origins.add(origin);
-
-    try {
-      const url = new URL(origin);
-      if (!url.port) {
-        continue;
-      }
-
-      origins.add(`${url.protocol}//localhost:${url.port}`);
-      origins.add(`${url.protocol}//127.0.0.1:${url.port}`);
-    } catch {
-      // Ignore invalid URLs and keep the configured value only.
-    }
-  }
-
-  return origins;
-}
-
-const allowedOrigins = buildAllowedOrigins();
+const allowedOrigins = browserSurfaceUrlsModule.browserAllowedOrigins(env);
 const app = express();
+app.use(developerApiEnvironmentModule.localApiRequestGuard());
 const { createRequestContextMiddleware } = requestContextModule;
 const { createCsrfProtection } = csrfProtectionModule;
 const apiRateLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  limit: 1_000,
+  // The disposable local preview may have several browser tabs open while
+  // validating the dashboard. Keep production protection unchanged, but do
+  // not let the preview throttle its own read-only polling.
+  limit: localPoolDemoScopeModule.localPoolDemoConfiguration() ? 10_000 : 1_000,
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: (req) => ipKeyGenerator(req.ip || req.socket.remoteAddress || "unknown"),
@@ -69,21 +48,11 @@ const apiRateLimiter = rateLimit({
 });
 
 app.use(createRequestContextMiddleware({ rolloutCohort: env.rolloutCohort }));
+
+app.use(browserSurfaceUrlsModule.createBrowserCorsMiddleware(env, cors));
+// Allowed browser clients must be able to read throttling responses and honor
+// Retry-After. CORS also completes preflights without consuming API quota.
 app.use("/api", apiRateLimiter);
-
-app.use(
-  cors({
-    origin(origin, callback) {
-      if (!origin || allowedOrigins.has(normalizeOrigin(origin))) {
-        callback(null, true);
-        return;
-      }
-
-      callback(new Error("Origin not allowed by CORS."));
-    },
-    credentials: true
-  })
-);
 app.use("/api/billing/webhooks", paymongoWebhookRoutes);
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
@@ -129,6 +98,13 @@ app.use("/api/mobile", mobileQueueJoinRoutes);
 app.use("/api/queue-board", queueBoardRoutes.publicRouter);
 app.use("/api/vendor", queueBoardRoutes.vendorRouter);
 app.use("/api/vendor", vendorRoutes);
+if (localPoolDemoScopeModule.localPoolDemoConfiguration()) {
+  const loadLocalRoute = createRequire(__filename);
+  app.use("/api/vendor", loadLocalRoute("./routes/localResourceOperationsRoutes"));
+  if (process.env.LOCAL_IMAGE_STORAGE_ENABLED === "1") {
+    app.use("/api/local-image-assets", loadLocalRoute("./routes/localImageRoutes"));
+  }
+}
 app.use("/v1", developerApiRoutes);
 
 // Keep the legacy namespace available while first-party clients migrate to v1.

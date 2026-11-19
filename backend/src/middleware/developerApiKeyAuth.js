@@ -3,21 +3,7 @@ const developerApiKeyActivity = require("../repositories/developerApiKeyActivity
 const developerApiRateLimits = require("../repositories/developerApiRateLimits");
 const { hashApiKey } = require("../services/developerApiKeyService");
 
-const ENVIRONMENT_HOSTS = Object.freeze({
-  production: new Set(["api.getprio.online"]),
-  sandbox: new Set(["sandbox-api.getprio.online"])
-});
-
-function getApiEnvironment(req) {
-  const hostname = String(req.hostname || req.headers.host || "")
-    .trim()
-    .toLowerCase()
-    .split(":")[0];
-  for (const [environment, hosts] of Object.entries(ENVIRONMENT_HOSTS)) {
-    if (hosts.has(hostname)) return environment;
-  }
-  return "unknown";
-}
+const { resolveDeveloperApiEnvironment: getApiEnvironment } = require("../services/developerApiEnvironment");
 
 function authenticationError(message, code, statusCode = 401) {
   const error = new Error(message);

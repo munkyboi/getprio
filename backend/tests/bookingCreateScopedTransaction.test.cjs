@@ -57,6 +57,8 @@ test('customer booking creation under real scoped PostgreSQL transaction', { ski
       CREATE TABLE service_counters(id BIGINT,tenant_id BIGINT,location_id BIGINT,is_active BOOLEAN);
       CREATE TABLE service_counter_assignments(user_id BIGINT,counter_id BIGINT);
       CREATE TABLE store_locations(id BIGINT PRIMARY KEY,tenant_id BIGINT,UNIQUE(id,tenant_id));
+      CREATE TABLE queue_workflow_versions(tenant_id BIGINT,location_id BIGINT,revision BIGINT,mode TEXT,stations JSONB,stages JSONB,actor_role TEXT,PRIMARY KEY(tenant_id,location_id,revision));
+      CREATE TABLE queue_workflow_configurations(tenant_id BIGINT,location_id BIGINT,revision BIGINT,PRIMARY KEY(tenant_id,location_id));
       CREATE TABLE bookings(id BIGSERIAL PRIMARY KEY,tenant_id BIGINT,location_id BIGINT,
         starts_at TIMESTAMPTZ,ends_at TIMESTAMPTZ,status TEXT,customer_user_id BIGINT,
         checked_in_at TIMESTAMPTZ,queue_ticket_id BIGINT,pending_expires_at TIMESTAMPTZ,payment_proof_object_key TEXT,expired_at TIMESTAMPTZ,expiration_reason TEXT,payment_data JSONB NOT NULL DEFAULT '{}');
@@ -69,7 +71,7 @@ test('customer booking creation under real scoped PostgreSQL transaction', { ski
         pool_id BIGINT,units_required INTEGER,revision INTEGER);
       CREATE TABLE tickets(id BIGSERIAL PRIMARY KEY,tenant_id BIGINT,location_id BIGINT,UNIQUE(id,tenant_id,location_id));
       CREATE TABLE ticket_service_plans(ticket_id BIGINT PRIMARY KEY,tenant_id BIGINT,location_id BIGINT,
-        source TEXT,booking_id BIGINT,execution_mode TEXT,items JSONB,created_by_user_id BIGINT);
+        source TEXT,booking_id BIGINT,execution_mode TEXT,items JSONB,created_by_user_id BIGINT,workflow_configuration_revision BIGINT DEFAULT 1,workflow_mode TEXT DEFAULT 'linear');
       CREATE TABLE allowances(booking_id BIGINT);
       CREATE TABLE booking_sms_alert_payments(id BIGSERIAL PRIMARY KEY,tenant_id BIGINT,booking_otp_id BIGINT,plan_slug TEXT,provider TEXT,provider_checkout_session_id TEXT,provider_payment_id TEXT,status TEXT DEFAULT 'pending',amount_cents INTEGER,currency TEXT,payload JSONB DEFAULT '{}',metadata JSONB DEFAULT '{}',paid_at TIMESTAMPTZ,checkout_url TEXT,created_at TIMESTAMPTZ DEFAULT NOW(),updated_at TIMESTAMPTZ DEFAULT NOW(),UNIQUE(tenant_id,booking_otp_id));
       INSERT INTO users(id) VALUES(1),(2); INSERT INTO tenant_memberships(user_id,tenant_id,role,is_active) VALUES(2,1,'owner',TRUE); INSERT INTO store_locations VALUES(10,1)`);
@@ -79,6 +81,7 @@ test('customer booking creation under real scoped PostgreSQL transaction', { ski
     const paymentService = loadModuleWithMocks(require.resolve('../src/services/bookingSmsAlertPaymentService'), { '../config/db':{pool}, '../repositories/bookingSmsAlertPayments':paymentRepository });
     const bookingService = loadService({
       '../config/db': { pool },
+      './queueTypeService': { execution: async () => ({ type: 'simple', capabilities: { simple: true } }) },
       '../repositories/bookings': {
         expirePendingBookings: require('../src/repositories/bookings').expirePendingBookings,
         getPendingBookingExpiryCutoff: () => require('../src/repositories/bookings').getPendingBookingExpiryCutoff({client:pool}),

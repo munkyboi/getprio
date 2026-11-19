@@ -1,3 +1,5 @@
+const queueJourneyProjection = require("../services/queueJourneyPublicProjection");
+const { getPublicImageUploadPolicy } = require("../services/imageUploadPolicy");
 const { isValidContactEmail } = require("../utils/email");
 const businessCategories = require("../repositories/businessCategories");
 const platformHelpCenter = require("../repositories/platformHelpCenter");
@@ -41,8 +43,8 @@ router.get('/maintenance', asyncHandler(async (_req, res) => {
   return res.json(await require('../services/platformMaintenanceService').publicStatus());
 }));
 router.get("/upload-policy", asyncHandler(async (_req, res) => {
-  const maxImageUploadKb = await platformRepository.getImageUploadLimitKb();
-  res.set("Cache-Control", "no-store").json({ maxImageUploadKb, maxImageUploadBytes: maxImageUploadKb * 1024 });
+  res.set("Cache-Control", "no-store");
+  res.json(await getPublicImageUploadPolicy());
 }));
 router.get("/business-categories", asyncHandler(async (_req, res) => res.json({ items: await businessCategories.list() })));
 router.get("/help-center", asyncHandler(async (_req, res) => {
@@ -479,6 +481,7 @@ router.get(
     const tenant = await getTenantOrThrow(req.params.tenantSlug);
     const location = await getLocationOrPrimary(tenant, req.params.locationSlug);
     const lookupCode = String(req.query.lookupCode || "").trim().toUpperCase();
+    let authorizedJourneyTicket;
     if (lookupCode) {
       const ticket = await ticketRepository.findTicketByTenantAndLookupCode(
         tenant._id,
@@ -490,6 +493,7 @@ router.get(
         throw error;
       }
       assertQueueTicketDetailsAccess(req, ticket);
+      authorizedJourneyTicket=ticket;
     }
 
     const snapshot = await getQueueSnapshot(tenant, {
@@ -503,7 +507,7 @@ router.get(
       throw error;
     }
 
-    res.json(lookupCode ? withoutStaffServiceTiming(snapshot) : formatPublicQueueSnapshot(snapshot));
+    res.json(lookupCode ? await queueJourneyProjection.attach(withoutStaffServiceTiming(snapshot),authorizedJourneyTicket) : formatPublicQueueSnapshot(snapshot));
   })
 );
 
@@ -656,7 +660,7 @@ router.get(
       lookupCode: ticket.lookupCode,
       location: location || undefined
     });
-    res.json(snapshot.focusTicket);
+    res.json((await queueJourneyProjection.attach(snapshot,ticket)).focusTicket);
   })
 );
 
@@ -889,6 +893,7 @@ router.get(
     const lookupCode = req.query.lookupCode
       ? String(req.query.lookupCode).trim().toUpperCase()
       : "";
+    let authorizedJourneyTicket;
     if (lookupCode) {
       const ticket = await ticketRepository.findTicketByTenantAndLookupCode(
         tenant._id,
@@ -900,6 +905,7 @@ router.get(
         throw error;
       }
       assertQueueTicketDetailsAccess(req, ticket);
+      authorizedJourneyTicket=ticket;
     }
 
     res.setHeader("Content-Type", "text/event-stream");
@@ -909,7 +915,7 @@ router.get(
 
     const writeSnapshot = async (snapshot) => {
       const payload = lookupCode
-        ? withoutStaffServiceTiming(await getQueueSnapshot(tenant, { lookupCode, location }))
+        ? await queueJourneyProjection.attach(withoutStaffServiceTiming(await getQueueSnapshot(tenant, { lookupCode, location })),authorizedJourneyTicket)
         : formatPublicQueueSnapshot(
             snapshot || (await getQueueSnapshot(tenant, { location }))
           );

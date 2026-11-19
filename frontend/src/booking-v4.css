@@ -1,0 +1,4 @@
+.booking-selection-v4 fieldset{border:1px solid var(--mantine-color-default-border);border-radius:8px;padding:16px;min-width:0}
+.booking-selection-v4 legend{padding:0 8px}
+.booking-selection-v4__resource{padding:12px 0;border-bottom:1px solid var(--mantine-color-default-border)}
+.booking-selection-v4__resource:last-child{border-bottom:0}

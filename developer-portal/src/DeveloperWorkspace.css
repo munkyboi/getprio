@@ -46,8 +46,8 @@
 .developer-workspace-primary { display: inline-flex; min-height: var(--dp-button-height); align-items: center; justify-content: center; gap: .4rem; width: 100%; padding: .65rem 1rem; border: 1px solid #527ae0; border-radius: var(--dp-radius-pill); background: var(--dp-action); color: #fff; cursor: pointer; font: 700 .9rem/1 Inter, system-ui, sans-serif; box-shadow: 0 5px 14px color-mix(in srgb, var(--dp-action) 24%, transparent); }
 .developer-workspace .mantine-Button-root.developer-workspace-primary { --button-radius: var(--dp-radius-pill) !important; --button-bg: var(--dp-action); --button-hover: #4a70ff; --button-bd: #527ae0; --button-color: #fff; min-height: var(--dp-button-height); border-radius: var(--dp-radius-pill) !important; color: #fff; }
 .developer-workspace-primary:hover { background: #4a70ff; border-color: #7ca4ff; }
-.developer-workspace button:not(.mantine-Button-root):not(.developer-workspace-primary):not(.mantine-Modal-close) { min-height: var(--dp-button-height); padding: .55rem .75rem; border: 1px solid #39465e; border-radius: .65rem; color: var(--dp-ink); background: #101a2b; cursor: pointer; font: 650 .8rem/1 Inter, system-ui, sans-serif; }
-.developer-workspace button:not(.mantine-Button-root):not(.developer-workspace-primary):not(.mantine-Modal-close):hover { border-color: #7ca4ff; background: #19294b; color: #fff; }
+.developer-workspace button:not(.mantine-Button-root):not(.developer-workspace-primary):not(.mantine-Modal-close) { min-height: var(--dp-button-height); padding: .55rem .75rem; border: 1px solid var(--dp-component-boundary); border-radius: .65rem; color: var(--dp-ink); background: var(--dp-surface); cursor: pointer; font: 650 .8rem/1 Inter, system-ui, sans-serif; }
+.developer-workspace button:not(.mantine-Button-root):not(.developer-workspace-primary):not(.mantine-Modal-close):hover { border-color: var(--dp-component-boundary); background: var(--dp-action-soft); color: var(--dp-ink); }
 .developer-workspace button:disabled { cursor: wait; opacity: .6; }
 .developer-workspace-list { display: grid; gap: .75rem; margin-top: 1.25rem; }
 .developer-workspace-list article, .developer-workspace-deliveries article { padding: 1rem 0; border-bottom: 1px solid var(--dp-border); }
@@ -684,3 +684,14 @@
   border-color: #3861fb !important;
   color: #17366f !important;
 }
+
+/* Keep the live Developer palette; distinguish actionable boundaries from dividers. */
+.developer-workspace.developer-workspace.dpp[data-api-theme] :is(input,select,textarea) { border-color: var(--dp-component-boundary) !important; background: var(--dp-surface); color: var(--dp-ink); }
+.developer-workspace input::placeholder { color: var(--dp-muted); }
+.developer-workspace :is(input,select,textarea):focus { border-color: var(--dp-component-boundary); background: var(--dp-surface); outline: 3px solid var(--dp-accent); outline-offset: 3px; box-shadow: none; }
+.developer-workspace :is(button,a,[tabindex]):focus-visible { outline: 3px solid var(--dp-accent); outline-offset: 3px; }
+.developer-workspace.developer-workspace :is(.mantine-Button-root[data-variant=light],.mantine-Button-root[data-variant=default]):not(:disabled) { --button-color: var(--dp-accent) !important; --button-bg: var(--dp-action-soft) !important; --button-bd: 1px solid var(--dp-component-boundary) !important; color: var(--dp-accent) !important; background: var(--dp-action-soft) !important; border-color: var(--dp-component-boundary) !important; }
+.developer-workspace.developer-workspace .developer-workspace-status { color: var(--dp-ink); }
+.developer-workspace .developer-workspace-next-badge { background: var(--dp-action-soft); color: var(--dp-accent); }
+
+.developer-workspace .mantine-Button-root[data-variant=subtle] { --button-color: var(--dp-accent) !important; color: var(--dp-accent); }

@@ -1,3 +1,6 @@
+import BookingSelectionEditorV4 from "../components/BookingSelectionEditorV4";
+import type {BookingCatalogV4,BookingServiceSelectionV4} from "@shared/bookingSelectionV4";
+import {API_BASE_URL} from "../api/client";
 import { OtpInputField } from "../components/OtpInputField";
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import {
@@ -200,10 +203,36 @@ export default function BookingRequestPage() {
   const [paymentProofFile, setPaymentProofFile] = useState<File | null>(null);
 
   const [loading, setLoading] = useState(true);
+  const [resourceCatalog,setResourceCatalog]=useState<BookingCatalogV4|null>(null);
+  const [resourceSelections,setResourceSelections]=useState<BookingServiceSelectionV4[]>([]);
+  const [resourceBooking,setResourceBooking]=useState(true);
+  const [resourceRefresh,setResourceRefresh]=useState(0);
+  const [resourceRequestKey]=useState(()=>crypto.randomUUID());
+  const resourceMode=resourceCatalog?.enabled===true&&resourceBooking&&Boolean(resourceCatalog.resourceServiceIds?.length);
+  const resourcePayload=resourceMode?{selectionContractVersion:4 as const,catalogVersion:resourceCatalog.catalogVersion,serviceSelections:resourceSelections,requestKey:resourceRequestKey}:{};
   const [slotsLoading, setSlotsLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [proofSubmitting, setProofSubmitting] = useState(false);
   const [error, setError] = useState("");
+
+  useEffect(()=>{
+    if(!token||!vendor||!selectedLocationSlug||bookingId)return;
+    const controller=new AbortController();
+    const refresh=()=>{
+      void apiRequest<BookingCatalogV4>(`/account/bookings/resource-catalog?tenantSlug=${encodeURIComponent(vendor.slug)}&locationSlug=${encodeURIComponent(selectedLocationSlug)}`,{token,signal:controller.signal})
+        .then(data=>{setResourceCatalog(data);setResourceRefresh(n=>n+1);}).catch(error=>{if(!controller.signal.aborted)setError(getErrorMessage(error));});
+    };
+    refresh();
+    const events=new EventSource(`${API_BASE_URL}/public/tenant/${vendor.slug}/location/${selectedLocationSlug}/stream`);
+    events.onmessage=refresh;
+    const timer=window.setInterval(refresh,15000);
+    return()=>{controller.abort();events.close();window.clearInterval(timer);};
+  },[token,vendor?.slug,selectedLocationSlug,bookingId]);
+  const changeResourceSelections=(next:BookingServiceSelectionV4[])=>{
+    setResourceSelections(next);setExecutionMode('parallel');setBookingQuantity(1);
+    const slugs=next.map(root=>resourceCatalog?.services.find(service=>service.id===root.serviceId)?.slug||'').filter(Boolean);
+    setSelectedBundleServiceSlugs(slugs);setSelectedServiceSlug(slugs[0]||'');setSelectedSlotStartAt('');
+  };
 
   useEffect(() => {
     if (error) {
@@ -445,13 +474,15 @@ export default function BookingRequestPage() {
 
     const controller = new AbortController();
     setSlotsLoading(true);
-    setSelectedSlotStartAt("");
+    if(!resourceMode)setSelectedSlotStartAt("");
 
     const requestedItems = selectedBundleServices.map((service) => ({
       serviceSlug: service.slug,
       bookingQuantity: getBundleItemQuantity(service)
     }));
-    const request = requestedItems.length > 1
+    const request = resourceMode
+      ? apiRequest<{slots:BookingSlotSummary[]}>("/account/bookings/resource-slots",{method:"POST",token,signal:controller.signal,body:{...resourcePayload,tenantSlug:vendor.slug,locationSlug:selectedLocationSlug,date:formatDateInputValue(bookingDate),executionMode:'parallel',bookingQuantity:1}})
+      : requestedItems.length > 1
       ? apiRequest<{ slots: BookingSlotSummary[] }>(
           `/public/vendors/${vendor.slug}/locations/${selectedLocationSlug}/composed-slots`,
           {
@@ -488,7 +519,7 @@ export default function BookingRequestPage() {
       });
 
     return () => controller.abort();
-  }, [booking, bookingId, bookingDate, executionMode, getBundleItemQuantity, quantityForRequest, selectedBundleServices, selectedLocationSlug, selectedServiceSlug, vendor]);
+  }, [booking, bookingId, bookingDate, executionMode, getBundleItemQuantity, quantityForRequest, selectedBundleServices, selectedLocationSlug, selectedServiceSlug, vendor,resourceMode,resourceSelections,resourceRefresh,token]);
 
   const loadSubmittedBooking = useCallback(async () => {
     if (!token || !booking) {
@@ -546,7 +577,7 @@ export default function BookingRequestPage() {
     const duration = service.durationMinutes * getBundleItemQuantity(service);
     return executionMode === "sequential" ? total + duration : Math.max(total, duration);
   }, 0);
-  const slotPickerLabel = `Available start times — ${formatDuration(bundleVisitDurationMinutes || selectedService?.durationMinutes || 0)} booking`;
+  const slotPickerLabel = resourceMode?"Available start times for your selected resources":`Available start times — ${formatDuration(bundleVisitDurationMinutes || selectedService?.durationMinutes || 0)} booking`;
   const unavailableSlotResourceLabel = selectedBundleServices.length === 1
     ? selectedBundleServices[0]?.name || "This service"
     : "A selected service";
@@ -597,9 +628,10 @@ export default function BookingRequestPage() {
       locationSlug: selectedLocationSlug,
       serviceSlug: selectedServiceSlug,
       scheduledStartAt: String(selectedSlot.startAt),
-      bookingQuantity: quantityForRequest,
-      executionMode,
-      bundleItems: selectedBundleServices.map((service) => ({
+      ...resourcePayload,
+      bookingQuantity: resourceMode?1:quantityForRequest,
+      executionMode:resourceMode?"parallel":executionMode,
+      bundleItems: resourceMode?resourceSelections.map(root=>({serviceSlug:resourceCatalog!.services.find(service=>service.id===root.serviceId)!.slug,bookingQuantity:1})):selectedBundleServices.map((service) => ({
         serviceSlug: service.slug,
         bookingQuantity: getBundleItemQuantity(service)
       })),
@@ -674,13 +706,14 @@ export default function BookingRequestPage() {
             method: "POST",
             token,
             body: {
+              ...resourcePayload,
               tenantSlug: vendor.slug,
               locationSlug: selectedLocationSlug,
               serviceSlug: selectedServiceSlug,
               scheduledStartAt: String(selectedSlot.startAt),
-              bookingQuantity: quantityForRequest,
-              executionMode,
-              bundleItems: selectedBundleServices.map((service) => ({
+              bookingQuantity: resourceMode?1:quantityForRequest,
+              executionMode:resourceMode?"parallel":executionMode,
+              bundleItems: resourceMode?resourceSelections.map(root=>({serviceSlug:resourceCatalog!.services.find(service=>service.id===root.serviceId)!.slug,bookingQuantity:1})):selectedBundleServices.map((service) => ({
                 serviceSlug: service.slug,
                 bookingQuantity: getBundleItemQuantity(service)
               })),
@@ -856,6 +889,8 @@ export default function BookingRequestPage() {
                             required
                             value={selectedLocationSlug}
                           />
+                          {resourceCatalog?.enabled&&resourceCatalog.resourceServiceIds?.length?<SegmentedControl aria-label="Booking type" disabled={Boolean(otp)} value={resourceBooking?'resources':'ordinary'} data={[{label:'Resource booking',value:'resources'},{label:'Other services',value:'ordinary'}]} onChange={value=>{setResourceBooking(value==='resources');setSelectedSlotStartAt('');setSelectedBundleServiceSlugs([]);setSelectedServiceSlug('');}}/>:null}
+                          {resourceMode?<BookingSelectionEditorV4 catalog={resourceCatalog!} value={resourceSelections} onChange={changeResourceSelections} disabled={Boolean(otp)}/>:<>
                           <div>
                             <Text fw={600} size="sm">Services</Text>
                             <Text c="dimmed" size="sm">Choose one service, or combine services for the same visit.</Text>
@@ -870,7 +905,7 @@ export default function BookingRequestPage() {
                             value={selectedBundleServiceSlugs}
                           >
                             <SimpleGrid cols={{ base: 1, md: 2 }} spacing="xs">
-                              {(locationServices).map((service) => {
+                              {(locationServices).filter(service=>!resourceCatalog?.enabled||!resourceCatalog.resourceServiceSlugs?.includes(service.slug)).map((service) => {
                                 const isSelected = selectedBundleServiceSlugs.includes(service.slug);
                                 const quantityLabel = getBookingQuantityLabel(service);
                                 const quantity = getBundleItemQuantity(service);
@@ -937,9 +972,11 @@ export default function BookingRequestPage() {
                               ? formatPaymentAmount(payableAmountCents, selectedBundleServices[0]?.currency || "PHP")
                               : "Choose at least one service"}
                           </Text>
+                          </>}
                         </Stack>
                       </Card>
 
+                      {resourceMode&&selectedSlotStartAt&&!selectedSlot&&!slotsLoading?<Alert color="yellow">Your selected time no longer fits the current hours or resource availability. Your resources and duration counts are kept. Please choose another start time.</Alert>:null}
                       <DatePickerInput
                         className="booking-schedule-field booking-schedule-field--date"
                         clearable={false}
@@ -1075,7 +1112,7 @@ export default function BookingRequestPage() {
                                 <Group justify="space-between" gap="sm" wrap="nowrap">
                                   <Text fw={800}>Booking summary</Text>
                                   <Badge color="teal" variant="light">
-                                    {formatPaymentAmount(payableAmountCents, selectedService?.currency || "PHP")}
+                                    {resourceMode?"Amount confirmed by vendor":formatPaymentAmount(payableAmountCents, selectedService?.currency || "PHP")}
                                   </Badge>
                                 </Group>
                               </Accordion.Control>
@@ -1095,8 +1132,8 @@ export default function BookingRequestPage() {
                                     <Text c="dimmed" size="sm">Services</Text>
                                     {selectedBundleServices.length ? selectedBundleServices.map((service) => (
                                       <Group justify="space-between" key={service.slug} wrap="nowrap">
-                                        <Text size="sm">{service.name} · {formatDuration(service.durationMinutes * getBundleItemQuantity(service))}</Text>
-                                        <Text fw={600} size="sm">{formatPaymentAmount(getServiceLineAmountCents(service, getBundleItemQuantity(service)), service.currency)}</Text>
+                                        <Text size="sm">{service.name}{resourceMode?"":` · ${formatDuration(service.durationMinutes * getBundleItemQuantity(service))}`}</Text>
+                                        <Text fw={600} size="sm">{resourceMode?"Amount confirmed by vendor":formatPaymentAmount(getServiceLineAmountCents(service, getBundleItemQuantity(service)), service.currency)}</Text>
                                       </Group>
                                     )) : <Text size="sm">Choose at least one service</Text>}
                                   </Stack>
@@ -1109,7 +1146,7 @@ export default function BookingRequestPage() {
                                   <Group justify="space-between" gap="sm" wrap="nowrap">
                                     <Text c="dimmed" size="sm">Total</Text>
                                     <Text fw={700} size="sm" ta="right">
-                                      {formatPaymentAmount(payableAmountCents, selectedService?.currency || "PHP")}
+                                      {resourceMode?"Amount confirmed by vendor":formatPaymentAmount(payableAmountCents, selectedService?.currency || "PHP")}
                                     </Text>
                                   </Group>
                                 </Stack>
@@ -1215,7 +1252,7 @@ export default function BookingRequestPage() {
                                 {manualPaymentDestination.methodLabel !== "Bank Transfer" ? <Text c="dimmed" mt={6} size="sm">Scan the QR, pay the exact amount, then submit your proof.</Text> : null}
                               </div>
                               <Text fw={800}>
-                                Total payable: {formatPaymentAmount(manualPaymentDestination.amountCents, manualPaymentDestination.currency)}
+                                {manualPaymentDestination.amountCents === null ? 'Amount confirmed by the vendor. Please confirm the amount before paying.' : `Total payable: ${formatPaymentAmount(manualPaymentDestination.amountCents, manualPaymentDestination.currency)}`}
                               </Text>
                               <TextInput
                                 label="Payment reference"

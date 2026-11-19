@@ -131,3 +131,21 @@ test("failed existing-account add keeps the draft and releases pending state for
   await fn({ preventDefault() {}, currentTarget: form });
   assert.equal(calls.length, 0);
 });
+
+test('staff cards protect the owner and actor, preserve contacts and assignment context, and lock pending controls', () => {
+  const render = props => renderToStaticMarkup(React.createElement(StaffManagement, {
+    members:[member], actorId:'owner', owner:true, admin:false,
+    counters:[{id:member.assignedCounterIds[0],name:'Court dispatch'}], countersAvailable:true,
+    locationName:'Demo Courts', onRole(){},onStatus(){},onRemove(){},...props,
+  }));
+  const html=render({busyAction:'staff-status:staff'});
+  assert.match(html, /<ul[^>]*aria-label="Business staff accounts"/);
+  assert.match(html, /Court dispatch/); assert.match(html,/Demo Courts/);
+  for(const button of html.match(/<button[^>]*>/g).filter(button=>button.includes('aria-label="Enable access')||button.includes('aria-label="Remove')))assert.match(button,/ disabled=""/);
+  const protectedHtml=render({actorId:member.id});
+  assert.match(protectedHtml,/Your own access cannot be changed here/);
+  assert.doesNotMatch(protectedHtml,/aria-label="(?:Enable access|Remove|Role for)/);
+  const ownerHtml=render({members:[{...member,role:'owner'}],actorId:'other'});
+  assert.match(ownerHtml,/Owner access is protected/);
+  assert.doesNotMatch(ownerHtml,/aria-label="(?:Enable access|Remove|Role for)/);
+});

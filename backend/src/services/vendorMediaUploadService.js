@@ -1,3 +1,4 @@
+const { storeLocalImage } = require("./localImageStorage");
 const { assertImageUploadSize } = require("./imageUploadPolicy");
 const crypto = require("crypto");
 const { PutObjectCommand, S3Client } = require("@aws-sdk/client-s3");
@@ -41,8 +42,9 @@ function assertB2Configured() {
     ["B2_PUBLIC_BASE_URL", env.b2PublicBaseUrl]
   ].filter(([, value]) => !value).map(([key]) => key);
   if (missing.length) {
-    const error = new Error(`Vendor media uploads are not configured. Missing: ${missing.join(", ")}.`);
+    const error = new Error("Image storage is currently unavailable. Please try again later.");
     error.statusCode = 503;
+    error.code = "IMAGE_UPLOAD_UNAVAILABLE";
     throw error;
   }
 }
@@ -125,7 +127,6 @@ async function createUpload({ tenant, location, user, body, assetType = "locatio
 }
 
 async function uploadBinary({ tenant, location, user, body, fileBuffer, assetType = "location" }) {
-  assertB2Configured();
   const uploadBuffer = Buffer.isBuffer(fileBuffer) ? Buffer.from(fileBuffer) : null;
   const fileName = normalizeFileName(body.fileName, `${assetType}-image`);
   const contentType = String(body.contentType || "").toLowerCase();
@@ -137,14 +138,21 @@ async function uploadBinary({ tenant, location, user, body, fileBuffer, assetTyp
   }
   await assertImageUploadSize(uploadBuffer?.length || 0);
 
-  const objectKey = buildObjectKey({ tenantId: tenant._id, location, assetType, fileName, contentType });
-  const publicUrl = buildPublicUrl(objectKey);
-  await getS3Client().send(new PutObjectCommand({
-    Bucket: env.b2BucketPublicBoard,
-    Key: objectKey,
-    ContentType: contentType,
-    Body: uploadBuffer
-  }));
+  let objectKey = buildObjectKey({ tenantId: tenant._id, location, assetType, fileName, contentType });
+  let publicUrl;
+  const local = await storeLocalImage({tenant,location,contentType,body:uploadBuffer});
+  if (local) { objectKey=local.objectKey; publicUrl=local.publicUrl; }
+  else {
+    assertB2Configured();
+    publicUrl=buildPublicUrl(objectKey);
+    await getS3Client().send(new PutObjectCommand({
+      Bucket: env.b2BucketPublicBoard,
+      Key: objectKey,
+      ContentType: contentType,
+      Body: uploadBuffer
+    }));
+
+  }
 
   const asset = await publicBoardThemeRepository.createAsset({
     tenantId: tenant._id,

@@ -539,6 +539,26 @@ body {
     auto;
 }
 
+.vendor-profile-page[data-public-theme="dark"] {
+  --vendor-theme-page-bg: #09090b;
+  --vendor-theme-card-bg: #18181b;
+  --vendor-theme-card-border: #3f3f46;
+  --vendor-theme-header: #fafafa;
+  --vendor-theme-subheader: #a1a1aa;
+  --vendor-theme-body: #d4d4d8;
+  --vendor-theme-button-bg: #fafafa;
+  --vendor-theme-button-text: #18181b;
+  --vendor-theme-button-border: #52525b;
+  color: #fafafa;
+}
+.vendor-profile-page[data-public-theme="dark"] .vendor-search-panel,
+.vendor-profile-page[data-public-theme="dark"] .vendor-card,
+.vendor-profile-page[data-public-theme="dark"] .vendor-empty-panel,
+.vendor-profile-page[data-public-theme="dark"] .vendor-profile-panel,
+.vendor-profile-page[data-public-theme="dark"] .vendor-profile-action,
+.vendor-profile-page[data-public-theme="dark"] .vendor-location-card { background: #18181b; border-color: #3f3f46; box-shadow: 0 24px 64px rgba(0, 0, 0, .24); }
+.vendor-profile-page[data-public-theme="dark"] .mantine-Text-root { color: #d4d4d8; }
+
 .vendor-search-panel,
 .vendor-card,
 .vendor-empty-panel,
@@ -1202,7 +1222,7 @@ body {
   padding-left: 0.85rem;
 }
 
-.campaign-description-editor .ProseMirror {
+.campaign-description-editor .campaign-description-content {
   min-height: 7rem;
 }
 
@@ -1783,10 +1803,6 @@ body {
   min-width: 0;
   overflow-x: hidden;
   padding-right: 0.25rem;
-}
-
-.campaign-create-form .mantine-RichTextEditor-toolbar {
-  flex-wrap: wrap;
 }
 
 .campaign-create-summary {

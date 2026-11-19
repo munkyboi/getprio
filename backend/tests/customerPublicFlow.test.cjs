@@ -173,6 +173,7 @@ function buildPublicRouter(ticket, cancelTicketMock, publicCapabilities = {
   ];
 
   return requireWithMocks("../src/routes/publicRoutes.js", {
+    "../services/queueJourneyPublicProjection": { attach: async (snapshot) => snapshot },
     "../middleware/auth": buildPublicAuthMock(),
     "../middleware/asyncHandler": buildAsyncHandlerMock(),
     "../repositories/tenants": {
@@ -673,7 +674,7 @@ test("linked queue ticket details require their authenticated account owner", as
       `${baseUrl}/tenant/demo/location/ayala/queue?lookupCode=OWNER123`,
       { headers: { "x-test-auth-mode": "customer" } }
     );
-    assert.equal(ownerResponse.status, 200);
+    assert.equal(ownerResponse.status, 200, await ownerResponse.clone().text());
     assert.equal((await ownerResponse.json()).focusTicket.ticketNumber, "DMO-001");
   } finally {
     await stopServer(server);

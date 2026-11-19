@@ -2,7 +2,7 @@ const crypto = require("crypto");
 const repository = require("../repositories/entitlementResolver");
 const releaseControls = require("../config/releaseControls");
 
-const FEATURE_KEYS = ["queue", "branding", "discovery", "booking", "campaigns"];
+const FEATURE_KEYS = ["queue", "resourceQueue", "workflowQueue", "branding", "discovery", "booking", "campaigns"];
 const ALLOWANCE_KEYS = ["queueTickets", "serviceBookings"];
 const RESTRICTED_STATUSES = new Set(["past_due", "unpaid", "suspended"]);
 
@@ -29,6 +29,9 @@ function stableHash(value) {
 }
 
 function applyCampaignDependency(features) {
+  if (!features.queue?.enabled) {
+    for (const key of ["resourceQueue", "workflowQueue"]) features[key] = { enabled: false, source: "restriction", overrideId: null };
+  }
   features.campaigns = { enabled: false, source: "restriction", overrideId: null };
   return features;
 }
@@ -40,6 +43,8 @@ function buildLegacyValues(input) {
   };
   const featureMap = {
     queue: "queueSystemAccess",
+    resourceQueue: "resourceQueueAccess",
+    workflowQueue: "workflowQueueAccess",
     branding: "publicFacingBranding",
     discovery: "marketplaceDiscovery",
     booking: "serviceBookingAccess",
@@ -50,7 +55,7 @@ function buildLegacyValues(input) {
     serviceBookings: "monthlyServiceBookings"
   };
   const features = Object.fromEntries(FEATURE_KEYS.map((key) => [key, {
-    enabled: Boolean(snapshot[featureMap[key]]),
+    enabled: ["resourceQueue", "workflowQueue"].includes(key) ? input.plan?.legacyEntitlements?.queueSystemAccess === true && input.plan?.legacyEntitlements?.[featureMap[key]] === true : Boolean(snapshot[featureMap[key]]),
     source: "legacy_snapshot",
     overrideId: null
   }]));
@@ -178,10 +183,15 @@ async function resolveTenantPolicy(tenantId, options = {}) {
   if (controls.entitlementResolverShadow) {
     await emitShadowComparison({ tenantId, subscription: input.subscription, legacyValues, newValues }, options);
   }
+  if(options.queueTypePolicy===true&&input.subscription.hasBlockingAnomaly){
+    return {tenantId:String(tenantId),lifecycle,planRevision:input.plan?.revision||null,restriction:{code:'QUEUE_POLICY_RECONCILIATION_REQUIRED',message:'This subscription needs reconciliation before new queue setup or admissions.'},features:emptyFeatures(),allowances:emptyAllowances(),period:null};
+  }
   const modelVersion = Number(input.subscription.entitlementModelVersion || 1);
   const eligibleForNewAuthority = modelVersion >= 2 && !input.subscription.hasBlockingAnomaly;
   const servedAuthority = controls.entitlementResolverAuthority && eligibleForNewAuthority ? "new" : "legacy";
-  const servedValues = servedAuthority === "new" ? newValues : legacyValues;
+  // Queue-type admission is an additive current published-policy boundary.
+  // It never inherits stale subscription snapshots, including model v1.
+  const servedValues = options.queueTypePolicy === true ? newValues : servedAuthority === "new" ? newValues : legacyValues;
 
   const period = monthlyAllowancePeriod(input.subscription, now);
   return {

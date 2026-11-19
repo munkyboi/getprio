@@ -23,7 +23,7 @@ async function assertRestorable(client, ticket) {
 async function cancelUnusedProtection(client, ledger, ticket, { operation, cancelBooking = false, actor, customer }) {
   const scope = [ticket.tenantId, ticket.locationId, ticket._id];
   // Location and ticket locks precede booking/binding locks, as for service start.
-  const bookings = await client.query(`SELECT id::text,status,customer_user_id::text,customer_email,customer_phone FROM bookings
+  const bookings = await client.query(`SELECT id::text,status,customer_user_id::text,customer_email,customer_phone,to_jsonb(bookings)->>'selection_contract_version' AS selection_contract_version FROM bookings
     WHERE tenant_id=$1 AND location_id=$2 AND queue_ticket_id=$3 ORDER BY id FOR UPDATE`, scope);
   if (customer) {
     for (const booking of bookings.rows) assertOwnership(customer, {
@@ -42,10 +42,30 @@ async function cancelUnusedProtection(client, ledger, ticket, { operation, cance
         command: "cancelReservation", payload: { reservationId: binding.id } });
     }
   }
+  if (cancelBooking && bookings.rows.some(booking => booking.selection_contract_version === "4")) {
+    await require("./bookingSelectionServiceV4").resolveUnstartedTicket(client, {tenantId:ticket.tenantId,locationId:ticket.locationId}, ticket._id, "staff_or_customer_cancelled");
+  }
+  await cancelTicketReservations(client, ledger, ticket, operation);
   if (cancelBooking) {
     await client.query(`UPDATE bookings SET status='canceled',fulfillment_outcome_reason='ticket_cancelled',
       refund_eligible=FALSE,fulfillment_resolved_at=clock_timestamp(),updated_at=clock_timestamp()
       WHERE tenant_id=$1 AND location_id=$2 AND queue_ticket_id=$3 AND status IN ('pending','confirmed','rescheduled')`, scope);
   }
 }
-module.exports = { assertLegacyOutcome, assertRestorable, cancelUnusedProtection };
+
+async function cancelTicketReservations(client, ledger, ticket, operation) {
+  const ticketReservationSchema = await client.query(`SELECT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema=current_schema() AND table_name='resource_ledger_reservations' AND column_name='ticket_id'
+  ) AS available`);
+  if (ticketReservationSchema.rows[0]?.available) {
+    const ticketBindings = await client.query(`SELECT id::text FROM resource_ledger_reservations
+      WHERE tenant_id=$1 AND location_id=$2 AND ticket_id=$3 AND state='protected' ORDER BY id FOR UPDATE`,
+    [ticket.tenantId, ticket.locationId, ticket._id]);
+    for (const binding of ticketBindings.rows) {
+      await ledger.executeCommand({ operationKey: `ticket:${ticket._id}:reservation:${binding.id}:${operation}`,
+        command: "cancelReservation", payload: { reservationId: binding.id } });
+    }
+  }
+}
+module.exports = { assertLegacyOutcome, assertRestorable, cancelUnusedProtection, cancelTicketReservations };

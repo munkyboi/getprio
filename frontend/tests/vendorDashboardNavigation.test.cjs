@@ -3,7 +3,7 @@ const assert = require("node:assert/strict");
 
 const { canAccessVendorSection } = require("../src/lib/vendorDashboardNavigation.js");
 
-test("Free plan navigation exposes queue operations but hides paid booking modules", () => {
+test("Free plan navigation exposes queue services but hides paid booking modules", () => {
   const free = {
     queueSystemAccess: true,
     serviceBookingAccess: false,
@@ -17,7 +17,7 @@ test("Free plan navigation exposes queue operations but hides paid booking modul
   assert.deepEqual(
     ["queue", "tenants", "services", "bookings", "staff", "clients", "history", "reports", "settings", "account"]
       .filter((section) => canAccessVendorSection(section, free)),
-    ["queue", "tenants", "clients", "history", "settings", "account"]
+    ["queue", "tenants", "services", "clients", "history", "settings", "account"]
   );
 });
 
@@ -48,4 +48,11 @@ test("Ratings controls require an active paid plan, including direct navigation"
     assert.equal(canAccessVendorSection('ratings', entitlements, plan), false);
   }
   assert.equal(canAccessVendorSection('ratings', {}, { planSlug: 'economical', subscriptionStatus: 'active' }), true);
+});
+
+test('Dashboard uses basic dashboard access without enabling queue commands', () => {
+  assert.equal(canAccessVendorSection('overview', {basicDashboard:true,queueSystemAccess:false}), true);
+  assert.equal(canAccessVendorSection('queue', {basicDashboard:true,queueSystemAccess:false}), false);
+  assert.equal(canAccessVendorSection('overview', {basicDashboard:false}), false);
+  assert.equal(canAccessVendorSection('overview', null), false);
 });

@@ -28,9 +28,10 @@ test("developer API key environment validation fails closed", () => {
 });
 
 test("developer API key middleware maps API hosts and enforces scopes", () => {
-  assert.equal(getApiEnvironment({ hostname: "sandbox-api.getprio.online", headers: {} }), "sandbox");
-  assert.equal(getApiEnvironment({ hostname: "api.getprio.online", headers: {} }), "production");
-  assert.equal(getApiEnvironment({ hostname: "localhost", headers: {} }), "unknown");
+  assert.equal(getApiEnvironment({ headers: { host: "sandbox-api.getprio.online" } }, { apiEnvironment: "sandbox" }), "sandbox");
+  assert.equal(getApiEnvironment({ headers: { host: "api.getprio.online" } }, { apiEnvironment: "production" }), "production");
+  assert.equal(getApiEnvironment({ headers: { host: "sandbox-api.getprio.online" } }, { apiEnvironment: "production" }), "unknown");
+  assert.equal(getApiEnvironment({ headers: { host: "localhost" } }, { apiEnvironment: "production" }), "unknown");
 
   const allow = requireApiScope("queues:write");
   const deny = requireApiScope("webhooks:write");

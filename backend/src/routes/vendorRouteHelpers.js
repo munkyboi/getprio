@@ -1,3 +1,4 @@
+const surfaceEnv = require("../config/env");
 const storeLocationRepository = require("../repositories/storeLocations");
 const vendorServiceRepository = require("../repositories/vendorServices");
 const storeHoursService = require("../services/storeHoursService");
@@ -75,7 +76,7 @@ function normalizeBaseUrl(value) {
 }
 
 function buildLocationLinks(location, tenant, options = {}) {
-  const appBaseUrl = normalizeBaseUrl(options.appBaseUrl || configuredAppBaseUrl);
+  const appBaseUrl = normalizeBaseUrl(options.appBaseUrl || surfaceEnv.customerAppUrl || configuredAppBaseUrl);
   const mobileQrBaseUrl = normalizeBaseUrl(
     options.mobileQrBaseUrl || configuredMobileQrBaseUrl || appBaseUrl
   );
@@ -88,7 +89,7 @@ function buildLocationLinks(location, tenant, options = {}) {
       location.slug,
       location.queueJoinId
     ),
-    monitorUrl: location.queueBoardId ? `${appBaseUrl.replace(/\/+$/, "")}/queue-board/${location.queueBoardId}` : ""
+    monitorUrl: location.queueBoardId ? `${String(options.vendorAppUrl || surfaceEnv.vendorAppUrl || appBaseUrl).replace(/\/+$/, "")}/queue-board/${location.queueBoardId}` : ""
   };
 }
 

@@ -71,6 +71,18 @@ function sanitizeBookingPayload(payload) {
       return { serviceSlug, bookingQuantity: itemQuantity };
     });
   }
+  if (payload.selectionContractVersion === 4) {
+    const selections = require('./bookingSelectionServiceV4');
+    selections.assertEnabled();
+    if (sanitized.executionMode !== 'parallel' || sanitized.bookingQuantity !== 1 || typeof payload.catalogVersion !== 'string' || !/^[a-f0-9]{64}$/u.test(payload.catalogVersion)) {
+      throw Object.assign(new Error('Review the resource booking configuration.'), {statusCode:400,code:'INVALID_BOOKING_SELECTION'});
+    }
+    sanitized.selectionContractVersion=4;
+    sanitized.catalogVersion=payload.catalogVersion;
+    sanitized.serviceSelections=selections.sanitizePublicSelections(payload.serviceSelections);
+  } else if (payload.selectionContractVersion !== undefined || payload.serviceSelections !== undefined) {
+    throw Object.assign(new Error('Choose a supported booking selection version.'), {statusCode:400,code:'INVALID_BOOKING_SELECTION'});
+  }
   assertPublicTextFieldsAllowed({ "Customer name": sanitized.customerName, "Booking notes": sanitized.notes });
   return sanitized;
 }
@@ -244,9 +256,9 @@ async function verifyBookingOtp({ tenant, otpId, code }) {
   };
 }
 
-async function getVerifiedBookingPayload({ tenant, token }) {
+async function getVerifiedBookingPayload({ tenant, token, client }) {
   const tokenHash = hashSecret(token);
-  const otp = await bookingOtpRepository.findVerifiedTokenForUpdate(tokenHash);
+  const otp = await bookingOtpRepository.findVerifiedTokenForUpdate(tokenHash, client ? {client} : {});
 
   if (!otp || otp.tenantId !== String(tenant._id) || !otp.verifiedAt) {
     const error = new Error("Booking verification is required before submitting this request.");
@@ -279,6 +291,7 @@ async function consumeBookingVerificationToken(otpId, options = {}) {
 }
 
 module.exports = {
+  sanitizeBookingPayload,
   OTP_TTL_MINUTES,
   OTP_RESEND_COOLDOWN_MINUTES,
   requestBookingOtp,

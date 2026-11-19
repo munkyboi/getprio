@@ -18,7 +18,7 @@ import type {
   RegisterVendorRequest,
   UserSummary
 } from "@shared";
-import { API_BASE_URL, setAuthHandlers } from "../api/client";
+import { ApiError, API_BASE_URL, setAuthHandlers } from "../api/client";
 import { sessionRequest } from "./sessionRequest";
 import type { AuthContextValue } from "./AuthContext.types";
 import { isCurrentAuthRevision } from "./authSessionRevision";
@@ -34,14 +34,14 @@ const EMPTY_OAUTH_PROVIDERS: OAuthProviderAvailability = {
   apple: false
 };
 
-export function AuthProvider({ children }: { children: ReactNode }) {
+export function AuthProvider({ children, publicOnly = false }: { children: ReactNode; publicOnly?: boolean }) {
   const [token, setToken] = useState("");
   const [refreshToken, setRefreshToken] = useState("");
   const [user, setUser] = useState<UserSummary | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!publicOnly);
   const [oauthProviders, setOauthProviders] =
     useState<OAuthProviderAvailability>(EMPTY_OAUTH_PROVIDERS);
-  const [oauthLoading, setOauthLoading] = useState(true);
+  const [oauthLoading, setOauthLoading] = useState(!publicOnly);
   const [sessionExpiresAt, setSessionExpiresAt] = useState<number | null>(null);
   const [expiryWarningOpen, setExpiryWarningOpen] = useState(false);
   const sourceId = useRef(
@@ -86,6 +86,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   useEffect(() => {
+    if (publicOnly) return;
     revision.current = readRevision();
     let active = true;
     const syncFromPeer = (event: unknown) => {
@@ -98,7 +99,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const observed = peerRevision;
       sessionRequest<{ user: UserSummary; sessionExpiresAt?: string | Date | null }>("/auth/me", { skipAuthRefresh: true })
         .then((data) => { if (active && revision.current === observed) applySession(data); })
-        .catch(() => { if (active && revision.current === observed) clearSession(); });
+        .catch((error) => { if (active && revision.current === observed && !(error instanceof ApiError && (error.status === 429 || error.status >= 500))) clearSession(); });
     };
     const onStorage = (event: StorageEvent) => {
       if (event.key !== AUTH_SYNC_KEY || !event.newValue) return;
@@ -108,9 +109,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try { channel = new BroadcastChannel(AUTH_SYNC_CHANNEL); channelRef.current = channel; channel.onmessage = (event) => syncFromPeer(event.data); } catch { /* unsupported */ }
     window.addEventListener("storage", onStorage);
     return () => { active = false; window.removeEventListener("storage", onStorage); channel?.close(); channelRef.current = null; };
-  }, []);
+  }, [publicOnly]);
 
   useEffect(() => {
+    if (publicOnly) return;
     sessionRequest<OAuthProvidersResponse>("/auth/oauth/providers")
       .then((data) => {
         setOauthProviders({
@@ -124,23 +126,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .finally(() => {
         setOauthLoading(false);
       });
-  }, []);
+  }, [publicOnly]);
 
   useEffect(() => {
+    if (publicOnly) return;
     localStorage.removeItem("prio-auth");
     const observed = revision.current;
-    sessionRequest<{ user: UserSummary; sessionExpiresAt?: string | Date | null }>("/auth/me", { skipAuthRefresh: true })
-      .then((data) => {
-        if (revision.current !== observed) return;
-        applySession(data);
-      })
-      .catch(() => {
-        if (revision.current === observed) clearSession();
-      })
-      .finally(() => {
-        setLoading(false);
-      });
-  }, []);
+    let disposed = false;
+    let retryTimer: number | undefined;
+    let attempts = 0;
+    const loadSession = () => {
+      sessionRequest<{ user: UserSummary; sessionExpiresAt?: string | Date | null }>("/auth/me", { skipAuthRefresh: true })
+        .then((data) => { if (!disposed && revision.current === observed) applySession(data); })
+        .catch((error) => {
+          if (disposed || revision.current !== observed) return;
+          if (error instanceof ApiError && (error.status === 429 || error.status >= 500)) {
+            if (attempts++ === 0) {
+              const delay = error.retryAt ? Math.max(1000, Math.min(5000, error.retryAt - Date.now())) : 3000;
+              retryTimer = window.setTimeout(loadSession, delay);
+              return;
+            }
+          } else clearSession();
+        })
+        .finally(() => { if (!disposed) setLoading(false); });
+    };
+    loadSession();
+    return () => { disposed = true; if (retryTimer !== undefined) window.clearTimeout(retryTimer); };
+  }, [publicOnly]);
 
   useEffect(() => {
     if (!sessionExpiresAt || !user) { setExpiryWarningOpen(false); return; }
@@ -172,8 +184,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         publishAuthChange("signed-in");
         setExpiryWarningOpen(false);
         return COOKIE_SESSION;
-      } catch {
+      } catch (error) {
         if (!isCurrentAuthRevision(revision.current, observed)) return COOKIE_SESSION;
+        if (error instanceof ApiError && (error.status === 429 || error.status >= 500)) throw error;
         clearSession();
         publishAuthChange("signed-out");
         return null;
@@ -318,6 +331,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       const startUrl = new URL(`${API_BASE_URL}/auth/oauth/${provider}/start`);
       startUrl.searchParams.set("intent", intent);
+      const surface = import.meta.env.VITE_APP_SURFACE;
+      if (surface === "vendor" || surface === "customer") startUrl.searchParams.set("surface", surface);
       if (returnPath) startUrl.searchParams.set("next", returnPath);
       window.location.assign(startUrl.toString());
     },

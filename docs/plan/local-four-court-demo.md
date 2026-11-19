@@ -1,46 +1,56 @@
-# Disposable local four-court fixture and acceptance harness
+# Local four-court pooled queue demonstration
 
-This fixture supports the coordinated local resource-pool queue demo. Queue owns dispatch/timing, API owns the guarded operational read/router and Vendor owns authenticated UI integration. This script/test slice supplies the full application database and executable capacity/session evidence. It does not deliver the UI or certify HTTP authorization/dispatch. No production activation, migration edit, customer prediction or model rollout is authorized by it.
+This slice demonstrates real concurrent service execution in a disposable local database. It is not a production activation, authoritative forecasting producer, complete writer-coverage certification or pilot. The four courts are interchangeable units of one pool; allocations have real server identities, but no numbered-court assignment is invented.
 
-## Create a fresh interactive fixture
+## Execution contract
 
-With an explicitly owned local PostgreSQL test server and a role allowed to create databases:
+- Explicit local opt-in, development/test environment, loopback database URL and actual server identity, dedicated `getprio_local_pool_demo_*` database, and an exact fixture tenant/location marker are required. Ordinary dispatch keeps its current counter-lane behavior.
+- Call moves the next eligible waiting ticket into a pending call. A pending unstarted ticket still occupies the call counter.
+- Start uses the existing exact-ticket service endpoint and actual resource ledger. Once timing and a matching unreleased allocation exist, that call lane can call another ticket in the isolated scope. A timing timestamp alone never frees it.
+- Capacity is enforced atomically by Start, including protected reservations over the requested service interval. Point-in-time free capacity is advice, not permission to start. A full pool returns HTTP 409 and must be refreshed.
+- Complete and Interrupt target the selected ticket, record the actual outcome and release its allocation. Duplicate matching outcomes are idempotent. Expected end does not release overdue occupancy.
+- The local operational read model supplies coherent pool counts, pending calls, active allocation/session identities, waiting work, queue-day/counter advice and reconciliation issues. It is separate from the inference producer, which remains fail-closed.
 
-```sh
-LOCAL_POOL_DEMO_ADMIN_URL=postgresql://postgres@127.0.0.1:55494/getprio_test \
-  node scripts/local-four-court-demo.mjs /tmp/four-court-private.json
-```
+## Local execution
 
-The administration URL must be literal loopback `127.0.0.1`, with maintenance database `postgres`, `getprio_test` or `getprio_ledger_test`, and no query/fragment connection overrides. The script verifies the actual database and server address, creates a fresh unpredictable `getprio_local_pool_demo_<uuid>` database and verifies it is empty before running real `database/init.sql` and all unapplied migrations in filename order. There is no target-database option and no rebuild of an existing application database. Bootstrap/seeding failure removes only the new database owned by that invocation.
+The AI-owned fixture script creates a new database and private mode-0600 credential/environment artifact. Never apply its fixture exception or bootstrap to an existing/shared database. Only the new fixture database permits tracking; the writer-coverage false constraint remains.
 
-The sole tracking exception drops `public.location_resource_pools.resource_pools_tracking_disabled_check` inside that new database. `resource_ledger_coverage_disabled_check` remains enforced with writer coverage false. No global or existing database constraint is changed. The exact local guard marker is `public.local_pool_demo_scopes(tenant_id,location_id,fixture_key)` with `fixture_key='four-court-v1'`. It is a local scope allowlist, not forecast provenance.
-
-The kept-alive fixture has VD Sports Club (`vd-sports-club`), Demo Courts (`demo-courts`), one dispatch counter (`court-dispatch`), an owner with normal password and active TOTP, an active synthetic Pro subscription, open current Queue Day, service timing, one known single-unit service, Courts capacity four and eight waiting tickets with captured plans. The fixture creates synthetic facts directly; it does not claim those facts were admitted through HTTP or audited production issuance. Notification preferences are off, payment/provider flows are not invoked, and the generated environment selects console email.
-
-Output is an exclusive new mode-0600 private JSON file. It includes `databaseUrl`, `tenantSlug`, `locationSlug`, `counterSlug`, `admin` credentials/TOTP, `env` secrets and exact `fixture` IDs. Do not print the file into chat or public logs. Stdout includes only the artifact path, generated database name, counts and false readiness flags. Existing files are never overwritten. Keep the generated database alive while the coordinated API/UI acceptance runs; credentials and database disposal belong to that local demo lifecycle.
-
-Creation failures close and remove only the new artifact owned by that invocation, so a retry is not blocked by an empty/partial credential file. An already existing output path is preserved. Connection closing is reused during failure cleanup rather than closing a pool twice.
-
-Each generated fixture uses its own `four-court-<uuid>.localhost` hostname for both browser API port 5007 and frontend port 5187. Host-only session cookies are isolated by that unique hostname; ports alone do not isolate cookies. `SERVER_URL` remains literal loopback for Node clients. Use the artifact's exact browser URLs, verify browser DNS, Vite host admission, normal password/TOTP login and cookie/CSRF behavior before claiming browser acceptance. Existing running fixtures are not renamed. The generated configuration uses with `LOCAL_POOL_DEMO_ENABLED=1` and development mode. The API owner must verify effective process configuration, actual loopback database identity and exact marker before starting guarded commands; a credential file is not proof of a running backend. Worktree `.env.local` overrides and other shell settings must not redirect the process. No original account or normal localhost session is modified by fixture creation.
-
-The artifact explicitly blanks actual Resend/SendGrid/SMTP, Twilio, FCM, PayMongo and B2 object-storage endpoint, bucket, key and public-base settings rather than relying on an unused `EMAIL_PROVIDER` variable. A fresh-process test loads the actual application configuration with inherited sentinel credentials, applies the artifact settings, and verifies actual console email fallback while external fetches are prohibited. This test does not waive the API owner's effective startup check for worktree overrides.
-
-`VITE_API_URL` explicitly points the frontend at the generated API port, `DATABASE_SSL=false` prevents unrelated hosted database TLS settings from being inherited, and `AUTH_COOKIE_SECURE=false` permits sessions on this isolated HTTP loopback demo. VAPID credentials are also cleared. The configuration regression poisons inherited TLS, cookie and provider settings before applying the artifact. Google, Facebook and Apple OAuth credentials are cleared as well, keeping the fixture on its normal password/TOTP flow and preventing inherited providers from advertising callbacks on the Node-only loopback hostname. These local settings do not change production authentication policy.
-
-## Automated acceptance
+The canonical backend launcher verifies the effective configuration and exact marker before binding **127.0.0.1:5007**. It uses the real application/authentication/routes and starts no external-provider/background jobs:
 
 ```sh
-RESOURCE_LEDGER_TEST_DATABASE_URL=postgresql://postgres@127.0.0.1:55494/getprio_test \
-  node --test backend/tests/localPooledResourceDemo.test.cjs
+./node_modules/.bin/tsx scripts/local-pooled-queue-server.mjs /tmp/getprio-vd-sports-club-demo.json
 ```
 
-Tests create separate fresh full-schema databases and remove them after connections close. The interactive fixture is not consumed by these tests. They exercise real resource ledger scope transactions, resource-session helpers and timing repository writes:
+The vendor frontend uses a separate process at **http://127.0.0.1:5187** with `VITE_API_URL=http://127.0.0.1:5007/api`. Its cookies do not replace the normal localhost preview login. Use the private fixture credentials and normal password/TOTP login; no production account is modified.
 
-If CI's client-loopback URL reaches a PostgreSQL service container whose actual server address is a bridge address, the test helper starts a fresh native loopback PostgreSQL instance using installed `initdb`/`pg_ctl`. It stops only that owned instance after database disposal. The fixture's actual-loopback guard is unchanged; outside CI, a non-loopback server is rejected. Missing native binaries fail the tests rather than skipping them or allowing bridge/production targets.
+Against a freshly seeded fixture, the HTTP acceptance script exercises normal password/TOTP, cookie/CSRF authentication, real Call/Start/Complete/Interrupt endpoints and local reads:
 
-- Five simultaneous starts admit exactly four sessions/units and reject the fifth with capacity 409, without committing a failed command/timing start.
-- Overdue expected ends retain occupancy. Explicit completion and interruption release capacity, then waiting replacement starts fit; interruption retains its reason.
-- Protected booking reservation converts into one allocation rather than being counted twice.
-- Writer coverage cannot be set true; unsafe administration targets are rejected before connection. CLI artifacts are private/exclusive and secrets stay out of stdout/stderr.
+```sh
+./node_modules/.bin/tsx scripts/local-pooled-queue-smoke.mjs /tmp/getprio-vd-sports-club-demo.json
+```
 
-The harness sets called-ticket preconditions directly and uses an explicit fixture authorizer. It is not actual call-next, login/MFA, route/RBAC, customer view or browser acceptance. Queue/API/Vendor must additionally demonstrate the normal authenticated sequence and real UI. Complete production writers, provenance/reconciliation, protected-work coverage, forecast snapshots, privacy and AI evaluation remain separately gated; inference stays `not_ready`.
+It leaves four real sessions active, one pending call blocked by full capacity and one waiting ticket for the visible demonstration. The seven recorded checkpoints cover empty capacity, four simultaneous allocations, fifth-start rejection, duplicate Complete, independent Interrupt, freed-capacity reassignment and the final visible state. Private sanitized evidence is written to `/tmp/getprio-local-pooled-http-evidence.json`; credentials and session tokens are not included.
+
+## Acceptance and remaining boundaries
+
+At the first integration checkpoint, 15 dispatch/guard tests and 204 existing service-session PostgreSQL regressions passed without skips. The real HTTP script passed all seven checkpoints: four distinct allocation IDs, no fifth allocation, independent release and reassignment with increasing ledger revisions. The AI-owned separate PostgreSQL harness covers five competing starts, overdue holding, release/reuse and protected-reservation conversion. Vendor UI integration and visual acceptance must be verified separately; backend evidence is not UI acceptance.
+
+The operational read contract and tests are documented in [local resource operations](local-resource-operations.md). Unknown or inconsistent work remains visible and can block advice; a later caller must refresh and obey the mutation result. No client-derived capacity, fake session data, forecast-ready flag, customer prediction, real provider delivery, production policy change or named-court identity is introduced. Complete writer inventory, provenance/source epochs, historical reconciliation and production pilot acceptance retain their existing gates.
+
+The launcher rejects populated email, SMS, push, payment, and object-storage credentials and blocks external fetch/socket destinations before importing the application. It starts no background workers. To authenticate and read current state without queue mutations, add `--observe-only` to the smoke command; authentication still creates normal session/security records. Do not rerun the full smoke against an in-use fixture.
+
+## Starting tickets without a service plan
+
+In a tracked resource pool, Start requires the ticket to carry the frozen single-item known executable service plan captured at issuance. A generic walk-in with no selected service must be rejected before allocation; the server must not choose a default service or mutate the ticket plan. The operations UI should inspect the read model's `plan` and disable Start when the item count, service identity, duration, pool identity, or known-resource flag is not executable, with an inline explanation to issue a replacement ticket with a service selected. The supported recovery is to resolve the original through the normal queue action, then issue a replacement walk-in with an active service; the original remains in history. Capacity, ledger revision, and existing allocations must remain unchanged on the rejected Start.
+
+## Editing waiting and called ticket details
+
+The first edit operation changes the ticket's `customerName` and `notes` only. Email and phone remain read-only because they are notification/verification destinations; changing them requires an existing verified contact-change contract. Service selection captures a frozen resource plan at issuance, so service, quantity, duration, resource demand and booking/payment data remain read-only.
+
+Use the existing `tenant.ticket.update_state` permission and current branch assignment. Read exact scoped ticket details with an opaque version preserving the database timestamp precision. A save supplies that version and the status observed when opening the editor. Inside the existing branch transaction, lock the exact ticket and recheck authorization, version, status, queue-day operation eligibility, service timing and live allocations. Only waiting or called tickets with no started service and no unreleased allocation can change. Reject stale edits or a concurrent Call/Start/terminal transition with a clear conflict; retain the user's draft and require refresh rather than automatically retrying.
+
+Acceptance must show persisted name/notes edits separately for waiting and called tickets, untouched ticket number/position/status/plan/booking/payment, rejection of unsupported fields and cross-branch access, and a real Start-versus-save race. If Start wins, Save must fail without changing the active allocation. If Save wins, Start must consume the unchanged resource plan. Audit records should identify changed field names and actor without copying contact/free-text values into metadata. Existing active fixture allocations and event history must survive integration and restarts.
+
+## Local image upload persistence
+
+The fixture-only filesystem adapter additionally requires the explicit launcher argument `--local-image-storage`. The launcher clears inherited adapter opt-in unless this argument is present; the adapter must independently verify the disposable database and exact fixture scope on writes and reads. This does not enable B2 or other external providers. Payment QR acceptance requires a real browser upload, saving the returned asset through existing settings, and rendering the stored image after reload. Byte/MIME validation and external network restrictions remain active.

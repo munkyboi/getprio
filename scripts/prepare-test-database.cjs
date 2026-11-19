@@ -2,6 +2,7 @@
 const { Client } = require('pg');
 const fs = require('node:fs');
 const path = require('node:path');
+const { orderedMigrationFiles } = require('./helpers/migration-order.cjs');
 
 const DATABASES = {
   BOOKING_REMINDER_TEST_DATABASE_URL: { name: 'getprio_reminders_test', createSql: 'CREATE DATABASE getprio_reminders_test' },
@@ -16,6 +17,9 @@ async function prepareTestDatabase(variable, { connectionString = process.env[va
   if (!['localhost', '127.0.0.1'].includes(url.hostname) || url.pathname !== `/${database.name}`) {
     throw new Error(`Only a local ${database.name} database may be bootstrapped.`);
   }
+  const root = path.resolve(__dirname, '..');
+  // Resolve the complete dependency graph before creating/resetting a database.
+  const migrations = orderedMigrationFiles(path.join(root, 'database/migrations'));
   const adminUrl = new URL(url);
   adminUrl.pathname = '/postgres';
   const admin = new clientClass({connectionString: adminUrl.toString()});
@@ -28,11 +32,9 @@ async function prepareTestDatabase(variable, { connectionString = process.env[va
   const client = new clientClass({connectionString: url.toString()});
   await client.connect();
   try {
-    const root = path.resolve(__dirname, '..');
     await client.query(fs.readFileSync(path.join(root, 'database/init.sql'), 'utf8'));
-    const dir = path.join(root, 'database/migrations');
-    for (const file of fs.readdirSync(dir).filter(f => f.endsWith('.sql')).sort()) {
-      await client.query(fs.readFileSync(path.join(dir, file), 'utf8'));
+    for (const file of migrations) {
+      await client.query(fs.readFileSync(file, 'utf8'));
     }
   } finally { await client.end(); }
 }

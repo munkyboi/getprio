@@ -1,3 +1,6 @@
+const runtimeEnv = require("../src/config/env");
+const previousApiEnvironment = runtimeEnv.apiEnvironment;
+runtimeEnv.apiEnvironment = "sandbox";
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const developerProjects = require("../src/repositories/developerProjects");
@@ -28,7 +31,7 @@ test("recognized API-key responses are counted when the response finishes", asyn
   developerApiKeyActivity.record = async (event) => events.push(event);
   const response = { statusCode: 429, setHeader() {}, once(event, listener) { assert.equal(event, "finish"); finish = listener; } };
   let nextError;
-  const request = { hostname: "sandbox-api.getprio.online", method: "POST", headers: { authorization: "Bearer gpk_sbx_test" } };
+  const request = { hostname: "sandbox-api.getprio.online", method: "POST", headers: { host: "sandbox-api.getprio.online", authorization: "Bearer gpk_sbx_test" } };
   await authenticateDeveloperApiKey(request, response, (error) => { nextError = error; });
   assert.equal(nextError, undefined);
   assert.equal(events.length, 0);
@@ -43,7 +46,7 @@ test("known revoked keys record a sanitized authentication-failure counter", asy
   developerApiKeyActivity.record = async (event) => events.push(event);
   let nextError;
   await authenticateDeveloperApiKey(
-    { hostname: "sandbox-api.getprio.online", method: "GET", headers: { "x-api-key": "gpk_sbx_revoked" } },
+    { hostname: "sandbox-api.getprio.online", method: "GET", headers: { host: "sandbox-api.getprio.online", "x-api-key": "gpk_sbx_revoked" } },
     { setHeader() {} },
     (error) => { nextError = error; }
   );
@@ -51,3 +54,5 @@ test("known revoked keys record a sanitized authentication-failure counter", asy
   assert.equal(nextError.code, "API_KEY_INVALID");
   assert.deepEqual(events, [{ apiKeyId: "key-2", kind: "read", statusCode: 401, authFailure: true }]);
 });
+
+test.after(() => { runtimeEnv.apiEnvironment = previousApiEnvironment; });

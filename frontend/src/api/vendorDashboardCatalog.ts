@@ -44,10 +44,16 @@ export function getCounters(token: string, tenantSlug: string, locationSlug: str
   );
 }
 
-export function saveService(token: string, tenantSlug: string, slug: string | null, body: SaveVendorServiceRequest) {
-  const path = slug ? `/vendor/tenant/${tenantSlug}/services/${slug}` : `/vendor/tenant/${tenantSlug}/services`;
+export function saveService(token: string, tenantSlug: string, slug: string | null, body: SaveVendorServiceRequest, queueOnly = false) {
+  const prefix = queueOnly ? "queue/services" : "services";
+  const path = slug ? `/vendor/tenant/${tenantSlug}/${prefix}/${slug}` : `/vendor/tenant/${tenantSlug}/${prefix}`;
   const method = slug ? "PATCH" : "POST";
-  return apiRequest<VendorServiceResponse, SaveVendorServiceRequest>(path, { method, token, body });
+  const queueFields = ["name", "slug", "imageUrl", "description", "durationMinutes", "isActive", "sortOrder"];
+  const payload = queueOnly ? {
+    ...Object.fromEntries(Object.entries(body).filter(([key])=>queueFields.includes(key))),
+    ...(body.locationServices ? {locationServices:body.locationServices.map(({locationSlug,isActive,sortOrder})=>({locationSlug,isActive,sortOrder}))} : {}),
+  } : body;
+  return apiRequest<VendorServiceResponse>(path, { method, token, body:payload });
 }
 
 export function deactivateService(token: string, tenantSlug: string, slug: string) {

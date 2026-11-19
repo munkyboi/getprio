@@ -11,9 +11,12 @@ dotenv.config({ path: rootEnvPath });
 
 const backendEnvPath = path.resolve(__dirname, "../../.env");
 dotenv.config({ path: backendEnvPath, override: false });
-// Worktree-local overrides are ignored by git and loaded last.
-dotenv.config({ path: path.resolve(__dirname, "../../../.env.local"), override: true });
-dotenv.config({ path: path.resolve(__dirname, "../../.env.local"), override: true });
+// Explicit local surface profiles are fully pinned by the guarded launcher.
+// Re-reading an overriding worktree file after validation would change its identity.
+if (!process.env.LOCAL_API_PROFILE) {
+  dotenv.config({ path: path.resolve(__dirname, "../../../.env.local"), override: true });
+  dotenv.config({ path: path.resolve(__dirname, "../../.env.local"), override: true });
+}
 
 const port = Number(process.env.PORT || process.env.BACKEND_PORT || 5001);
 const frontendPort = Number(process.env.FRONTEND_PORT || 5173);
@@ -33,6 +36,11 @@ const jwtSecret = process.env.JWT_SECRET || "change-me";
 const serverUrl = process.env.SERVER_URL || `http://localhost:${port}`;
 const clientUrl = process.env.CLIENT_URL || `http://localhost:${frontendPort}`;
 const appBaseUrl = process.env.APP_BASE_URL || `http://localhost:${frontendPort}`;
+const customerAppUrl = process.env.CUSTOMER_APP_URL || "";
+const vendorAppUrl = process.env.VENDOR_APP_URL || "";
+const marketingUrl = process.env.MARKETING_URL || "";
+const localApiProfile = process.env.LOCAL_API_PROFILE || "";
+const localApiOrigin = process.env.LOCAL_API_ORIGIN || "";
 const emailAssetBaseUrl = process.env.EMAIL_ASSET_BASE_URL || appBaseUrl;
 const mobileQrBaseUrl = resolveMobileQrBaseUrl(process.env, appBaseUrl, frontendPort);
 const mobilePaymentReturnUrl = process.env.MOBILE_PAYMENT_RETURN_URL || "";
@@ -59,6 +67,12 @@ const refreshTokenTtlDaysPlatformAdmin = Number(
 const loginLockoutThreshold = Number(process.env.LOGIN_LOCKOUT_THRESHOLD || 5);
 const loginLockoutWindowMinutes = Number(process.env.LOGIN_LOCKOUT_WINDOW_MINUTES || 15);
 const loginLockoutDurationMinutes = Number(process.env.LOGIN_LOCKOUT_DURATION_MINUTES || 15);
+const authHttpRateLimit = Number(
+  process.env.AUTH_HTTP_RATE_LIMIT || (nodeEnv === "production" ? 100 : 1000)
+);
+const authAttemptRateLimit = Number(
+  process.env.AUTH_ATTEMPT_RATE_LIMIT || (nodeEnv === "production" ? 100 : 1000)
+);
 const passwordResetTtlMinutes = Number(process.env.PASSWORD_RESET_TTL_MINUTES || 30);
 const googleClientId = process.env.GOOGLE_CLIENT_ID || "";
 const googleClientSecret = process.env.GOOGLE_CLIENT_SECRET || "";
@@ -168,6 +182,7 @@ const env = {
   jwtSecret,
   serverUrl,
   clientUrl,
+  customerAppUrl, vendorAppUrl, marketingUrl, localApiProfile, localApiOrigin,
   appBaseUrl,
   emailAssetBaseUrl,
   mobileQrBaseUrl,
@@ -186,6 +201,8 @@ const env = {
   loginLockoutThreshold,
   loginLockoutWindowMinutes,
   loginLockoutDurationMinutes,
+  authHttpRateLimit,
+  authAttemptRateLimit,
   passwordResetTtlMinutes,
   googleClientId,
   googleClientSecret,

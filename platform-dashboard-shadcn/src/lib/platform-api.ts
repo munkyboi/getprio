@@ -1,3 +1,4 @@
+const surfaceCsrfCookie = `${import.meta.env.VITE_BROWSER_COOKIE_PREFIX ? `${import.meta.env.VITE_BROWSER_COOKIE_PREFIX}_` : ""}prio_csrf`
 import type {
   DeveloperProjectGovernanceReadModel,
   DeveloperProjectSummary,
@@ -44,7 +45,7 @@ import type { AiInferenceApi, AiStatus } from "@/lib/ai-inference-contracts"
 import type { ResourceInventoryApi } from "@/lib/resource-inventory-contracts"
 import type { MaintenanceApi, MaintenanceRecord } from "@/lib/maintenance-contracts"
 
-const API_BASE_URL = resolvePlatformApiBaseUrl(import.meta.env.VITE_API_URL, window.location.hostname, import.meta.env.DEV)
+const API_BASE_URL = resolvePlatformApiBaseUrl(import.meta.env.VITE_API_URL, window.location.hostname, import.meta.env.DEV || import.meta.env.VITE_LOCAL_SURFACES === "1")
 
 async function fetchWithSessionRefresh(request: () => Promise<Response>) {
   const response = await request()
@@ -705,11 +706,11 @@ function fallbackMeta(scope: ReadModelMeta["scope"]): ReadModelMeta {
 }
 
 function readCsrfToken() {
-  const entry = document.cookie.split(";").map((value) => value.trim()).find((value) => value.startsWith("prio_csrf="))
-  if (entry) return decodeURIComponent(entry.slice("prio_csrf=".length))
+  const entry = document.cookie.split(";").map((value) => value.trim()).find((value) => value.startsWith(`${surfaceCsrfCookie}=`))
+  if (entry) return decodeURIComponent(entry.slice(surfaceCsrfCookie.length + 1))
 
   try {
-    const stored = window.sessionStorage.getItem("prio_csrf")
+    const stored = window.sessionStorage.getItem(surfaceCsrfCookie)
     if (stored) return stored
   } catch {
     // The cookie remains available when storage is restricted.

@@ -9,6 +9,8 @@ const PLAN_POLICY_FIXTURES = Object.freeze({
     checkoutEnabled: false,
     features: Object.freeze({
       queue: true,
+      resourceQueue: false,
+      workflowQueue: false,
       branding: false,
       discovery: false,
       booking: false,
@@ -23,6 +25,8 @@ const PLAN_POLICY_FIXTURES = Object.freeze({
     checkoutEnabled: true,
     features: Object.freeze({
       queue: true,
+      resourceQueue: true,
+      workflowQueue: false,
       branding: false,
       discovery: true,
       booking: true,
@@ -37,6 +41,8 @@ const PLAN_POLICY_FIXTURES = Object.freeze({
     checkoutEnabled: true,
     features: Object.freeze({
       queue: true,
+      resourceQueue: true,
+      workflowQueue: true,
       branding: true,
       discovery: true,
       booking: true,
@@ -51,6 +57,8 @@ const PLAN_POLICY_FIXTURES = Object.freeze({
     checkoutEnabled: false,
     features: Object.freeze({
       queue: true,
+      resourceQueue: true,
+      workflowQueue: true,
       branding: true,
       discovery: true,
       booking: true,
