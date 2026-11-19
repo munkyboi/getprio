@@ -7,6 +7,10 @@ require.cache[dbId] = {id:dbId,filename:dbId,loaded:true,exports:{query(){throw 
 const v4 = require('../src/services/queueSelectionCaptureV4');
 const legacy = require('../src/services/queueSelectionCapture');
 const commands = require('../src/services/queueSelectionCommandService');
+const resolver = require('../src/services/entitlementResolver');
+const originalResolvePolicy = resolver.resolveTenantPolicy;
+resolver.resolveTenantPolicy = async () => ({ lifecycle: { state: 'active' }, features: { queue: { enabled: true }, resourceQueue: { enabled: true }, workflowQueue: { enabled: true } } });
+test.after(() => { resolver.resolveTenantPolicy = originalResolvePolicy; });
 const scope = {tenantId:'1',locationId:'2',actorUserId:'3'};
 const member = '11111111-1111-4111-8111-111111111111';
 const other = '22222222-2222-4222-8222-222222222222';
@@ -38,6 +42,7 @@ function fixture({mode='pooled',requirement='optional',configured=true,legacyIds
   if(sql.includes('FROM vendor_services s JOIN location_services l')&&sql.includes('service_revision'))return {rows:services};
   if(sql.includes('FROM resource_pool_members WHERE'))return {rows:members};
   if(sql.includes('FROM resource_pool_members m WHERE'))return {rows:members.map(m=>({id:m.id,availability:'provisional_free'}))};
+  if(sql.includes("SELECT COALESCE(to_jsonb(l)->>'queue_type','simple') AS type FROM store_locations"))return {rows:[{type:'resource'}]};
   if(sql.includes('FROM queue_workflow_'))return {rows:[{revision:'1',mode:'linear',stations:[],stages:[]}]};
   if(sql.includes('clock_timestamp() AS observed_at FROM store_locations'))return {rows:[{timezone:'UTC',observed_at:now}]};
   if(sql.includes('FROM store_hours'))return {rows:[]};
