@@ -13,12 +13,13 @@ function fixture({failCommit=false}={}){
   return {rows:[]};
  }};
  const mocks={
+  './queueTypeService':{execution:async()=>({type:'resource',capabilities:{resource:true,workflow:true}}),assertAdmission:async()=>{}},
   './queueServiceHoursService':{},
   '../config/db':{pool:{}},
   '../repositories/queuePlanDrafts':{find:async()=>({id:'plan',state:'draft',revision:'1',customer:{name:'QA'},notes:null,catalog_revision:'catalog',lines:[]}),validateDraft:()=>{},dto:()=>({id:'plan'})},
   '../repositories/queuePlanProjection':{read:async()=>({id:'plan',ticketId:'ticket'})},
   './queuePlanCatalog':{captureLines:async()=>[],assignStages:async()=>null},
-  './queueWorkflowService':{read:async()=>({mode:'linear',configurationRevision:'1'})},
+  './queueWorkflowService':{read:async()=>({mode:'linear',configurationRevision:'1'}),readVersion:async()=>({mode:'linear',configurationRevision:'1'})},
   './queueService':{assertQueueIntakeOpen:async()=>({businessDate:'2026-10-20'}),assertWaitingIntakeCapacityAvailable:async()=>{},createTicketForTenantInTransaction:async()=>{created++;return {_id:'ticket'};},recordCreatedTicketEvent:async()=>{}},
   './queueHelpers':{getDateKey:()=>{throw Error('unexpected fallback');}},
   './vendorQueueTransactionService':{withVendorQueueTransaction:async(_context,operation)=>{sequence.push('begin');const result=await operation(client,null,{tenantMemberships:[{role:'owner'}]});if(failCommit){receipt=null;sequence.push('rollback');throw Error('commit failed');}sequence.push('commit');return result;}},
