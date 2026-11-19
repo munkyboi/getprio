@@ -1497,9 +1497,9 @@ test(
               allocationGroupId: multi.allocationGroups.at(-1).id, completeAll: true,
             })
           ).plan;
-          assert.equal(multi.currentStage.state, "completed");
-          assert.equal(multi.state, "in_service");
-          assert.ok(multi.allowedActions.includes("handoff"));
+          assert.equal(multi.stages.find((stage) => stage.id === stageA).state, "completed");
+          assert.equal(multi.currentStage.state, "awaiting_arrival");
+          assert.equal(multi.state, "called");
           assert.equal(
             (
               await pool.query(
@@ -1512,19 +1512,9 @@ test(
           assert.equal(multi.reservationGroups.length, 1);
           assert.equal(
             multi.stages.find((stage) => stage.id === stageB).state,
-            "pending",
+            "awaiting_arrival",
           );
-          const before = multi;
-          const result = await invoke(before, "handoff", "station-handoff");
-          assert.deepEqual(
-            JSON.parse(
-              JSON.stringify(
-                await invoke(before, "handoff", "station-handoff"),
-              ),
-            ),
-            JSON.parse(JSON.stringify(result)),
-          );
-          multi = result.plan;
+          multi = (await invoke(multi, "arrive", "station-two-arrive")).plan;
           assert.equal(multi.state, "waiting");
           assert.equal(multi.currentStage.stationId, stationB);
           assert.equal(multi.currentStage.state, "waiting");
@@ -1584,7 +1574,7 @@ test(
             JSON.parse(JSON.stringify(result)),
           );
           multi = result.plan;
-          assert.equal(multi.state, "waiting");
+          assert.equal(multi.currentStage.state, "awaiting_arrival");
           assert.equal(multi.currentStage.attempt, "2");
           assert.equal(multi.stages.length, 3);
           assert.equal(
@@ -1592,6 +1582,7 @@ test(
             "interrupted",
           );
           assert.equal(multi.reservationGroups.length, 2);
+          multi = (await invoke(multi, "arrive", "station-two-retry-arrive")).plan;
         },
       );
       await t.test(
