@@ -8,6 +8,7 @@ import { URL, pathToFileURL } from 'node:url';
 import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const { Pool } = require('pg');
+const { orderMigrationNames } = require('./helpers/migration-order.cjs');
 const bcrypt = require('bcryptjs');
 const mfa = require('../backend/src/services/mfaService');
 const root = new URL('../', import.meta.url);
@@ -52,7 +53,7 @@ export async function createFourCourtDemo({ adminUrl }) {
     pool = new Pool({ connectionString: target.href, max: 8 });
     await assertDatabase(pool, databaseName, true);
     await pool.query(await readFile(new URL('database/init.sql', root), 'utf8'));
-    for (const filename of (await readdir(new URL('database/migrations/', root))).filter(name => name.endsWith('.sql')).sort()) {
+    for (const filename of orderMigrationNames((await readdir(new URL('database/migrations/', root))).filter(name => name.endsWith('.sql')))) {
       if ((await pool.query('SELECT 1 FROM schema_migrations WHERE filename=$1', [filename])).rowCount) continue;
       await pool.query(await readFile(new URL(`database/migrations/${filename}`, root), 'utf8'));
       await pool.query('INSERT INTO schema_migrations(filename) VALUES($1)', [filename]);
@@ -74,9 +75,7 @@ export async function createFourCourtDemo({ adminUrl }) {
       await client.query('BEGIN');
       await client.query(`CREATE TABLE public.local_pool_demo_scopes(tenant_id BIGINT NOT NULL,location_id BIGINT NOT NULL,
         fixture_key TEXT NOT NULL CHECK(fixture_key='four-court-v1'),PRIMARY KEY(tenant_id,location_id))`);
-      // The sole constraint exception is confined to this just-created database.
       await assertDatabase(client, databaseName);
-      await client.query('ALTER TABLE public.location_resource_pools DROP CONSTRAINT resource_pools_tracking_disabled_check');
       const user = (await client.query(`INSERT INTO users(name,email,password_hash,password_hash_algorithm,email_verified,roles,mfa_enabled,mfa_required)
         VALUES('Local Court Admin',$1,$2,'bcrypt',TRUE,ARRAY['vendor'],TRUE,TRUE) RETURNING id::text`, [credentials.email, passwordHash])).rows[0].id;
       await client.query(`INSERT INTO auth_mfa_factors(user_id,factor_type,label,secret_ciphertext,secret_iv,secret_auth_tag,status,verified_at)
@@ -85,6 +84,8 @@ export async function createFourCourtDemo({ adminUrl }) {
         VALUES('VD Sports Club','vd-sports-club','VD',30,FALSE) RETURNING id::text`)).rows[0].id;
       const location = (await client.query(`INSERT INTO store_locations(tenant_id,name,slug,is_primary,service_timing_enabled,queue_lifecycle_mode)
         VALUES($1,'Demo Courts','demo-courts',TRUE,TRUE,'enforced') RETURNING id::text`, [tenant])).rows[0].id;
+      await client.query("INSERT INTO queue_workflow_versions(tenant_id,location_id,revision,mode,stations,stages,actor_role) VALUES($1,$2,1,'linear','[]','[]','system_default')", [tenant, location]);
+      await client.query('INSERT INTO queue_workflow_configurations(tenant_id,location_id,revision) VALUES($1,$2,1)', [tenant, location]);
       await client.query(`INSERT INTO local_pool_demo_scopes VALUES($1,$2,'four-court-v1')`, [tenant, location]);
       const membership = (await client.query("INSERT INTO tenant_memberships(user_id,tenant_id,role) VALUES($1,$2,'owner') RETURNING id", [user, tenant])).rows[0].id;
       await client.query('INSERT INTO tenant_membership_locations(tenant_membership_id,location_id,assigned_by_user_id) VALUES($1,$2,$3)', [membership, location, user]);
