@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { currentSurface, safeSurfaceNext } from "../surfaces/surfaceConfig";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button, Loader } from "@mantine/core";
@@ -7,7 +8,8 @@ import { isVendorLoginContext, vendorSignInRetryPath } from "../vendor/authConte
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 
-export default function OAuthCallbackPage() {
+export interface OAuthCallbackPresentationModel { error: string; busy: boolean; onRetry: () => void; }
+export default function OAuthCallbackPage({ renderPresentation }: { renderPresentation?: (model: OAuthCallbackPresentationModel) => ReactNode } = {}) {
   const navigate = useNavigate();
   const { refreshUser } = useAuth();
   // Auth context recreates refreshUser after session updates; that must not restart a handoff.
@@ -38,6 +40,8 @@ export default function OAuthCallbackPage() {
       .catch((cause) => { if (current) setError(cause instanceof Error ? cause.message : "Unable to finish sign-in."); });
     return () => { current = false; };
   }, [callbackParams, next, navigate]);
+
+  if (renderPresentation) return renderPresentation({ error, busy: !error, onRetry: () => vendor ? navigate(vendorSignInRetryPath(next)) : navigate("/login") });
 
   return (
     <LoginPresentation vendor={vendor} busy={!error}>

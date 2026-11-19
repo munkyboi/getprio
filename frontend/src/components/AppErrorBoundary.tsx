@@ -2,6 +2,7 @@ import { Component, type ErrorInfo, type ReactNode } from "react";
 
 type AppErrorBoundaryProps = {
   children: ReactNode;
+  renderFallback?: (model: { retry: () => void; goHome: () => void }) => ReactNode;
 };
 
 type AppErrorBoundaryState = {
@@ -23,6 +24,8 @@ export default class AppErrorBoundary extends Component<AppErrorBoundaryProps, A
     if (!this.state.hasError) {
       return this.props.children;
     }
+
+    if (this.props.renderFallback) return this.props.renderFallback({ retry: () => this.setState({ hasError: false }), goHome: () => window.location.assign("/") });
 
     return (
       <main className="app-error-boundary" role="alert">

@@ -1,3 +1,5 @@
+import type { ReactNode, FormEvent } from "react";
+import type { UseFormReturn } from "react-hook-form";
 import { AuthAppLinks } from "../surfaces/AuthAppLinks";
 import { currentSurface, safeSurfaceNext } from "../surfaces/surfaceConfig";
 import { useEffect, useState } from "react";
@@ -29,7 +31,12 @@ const customerSchema = z.object({
 
 type CustomerFormValues = z.infer<typeof customerSchema>;
 
-export default function RegisterCustomerPage() {
+export interface CustomerRegistrationPresentationModel {
+  form: UseFormReturn<CustomerFormValues>; handleSubmit: (e?: FormEvent<HTMLFormElement>) => Promise<void>;
+  username: string; usernameMessage: string; usernameAvailable: boolean; checkingUsername: boolean; error: string; redirectTo: string;
+  setUsernameManuallyEdited: (v:boolean)=>void;
+}
+export default function RegisterCustomerPage({ renderPresentation, renderLoading }: { renderPresentation?: (model: CustomerRegistrationPresentationModel)=>ReactNode; renderLoading?: ()=>ReactNode } = {}) {
   const location = useLocation();
   const navigate = useNavigate();
   const { loading, registerCustomer, user } = useAuth();
@@ -128,6 +135,7 @@ export default function RegisterCustomerPage() {
   }, [form, name, usernameManuallyEdited]);
 
   if (loading) {
+    if (renderLoading) return renderLoading();
     return <Paper className="finazze-auth-card" p="xl">Loading session...</Paper>;
   }
 
@@ -155,6 +163,8 @@ export default function RegisterCustomerPage() {
       setError(getErrorMessage(submitError));
     }
   });
+
+  if (renderPresentation) return renderPresentation({ form, handleSubmit, username, usernameMessage, usernameAvailable, checkingUsername, error, redirectTo, setUsernameManuallyEdited });
 
   return (
     <Paper className="finazze-auth-card finazze-auth-card-wide onboarding-shell" p={{ base: "xl", md: 44 }}>

@@ -1,9 +1,12 @@
-import { useEffect, useId, useRef } from "react";
+import { useEffect, useId, useRef, type ReactNode } from "react";
 import { Input, PinInput } from "@mantine/core";
 import { useVendorAccount } from "../vendor/AccountPresentation";
 import { ConfigurationInput } from "../vendor/ConfigurationUi";
 
+export type OtpPresentationModel = {label:string;value:string;onChange:(value:string)=>void;disabled:boolean;autoFocus?:boolean;description?:string;name?:string;required?:boolean;};
+
 type OtpInputFieldProps = {
+  renderPresentation?: (model:OtpPresentationModel)=>ReactNode;
   label: string;
   vendor?: boolean;
   value: string;
@@ -19,6 +22,7 @@ type OtpInputFieldProps = {
 };
 
 export function OtpInputField({
+  renderPresentation,
   vendor: vendorPresentation = false,
   label,
   value,
@@ -58,6 +62,9 @@ export function OtpInputField({
     });
   }, [value, verificationKey, onVerify, autoVerifyEnabled, disabled]);
 
+  // CUSTOMER PRESENTATION INJECTION START
+  if(renderPresentation)return renderPresentation({label,value,onChange,disabled,autoFocus,description,name,required});
+  // CUSTOMER PRESENTATION INJECTION END
   if (vendor)
     return (
       <ConfigurationInput
