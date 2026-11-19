@@ -1,4 +1,5 @@
 import { publicAuthPathAllowed } from "../../../shared/publicAuthPolicy";
+import { publicUniversalAuthEnabled } from "../surfaces/publicAuthEnabled";
 const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
 
 function resolveApiBaseUrl(
@@ -108,7 +109,7 @@ export async function apiRequest<TResponse, TBody = unknown>(
 
 /** Auth-only transport; ordinary marketing requests remain credentialless. */
 export async function publicAuthRequest<TResponse, TBody = unknown>(path: string, options: ApiRequestOptions<TBody> = {}): Promise<TResponse> {
-  if (!publicAuthPathAllowed(path, options.method) || import.meta.env?.VITE_PUBLIC_UNIVERSAL_AUTH !== "1") {
+  if (!publicAuthPathAllowed(path, options.method) || !publicUniversalAuthEnabled) {
     throw new ApiError("This authentication action is unavailable.", 403);
   }
   return performRequest<TResponse, TBody>(path, { ...options, skipAuthRefresh: true }, true);

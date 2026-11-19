@@ -1,5 +1,5 @@
 import googleIcon from "../assets/auth/google.svg";
-import facebookIcon from "../assets/auth/facebook.svg";
+import facebookIcon from "../assets/auth/facebook-supplied.png";
 import appleDarkIcon from "../assets/auth/apple-dark.png";
 import appleLightIcon from "../assets/auth/apple-light.png";
 import { OperationButton } from "../vendor/OperationsUi";
