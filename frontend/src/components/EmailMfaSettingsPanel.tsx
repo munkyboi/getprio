@@ -3,7 +3,7 @@ import {
   useVendorAccount,
   discardAccountTask,
 } from "../vendor/AccountPresentation";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import {
   Alert,
   Badge,
@@ -22,12 +22,15 @@ import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import { getErrorMessage } from "../utils/errors";
 
+export interface EmailMfaPresentationModel {busy:boolean;disableOpened:boolean;setDisableOpened:(v:boolean)=>void;password:string;setPassword:(v:string)=>void;error:string;isEnabled:boolean;isVerified:boolean;hasPassword:boolean;totpEnabled:boolean;requiredMethodCannotBeRemoved:boolean;closeDisable:()=>void;updateEmailMfa:(v:boolean)=>Promise<void>;}
+
 type Props = {
+  renderPresentation?:(model:EmailMfaPresentationModel)=>ReactNode;
   variant: "customer" | "vendor";
   onUpdated?: (user: UserSummary | null) => void | Promise<void>;
 };
 
-export function EmailMfaSettingsPanel({ variant, onUpdated }: Props) {
+export function EmailMfaSettingsPanel({ variant, onUpdated, renderPresentation }: Props) {
   const notifications = useScopedNotifications();
   const { token, user, refreshUser } = useAuth();
   const [busy, setBusy] = useState(false);
@@ -86,6 +89,10 @@ export function EmailMfaSettingsPanel({ variant, onUpdated }: Props) {
       setBusy(false);
     }
   }
+
+  // CUSTOMER PRESENTATION INJECTION START
+  if(renderPresentation)return renderPresentation({busy,disableOpened,setDisableOpened,password,setPassword,error,isEnabled,isVerified,hasPassword,totpEnabled,requiredMethodCannotBeRemoved,closeDisable,updateEmailMfa});
+  // CUSTOMER PRESENTATION INJECTION END
 
   return (
     <>

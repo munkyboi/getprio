@@ -3,7 +3,7 @@ import {
   useVendorAccount,
   discardAccountTask,
 } from "../vendor/AccountPresentation";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import {
   Alert,
   Button,
@@ -29,10 +29,14 @@ function messageFor(error: unknown): string {
     : "We could not submit the deletion request. Please try again.";
 }
 
+export interface AccountDeletionPresentationModel {dialogOpen:boolean;passwordRequired:boolean;password:string;setPassword:(v:string)=>void;preparing:boolean;submitting:boolean;error:string;accountDescription:string;activityWarning:string;closeDeletion:()=>void;prepareRequest:()=>Promise<void>;submitRequest:()=>Promise<void>;}
+
 export function AccountDeletionPanel({
   accountType,
+  renderPresentation,
 }: {
   accountType: AccountType;
+  renderPresentation?:(model:AccountDeletionPresentationModel)=>ReactNode;
 }) {
   const { token, logout } = useAuth();
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -106,6 +110,10 @@ export function AccountDeletionPanel({
       setSubmitting(false);
     }
   }
+
+  // CUSTOMER PRESENTATION INJECTION START
+  if(renderPresentation)return renderPresentation({dialogOpen,passwordRequired,password,setPassword,preparing,submitting,error,accountDescription,activityWarning,closeDeletion,prepareRequest,submitRequest});
+  // CUSTOMER PRESENTATION INJECTION END
 
   return (
     <>
