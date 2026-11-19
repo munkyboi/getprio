@@ -1,11 +1,27 @@
+import type { ReactNode } from "react";
 import type {BookingCatalogV4,BookingCatalogServiceV4,BookingServiceSelectionV4,BookingResourceLeafV4,BookingExtraLeafV4} from '@shared/bookingSelectionV4';
 import {Alert,Checkbox,NumberInput,Stack,Text,MultiSelect} from '@mantine/core';
 import '../booking-v4.css';
 const key=()=>crypto.randomUUID();
 function leaf(service:BookingCatalogServiceV4,memberId?:string):BookingResourceLeafV4{return{resourceSelectionId:key(),resourceMemberId:memberId||null,quantity:1,durationCount:service.duration.defaultCount,durationVersion:service.duration.version,extras:[]};}
-export default function BookingSelectionEditorV4({catalog,value,onChange,disabled=false}:{catalog:BookingCatalogV4;value:BookingServiceSelectionV4[];onChange:(next:BookingServiceSelectionV4[])=>void;disabled?:boolean}){
+export interface BookingSelectionPresentationModel {
+ catalog:BookingCatalogV4;value:BookingServiceSelectionV4[];disabled:boolean;
+ toggleService:(service:BookingCatalogServiceV4,checked:boolean)=>void;
+ selectMembers:(service:BookingCatalogServiceV4,ids:string[])=>void;
+ updateResource:(serviceId:string,resourceId:string,next:BookingResourceLeafV4)=>void;
+ toggleExtra:(serviceId:string,resource:BookingResourceLeafV4,extra:BookingCatalogServiceV4,checked:boolean)=>void;
+ updateExtra:(serviceId:string,resource:BookingResourceLeafV4,next:BookingExtraLeafV4)=>void;
+}
+export default function BookingSelectionEditorV4({catalog,value,onChange,disabled=false,renderPresentation}:{catalog:BookingCatalogV4;value:BookingServiceSelectionV4[];onChange:(next:BookingServiceSelectionV4[])=>void;disabled?:boolean;renderPresentation?:(model:BookingSelectionPresentationModel)=>ReactNode}){
  const services=new Map(catalog.services.map(service=>[service.id,service]));
  const changeRoot=(id:string,resources:BookingResourceLeafV4[])=>onChange(value.map(root=>root.serviceId===id?{...root,resources}:root));
+ // Shared command closures power both presentations; identity/version transforms stay here.
+ const toggleService=(service:BookingCatalogServiceV4,checked:boolean)=>onChange(checked?[...value,{serviceSelectionId:key(),serviceId:service.id,resources:service.assignment==='named'?[]:[leaf(service)]}]:value.filter(item=>item.serviceId!==service.id));
+ const selectMembers=(service:BookingCatalogServiceV4,ids:string[])=>{const root=value.find(root=>root.serviceId===service.id)!;changeRoot(service.id,ids.map(id=>root.resources.find(item=>item.resourceMemberId===id)||leaf(service,id)));};
+ const updateResource=(serviceId:string,resourceId:string,next:BookingResourceLeafV4)=>{const root=value.find(root=>root.serviceId===serviceId)!;changeRoot(serviceId,root.resources.map(item=>item.resourceSelectionId===resourceId?next:item));};
+ const toggleExtra=(serviceId:string,resource:BookingResourceLeafV4,extra:BookingCatalogServiceV4,checked:boolean)=>updateResource(serviceId,resource.resourceSelectionId,{...resource,extras:checked?[...resource.extras,{extraSelectionId:key(),serviceId:extra.id,quantity:1,durationCount:extra.duration.defaultCount,durationVersion:extra.duration.version,...(extra.assignment==='named'?{resourceMemberIds:[]}: {})}]:resource.extras.filter(item=>item.serviceId!==extra.id)});
+ const updateExtra=(serviceId:string,resource:BookingResourceLeafV4,next:BookingExtraLeafV4)=>updateResource(serviceId,resource.resourceSelectionId,{...resource,extras:resource.extras.map(item=>item.serviceId===next.serviceId?next:item)});
+ if(renderPresentation)return renderPresentation({catalog,value,disabled,toggleService,selectMembers,updateResource,toggleExtra,updateExtra});
  const number=(service:BookingCatalogServiceV4,current:number,change:(n:number)=>void,label='Duration count')=><NumberInput label={label} min={service.duration.minCount} max={service.duration.maxCount} step={service.duration.stepCount} value={current} disabled={disabled} allowDecimal={false} onChange={v=>typeof v==='number'&&change(v)} description={`${service.duration.baseMinutes} minutes per count`}/>;
  return <Stack className="booking-selection-v4" gap="md">{catalog.reasonCode==='BOOKING_WORKFLOW_UNSUPPORTED'?<Alert color="yellow">These services need a supported booking workflow. Please contact the vendor to arrange your visit.</Alert>:null}{catalog.blockedServices?.map(service=><Alert key={service.id} color="yellow">{service.name} needs resource and duration setup. Please contact the vendor.</Alert>)}<Text size="sm">Your resources are reserved when the vendor confirms your booking. The time list updates as you change your choices.</Text>{catalog.services.map(service=>{
  const root=value.find(root=>root.serviceId===service.id);

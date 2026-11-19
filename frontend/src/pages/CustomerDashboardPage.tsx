@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Alert,
@@ -67,7 +67,20 @@ function DashboardLoading() {
   );
 }
 
-export default function CustomerDashboardPage() {
+// CUSTOMER PRESENTATION CONTRACT START
+export interface CustomerDashboardPresentationModel {
+  account: Awaited<ReturnType<typeof customerAccountApi.getOverview>>["overview"] | null;
+  bookings: Awaited<ReturnType<typeof customerAccountApi.getBookings>>["bookings"];
+  activeTicket: ReturnType<typeof selectActiveCustomerTicket>;
+  nextBooking: ReturnType<typeof selectNextCustomerBooking>;
+  queue: QueueSnapshot | null;
+  loading: boolean;
+  error: string;
+  firstName: string;
+  refresh: () => void;
+}
+// CUSTOMER PRESENTATION CONTRACT END
+export default function CustomerDashboardPage({ renderPresentation, renderLoading }: { renderLoading?: () => ReactNode; renderPresentation?: (model: CustomerDashboardPresentationModel) => ReactNode } = {}) {
   const { loading, token, user } = useAuth();
   const queryClient = useQueryClient();
   const now = useMemo(() => new Date(), []);
@@ -130,6 +143,7 @@ export default function CustomerDashboardPage() {
   }, [activeTicket, queueBasePath, queryClient]);
 
   if (loading) {
+    if (renderLoading) return renderLoading();
     return (
       <CustomerAccountLayout activeSection="dashboard">
         <DashboardLoading />
@@ -147,6 +161,10 @@ export default function CustomerDashboardPage() {
     .trim()
     .split(/\s+/)[0];
   const focusTicket = queueQuery.data?.focusTicket || null;
+
+  // CUSTOMER PRESENTATION INJECTION START
+  if (renderPresentation) return renderPresentation({ account, bookings, activeTicket, nextBooking, queue: queueQuery.data || null, loading: dashboardLoading, error: dashboardError ? getErrorMessage(dashboardError) : "", firstName, refresh: () => { void accountQuery.refetch(); void bookingsQuery.refetch(); void queueQuery.refetch(); } });
+  // CUSTOMER PRESENTATION INJECTION END
 
   return (
     <CustomerAccountLayout activeSection="dashboard">

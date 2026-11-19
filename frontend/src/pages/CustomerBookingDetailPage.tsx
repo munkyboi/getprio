@@ -1,4 +1,4 @@
-import { type FormEvent, useCallback, useEffect, useState } from "react";
+import { type FormEvent, type ReactNode, type Dispatch, type SetStateAction, useCallback, useEffect, useState } from "react";
 import {  Alert, Badge, Button, Card, Container, FileInput, Group, Image, Modal, Paper, ScrollArea, SimpleGrid,  Stack, Text, Textarea, TextInput, ThemeIcon, Title } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import { IconAlertCircle, IconArrowLeft, IconBuildingBank, IconBuildingStore, IconCalendar, IconCircleCheck, IconExternalLink, IconEye, IconReceipt, IconStar, IconTicket, IconUpload,  IconX } from "@tabler/icons-react";
@@ -134,7 +134,22 @@ function formatCheckInCountdown(milliseconds: number) {
   return `${seconds}s`;
 }
 
-export default function CustomerBookingDetailPage() {
+// CUSTOMER PRESENTATION CONTRACT START
+export interface CustomerBookingDetailPresentationModel {
+ booking: CustomerBookingDetailResponse["booking"]; vendorProfile: PublicVendorProfile|null; vendorTheme: PublicBoardThemeSettings|null;
+ error:string; busy:boolean; proofBusy:boolean; arrivalBusy:boolean; proofViewBusy:boolean;
+ cancellationAllowed:boolean; proofSubmissionAllowed:boolean; isGroupFundedBooking:boolean;
+ linkedQueuePath:string; checkInActionLabel:string; customerArrivalAvailable:boolean;
+ totalBookingHoursLabel:string; bookingTotalFeeDisplay:string;
+ services:Array<{serviceName:string;serviceSlug:string;bookingQuantity:number;scheduledStartAt:string|Date;scheduledEndAt:string|Date;priceAmountCents:number;currency:string;imageUrl:string}>;
+ reason:string; setReason:Dispatch<SetStateAction<string>>; cancelModalOpen:boolean;setCancelModalOpen:Dispatch<SetStateAction<boolean>>;handleCancel:(event?:FormEvent<HTMLFormElement>)=>Promise<void>;
+ paymentReference:string;setPaymentReference:Dispatch<SetStateAction<string>>; paymentProofFile:File|null;setPaymentProofFile:Dispatch<SetStateAction<File|null>>;handleSubmitPaymentProof:()=>Promise<void>;
+ proofModalOpen:boolean;setProofModalOpen:Dispatch<SetStateAction<boolean>>;proofAccessUrl:string;handleViewPaymentProof:()=>Promise<void>;
+ markArrival:()=>Promise<void>;refresh:()=>void;
+ ratingStars:number;setRatingStars:Dispatch<SetStateAction<number>>;ratingComment:string;setRatingComment:Dispatch<SetStateAction<string>>;ratingSubmitted:boolean;submitVendorRating:()=>Promise<void>;
+}
+// CUSTOMER PRESENTATION CONTRACT END
+export default function CustomerBookingDetailPage({renderPresentation,renderUnavailable,renderLoading}:{renderUnavailable?:(model:{error:string;status:number|null;backTo:string;onRetry:()=>void})=>ReactNode;renderPresentation?:(model:CustomerBookingDetailPresentationModel)=>ReactNode;renderLoading?:()=>ReactNode}={}) {
   const { bookingId = "" } = useParams<{ bookingId: string }>();
 
   const { token, user, loading: authLoading } = useAuth();
@@ -291,6 +306,7 @@ export default function CustomerBookingDetailPage() {
   }, []);
 
   if (authLoading || loading) {
+    if (renderLoading) return renderLoading();
     return <Card className="finazze-auth-card">Loading booking...</Card>;
   }
 
@@ -403,6 +419,7 @@ export default function CustomerBookingDetailPage() {
   }
 
   if (!booking) {
+    if (renderUnavailable) return renderUnavailable({error, status:responseStatus, backTo:"/account/bookings", onRetry:()=>void loadBooking({showLoading:true})});
     return (
       <ResourceErrorState
         backLabel="Back to booking list"
@@ -525,6 +542,8 @@ export default function CustomerBookingDetailPage() {
   );
   const themeStyle = buildVendorThemeStyle(vendorTheme);
   const themedMediaStyle = buildVendorThemeMediaStyle(vendorTheme);
+
+  if(renderPresentation)return renderPresentation({booking,vendorProfile,vendorTheme,error,busy,proofBusy,arrivalBusy,proofViewBusy,cancellationAllowed,proofSubmissionAllowed,isGroupFundedBooking,linkedQueuePath,checkInActionLabel,customerArrivalAvailable,totalBookingHoursLabel,bookingTotalFeeDisplay,services:bookingServiceItemsWithImages,reason,setReason,cancelModalOpen,setCancelModalOpen,handleCancel,paymentReference,setPaymentReference,paymentProofFile,setPaymentProofFile,handleSubmitPaymentProof,proofModalOpen,setProofModalOpen,proofAccessUrl,handleViewPaymentProof,markArrival,refresh:()=>void loadBooking(),ratingStars,setRatingStars,ratingComment,setRatingComment,ratingSubmitted,submitVendorRating});
 
   return (
     <Stack className="vendor-profile-page" gap="xl" style={themeStyle}>

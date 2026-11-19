@@ -8,3 +8,10 @@ test('selected count and resource survive refreshed catalog props; only administ
  for(const version of ['v1','v2']){const html=renderToStaticMarkup(React.createElement(MantineProvider,null,React.createElement(Editor,{catalog:{contractVersion:4,enabled:true,catalogVersion:version,services:[service]},value,onChange:()=>changed++})));assert.match(html,/Court 1/);assert.match(html,/value="3"/);assert.match(html,/Duration count/);assert.match(html,/Amount confirmed by vendor/);}
  assert.equal(JSON.stringify(value),before);assert.equal(changed,0);
 });
+test('optional presentation receives controller actions while default remains independent',()=>{
+ const value=[{serviceSelectionId:'root',serviceId:'1',resources:[{resourceSelectionId:'resource',resourceMemberId:'court1',quantity:1,durationCount:3,durationVersion:'a'.repeat(64),extras:[]}]}];let model,changed;
+ renderToStaticMarkup(React.createElement(Editor,{catalog:{contractVersion:4,enabled:true,catalogVersion:'v1',services:[service]},value,onChange:next=>{changed=next},renderPresentation:m=>{model=m;return React.createElement('span',null,'customer')}}));
+ model.updateResource('1','resource',{...value[0].resources[0],durationCount:4});
+ assert.equal(changed[0].resources[0].durationCount,4);assert.equal(value[0].resources[0].durationCount,3);
+ model.toggleService(service,false);assert.deepEqual(changed,[]);
+});
