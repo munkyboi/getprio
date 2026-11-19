@@ -43,7 +43,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [oauthLoading, setOauthLoading] = useState(true);
   const [sessionExpiresAt, setSessionExpiresAt] = useState<number | null>(null);
   const [expiryWarningOpen, setExpiryWarningOpen] = useState(false);
-  const sourceId = useRef(`${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  const sourceId = useRef(
+    typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID()
+      : String(Date.now())
+  );
   const revision = useRef(0);
   const channelRef = useRef<BroadcastChannel | null>(null);
 
@@ -58,7 +62,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try { window.localStorage.setItem(AUTH_SYNC_REVISION_KEY, String(next)); } catch { /* storage is optional */ }
     return next;
   };
-  const applySession = (data: { user: UserSummary; sessionExpiresAt?: string | Date | null }) => {
+  type SessionData = { user: UserSummary; sessionExpiresAt?: string | Date | null };
+  const applySession = (data: SessionData) => {
     setToken(COOKIE_SESSION);
     setRefreshToken(COOKIE_SESSION);
     setUser(data.user);
@@ -144,13 +149,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [sessionExpiresAt, user]);
 
   useEffect(() => {
-    const clearAuthState = () => {
-      setToken("");
-      setRefreshToken("");
-      setUser(null);
-      setSessionExpiresAt(null);
-    };
-
     async function refreshAccessToken() {
       if (!refreshToken) {
         return null;
@@ -175,7 +173,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return COOKIE_SESSION;
       } catch {
         if (!isCurrentAuthRevision(revision.current, observed)) return COOKIE_SESSION;
-        clearAuthState();
+        clearSession();
         publishAuthChange("signed-out");
         return null;
       }
@@ -183,7 +181,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     setAuthHandlers({
       refreshToken: refreshAccessToken,
-      onAuthFailure: clearAuthState
+      onAuthFailure: clearSession
     });
 
     return () => {

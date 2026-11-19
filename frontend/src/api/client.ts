@@ -29,10 +29,11 @@ function resolveApiBaseUrl(
 const API_BASE_URL = resolveApiBaseUrl(
   import.meta.env?.VITE_API_URL,
   typeof window === "undefined" ? undefined : window.location.hostname,
-  Boolean(import.meta.env?.DEV || (import.meta.env && import.meta.env.VITE_LOCAL_SURFACES === "1"))
+  Boolean(import.meta.env?.DEV || import.meta.env?.VITE_LOCAL_SURFACES === "1")
 );
 const publicMarketing = import.meta.env?.VITE_APP_SURFACE === "marketing";
-const CSRF_STORAGE_KEY = `${import.meta.env?.VITE_BROWSER_COOKIE_PREFIX ? `${import.meta.env.VITE_BROWSER_COOKIE_PREFIX}_` : ""}prio_csrf`;
+const browserCookiePrefix = import.meta.env?.VITE_BROWSER_COOKIE_PREFIX;
+const CSRF_STORAGE_KEY = browserCookiePrefix ? `${browserCookiePrefix}_prio_csrf` : "prio_csrf";
 
 type RefreshTokenHandler = () => Promise<string | null>;
 type AuthFailureHandler = () => void;
