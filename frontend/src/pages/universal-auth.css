@@ -36,3 +36,9 @@
 .universal-auth [data-slot=input], .universal-auth [data-slot=input-group-control] { background: var(--secondary); color: var(--foreground); border-color: var(--input); }
 .universal-auth [data-slot=card] { background: var(--card); color: var(--foreground); }
 .universal-auth-link { background: transparent; border: 0; }
+/* Public auth theme also applies to the existing shared page shell. */
+html[data-public-theme="dark"] .finazze-app-shell { background: #0e1720; color: #f5f8fa; }
+html[data-public-theme="dark"] .finazze-topbar { background: #16212b; border-color: #354654; color: #f5f8fa; }
+html[data-public-theme="dark"] .finazze-topbar .mantine-Button-root[data-variant="subtle"] { color: #f5f8fa; }
+html[data-public-theme="dark"] .finazze-topbar .getprio-brand-logo { content: url("/logo-dark.svg"); }
+html[data-public-theme="dark"] .finazze-topbar .mobile-nav-trigger { --burger-color: #f5f8fa; }
