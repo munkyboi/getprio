@@ -1,5 +1,4 @@
 import { CustomerAppFailure } from "./components/CustomerFallbackPresentations";
-import { CustomerSessionWarning } from "./components/CustomerSessionWarning";
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { MantineProvider } from "@mantine/core";
