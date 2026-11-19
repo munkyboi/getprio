@@ -1,0 +1,17 @@
+┌ shadcn add @shadcn/toast (dry run)
+│
+├ Files (2) +1 new, ~1 overwrite
+│ ~ src/components/ui/button.tsx  overwrite
+│ + src/components/ui/toast.tsx   create
+│
+├ Dependencies (2)
+│ + cn
+│ + @base-ui/react
+│
+⚠ 1 file will be overwritten.
+│
+│ 2 files, 2 deps
+│
+│ Run with --diff to view changes.
+│ Run with --view to view file contents.
+└ Run without --dry-run to apply.

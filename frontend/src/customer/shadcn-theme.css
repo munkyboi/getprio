@@ -1,0 +1,17 @@
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities) source(none);
+@source "./components/shadcn";
+@custom-variant dark (&:is(html[data-customer-theme="dark"] *));
+@theme inline {
+ --color-background:var(--bg); --color-foreground:var(--text);
+ --color-card:var(--card); --color-card-foreground:var(--text);
+ --color-popover:var(--card); --color-popover-foreground:var(--text);
+ --color-primary:var(--customer-primary); --color-primary-foreground:var(--customer-primary-text);
+ --color-secondary:var(--customer-soft); --color-secondary-foreground:var(--text);
+ --color-muted:var(--customer-soft); --color-muted-foreground:var(--muted);
+ --color-accent:var(--customer-hover); --color-accent-foreground:var(--text);
+ --color-destructive:var(--customer-error); --color-border:var(--line);
+ --color-input:var(--line); --color-ring:var(--customer-ring);
+ --font-heading:var(--customer-font-display);
+ --radius-sm:8px; --radius-md:12px; --radius-lg:16px; --radius-xl:24px;
+}
