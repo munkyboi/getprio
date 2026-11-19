@@ -3,7 +3,7 @@ import { Link, useLocation, useSearchParams } from "react-router-dom";
 import type { OAuthProvidersResponse, UserSummary } from "@shared";
 import { API_BASE_URL, publicAuthRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
-import { appUrl, safeSurfaceNext } from "../surfaces/surfaceConfig";
+import { appUrl, safeSurfaceNext, keepSurfaceReturnPath } from "../surfaces/surfaceConfig";
 import { publicUniversalAuthEnabled } from "../surfaces/publicAuthEnabled";
 import { getErrorMessage } from "../utils/errors";
 import { readPublicAuthTheme } from "./publicAuthTheme";
@@ -84,7 +84,10 @@ export default function UniversalAuthPage() {
     if (busy || challenge) return;
     const updated = new URLSearchParams(params);
     updated.set("app", surface);
-    if (surface !== app) updated.delete("next");
+    if (surface !== app && updated.has("next")) {
+      const requested = updated.get("next");
+      if (!keepSurfaceReturnPath(requested, surface)) updated.delete("next");
+    }
     setParams(updated, { replace: true });
   }
   function restart() { setChallenge(""); setOriginalChallenge(""); setMethods([]); setEmailMethod(false); setRecoveryMethod(false); setError(""); setMessage(""); }

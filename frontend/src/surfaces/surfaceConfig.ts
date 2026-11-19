@@ -48,6 +48,10 @@ export function safeSurfaceNext(value: string | null | undefined, surface: "cust
   } catch { return fallback; }
 }
 
+export function keepSurfaceReturnPath(value: string | null, surface: "customer" | "vendor"): string | null {
+  return value && safeSurfaceNext(value, surface) === value ? value : null;
+}
+
 const frontendEnv = import.meta.env || {};
 export const currentSurface = frontendEnv.VITE_APP_SURFACE as BrowserSurface | undefined;
 export function appUrl(purpose: AppPurpose, path = "/") {
