@@ -8,6 +8,7 @@ import type {
   BookingStatus,
   CancelCustomerBookingResponse,
   CustomerBookingDetailResponse,
+  CustomerBookingSummary,
   CustomerBookingResponse,
   PublicBoardThemeSettings,
   PublicVendorProfile,
@@ -135,6 +136,11 @@ function formatCheckInCountdown(milliseconds: number) {
 }
 
 // CUSTOMER PRESENTATION CONTRACT START
+export function mergeOwnedBookingSummary(current: CustomerBookingDetailResponse["booking"] | null, next: CustomerBookingSummary): CustomerBookingDetailResponse["booking"] | null {
+  if (!current || current.id !== next.id || current.tenantId !== next.tenantId) return current;
+  return { ...current, ...next, customerName: current.customerName, customerEmail: current.customerEmail, customerPhone: current.customerPhone };
+}
+
 export interface CustomerBookingDetailPresentationModel {
  booking: CustomerBookingDetailResponse["booking"]; vendorProfile: PublicVendorProfile|null; vendorTheme: PublicBoardThemeSettings|null;
  error:string; busy:boolean; proofBusy:boolean; arrivalBusy:boolean; proofViewBusy:boolean;
@@ -180,7 +186,7 @@ export default function CustomerBookingDetailPage({renderPresentation,renderUnav
     setArrivalBusy(true);
     try {
       const data = await apiRequest<CustomerBookingResponse>(`/account/bookings/${booking.id}/arrival`, { method: "POST", token });
-      setBooking(data.booking);
+      setBooking(current => mergeOwnedBookingSummary(current, data.booking));
       notifications.show({ title: "Arrival recorded", message: "Your queue ticket is ready. The vendor can call it at or after your booked time.", color: "teal" });
     } catch (arrivalError) {
       showCustomerError(getErrorMessage(arrivalError), "Could not record arrival");
@@ -331,7 +337,7 @@ export default function CustomerBookingDetailPage({renderPresentation,renderUnav
           body: { reason }
         }
       );
-      setBooking(data.booking);
+      setBooking(current => mergeOwnedBookingSummary(current, data.booking));
       setReason("");
       setCancelModalOpen(false);
       notifications.show({
@@ -382,7 +388,7 @@ export default function CustomerBookingDetailPage({renderPresentation,renderUnav
           body: payload
         }
       );
-      setBooking(data.booking);
+      setBooking(current => mergeOwnedBookingSummary(current, data.booking));
       setPaymentReference("");
       setPaymentProofFile(null);
       notifications.show({

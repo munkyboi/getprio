@@ -1,0 +1,14 @@
+const { test } = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const ts = require('typescript');
+const vm = require('node:vm');
+const path = require('node:path');
+const source = fs.readFileSync(path.join(__dirname, '../src/pages/CustomerBookingDetailPage.tsx'), 'utf8');
+const ast = ts.createSourceFile('detail.tsx', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+const node = ast.statements.find(n => ts.isFunctionDeclaration(n) && n.name?.text === 'mergeOwnedBookingSummary');
+assert.ok(node, 'owned booking summary merge must exist');
+const js = ts.transpileModule(node.getText(ast), {compilerOptions:{module:ts.ModuleKind.CommonJS}}).outputText;
+const box={exports:{}};vm.runInNewContext(js,box);const merge=box.exports.mergeOwnedBookingSummary;
+test('matching mutation summary retains owner detail and updates status',()=>{const current={id:'1',tenantId:'a',status:'pending',customerName:'Name',customerEmail:'mail',customerPhone:'phone'};const next={id:'1',tenantId:'a',status:'confirmed',customerEmail:'untrusted'};const result=merge(current,next);assert.equal(result.status,'confirmed');assert.equal(result.customerEmail,'mail');assert.equal(result.customerName,'Name');assert.equal(result.customerPhone,'phone');assert.equal(current.status,'pending')});
+test('different booking or tenant and missing current data cannot replace detail',()=>{const current={id:'1',tenantId:'a'};assert.equal(merge(current,{id:'2',tenantId:'a'}),current);assert.equal(merge(current,{id:'1',tenantId:'b'}),current);assert.equal(merge(null,{id:'1',tenantId:'a'}),null)});
