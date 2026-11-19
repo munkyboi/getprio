@@ -5,6 +5,23 @@ const {
 function fail(message, code = "INVALID_STATE", statusCode = 409) {
   throw Object.assign(new Error(message), { statusCode, code });
 }
+function currentStageHoursItems(plan, stageId) {
+  if (!Array.isArray(plan.items)) return [];
+  const current = plan.items.filter(item => item && item.stageId === stageId);
+  if (plan.contract_version !== 2) return current;
+  if (current.some(item => item.executionMode !== "parallel" || !Number.isSafeInteger(item.quantity) || item.quantity < 1)) {
+    fail("The service request hours could not be verified. Refresh before continuing.", "STORE_HOURS_UNAVAILABLE");
+  }
+  // Contract 2 stores immutable parallel service lines rather than selection trees.
+  // Adapt their identifiers for the common duration validator without changing
+  // the pinned plan or counting quantity as elapsed time.
+  return current.map(item => ({
+    ...item,
+    selectionId: item.lineId,
+    serviceSelectionId: item.lineId,
+    selectionKind: "resource",
+  }));
+}
 async function assertActor(client, scope, stage, actor, serviceCounter) {
   if (!stage.station_id) return;
   const lanes = stage.station_snapshot?.serviceCounterIds;
@@ -137,7 +154,7 @@ async function execute(
   if(action==='start'&&stage.arrival_contract_version===1) {
     await require('./queueService').assertQueueDayOpen(tenant,location,{client});
     await require('./storeHoursService').assertLocationOpenForCustomerJoin(location,{client});
-    const currentItems=_p.items.filter(item=>item.stageId===stage.stage_id);
+    const currentItems=currentStageHoursItems(_p,stage.stage_id);
     await require('./queueServiceHoursService').assertPlanFits(client,scope,currentItems,{mode:'linear'});
   }
   const noResource=stage.resource_requirement?.kind==='none';
@@ -359,4 +376,4 @@ async function execute(
   }
   fail("Unsupported station-stage operation.", "UNSUPPORTED_EXECUTION_MODE");
 }
-module.exports = { execute, assertActor, latestStages };
+module.exports = { execute, assertActor, latestStages, currentStageHoursItems };
