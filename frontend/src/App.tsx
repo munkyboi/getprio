@@ -386,6 +386,7 @@ export default function App() {
         <Route path="/account/dashboard-prototype" element={<Navigate to="/account/dashboard" replace />} />
         <Route path="/account/profile" element={<Navigate to="/account/settings" replace />} />
         <Route path="/account/tickets" element={<AppShell><CustomerAccountPage /></AppShell>} />
+        <Route path="/lists" element={<Navigate to="/account/tickets" replace />} />
         <Route path="/account/bookings" element={<AppShell><CustomerAccountPage /></AppShell>} />
 
         <Route path="/account/settings" element={<AppShell><CustomerAccountPage /></AppShell>} />

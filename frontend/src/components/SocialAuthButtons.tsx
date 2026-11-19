@@ -1,3 +1,5 @@
+import googleIcon from "../assets/auth/google.svg";
+import facebookIcon from "../assets/auth/facebook.svg";
 import { OperationButton } from "../vendor/OperationsUi";
 import { Separator } from "../vendor/components/ui/separator";
 import {
@@ -69,8 +71,6 @@ export default function SocialAuthButtons({
         <Group gap="md" justify="center">
           {PROVIDER_OPTIONS.map((provider) => {
             const enabled = Boolean(oauthProviders[provider.id]);
-            const ProviderIcon = provider.Icon;
-
             return (
               <Tooltip
                 key={provider.id}
@@ -87,7 +87,7 @@ export default function SocialAuthButtons({
                   type="button"
                   variant="outline"
                 >
-                  <ProviderIcon aria-hidden size={24} stroke={1.9} />
+                  <img src={provider.id === "google" ? googleIcon : facebookIcon} alt="" width={32} height={32} />
                 </ActionIcon>
               </Tooltip>
             );

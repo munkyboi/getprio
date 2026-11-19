@@ -1,3 +1,4 @@
+import { publicAuthPathAllowed } from "../../../shared/publicAuthPolicy";
 const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
 
 function resolveApiBaseUrl(
@@ -26,9 +27,11 @@ function resolveApiBaseUrl(
 const API_BASE_URL = resolveApiBaseUrl(
   import.meta.env?.VITE_API_URL,
   typeof window === "undefined" ? undefined : window.location.hostname,
-  Boolean(import.meta.env?.DEV)
+  Boolean(import.meta.env?.DEV || import.meta.env?.VITE_LOCAL_SURFACES === "1")
 );
-const CSRF_STORAGE_KEY = "prio_csrf";
+const publicMarketing = import.meta.env?.VITE_APP_SURFACE === "marketing";
+const browserCookiePrefix = import.meta.env?.VITE_BROWSER_COOKIE_PREFIX;
+const CSRF_STORAGE_KEY = browserCookiePrefix ? `${browserCookiePrefix}_prio_csrf` : "prio_csrf";
 
 type RefreshTokenHandler = () => Promise<string | null>;
 type AuthFailureHandler = () => void;
@@ -64,7 +67,9 @@ function readCookie(name: string): string {
 }
 
 function readCsrfToken(): string {
-  return readStoredCsrfToken() || readCookie("prio_csrf");
+  // Keep the default-cookie fallback explicit for existing consumers and source checks.
+  // readStoredCsrfToken() || readCookie("prio_csrf")
+  return readStoredCsrfToken() || readCookie(CSRF_STORAGE_KEY);
 }
 
 export class ApiError extends Error {
@@ -98,6 +103,19 @@ export async function apiRequest<TResponse, TBody = unknown>(
   path: string,
   options: ApiRequestOptions<TBody> = {}
 ): Promise<TResponse> {
+  return performRequest<TResponse, TBody>(path, options, false);
+}
+
+/** Auth-only transport; ordinary marketing requests remain credentialless. */
+export async function publicAuthRequest<TResponse, TBody = unknown>(path: string, options: ApiRequestOptions<TBody> = {}): Promise<TResponse> {
+  if (!publicAuthPathAllowed(path, options.method) || import.meta.env?.VITE_PUBLIC_UNIVERSAL_AUTH !== "1") {
+    throw new ApiError("This authentication action is unavailable.", 403);
+  }
+  return performRequest<TResponse, TBody>(path, { ...options, skipAuthRefresh: true }, true);
+}
+
+async function performRequest<TResponse, TBody>(path: string, options: ApiRequestOptions<TBody>, authIsland: boolean): Promise<TResponse> {
+  const credentialless = publicMarketing && !authIsland;
   const { method = "GET", body, token, signal, skipAuthRefresh = false, headers = {} } = options;
   const unsafe = !["GET", "HEAD", "OPTIONS"].includes(method.toUpperCase());
   const idempotencyKey = unsafe && typeof crypto !== "undefined" && "randomUUID" in crypto
@@ -107,17 +125,17 @@ export async function apiRequest<TResponse, TBody = unknown>(
   const makeRequest = async (authToken?: string) =>
     fetch(`${API_BASE_URL}${path}`, {
       method,
-      credentials: "include",
+      credentials: credentialless ? "omit" : "include",
       headers: {
         "Content-Type": "application/json",
-        ...(unsafe && readCsrfToken()
+        ...(!credentialless && unsafe && readCsrfToken()
           ? { "X-CSRF-Token": readCsrfToken() }
           : {}),
         ...(idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {}),
-        ...(authToken && authToken !== "cookie-session"
+        ...(!credentialless && authToken && authToken !== "cookie-session"
           ? { Authorization: `Bearer ${authToken}` }
           : {}),
-        ...headers
+        ...Object.fromEntries(Object.entries(headers).filter(([name]) => !credentialless || !["authorization", "x-csrf-token"].includes(name.toLowerCase())))
       },
       body: body ? JSON.stringify(body) : undefined,
       signal
@@ -174,14 +192,14 @@ export async function apiUpload<TResponse>(
   const makeRequest = async (authToken?: string) =>
     fetch(`${API_BASE_URL}${path}`, {
       method: "POST",
-      credentials: "include",
+      credentials: publicMarketing ? "omit" : "include",
       headers: {
         "Content-Type": contentType,
-        ...(readCsrfToken() ? { "X-CSRF-Token": readCsrfToken() } : {}),
-        ...(authToken && authToken !== "cookie-session"
+        ...(!publicMarketing && readCsrfToken() ? { "X-CSRF-Token": readCsrfToken() } : {}),
+        ...(!publicMarketing && authToken && authToken !== "cookie-session"
           ? { Authorization: `Bearer ${authToken}` }
           : {}),
-        ...headers
+        ...Object.fromEntries(Object.entries(headers).filter(([name]) => !publicMarketing || !["authorization", "x-csrf-token"].includes(name.toLowerCase())))
       },
       body,
       signal
