@@ -1,4 +1,5 @@
 const serviceHours = require("./queueServiceHoursService");
+const queueTypes = require("./queueTypeService");
 const captures={3:require('./queueSelectionCapture'),4:require('./queueSelectionCaptureV4')};
 const maintenance=require('./platformMaintenanceService'),entitlements=require('./entitlementAdmissionService'),hours=require('./storeHoursService'),queue=require('./queueService');
 const { captureLines, assignStages } = require('./queuePlanCatalog');
@@ -16,9 +17,9 @@ async function decorate(client,scope,context,plan){
   if(!plan.customer.name?.trim())blocked('CUSTOMER_NAME_REQUIRED','Add the customer name before publishing.');
   if(!plan.catalogRevision)blocked('CATALOG_ACCEPTANCE_REQUIRED','Review and save the current catalog before publishing.');
   assertPublicTextFieldsAllowed({'Customer name':plan.customer.name,Notes:plan.notes});
-  const execution=await require('./queueTypeService').execution(client,scope,{lock:false});
+  const execution=await queueTypes.execution(client,scope,{lock:false});
   if(execution.type==='simple')blocked('QUEUE_TYPE_ADMISSION_REQUIRED','Simple Queue uses the walk-in form. This saved draft remains available for review.');
-  await require('./queueTypeService').assertAdmission(client,scope,execution.type);
+  await queueTypes.assertAdmission(client,scope,execution.type);
   const workflow=execution.type==='workflow'?await workflows.read(client,scope):await workflows.readVersion(client,scope,'1');
   if(execution.type==='workflow'&&(workflow.mode!=='multi_station'||workflow.stages.length<2||new Set(workflow.stages.map(stage=>stage.stationId)).size<2))blocked('QUEUE_TYPE_NOT_READY','Configure the station journey before publishing.');
   if(execution.type==='workflow'&&workflow.stages.some(stage=>(stage.resourceRequirement?.kind||'pool')==='pool')&&!execution.capabilities.resource)blocked('QUEUE_TYPE_NOT_INCLUDED','Resource stages also require Resource Queue access.');
