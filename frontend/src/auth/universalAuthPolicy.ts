@@ -13,14 +13,21 @@ export interface UniversalAuthFakeAdapter {
   resendCustomer(challengeId: string): Promise<OtpChallenge>;
   verifyCustomer(challengeId: string, code: string): Promise<AuthResult>;
 }
+export function hasControlCharacters(value: string): boolean {
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code < 0x20 || code === 0x7f) return true;
+  }
+  return false;
+}
 export function safeNext(value: string | null, surface: Surface): string {
   const fallback = surface === 'vendor' ? '/dashboard' : '/account';
-  if (!value || !value.startsWith('/') || value.startsWith('//') || /[\\\u0000-\u001f\u007f]/.test(value)) return fallback;
+  if (!value || !value.startsWith('/') || value.startsWith('//') || value.includes('\\') || hasControlCharacters(value)) return fallback;
   try {
     const url = new URL(value, 'https://local.invalid');
     let path = url.pathname;
     for (let i = 0; i < 4; i++) { const next = decodeURIComponent(path); if (next === path) break; path = next; }
-    if (url.origin !== 'https://local.invalid' || /[\\\u0000-\u001f\u007f]/.test(path) || path.includes('//') || /(?:^|\/)\.\.?(?:\/|$)/.test(path)) return fallback;
+    if (url.origin !== 'https://local.invalid' || hasControlCharacters(path) || path.includes('//') || /(?:^|\/)\.\.?(?:\/|$)/.test(path)) return fallback;
     if (!(surface === 'vendor' ? /^\/(dashboard|queue-board)(?:\/|$)/ : /^\/(account|vendors|join|ticket|payment)(?:\/|$)/).test(path)) return fallback;
     return url.pathname + url.search + url.hash;
   } catch { return fallback; }

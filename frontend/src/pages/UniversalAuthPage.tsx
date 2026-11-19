@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import googleIcon from '../assets/auth/google.svg';
 import facebookIcon from '../assets/auth/facebook.svg';
-import { UNIVERSAL_AUTH_ENABLED, canEnter, safeNext, type AuthResult, type OtpChallenge, type Surface, type UniversalAuthFakeAdapter } from '../auth/universalAuthPolicy';
+import { UNIVERSAL_AUTH_ENABLED, canEnter, hasControlCharacters, safeNext, type AuthResult, type OtpChallenge, type Surface, type UniversalAuthFakeAdapter } from '../auth/universalAuthPolicy';
 import './universal-auth.css';
 
 /** Unmounted fake-adapter prototype. Never pass real transport until security gates are satisfied. */
@@ -25,7 +25,7 @@ export function UniversalAuthPreparation({ adapter, onComplete, surface = 'custo
   }
   function acceptChallenge(value: OtpChallenge) {
     const expiry = Date.parse(value.expiresAt);
-    if (typeof value.challengeId !== 'string' || !value.challengeId || value.challengeId.length > 256 || value.step !== 'email_otp' || !Number.isFinite(expiry) || expiry <= Date.now() || typeof value.deliveryTarget !== 'string' || value.deliveryTarget.length > 254 || /[\u0000-\u001f\u007f]/.test(value.deliveryTarget)) throw new Error('Invalid challenge');
+    if (typeof value.challengeId !== 'string' || !value.challengeId || value.challengeId.length > 256 || value.step !== 'email_otp' || !Number.isFinite(expiry) || expiry <= Date.now() || typeof value.deliveryTarget !== 'string' || value.deliveryTarget.length > 254 || hasControlCharacters(value.deliveryTarget)) throw new Error('Invalid challenge');
     setChallenge(value);
   }
   function start(event: FormEvent<HTMLFormElement>) {
