@@ -29,6 +29,12 @@ test('selected held entitlement policy uses real row and FK locks without changi
     CREATE TABLE tenant_subscriptions(id BIGINT PRIMARY KEY,tenant_id BIGINT NOT NULL REFERENCES tenants(id),plan_slug TEXT,status TEXT,updated_at TIMESTAMPTZ,entitlements JSONB);
     INSERT INTO tenants VALUES (9007199254740992),(9007199254740993);
     INSERT INTO subscription_plans VALUES ('pro','Pro','{"staffSeats":3,"emailAlerts":true}');`);
+  await pool.query(`ALTER TABLE tenant_subscriptions ADD COLUMN current_period_start TIMESTAMPTZ, ADD COLUMN current_period_end TIMESTAMPTZ, ADD COLUMN entitlement_model_version INTEGER, ADD COLUMN entitlement_comparison_hash TEXT, ADD COLUMN created_at TIMESTAMPTZ;
+    ALTER TABLE subscription_plans ADD COLUMN policy_revision INTEGER DEFAULT 1;
+    CREATE TABLE entitlement_rollout_anomalies(id BIGINT,tenant_id BIGINT,blocking BOOLEAN,resolved_at TIMESTAMPTZ);
+    CREATE TABLE plan_feature_entitlements(plan_slug TEXT,feature_key TEXT,enabled BOOLEAN);
+    CREATE TABLE plan_allowances(plan_slug TEXT,allowance_key TEXT,monthly_limit INTEGER);
+    CREATE TABLE tenant_entitlement_overrides(id BIGINT,subscription_id BIGINT,policy_key TEXT,value JSONB,reason TEXT,expires_at TIMESTAMPTZ,revoked_at TIMESTAMPTZ)`);
   const db = { pool: { query: () => assert.fail('default pool escape') } };
   const planRepository = load('../src/repositories/subscriptionPlans', { '../config/db': db });
   const plans = load('../src/services/subscriptionPlans', { '../repositories/subscriptionPlans': planRepository });
@@ -39,7 +45,7 @@ test('selected held entitlement policy uses real row and FK locks without changi
   async function reset() {
     await pool.query('TRUNCATE tenant_subscriptions');
     await pool.query(`UPDATE subscription_plans SET entitlements='{"staffSeats":3,"emailAlerts":true}'`);
-    await pool.query("INSERT INTO tenant_subscriptions VALUES (1,$1,'pro','active',NOW(),$2)", [tenant, JSON.stringify({ publicFacingBranding: true })]);
+    await pool.query("INSERT INTO tenant_subscriptions(id,tenant_id,plan_slug,status,updated_at,entitlements) VALUES (1,$1,'pro','active',NOW(),$2)", [tenant, JSON.stringify({ publicFacingBranding: true })]);
   }
   async function begin(name) {
     const client = await pool.connect();

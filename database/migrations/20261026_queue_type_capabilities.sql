@@ -12,7 +12,8 @@ ALTER TABLE plan_feature_entitlements ADD CONSTRAINT plan_feature_entitlements_f
 -- Explicit existing values win; unknown/custom plans receive no new access by default.
 UPDATE subscription_plans SET entitlements =
  jsonb_build_object('resourceQueueAccess', slug IN ('economical','pro','enterprise'),
-                    'workflowQueueAccess', slug IN ('pro','enterprise')) || COALESCE(entitlements, '{}'::jsonb);
+                    'workflowQueueAccess', slug IN ('pro','enterprise')) || COALESCE(entitlements, '{}'::jsonb)
+ WHERE entitlements IS NULL OR NOT (entitlements ?& ARRAY['resourceQueueAccess','workflowQueueAccess']);
 INSERT INTO plan_feature_entitlements (plan_slug, feature_key, enabled)
  SELECT slug, 'resourceQueue', entitlements->'resourceQueueAccess' = 'true'::jsonb FROM subscription_plans
  ON CONFLICT (plan_slug, feature_key) DO NOTHING;
