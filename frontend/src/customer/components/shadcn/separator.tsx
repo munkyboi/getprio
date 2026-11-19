@@ -20,4 +20,3 @@ function Separator({
 }
 
 export { Separator }
-

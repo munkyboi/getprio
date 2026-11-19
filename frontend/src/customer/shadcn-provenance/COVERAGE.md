@@ -1,6 +1,6 @@
 # Customer shadcn/ui correction
 
-Baseline bc95a3d01096e2e8651608265aeac0021bfe439b. Official @shadcn, base-nova, Base UI, CLI4.23.0; full raw CLI-view source and SHA evidence are retained alongside installed source. Upstream source is retained as text to avoid compiling duplicate modules. Local modifications are explicit in ../shadcn-provenance.json.
+Baseline bc95a3d01096e2e8651608265aeac0021bfe439b. Official @shadcn, base-nova, Base UI, CLI4.23.0; full raw CLI-view source and SHA evidence are retained alongside installed source. Upstream source is retained as text to avoid compiling duplicate modules. The original local provenance manifest is excluded from this release snapshot because it contains local build configuration. The notes below describe the historical source snapshot and do not certify this release integration.
 
 ## Active component coverage
 

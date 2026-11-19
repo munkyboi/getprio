@@ -25,4 +25,3 @@ function Checkbox({ className, children, ...props }: CheckboxPrimitive.Root.Prop
 }
 
 export { Checkbox }
-
