@@ -1,3 +1,4 @@
+const queueJourneyProjection = require("../services/queueJourneyPublicProjection");
 const { getPublicImageUploadPolicy } = require("../services/imageUploadPolicy");
 const { isValidContactEmail } = require("../utils/email");
 const businessCategories = require("../repositories/businessCategories");
@@ -506,7 +507,7 @@ router.get(
       throw error;
     }
 
-    res.json(lookupCode ? await require("../services/queueJourneyPublicProjection").attach(withoutStaffServiceTiming(snapshot),authorizedJourneyTicket) : formatPublicQueueSnapshot(snapshot));
+    res.json(lookupCode ? await queueJourneyProjection.attach(withoutStaffServiceTiming(snapshot),authorizedJourneyTicket) : formatPublicQueueSnapshot(snapshot));
   })
 );
 
@@ -659,7 +660,7 @@ router.get(
       lookupCode: ticket.lookupCode,
       location: location || undefined
     });
-    res.json((await require("../services/queueJourneyPublicProjection").attach(snapshot,ticket)).focusTicket);
+    res.json((await queueJourneyProjection.attach(snapshot,ticket)).focusTicket);
   })
 );
 
@@ -914,7 +915,7 @@ router.get(
 
     const writeSnapshot = async (snapshot) => {
       const payload = lookupCode
-        ? await require("../services/queueJourneyPublicProjection").attach(withoutStaffServiceTiming(await getQueueSnapshot(tenant, { lookupCode, location })),authorizedJourneyTicket)
+        ? await queueJourneyProjection.attach(withoutStaffServiceTiming(await getQueueSnapshot(tenant, { lookupCode, location })),authorizedJourneyTicket)
         : formatPublicQueueSnapshot(
             snapshot || (await getQueueSnapshot(tenant, { location }))
           );
