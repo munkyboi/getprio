@@ -985,7 +985,7 @@ test("customer booking payment proof endpoints delegate through authenticated bo
   }
 });
 
-test("customer booking detail exposes manual payment destination before proof submission", async () => {
+test("customer booking detail exposes submitted contacts only to its owner", async () => {
   const booking = {
     _id: "booking-1",
     reference: "BKG-PAY",
@@ -1034,13 +1034,17 @@ test("customer booking detail exposes manual payment destination before proof su
     updatedAt: "2026-06-23T05:00:00.000Z"
   };
   const router = requireWithMocks("../src/routes/accountRoutes.js", {
-    "../middleware/auth": buildAuthMock(),
+    "../middleware/auth": { ...buildAuthMock(), authenticate(req, res, next) {
+      if (!req.headers.authorization) return res.status(401).json({ message: "Authentication required." });
+      req.user = { _id: req.headers.authorization === 'Bearer foreign' ? 'user-2' : 'user-1' }; next();
+    } },
     "../middleware/asyncHandler": buildAsyncHandlerMock(),
     "../repositories/tickets": {
       listTicketsForCustomerAccount: async () => []
     },
     "../repositories/bookings": {
-      findBookingById: async () => booking
+      findBookingById: async () => booking,
+      listBookingsForCustomer: async () => ({ bookings: [booking], totalItems: 1 })
     },
     "../services/bookingService": {
       expirePendingBookingsForCustomer: async () => []
@@ -1061,6 +1065,26 @@ test("customer booking detail exposes manual payment destination before proof su
     assert.equal(body.booking.manualPaymentDestination.methodLabel, "GCash InstaPay QR");
     assert.equal(body.booking.manualPaymentDestination.qrImageUrl, "https://cdn.example.test/payment-qr.png");
     assert.equal(body.booking.manualPaymentDestination.amountCents, 100000);
+    assert.equal(response.headers.get('cache-control'), 'no-store');
+    assert.equal(body.booking.customerName, 'Customer One');
+    assert.equal(body.booking.customerEmail, 'customer@example.com');
+    assert.equal(body.booking.customerPhone, '09171234567');
+    booking.paymentProofObjectKey = 'private-proof-object-key';
+    const withProof = await fetch(`${baseUrl}/bookings/booking-1`, { headers: { Authorization: 'Bearer token' } });
+    assert.equal(withProof.status, 200);
+    assert.doesNotMatch(await withProof.text(), /private-proof-object-key|paymentProofObjectKey/);
+    const foreign = await fetch(`${baseUrl}/bookings/booking-1`, { headers: { Authorization: 'Bearer foreign' } });
+    assert.equal(foreign.status, 404);
+    assert.doesNotMatch(await foreign.text(), /Customer One|customer@example.com|09171234567|private-proof-object-key/);
+    const anonymous = await fetch(`${baseUrl}/bookings/booking-1`);
+    assert.equal(anonymous.status, 401);
+    assert.doesNotMatch(await anonymous.text(), /Customer One|customer@example.com|09171234567|private-proof-object-key/);
+    const list = await fetch(`${baseUrl}/bookings`, { headers: { Authorization: 'Bearer token' } });
+    assert.equal(list.status, 200);
+    const listBooking = (await list.json()).bookings[0];
+    assert.equal(Object.hasOwn(listBooking, 'customerName'), false);
+    assert.equal(Object.hasOwn(listBooking, 'customerEmail'), false);
+    assert.equal(Object.hasOwn(listBooking, 'customerPhone'), false);
   } finally {
     await stopServer(server);
   }

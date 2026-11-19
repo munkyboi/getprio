@@ -713,6 +713,7 @@ router.get(
 router.get(
   "/bookings/:bookingId",
   asyncHandler(async (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
     await bookingService.expirePendingBookingsForCustomer(req.user._id);
     const booking = await bookingRepository.findBookingById(req.params.bookingId);
     if (!booking || String(booking.customerUserId) !== String(req.user._id)) {
@@ -721,7 +722,9 @@ router.get(
       throw error;
     }
 
-    res.json({ booking: { ...formatCustomerBooking(booking), resourceSelection: await require('../services/bookingSelectionServiceV4').publicDetails(require('../config/db').pool,booking), organizerCampaign: null } });
+    res.json({ booking: { ...formatCustomerBooking(booking),
+      customerName: booking.customerName || "", customerEmail: booking.customerEmail || "", customerPhone: booking.customerPhone || "",
+      resourceSelection: await require('../services/bookingSelectionServiceV4').publicDetails(require('../config/db').pool,booking), organizerCampaign: null } });
   })
 );
 
