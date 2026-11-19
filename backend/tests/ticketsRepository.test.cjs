@@ -113,7 +113,7 @@ test("tickets repository orders ready tickets first, then carry-over, recovery, 
   assert.equal(calls.length, 1);
   assert.match(
     calls[0].query.replace(/\s+/g, " "),
-    /ORDER BY CASE WHEN EXISTS \( SELECT 1 FROM bookings WHERE bookings.queue_ticket_id = tickets.id AND bookings.tenant_id = tickets.tenant_id AND bookings.location_id = tickets.location_id AND bookings.scheduled_start_at > clock_timestamp\(\) \) THEN 1 ELSE 0 END ASC, CASE service_priority_band WHEN 'carry_over' THEN 0 WHEN 'recovery' THEN 1 WHEN 'checked_in_booking' THEN 2 ELSE 3 END ASC, carry_over_count DESC, created_at ASC/
+    /ORDER BY CASE WHEN EXISTS \( SELECT 1 FROM bookings WHERE bookings.queue_ticket_id = tickets.id AND bookings.tenant_id = tickets.tenant_id AND bookings.location_id = tickets.location_id AND bookings.scheduled_start_at > clock_timestamp\(\) \) THEN 1 ELSE 0 END ASC, CASE service_priority_band WHEN 'carry_over' THEN 0 WHEN 'recovery' THEN 1 WHEN 'checked_in_booking' THEN 2 ELSE 3 END ASC, carry_over_count DESC, COALESCE\(\(SELECT a\.station_waiting_at[\s\S]*?tickets\.created_at\) ASC,\s*COALESCE\(\(SELECT a\.station_queue_sequence[\s\S]*?tickets\.sequence\) ASC/
   );
   assert.deepEqual(calls[0].params, [1, 2, "20260606", 5]);
 });
@@ -210,7 +210,7 @@ test("tickets repository calls checked-in booking tickets before normal tickets"
   assert.equal(calls.length, 1);
   assert.match(
     calls[0].query,
-    /ORDER BY CASE service_priority_band WHEN 'carry_over' THEN 0 WHEN 'recovery' THEN 1 WHEN 'checked_in_booking' THEN 2 ELSE 3 END ASC, carry_over_count DESC, created_at ASC/
+    /ORDER BY CASE service_priority_band WHEN 'carry_over' THEN 0 WHEN 'recovery' THEN 1 WHEN 'checked_in_booking' THEN 2 ELSE 3 END ASC, carry_over_count DESC, COALESCE\(\(SELECT a\.station_waiting_at[\s\S]*?tickets\.created_at\) ASC,\s*COALESCE\(\(SELECT a\.station_queue_sequence[\s\S]*?tickets\.sequence\) ASC/
   );
   assert.deepEqual(calls[0].params, [1, 2, 3, "20260606"]);
 });
