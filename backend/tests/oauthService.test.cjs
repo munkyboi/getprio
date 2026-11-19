@@ -98,12 +98,14 @@ test("oauth service exposes configured provider availability and callback URLs",
 
   const state = oauthService.createOAuthState({
     provider: "google",
-    intent: "login"
+    intent: "login",
+    surface: "customer"
   });
   const parsedState = oauthService.readOAuthState(state);
 
   assert.equal(parsedState.provider, "google");
   assert.equal(parsedState.intent, "login");
+  assert.equal(parsedState.surface, "customer");
 });
 
 test("oauth service builds provider-specific authorization URLs", () => {

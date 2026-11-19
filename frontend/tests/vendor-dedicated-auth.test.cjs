@@ -3,6 +3,8 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 require.extensions['.css'] = () => {};
+require.extensions['.svg'] = (module, filename) => { module.exports = filename; };
+require.extensions['.png'] = (module, filename) => { module.exports = filename; };
 const { default: LoginPage, getAuthRegistrationLinks, resolveVendorNextPath } = require('../src/pages/LoginPage.tsx');
 
 test('vendor and public auth profiles expose the correct registration destinations', () => {

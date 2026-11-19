@@ -7982,3 +7982,8 @@ button:hover > .rating-star { transform: scale(1.08); }
 }
 .maintenance-page h1 { font-size: clamp(2rem, 5vw, 3.25rem); line-height: 1.1; }
 .maintenance-notice { border-radius: 0; }
+
+/* Match the Apple mark to the active application theme. */
+.auth-apple-dark { display: none; }
+:where(.dark, [data-mantine-color-scheme="dark"]) .auth-apple-light { display: none; }
+:where(.dark, [data-mantine-color-scheme="dark"]) .auth-apple-dark { display: block; }

@@ -1,3 +1,7 @@
+import googleIcon from "../assets/auth/google.svg";
+import facebookIcon from "../assets/auth/facebook-supplied.png";
+import appleDarkIcon from "../assets/auth/apple-dark.png";
+import appleLightIcon from "../assets/auth/apple-light.png";
 import { OperationButton } from "../vendor/OperationsUi";
 import { Separator } from "../vendor/components/ui/separator";
 import {
@@ -10,10 +14,11 @@ import {
   Text,
   Tooltip,
 } from "@mantine/core";
-import { IconBrandFacebook, IconBrandGoogle } from "@tabler/icons-react";
+import { IconBrandApple, IconBrandFacebook, IconBrandGoogle } from "@tabler/icons-react";
 import type { OAuthProviderId } from "@shared";
 import { useAuth } from "../context/AuthContext";
 import type { SocialAuthButtonsProps } from "./SocialAuthButtons.types";
+import { isWebOAuthProviderAvailable } from "./socialAuthAvailability";
 
 const PROVIDER_OPTIONS: Array<{
   id: OAuthProviderId;
@@ -22,6 +27,7 @@ const PROVIDER_OPTIONS: Array<{
 }> = [
   { id: "google", label: "Google", Icon: IconBrandGoogle },
   { id: "facebook", label: "Facebook", Icon: IconBrandFacebook },
+  { id: "apple", label: "Apple", Icon: IconBrandApple },
 ];
 
 export default function SocialAuthButtons({
@@ -33,51 +39,50 @@ export default function SocialAuthButtons({
 }: SocialAuthButtonsProps) {
   const { oauthLoading, oauthProviders, startOAuth } = useAuth();
   const hasConfiguredProvider = PROVIDER_OPTIONS.some(({ id }) =>
-    Boolean(oauthProviders[id]),
+    isWebOAuthProviderAvailable(id, oauthProviders[id]),
   );
 
-  if (vendor) {
-    if (!hasConfiguredProvider) return null;
+  if (vendor)
     return (
       <div className="queue-stack">
         <Separator />
         <p className="ops-muted">Or continue with a connected account</p>
         <div className="ops-grid ops-grid-2">
-          {PROVIDER_OPTIONS.filter(({ id }) => Boolean(oauthProviders[id])).map(
-            ({ id, label, Icon }) => (
-              <OperationButton
-                key={id}
-                variant="outline"
-                disabled={disabled || oauthLoading || !oauthProviders[id]}
-                data-provider={id}
-                onClick={() => startOAuth(id, intent, returnPath)}
-              >
-                <Icon aria-hidden data-icon="inline-start" />
-                Continue with {label}
-              </OperationButton>
-            ),
-          )}
+          {PROVIDER_OPTIONS.map(({ id, label, Icon }) => (
+            <OperationButton
+              key={id}
+              variant="outline"
+              disabled={disabled || oauthLoading || !isWebOAuthProviderAvailable(id, oauthProviders[id])}
+              data-provider={id}
+              onClick={() => startOAuth(id, intent, returnPath)}
+            >
+              <Icon aria-hidden data-icon="inline-start" />
+              Continue with {label}
+            </OperationButton>
+          ))}
         </div>
+        {!oauthLoading && !hasConfiguredProvider ? (
+          <p className="ops-muted">
+            Social sign-in is currently unavailable. Use the account form.
+          </p>
+        ) : null}
       </div>
     );
-  }
   return (
     <Stack gap="md">
       <Divider label="Or continue with" labelPosition="center" />
       {iconOnly ? (
         <Group gap="md" justify="center">
           {PROVIDER_OPTIONS.map((provider) => {
-            const enabled = Boolean(oauthProviders[provider.id]);
-            const ProviderIcon = provider.Icon;
-
+            const enabled = isWebOAuthProviderAvailable(provider.id, oauthProviders[provider.id]);
             return (
               <Tooltip
                 key={provider.id}
-                label={`Continue with ${provider.label}`}
+                label={provider.id === "apple" ? "Apple web sign-in is unavailable" : `Continue with ${provider.label}`}
                 withArrow
               >
                 <ActionIcon
-                  aria-label={`Continue with ${provider.label}`}
+                  aria-label={provider.id === "apple" ? "Apple web sign-in is unavailable" : `Continue with ${provider.label}`}
                   className="auth-social-icon-action"
                   data-provider={provider.id}
                   disabled={disabled || oauthLoading || !enabled}
@@ -86,7 +91,14 @@ export default function SocialAuthButtons({
                   type="button"
                   variant="outline"
                 >
-                  <ProviderIcon aria-hidden size={24} stroke={1.9} />
+                  {provider.id === "apple" ? (
+                    <>
+                      <img className="auth-apple-light" src={appleLightIcon} alt="" width={32} height={32} />
+                      <img className="auth-apple-dark" src={appleDarkIcon} alt="" width={32} height={32} />
+                    </>
+                  ) : (
+                    <img src={provider.id === "google" ? googleIcon : facebookIcon} alt="" width={32} height={32} />
+                  )}
                 </ActionIcon>
               </Tooltip>
             );
@@ -95,7 +107,7 @@ export default function SocialAuthButtons({
       ) : (
         <SimpleGrid cols={{ base: 1, sm: 2 }}>
           {PROVIDER_OPTIONS.map((provider) => {
-            const enabled = Boolean(oauthProviders[provider.id]);
+            const enabled = isWebOAuthProviderAvailable(provider.id, oauthProviders[provider.id]);
             const ProviderIcon = provider.Icon;
 
             return (
@@ -121,8 +133,7 @@ export default function SocialAuthButtons({
       )}
       {!oauthLoading && !hasConfiguredProvider ? (
         <Text c="dimmed" size="sm">
-          Social sign-in buttons stay disabled until provider credentials are
-          added to the server environment.
+          Social sign-in is currently unavailable. Use the account form.
         </Text>
       ) : null}
     </Stack>

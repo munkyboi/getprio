@@ -8,6 +8,10 @@ import BrandMark from "./components/BrandMark";
 import { useAuth } from "./context/AuthContext";
 import LandingPage from "./pages/LandingPage";
 import LoginPage from "./pages/LoginPage";
+import UniversalAuthPage from "./pages/UniversalAuthPage";
+import { PublicThemeProvider } from "./surfaces/PublicTheme";
+import { publicUniversalAuthEnabled } from "./surfaces/publicAuthEnabled";
+import { needsLegacyRegistration } from "./surfaces/registrationHandoff";
 import OAuthCallbackPage from "./pages/OAuthCallbackPage";
 import PrivacyPolicyPage from "./pages/PrivacyPolicyPage";
 import ContactPage from "./pages/ContactPage";
@@ -370,6 +374,17 @@ function ScrollToTop() {
   return null;
 }
 
+function UniversalOrLegacyRegistration({ surface }: { surface: "customer" | "vendor" }) {
+  const location = useLocation();
+  const { user, loading } = useAuth();
+  const params = new URLSearchParams(location.search);
+  const selectedSurface = location.pathname === "/register" && params.get("app") === "vendor" ? "vendor" : surface;
+  if (selectedSurface === "vendor" && loading) return <p role="status">Loading session…</p>;
+  const preserveLegacy = !publicUniversalAuthEnabled || needsLegacyRegistration(selectedSurface, Boolean(user), params.has("oauth"), Boolean(location.state));
+  if (preserveLegacy) return selectedSurface === "vendor" ? <RegisterVendorPage /> : <RegisterCustomerPage />;
+  return <PublicThemeProvider><UniversalAuthPage /></PublicThemeProvider>;
+}
+
 export default function App() {
   const isVendorSurface = import.meta.env.VITE_APP_SURFACE === "vendor";
   const isDeveloperHostname = typeof window !== "undefined" && ["developers.getprio.online"].includes(window.location.hostname);
@@ -399,20 +414,22 @@ export default function App() {
         <Route path={JOINED_QUEUE_ROUTE_PATH} element={<AppShell><JoinedQueuePage /></AppShell>} />
         <Route path={LEGACY_MONITOR_ROUTE_PATH} element={<LegacyMonitorRedirect />} />
         <Route path="/" element={isVendorSurface ? <VendorEntryRoute /> : <AppShell><LandingPage /></AppShell>} />
-        <Route path="/login" element={isVendorSurface ? <LoginPage /> : <AppShell><LoginPage /></AppShell>} />
+        <Route path="/login" element={isVendorSurface ? <LoginPage /> : <AppShell>{publicUniversalAuthEnabled && !new URLSearchParams(window.location.search).has("resetToken") ? <PublicThemeProvider><UniversalAuthPage /></PublicThemeProvider> : <LoginPage />}</AppShell>} />
+        <Route path="/register" element={isVendorSurface ? <RegisterVendorPage /> : <AppShell><UniversalOrLegacyRegistration surface="customer" /></AppShell>} />
         <Route path="/oauth/callback" element={isVendorSurface ? <OAuthCallbackPage /> : <AppShell><OAuthCallbackPage /></AppShell>} />
         <Route path="/payment/return" element={<AppShell><PaymentReturnPage /></AppShell>} />
         <Route path="/privacy-policy" element={<AppShell><PrivacyPolicyPage /></AppShell>} />
         <Route path="/help" element={<AppShell><HelpPage /></AppShell>} />
         <Route path="/contact" element={<AppShell><ContactPage /></AppShell>} />
         <Route path="/terms" element={<AppShell><TermsPage /></AppShell>} />
-        <Route path="/register/vendor" element={isVendorSurface ? <RegisterVendorPage /> : <AppShell><RegisterVendorPage /></AppShell>} />
-        <Route path="/register/customer" element={<AppShell><RegisterCustomerPage /></AppShell>} />
+        <Route path="/register/vendor" element={isVendorSurface ? <RegisterVendorPage /> : <AppShell><UniversalOrLegacyRegistration surface="vendor" /></AppShell>} />
+        <Route path="/register/customer" element={<AppShell><UniversalOrLegacyRegistration surface="customer" /></AppShell>} />
         <Route path="/account" element={<Navigate to="/account/dashboard" replace />} />
         <Route path="/account/dashboard" element={<AppShell><CustomerDashboardPage /></AppShell>} />
         <Route path="/account/dashboard-prototype" element={<Navigate to="/account/dashboard" replace />} />
         <Route path="/account/profile" element={<Navigate to="/account/settings" replace />} />
         <Route path="/account/tickets" element={<AppShell><CustomerAccountPage /></AppShell>} />
+        <Route path="/lists" element={<Navigate to="/account/tickets" replace />} />
         <Route path="/account/bookings" element={<AppShell><CustomerAccountPage /></AppShell>} />
 
         <Route path="/account/settings" element={<AppShell><CustomerAccountPage /></AppShell>} />

@@ -1,8 +1,10 @@
+/* Control characters are intentionally rejected in redirect paths. */
+/* eslint-disable no-control-regex */
 export type BrowserSurface = "marketing" | "customer" | "vendor";
 export type AppPurpose = BrowserSurface | "platform" | "developers";
 const defaults: Record<AppPurpose, string> = {
-  marketing: "https://getprio.online", customer: "https://app.getprio.online",
-  vendor: "https://vendor.getprio.online", platform: "https://platform.getprio.online",
+  marketing: "https://getprio.online", customer: "https://getprio.online",
+  vendor: "https://getprio.online", platform: "https://platform.getprio.online",
   developers: "https://developers.getprio.online",
 };
 
@@ -44,6 +46,10 @@ export function safeSurfaceNext(value: string | null | undefined, surface: "cust
     if (!permitted.test(decoded) && !(surface === "vendor" && allowOnboarding && /^\/register(?:\/vendor)?$/.test(decoded))) return fallback;
     return `${url.pathname}${url.search}${url.hash}`;
   } catch { return fallback; }
+}
+
+export function keepSurfaceReturnPath(value: string | null, surface: "customer" | "vendor"): string | null {
+  return value && safeSurfaceNext(value, surface) === value ? value : null;
 }
 
 const frontendEnv = import.meta.env || {};
