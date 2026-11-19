@@ -6,12 +6,12 @@ test('Free queue service setup is available independently from bookings; neither
  assert.equal(canAccessVendorSection('services',{serviceBookingAccess:true}),true);
 });
 test('plan highlights derive queue setup and booking allowance independently from stored feature policy',()=>{
- const free={features:{queue:true,booking:false},allowances:{queueTickets:500,serviceBookings:0},entitlements:{}};const highlights=getPlanHighlights(free);assert.ok(highlights.includes('Queue services, resource mappings and policies'));assert.ok(!highlights.some(x=>/service booking/.test(x)));
+ const free={features:{queue:true,booking:false},allowances:{queueTickets:500,serviceBookings:0},entitlements:{}};const highlights=getPlanHighlights(free);assert.ok(highlights.includes('Simple queue and service setup'));assert.ok(!highlights.some(x=>/service booking/.test(x)));
  assert.ok(getPlanHighlights({...free,features:{queue:true,booking:true},allowances:{queueTickets:500,serviceBookings:1000}}).includes('1,000 service bookings/mo'));
 });
 test('Vendor queue-only payload excludes paid fields; setup controls are independent from request readiness',()=>{
  const api=fs.readFileSync(path.join(__dirname,'../src/api/vendorDashboardCatalog.ts'),'utf8');assert.match(api,/queueOnly \? "queue\/services" : "services"/);const fields=api.match(/const queueFields = (\[[^\n]+\])/)[1];for(const word of ['price','booking','payment','capacity'])assert.ok(!fields.toLowerCase().includes(word));assert.match(api,/locationSlug,isActive,sortOrder\}\)=>\(\{locationSlug,isActive,sortOrder/);
- const page=fs.readFileSync(path.join(__dirname,'../src/pages/VendorDashboardPage.tsx'),'utf8');assert.match(page,/resourceManagementEnabled\?<ConfigTabsTrigger[^>]+value="queue-policy"/);assert.match(page,/resourceManagementEnabled&&selectedTenantSlug&&selectedLocationSlug\?<ConfigTabsContent value="queue-policy"/);assert.match(page,/bookingEnabled=\{bookingSettingsAllowed\}/);
+ const page=fs.readFileSync(path.join(__dirname,'../src/pages/VendorDashboardPage.tsx'),'utf8');assert.match(page,/resourceSetupAllowed\?<ConfigTabsTrigger[^>]+value="queue-policy"/);assert.match(page,/resourceManagementEnabled&&selectedTenantSlug&&selectedLocationSlug\?<ConfigTabsContent value="queue-policy"/);assert.match(page,/bookingEnabled=\{bookingSettingsAllowed\}/);
  const panel=fs.readFileSync(path.join(__dirname,'../src/vendor/NamedQueuePanel.tsx'),'utf8');assert.match(panel,/resourceSetup\?\.services.some\(service=>service.requestable\)/);assert.match(panel,/setupCallback.current\?\.\(configuredForIntake,inventoryScope\)/);assert.doesNotMatch(panel.match(/const configuredForIntake=.*;/)[0],/isFetching|availability/);
 });
 

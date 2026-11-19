@@ -3,7 +3,7 @@ const assert = require("node:assert/strict");
 
 const { canAccessVendorSection } = require("../src/lib/vendorDashboardNavigation.js");
 
-test("Free plan navigation exposes queue operations but hides paid booking modules", () => {
+test("Free plan navigation exposes queue services but hides paid booking modules", () => {
   const free = {
     queueSystemAccess: true,
     serviceBookingAccess: false,
@@ -17,7 +17,7 @@ test("Free plan navigation exposes queue operations but hides paid booking modul
   assert.deepEqual(
     ["queue", "tenants", "services", "bookings", "staff", "clients", "history", "reports", "settings", "account"]
       .filter((section) => canAccessVendorSection(section, free)),
-    ["queue", "tenants", "clients", "history", "settings", "account"]
+    ["queue", "tenants", "services", "clients", "history", "settings", "account"]
   );
 });
 

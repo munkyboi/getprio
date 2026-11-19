@@ -1,5 +1,7 @@
 require("tsx/cjs");
 require.extensions[".css"] = () => {};
+require.extensions[".svg"] = (module, filename) => { module.exports = filename; };
+require.extensions[".png"] = (module, filename) => { module.exports = filename; };
 const test = require("node:test"),
   assert = require("node:assert/strict"),
   React = require("react"),
@@ -101,17 +103,16 @@ test("public login remains Mantine presentation outside Vendor shell", () => {
   assert.doesNotMatch(html, /vendor-auth-surface|GetPrio Vendor sign in/);
   assert.match(html, /mantine-PasswordInput/);
 });
-test("Vendor provider section omits unavailable actions and retains configured providers", () => {
-  assert.doesNotMatch(
-    render(React.createElement(Social, { vendor: true, intent: "login" })),
-    /connected account/,
-  );
+test("Vendor provider controls disable unavailable web providers", () => {
+  const unavailable = render(React.createElement(Social, { vendor: true, intent: "login" }));
+  assert.match(unavailable, /Social sign-in is currently unavailable/);
+  assert.match(unavailable, /disabled=""[^>]*data-provider="google"/);
   auth = { ...auth, oauthProviders: { google: true } };
-  const html = render(
-    React.createElement(Social, { vendor: true, intent: "login" }),
-  );
-  assert.match(html, /Continue with Google/);
-  assert.doesNotMatch(html, /Continue with Facebook|unavailable/);
+  const html = render(React.createElement(Social, { vendor: true, intent: "login" }));
+  assert.match(html, /data-provider="google"/);
+  assert.doesNotMatch(html, /disabled=""[^>]*data-provider="google"/);
+  assert.match(html, /disabled=""[^>]*data-provider="facebook"/);
+  assert.match(html, /disabled=""[^>]*data-provider="apple"/);
   auth = { ...auth, oauthProviders: {} };
 });
 test("guest registration retains all fields in one form with account/business legends and return sign-in", () => {
@@ -132,7 +133,8 @@ test("guest registration retains all fields in one form with account/business le
   assert.match(html, /autocomplete="new-password"/i);
   assert.match(html, /Already have a workspace\?/);
   assert.match(html, /href="\/login"/);
-  assert.doesNotMatch(html, /vendor-onboarding\.png|Continue with Google/);
+  assert.doesNotMatch(html, /vendor-onboarding\.png/);
+  assert.match(html, /disabled=""[^>]*data-provider="google"/);
 });
 test("authenticated onboarding preserves setup without asking for a new password", () => {
   auth = {

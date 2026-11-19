@@ -1217,7 +1217,7 @@ test("signup forms use provider icons, helpful labels, and touch-friendly action
   assert.match(vendorSource, /navigate\("\/dashboard\/account", \{ replace: true \}\)/);
   assert.match(customerSource, /<SignupFieldLabel label="Phone"/);
   assert.match(customerSource, /className="auth-primary-action"/);
-  assert.match(vendorSource, /className="vendor-auth-layout"/);
+  assert.match(vendorSource, /VendorAuthLayout/);
   assert.match(customerSource, /className="onboarding-layout"/);
   assert.match(styles, /\.onboarding-layout \{\s+display: grid;\s+grid-template-columns: minmax\(0, 3fr\) minmax\(18rem, 2fr\);/);
 });
@@ -1737,7 +1737,7 @@ test("vendor navigation combines tenant role RBAC with effective plan entitlemen
 
   assert.match(
     dashboard,
-    /roleVisibleNavItems\.filter\(\(item\) =>\s*canAccessVendorSection\(item\.section, effectiveEntitlements, tenantPlan\)\s*\)/
+    /roleVisibleNavItems\.filter\(\(item\) =>\s*item\.section === "queue" \|\| canAccessVendorSection\(item\.section, effectiveEntitlements, tenantPlan\)\s*\)/
   );
   assert.match(dashboard, /!canAccessVendorSection\(currentSection, effectiveEntitlements, tenantPlan\)/);
   assert.match(dashboard, /canAccessVendorSection\("services", effectiveEntitlements\)/);
@@ -1767,7 +1767,7 @@ test("vendor queue adds walk-in customers from the grouped queue controls modal"
   const source = fs.readFileSync(path.resolve(__dirname, "../src/pages/VendorDashboardPage.tsx"), "utf8");
 
   assert.match(source, /aria-label="Queue controls actions"[\s\S]*?ButtonGroupSeparator[\s\S]*?Add walk-in/);
-  assert.equal((source.match(/Add walk-in/g) || []).length, 1);
+  assert.equal((source.match(/Add walk-in/g) || []).length, 2);
   const walkIn = fs.readFileSync(path.resolve(__dirname, "../src/vendor/WalkInDialog.tsx"), "utf8");
   assert.match(source, /<WalkInDialog/);
   assert.match(source, /opened=\{walkInDialogOpen\}/);
