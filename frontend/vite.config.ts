@@ -18,7 +18,7 @@ export default defineConfig(({ mode }) => {
       name: "getprio-surface-identity",
       transformIndexHtml(html) { return html.replace("</head>", `<meta name="getprio-app-surface" content="${surface}" /></head>`); },
       generateBundle(_options, bundle) {
-        const pages = [...new Set(Object.values(bundle).flatMap(item => item.type === "chunk" ? item.moduleIds.filter(id => id.includes("/src/pages/")).map(id => id.slice(id.indexOf("/src/pages/") + 1)) : []))].sort();
+        const pages = [...new Set(Object.values(bundle).flatMap(item => item.type === "chunk" ? item.moduleIds.filter(id => id.includes("/src/pages/")).map(id => id.slice(id.indexOf("/src/pages/") + 1)) : []))].sort((a, b) => a < b ? -1 : a > b ? 1 : 0);
         this.emitFile({ type: "asset", fileName: "surface-manifest.json", source: JSON.stringify({ surface, sourceCommit: env.VITE_DEPLOY_SHA || "local", api: env.VITE_API_URL || null, pages }) });
       }
     }],

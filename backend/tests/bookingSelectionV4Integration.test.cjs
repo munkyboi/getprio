@@ -45,3 +45,11 @@ test('V4 reuses identity/payment metadata without inheriting legacy quantity min
  const plan=await service.createComposedBookingPlan({...args,resourceSelectionV4:true});assert.deepEqual(plan.items.map(item=>item.bookingQuantity),[1,1]);assert.equal(plan.items[1].service.manualPaymentRequired,true);
  await assert.rejects(service.createComposedBookingPlan(args));
 });
+
+test('booking command hash preserves canonical UTF-16 key order for existing receipts', () => {
+ const {createHash}=require('node:crypto');
+ const oldCanonical=value=>Array.isArray(value)?value.map(oldCanonical):value&&typeof value==='object'?Object.fromEntries(Object.keys(value).sort().map(key=>[key,oldCanonical(value[key])])):value;
+ const body={z:1,é:2,Z:{'😀':3,a:4},a:5};
+ const expected=createHash('sha256').update(JSON.stringify(oldCanonical({action:'amend',body}))).digest('hex');
+ assert.equal(v4.commandHash('amend',body),expected);
+});

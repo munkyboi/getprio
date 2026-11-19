@@ -65,7 +65,7 @@ async function slots(client,scope,body,booking=null){
    const scheduledStartAt=new Date(at).toISOString();
    try{const snapshot=frozen?frozen.snapshot:await capturePlan(client,scope,{...body,scheduledStartAt});
      if(frozen){await assertFrozenResources(client,booking,snapshot);await assertSchedule(client,scope,snapshot.captured.items,scheduledStartAt);}
-     await future.assertFutureAdmission(client,scope,snapshot.captured.items,scheduledStartAt,{lockPools:false,...(frozen?{excludeBookingId:booking._id,excludeSelectionRevision:frozen.revision}:{})});
+     await future.assertFutureAdmission(client,scope,snapshot.captured.items,scheduledStartAt,{lockPools:false,...(frozen?{excludeBookingId:booking?._id,excludeSelectionRevision:frozen.revision}:{})});
      result.push({startAt:scheduledStartAt,endAt:new Date(at+Math.max(...snapshot.captured.items.map(item=>item.durationMinutes))*60000).toISOString(),remainingCapacity:1,isAvailable:true});
    }catch(error){if(!['INVALID_BOOKING_START','BOOKING_DURATION_EXCEEDS_STORE_HOURS','BOOKING_TIME_UNAVAILABLE','BOOKING_RESOURCE_CONFLICT'].includes(error.code))throw error;}
  }
@@ -309,7 +309,7 @@ async function reschedule(client,booking,scheduledStartAt,actorUserId){
  if(wasConfirmed)await confirm(client,updated);
  return updated;
 }
-function canonical(value){if(Array.isArray(value))return value.map(canonical);if(value&&typeof value==='object')return Object.fromEntries(Object.keys(value).sort().map(key=>[key,canonical(value[key])]));return value;}
+function canonical(value){if(Array.isArray(value))return value.map(canonical);if(value&&typeof value==='object')return Object.fromEntries(Object.keys(value).sort((a,b)=>a<b?-1:a>b?1:0).map(key=>[key,canonical(value[key])]));return value;}
 function commandHash(action,body){return createHash('sha256').update(JSON.stringify(canonical({action,body}))).digest('hex');}
 function commandKey(value){if(typeof value!=='string'||!/^[-A-Za-z0-9_:]{1,120}$/u.test(value))fail('BOOKING_REQUEST_KEY_REQUIRED','Refresh this booking form before trying again.',400);return value;}
 async function readReceipt(client,scope,actorUserId,operationKey,hash){

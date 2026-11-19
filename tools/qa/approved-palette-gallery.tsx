@@ -29,4 +29,4 @@ async function mount(){
  }
  document.documentElement.dataset.ready='true';
 }
-mount();
+void mount();
