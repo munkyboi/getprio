@@ -11,5 +11,5 @@ export default function PasswordField(props: ComponentProps<typeof InputGroupInp
     setVisible(value => !value);
     requestAnimationFrame(() => { element?.focus({ preventScroll: true }); if (start != null && end != null) element?.setSelectionRange(start, end); });
   }
-  return <InputGroup><InputGroupInput {...props} ref={input} type={visible ? "text" : "password"} /><InputGroupAddon align="inline-end"><InputGroupButton type="button" size="icon-sm" aria-label={visible ? "Hide password" : "Show password"} aria-pressed={visible} onMouseDown={event => event.preventDefault()} onClick={toggle}>{visible ? <IconEyeOff aria-hidden="true" /> : <IconEye aria-hidden="true" />}</InputGroupButton></InputGroupAddon></InputGroup>;
+  return <InputGroup><InputGroupInput {...props} ref={input} type={visible ? "text" : "password"} /><InputGroupAddon align="inline-end"><InputGroupButton type="button" size="icon-sm" style={{ minWidth: 44, minHeight: 44 }} aria-label={visible ? "Hide password" : "Show password"} aria-pressed={visible} onMouseDown={event => event.preventDefault()} onClick={toggle}>{visible ? <IconEyeOff aria-hidden="true" /> : <IconEye aria-hidden="true" />}</InputGroupButton></InputGroupAddon></InputGroup>;
 }
