@@ -315,7 +315,6 @@ BEGIN
     ('resource_ledger_commands', 'resource_command_scope_fkey'),
     ('ticket_service_plans', 'ticket_service_plan_ticket_scope_fkey'),
     ('ticket_service_plans', 'ticket_service_plan_booking_scope_fkey'),
-    ('location_resource_pools', 'resource_pools_tracking_disabled_check'),
     ('location_resource_pools', 'resource_pools_location_scope_fkey'),
     ('service_resource_requirements', 'resource_requirements_pool_scope_fkey'),
     ('service_resource_requirements', 'resource_requirements_service_scope_fkey'),
