@@ -1,3 +1,5 @@
+/* Control characters are intentionally rejected in return paths. */
+/* eslint-disable no-control-regex */
 import { AuthAppLinks } from "../surfaces/AuthAppLinks";
 import { currentSurface, safeSurfaceNext } from "../surfaces/surfaceConfig";
 import { isVendorLoginContext, vendorPasswordResetRequest } from "../vendor/authContext";

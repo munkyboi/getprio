@@ -10,10 +10,10 @@ import {OperationButton,OperationQueryState} from './OperationsUi';
 import {ConfigurationInput,ConfigurationTextarea} from './ConfigurationUi';
 import {TaskDialog} from './TaskDialog';
 import {appUrl} from '../surfaces/surfaceConfig';
-const base=(tenant:string,location:string)=>`/vendor/tenant/${encodeURIComponent(tenant)}/queue`;
+const base=(tenant:string)=>`/vendor/tenant/${encodeURIComponent(tenant)}/queue`;
 export function WorkflowQueuePanel({token,tenant,location,counterSlug,configurationOnly=false,allowNew=false,onTicketIds,onManagementReady,onConfigured,onEditForm,onClean,onBusy}:{token:string;tenant:string;location:string;counterSlug?:string;configurationOnly?:boolean;allowNew?:boolean;onTicketIds?:(ids:string[],scope:string)=>void;onManagementReady?:(ready:boolean,scope:string)=>void;onConfigured?:()=>void;onEditForm?:(form:HTMLFormElement)=>void;onClean?:(id:string)=>void;onBusy?:(busy:boolean)=>void}){
  const commandLocked=useQueueCommandLocked();
- const scope=`${tenant}:${location}`,url=base(tenant,location),query=`?location=${encodeURIComponent(location)}`;
+ const scope=`${tenant}:${location}`,url=base(tenant),query=`?location=${encodeURIComponent(location)}`;
  const setup=useQuery({queryKey:['workflow-setup',token,scope],queryFn:({signal})=>apiRequest<{workflow:QueueWorkflowV2;counters:Array<{id:string;name:string}>;services:Array<{id:string;name:string}>}>(`${url}/workflow${query}`,{token,signal}),enabled:configurationOnly});
  const catalog=useQuery({queryKey:['workflow-catalog',token,scope],queryFn:({signal})=>apiRequest<{catalogRevision:string;workflow:QueueWorkflowV2;services:QueueServiceChoiceV2[]}>(`${url}/service-options${query}`,{token,signal}),enabled:!configurationOnly});
  const plans=useInfiniteQuery({queryKey:['workflow-plans',token,scope],initialPageParam:undefined as string|undefined,queryFn:({signal,pageParam})=>apiRequest<{plans:QueuePublishedPlanV2[];nextCursor:string|null}>(`${url}/plans${query}&state=active${pageParam?`&cursor=${encodeURIComponent(pageParam)}`:''}`,{token,signal}),getNextPageParam:page=>page.nextCursor||undefined,enabled:!configurationOnly});

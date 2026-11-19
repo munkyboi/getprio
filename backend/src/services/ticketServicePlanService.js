@@ -61,7 +61,6 @@ async function captureStaffPlan(client, { tenant, location, ticket, serviceId, a
   if (!service) fail('Select an active service offered at this branch.');
   const execution=await require('./queueTypeService').assertAdmission(client,scope,'simple');
   // Service labeling in Simple Queue deliberately carries no resource demand.
-  const mappings = new Map();
   await insert(client, scope, ticket._id, { source: 'staff_selection', executionMode: 'parallel',
     items: [{ serviceId, serviceName: service.name, durationMinutes: Number(service.duration_minutes),
       executionType:execution.type,resource:{known:false,reason:'simple_queue_service_label'} }] }, actorUserId);

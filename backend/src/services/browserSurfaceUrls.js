@@ -1,3 +1,5 @@
+/* Control characters are intentionally rejected in return paths. */
+/* eslint-disable no-control-regex */
 /** Trusted configured destinations, never request Host/Origin-derived redirects. */
 function origin(value) {
   const url = new URL(value);

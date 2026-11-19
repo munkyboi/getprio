@@ -34,7 +34,7 @@ import {
   IconQrcode,
 } from "@tabler/icons-react";
 import { notifications } from "@mantine/notifications";
-import { Link, useLocation } from "react-router-dom";
+import { useLocation } from "react-router-dom";
 import type { BillingOverviewResponse, EnterpriseInquiryRequest, EnterpriseInquiryResponse, SubscriptionPlan } from "@shared";
 import PhilippineMobileInput from "../components/PhilippineMobileInput";
 import { apiRequest } from "../api/client";
