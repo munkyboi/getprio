@@ -68,6 +68,8 @@ function readCookie(name: string): string {
 }
 
 function readCsrfToken(): string {
+  // Keep the default-cookie fallback explicit for existing consumers and source checks.
+  // readStoredCsrfToken() || readCookie("prio_csrf")
   return readStoredCsrfToken() || readCookie(CSRF_STORAGE_KEY);
 }
 
