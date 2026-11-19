@@ -25,7 +25,7 @@ docker run -d --name "$container" --label "getprio.bootstrap-owner=$identity" --
   -e POSTGRES_HOST_AUTH_METHOD=trust \
   -v "$volume:/var/lib/postgresql/data" \
   -v "$repo_root/database/init.sql:/docker-entrypoint-initdb.d/00-init.sql:ro" \
-  -v "$repo_root/database/docker-migrate.sh:/docker-entrypoint-initdb.d/zz-migrate.sh:ro" \
+  -v "$repo_root/database/docker-migrate.sh:/getprio-migrate.sh:ro" \
   -v "$repo_root/database/migrations:/getprio-migrations:ro" postgres:16-alpine >/dev/null
 attempt=0
 # The entrypoint's initialization server listens on Unix sockets only. Require
@@ -39,6 +39,7 @@ until docker exec "$container" pg_isready -h 127.0.0.1 -U getprio_fixture -d get
   sleep 1
 done
 sql() { docker exec -i "$container" psql -h 127.0.0.1 -U getprio_fixture -d getprio_docker_bootstrap_test -v ON_ERROR_STOP=1 -At "$@"; }
+docker exec "$container" sh /getprio-migrate.sh
 expected="$(wc -l < "$repo_root/database/migrations/migration-order.txt" | tr -d ' ')"
 actual="$(sql -c 'SELECT count(*) FROM schema_migrations')"
 [ "$actual" = "$expected" ] || { printf 'Expected %s migration markers, got %s\n' "$expected" "$actual" >&2; exit 1; }
@@ -57,8 +58,43 @@ DO $$ BEGIN
   END IF;
 END $$;
 SQL
+# Run the actual deployment verifier against this isolated container. The
+# adapter supplies its compose interface without connecting to other services.
+docker_binary="$(command -v docker)"
+mkdir "$work_dir/bin"
+cat > "$work_dir/bin/docker" <<'SH'
+#!/bin/sh
+if [ "$1 $2 $3" = 'compose ps --status' ]; then
+  printf '%s\n' "$BOOTSTRAP_CONTAINER"
+elif [ "$1 $2 $3 $4" = 'compose exec -T database' ]; then
+  shift 4
+  [ "$1" = psql ] || exit 1
+  shift 2
+  exec "$BOOTSTRAP_DOCKER" exec -i "$BOOTSTRAP_CONTAINER" psql -h 127.0.0.1 -U getprio_fixture -d getprio_docker_bootstrap_test "$@"
+else
+  exit 1
+fi
+SH
+chmod 700 "$work_dir/bin/docker"
+PATH="$work_dir/bin:$PATH" BOOTSTRAP_DOCKER="$docker_binary" BOOTSTRAP_CONTAINER="$container" \
+  DATABASE_URL='postgresql://getprio_fixture@127.0.0.1/getprio_docker_bootstrap_test' \
+  bash "$repo_root/scripts/db-verify-schema.sh"
+sql <<'SQL'
+BEGIN;
+DO $$
+DECLARE tenant bigint; location bigint; pool bigint; enabled boolean;
+BEGIN
+  INSERT INTO tenants(name,slug) VALUES('Bootstrap fixture','bootstrap-verifier-fixture') RETURNING id INTO tenant;
+  INSERT INTO store_locations(tenant_id,name,slug) VALUES(tenant,'Fixture','fixture') RETURNING id INTO location;
+  INSERT INTO location_resource_pools(tenant_id,location_id,name,capacity) VALUES(tenant,location,'Fixture',1) RETURNING id,tracking_enabled INTO pool,enabled;
+  IF enabled IS DISTINCT FROM FALSE THEN RAISE EXCEPTION 'Resource tracking must default to false'; END IF;
+  UPDATE location_resource_pools SET tracking_enabled=TRUE WHERE id=pool RETURNING tracking_enabled INTO enabled;
+  IF enabled IS DISTINCT FROM TRUE THEN RAISE EXCEPTION 'Resource activation was blocked'; END IF;
+END $$;
+ROLLBACK;
+SQL
 sql -c 'SELECT filename,applied_at FROM schema_migrations ORDER BY filename' > "$work_dir/before"
-docker exec "$container" sh /docker-entrypoint-initdb.d/zz-migrate.sh
+docker exec "$container" sh /getprio-migrate.sh
 sql -c 'SELECT filename,applied_at FROM schema_migrations ORDER BY filename' > "$work_dir/after"
 cmp "$work_dir/before" "$work_dir/after"
 printf 'Fresh Docker bootstrap and exact migration-marker replay passed (%s migrations).\n' "$actual"
