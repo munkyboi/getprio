@@ -1,5 +1,7 @@
 import googleIcon from "../assets/auth/google.svg";
 import facebookIcon from "../assets/auth/facebook.svg";
+import appleDarkIcon from "../assets/auth/apple-dark.png";
+import appleLightIcon from "../assets/auth/apple-light.png";
 import { OperationButton } from "../vendor/OperationsUi";
 import { Separator } from "../vendor/components/ui/separator";
 import {
@@ -12,7 +14,7 @@ import {
   Text,
   Tooltip,
 } from "@mantine/core";
-import { IconBrandFacebook, IconBrandGoogle } from "@tabler/icons-react";
+import { IconBrandApple, IconBrandFacebook, IconBrandGoogle } from "@tabler/icons-react";
 import type { OAuthProviderId } from "@shared";
 import { useAuth } from "../context/AuthContext";
 import type { SocialAuthButtonsProps } from "./SocialAuthButtons.types";
@@ -24,6 +26,7 @@ const PROVIDER_OPTIONS: Array<{
 }> = [
   { id: "google", label: "Google", Icon: IconBrandGoogle },
   { id: "facebook", label: "Facebook", Icon: IconBrandFacebook },
+  { id: "apple", label: "Apple", Icon: IconBrandApple },
 ];
 
 export default function SocialAuthButtons({
@@ -87,7 +90,14 @@ export default function SocialAuthButtons({
                   type="button"
                   variant="outline"
                 >
-                  <img src={provider.id === "google" ? googleIcon : facebookIcon} alt="" width={32} height={32} />
+                  {provider.id === "apple" ? (
+                    <>
+                      <img className="auth-apple-light" src={appleLightIcon} alt="" width={32} height={32} />
+                      <img className="auth-apple-dark" src={appleDarkIcon} alt="" width={32} height={32} />
+                    </>
+                  ) : (
+                    <img src={provider.id === "google" ? googleIcon : facebookIcon} alt="" width={32} height={32} />
+                  )}
                 </ActionIcon>
               </Tooltip>
             );
