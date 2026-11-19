@@ -24,7 +24,7 @@ test('published-plan expiry read/list emits only after committed actual expiry, 
 test('named configuration mutation invalidates scoped readers after commit and never after rollback',async()=>{
  for(const rollback of [false,true]){
   const f=fixture({rollback});f.client.query=async sql=>({rows:sql.includes('SELECT id::text,name,capacity')?[{id:'100',capacity:4}]:[]});
-  const service=load('queueNamedResourceConfigurationService.js',{'../config/db':{pool:{}},'./vendorQueueTransactionService':f.transaction,'./queueEvents':f.events,'../repositories/queueCommandReceipt':{execute:async(_client,_scope,_command,operation)=>operation()}});
+  const service=load('queueNamedResourceConfigurationService.js',{'./queueTypeService':{assertConfiguration:async()=>{}},'../config/db':{pool:{}},'./vendorQueueTransactionService':f.transaction,'./queueEvents':f.events,'../repositories/queueCommandReceipt':{execute:async(_client,_scope,_command,operation)=>operation()}});
   const operation=service.reorderMembers(context,{poolId:'100',memberIds:[],operationKey:'key'});
   if(rollback)await assert.rejects(operation,/commit failed/);else await operation;
   const hints=f.sequence.filter(item=>typeof item==='object');assert.equal(hints.length,rollback?0:1);if(hints.length){assert.equal(f.sequence.at(-2),'commit');assert.equal(hints[0].scope.locationId,'10');}
