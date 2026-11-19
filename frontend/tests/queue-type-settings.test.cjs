@@ -7,7 +7,7 @@ const configuration={contract:'queue-type-v1',scope:{tenantSlug:'t',locationSlug
 test('actual selector labels three execution types and locks unsupported options',()=>{
  const html=renderToStaticMarkup(React.createElement(QueueTypeSettings,{configuration,canEdit:true,busy:false,onSave:async()=>{}}));
  for(const text of ['Simple queue','Resource-based queue','Queue workflow','Future requests only.','Not included in your current plan.'])assert.ok(html.includes(text),text);
- assert.equal((html.match(/type="radio"/g)||[]).length,3);assert.match(html,/disabled="" value="resource"/);assert.match(html,/type="checkbox" disabled=""/);
+ assert.equal((html.match(/type="radio"/g)||[]).length,3);assert.match(html,/<input[^>]*disabled=""[^>]*value="resource"/);assert.match(html,/aria-describedby="queue-type-resource-description queue-type-resource-reason"/);assert.match(html,/type="checkbox" disabled=""/);
 });
 test('explicit type replaces readiness auto-detection and stale scopes fail closed',()=>{
  const input={optedIn:true,tenantSlug:'t',entitlementTenantSlug:'t',loaded:true,entitlements:{queueSystemAccess:true},locationSlug:'main',setup:{scope:'t:main',ready:true},queueType:configuration};
