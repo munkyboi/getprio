@@ -171,6 +171,7 @@ test(
    INSERT INTO service_counter_assignments VALUES(1,2),(2,3);
    CREATE TABLE tickets(id BIGSERIAL PRIMARY KEY,tenant_id BIGINT,location_id BIGINT,ticket_number TEXT,status TEXT,join_channel TEXT DEFAULT 'vendor',customer_confirmed_at TIMESTAMPTZ,service_started_at TIMESTAMPTZ,service_ended_at TIMESTAMPTZ,service_outcome TEXT,service_counter_id BIGINT,date_key TEXT DEFAULT '20261017',called_at TIMESTAMPTZ,skipped_at TIMESTAMPTZ,rejoin_deadline_at TIMESTAMPTZ,notified_called_at TIMESTAMPTZ,service_priority_band TEXT DEFAULT 'normal',sequence BIGINT DEFAULT 1,created_at TIMESTAMPTZ DEFAULT NOW(),updated_at TIMESTAMPTZ DEFAULT NOW(),UNIQUE(id,tenant_id,location_id));
    CREATE TABLE ticket_service_plans(ticket_id BIGINT PRIMARY KEY,tenant_id BIGINT,location_id BIGINT,source TEXT,booking_id BIGINT,execution_mode TEXT,items JSONB,created_by_user_id BIGINT,created_at TIMESTAMPTZ DEFAULT NOW());
+   ALTER TABLE tickets ADD COLUMN served_at TIMESTAMPTZ, ADD COLUMN terminal_at TIMESTAMPTZ;
    CREATE TABLE bookings(id BIGINT PRIMARY KEY,tenant_id BIGINT,location_id BIGINT,queue_ticket_id BIGINT,selection_contract_version INTEGER,selection_revision BIGINT);
    CREATE TABLE queue_day_closures(id BIGINT PRIMARY KEY,tenant_id BIGINT,location_id BIGINT,queue_date_key TEXT,next_queue_date_key TEXT,closed_at TIMESTAMPTZ,closure_reason TEXT,affected_ticket_ids BIGINT[],waiting_carried_count INTEGER,called_unserved_count INTEGER,closed_by_user_id BIGINT,reopened_by_user_id BIGINT,reopened_at TIMESTAMPTZ,created_at TIMESTAMPTZ,updated_at TIMESTAMPTZ);
    CREATE TABLE allowance_audit(ticket_id BIGINT,units INTEGER);
@@ -3189,151 +3190,29 @@ test(
           );
         },
       );
-      await t.test(
-        "named multi-stage commands keep future children inert, require Handoff and emit one parent start",
-        async () => {
+      await t.test('resource-free Workflow keeps future stages pending and completes one parent journey', async () => {
+        await pool.query("UPDATE store_locations SET queue_type='workflow' WHERE id=10");
+        try {
           const nextConfig = structuredClone(configuration);
-          nextConfig.expectedConfigurationRevision = (
-            await workflowService.get(context)
-          ).workflow.configurationRevision;
-          nextConfig.stages[1].serviceIds = ["3"];
-          await workflowService.put(
-            context,
-            nextConfig,
-            "named-multistage-config",
-          );
-          const catalog = await selections.readCatalog(pool, scope);
-          const input = [
-            {
-              serviceSelectionId: "court-stage",
-              serviceId: "1",
-              resources: [
-                {
-                  resourceSelectionId: "named-stage-court",
-                  resourceMemberId: memberIds[0],
-                  quantity: 1,
-                  durationMinutes: 60,
-                  extras: [],
-                },
-              ],
-            },
-            {
-              serviceSelectionId: "gear-stage",
-              serviceId: "3",
-              resources: [
-                {
-                  resourceSelectionId: "pooled-stage-gear",
-                  resourceMemberId: null,
-                  quantity: 1,
-                  durationMinutes: 60,
-                  extras: [],
-                },
-              ],
-            },
-          ];
-          const created = await transaction(
-            { permission: "tenant.queue.operate" },
-            (client) =>
-              drafts.command(client, scope, {
-                action: "create",
-                operationKey: "named-multistage-draft",
-                body: {
-                  customer: { name: "Named multi-stage verification" },
-                  catalogRevision: catalog.catalogRevision,
-                  serviceSelections: input,
-                },
-              }),
-          );
-          let plan = (
-            await service.publish(context, {
-              draftId: created.plan.id,
-              operationKey: "named-multistage-publish",
-              body: {
-                expectedPlanRevision: "1",
-                expectedCatalogRevision: catalog.catalogRevision,
-              },
-            })
-          ).plan;
-          assert.equal(
-            plan.childAttempts.find(
-              (c) => c.selectionId === "pooled-stage-gear",
-            ).state,
-            "pending",
-          );
-          const invoke = async (action, key, extra = {}) => {
-            plan = (
-              await commands.execute(context, {
-                draftId: plan.id,
-                action,
-                operationKey: key,
-                body: guarded(plan, extra),
-                ...(action === "call"
-                  ? {
-                      serviceCounter: {
-                        _id: plan.currentStage.serviceCounterIds[0],
-                        targetTicketId: plan.ticketId,
-                      },
-                    }
-                  : {}),
-              })
-            ).plan;
-            return plan;
-          };
-          await invoke("call", "named-first-stage-call", {
-            counterSlug: "first",
-          });
-          assert.equal(plan.reservationGroups[0].members.length, 1);
-          await invoke("start", "named-first-stage-start", {
-            reservationGroupId: plan.reservationGroups[0].id,
-          });
-          const court = plan.childAttempts.find(
-            (c) => c.selectionId === "named-stage-court",
-          );
-          await invoke("complete", "named-first-stage-complete", {
-            childAttemptId: court.childAttemptId,
-            expectedChildRevision: court.revision,
-            allocationGroupId: court.allocationGroupId,
-          });
-          assert.equal(plan.state, "awaiting_handoff");
-          assert.equal(
-            (await readTicket(plan.ticketId, { client: pool })).serviceEndedAt,
-            null,
-          );
-          await invoke("handoff", "named-stage-handoff");
-          assert.equal(plan.state, "waiting");
-          assert.equal(plan.currentStage.id, stageB);
-          assert.equal(
-            plan.childAttempts.find(
-              (c) => c.selectionId === "pooled-stage-gear",
-            ).state,
-            "waiting",
-          );
-          await invoke("call", "named-second-stage-call", {
-            counterSlug: "second",
-          });
-          assert.equal(plan.state, "called");
-          await invoke("start", "named-second-stage-start", {
-            reservationGroupId: plan.reservationGroups.find(
-              (g) => g.state === "protected",
-            ).id,
-          });
-          const gear = plan.childAttempts.find(
-            (c) => c.selectionId === "pooled-stage-gear",
-          );
-          await invoke("complete", "named-second-stage-complete", {
-            childAttemptId: gear.childAttemptId,
-            expectedChildRevision: gear.revision,
-            allocationGroupId: gear.allocationGroupId,
-          });
-          assert.equal(plan.state, "served");
-          assert.deepEqual(
-            parentSelectionTransitions
-              .filter((entry) => entry.id === plan.ticketId)
-              .map((entry) => entry.action),
-            ["start", "complete"],
-          );
-        },
-      );
+          nextConfig.expectedConfigurationRevision = (await workflowService.get(context)).workflow.configurationRevision;
+          nextConfig.stages = nextConfig.stages.map(stage => ({...stage,resourceRequirement:{kind:'none'}}));
+          await workflowService.put(context,nextConfig,'resource-free-workflow');
+          const catalog = await readCatalog(pool,scope);
+          const saved = await transaction({permission:'tenant.queue.operate'},client=>drafts.command(client,scope,{action:'create',operationKey:'resource-free-draft',body:{customer:{name:'Workflow test'},catalogRevision:catalog.catalogRevision,lines:[{lineId:'stage-a',serviceId:'1',quantity:1,durationMinutes:180},{lineId:'stage-b',serviceId:'2',quantity:1,durationMinutes:180}]}}));
+          let plan=(await service.publish(context,{draftId:saved.plan.id,operationKey:'resource-free-publish',body:{expectedPlanRevision:'1',expectedCatalogRevision:catalog.catalogRevision}})).plan;
+          assert.deepEqual(plan.stages.map(stage=>stage.state),['awaiting_arrival','pending']);
+          for(const [stage,counter] of [[stageA,'counter-a'],[stageB,'counter-b']]) {
+            assert.equal(plan.currentStage.id,stage);
+            plan=(await invoke(plan,'arrive',`resource-free-${stage}-arrive`)).plan;
+            plan=(await invoke(plan,'call',`resource-free-${stage}-call`,{counterSlug:counter})).plan;
+            plan=(await invoke(plan,'start',`resource-free-${stage}-start`)).plan;
+            plan=(await invoke(plan,'complete',`resource-free-${stage}-complete`,{completeAll:true})).plan;
+          }
+          assert.equal(plan.state,'served');
+          assert.equal((await pool.query('SELECT count(*)::int AS n FROM resource_allocations WHERE ticket_id=$1',[plan.ticketId])).rows[0].n,0);
+          assert.equal((await pool.query('SELECT count(*)::int AS n FROM allowance_operations WHERE subject_id=$1',[plan.ticketId])).rows[0].n,1);
+        } finally { await pool.query("UPDATE store_locations SET queue_type='resource' WHERE id=10"); }
+      });
       const selections4 = require("../src/services/queueSelectionCaptureV4");
       const genericConfig = (
         mode,
@@ -4651,24 +4530,33 @@ test(
         plan=await callRecovery(plan);await assert.rejects(commands.execute(context,{draftId:plan.id,action:'start',operationKey:randomUUID(),body:guarded(plan,{reservationGroupId:plan.reservationGroups.find(g=>g.state==='protected').id,counterSlug:'counter-b',expectedCounterId:'2'})}),{code:'CURRENT_TICKET_CHANGED'});
         plan=await finishRecovery(await startRecovery(plan));assert.equal(plan.state,'served');
       });
-      await t.test('later-stage Skip and Recall preserve earlier completion, parent first-start and pending future stages',async()=>{
-        const current=(await workflowService.get(context)).workflow,station1=randomUUID(),station2=randomUUID(),stage1=randomUUID(),stage2=randomUUID(),stage3=randomUUID();
-        await workflowService.put(context,{expectedConfigurationRevision:current.configurationRevision,mode:'multi_station',stations:[{stationId:station1,name:'Recovery first',serviceCounterIds:['1']},{stationId:station2,name:'Recovery second',serviceCounterIds:['2']}],stages:[{stageId:stage1,stationId:station1,label:'Earlier completed',serviceIds:['10003']},{stageId:stage2,stationId:station2,label:'Skipped required',serviceIds:['10000']},{stageId:stage3,stationId:station1,label:'Future required',serviceIds:['10002']}]},randomUUID());
-        const catalog=await selections4.readCatalog(pool,scope),input=structuredClone(namedExtraInput);
-        input[0].resources[0].durationPolicyRevision=catalog.services.find(s=>s.id==='10000').durationPolicy.revision;input[0].resources[0].extras[0].durationPolicyRevision=catalog.services.find(s=>s.id==='10001').durationPolicy.revision;
-        const root=(id,member=null)=>({serviceSelectionId:'recovery-root-'+id,serviceId:id,resources:[{resourceSelectionId:'recovery-resource-'+id,resourceMemberId:member,quantity:1,durationCount:1,durationPolicyRevision:catalog.services.find(s=>s.id===id).durationPolicy.revision,extras:[]}]});input.unshift(root('10003'));input.push(root('10002',catalog.services.find(s=>s.id==='10002').resourceMembers[0].id));
-        const draft=await transaction({permission:'tenant.queue.operate'},client=>drafts.command(client,scope,{action:'create',operationKey:randomUUID(),body:{contractVersion:4,customer:{name:'Later-stage recovery'},catalogRevision:catalog.catalogRevision,serviceSelections:input}}));
-        let plan=(await service.publish(context,{draftId:draft.plan.id,operationKey:randomUUID(),body:{expectedPlanRevision:'1',expectedCatalogRevision:catalog.catalogRevision}})).plan;
-        plan=await finishRecovery(await startRecovery(await callRecovery(plan)));assert.equal(plan.currentStage.state,'completed');
-        const earlierId=plan.currentStage.attemptId,earlier=(await pool.query('SELECT md5(to_jsonb(s)::text) hash FROM queue_stage_attempts s WHERE id=$1',[earlierId])).rows[0].hash,firstStart=(await pool.query('SELECT service_started_at FROM tickets WHERE id=$1',[plan.ticketId])).rows[0].service_started_at;
-        plan=(await commands.execute(context,{draftId:plan.id,action:'handoff',operationKey:randomUUID(),body:guarded(plan,{})})).plan;plan=await callRecovery(plan,'2');
-        const futureId=plan.stages.find(s=>s.id===stage3).attemptId,futureBefore=(await pool.query('SELECT md5(to_jsonb(s)::text) hash FROM queue_stage_attempts s WHERE id=$1',[futureId])).rows[0].hash;
-        plan=(await commands.execute(context,{draftId:plan.id,action:'skip',operationKey:randomUUID(),body:guarded(plan,{reservationGroupId:plan.reservationGroups.find(g=>g.state==='protected').id,reason:'Missed later required stage'})})).plan;
-        assert.equal(plan.state,'skipped');assert.equal(require('../src/services/customerQueueLifecycle').customerQueueLifecycle({status:'skipped',serviceStartedAt:firstStart}).state,'recovery');
-        plan=(await commands.execute(context,{draftId:plan.id,action:'recall',operationKey:randomUUID(),body:guarded(plan,{reason:'Return to same required stage'})})).plan;
-        assert.equal(plan.currentStage.id,stage2);assert.equal(plan.currentStage.state,'waiting');assert.equal((await pool.query('SELECT md5(to_jsonb(s)::text) hash FROM queue_stage_attempts s WHERE id=$1',[earlierId])).rows[0].hash,earlier);assert.equal((await pool.query('SELECT md5(to_jsonb(s)::text) hash FROM queue_stage_attempts s WHERE id=$1',[futureId])).rows[0].hash,futureBefore);assert.deepEqual((await pool.query('SELECT service_started_at FROM tickets WHERE id=$1',[plan.ticketId])).rows[0].service_started_at,firstStart);
-        assert.equal((await pool.query('SELECT count(*)::int n FROM resource_allocations WHERE ticket_id=$1 AND released_at IS NULL',[plan.ticketId])).rows[0].n,0);
-        plan=await finishRecovery(await startRecovery(await callRecovery(plan,'2')));assert.equal(plan.currentStage.state,'completed');plan=(await commands.execute(context,{draftId:plan.id,action:'handoff',operationKey:randomUUID(),body:guarded(plan,{})})).plan;plan=await finishRecovery(await startRecovery(await callRecovery(plan)));assert.equal(plan.state,'served');
+      await t.test('later-stage Skip and Recall preserve earlier completion and future Workflow stages',async()=>{
+        await pool.query("UPDATE store_locations SET queue_type='workflow' WHERE id=10");
+        try {
+          const current=(await workflowService.get(context)).workflow,station1=randomUUID(),station2=randomUUID(),stage1=randomUUID(),stage2=randomUUID(),stage3=randomUUID();
+          const stage=(stageId,stationId,label,serviceId)=>({stageId,stationId,label,serviceIds:[serviceId],resourceRequirement:{kind:'none'}});
+          await workflowService.put(context,{expectedConfigurationRevision:current.configurationRevision,mode:'multi_station',stations:[{stationId:station1,name:'Recovery first',serviceCounterIds:['1']},{stationId:station2,name:'Recovery second',serviceCounterIds:['2']}],stages:[stage(stage1,station1,'Earlier completed','10003'),stage(stage2,station2,'Skipped required','10000'),stage(stage3,station1,'Future required','10002')]},randomUUID());
+          const catalog=await readCatalog(pool,scope);
+          const lines=['10003','10000','10002'].map((serviceId,i)=>({lineId:`recovery-${i}`,serviceId,quantity:1,durationMinutes:catalog.services.find(service=>service.id===serviceId).durationMinutes}));
+          const draft=await transaction({permission:'tenant.queue.operate'},client=>drafts.command(client,scope,{action:'create',operationKey:randomUUID(),body:{customer:{name:'Later-stage recovery'},catalogRevision:catalog.catalogRevision,lines}}));
+          let plan=(await service.publish(context,{draftId:draft.plan.id,operationKey:randomUUID(),body:{expectedPlanRevision:'1',expectedCatalogRevision:catalog.catalogRevision}})).plan;
+          const step=async(action,extra={})=>{plan=(await invoke(plan,action,randomUUID(),extra)).plan;};
+          await step('arrive');await step('call',{counterSlug:'counter-a'});await step('start');await step('complete',{completeAll:true});
+          const earlierId=plan.stages.find(s=>s.id===stage1).attemptId,earlier=(await pool.query('SELECT md5(to_jsonb(s)::text) hash FROM queue_stage_attempts s WHERE id=$1',[earlierId])).rows[0].hash,firstStart=(await pool.query('SELECT service_started_at FROM tickets WHERE id=$1',[plan.ticketId])).rows[0].service_started_at;
+          assert.equal(plan.currentStage.id,stage2);assert.equal(plan.currentStage.state,'awaiting_arrival');
+          await step('arrive');await step('call',{counterSlug:'counter-b'});
+          const futureId=plan.stages.find(s=>s.id===stage3).attemptId,futureBefore=(await pool.query('SELECT md5(to_jsonb(s)::text) hash FROM queue_stage_attempts s WHERE id=$1',[futureId])).rows[0].hash;
+          await step('skip',{reason:'Missed later required stage'});assert.equal(plan.state,'skipped');
+          assert.equal(require('../src/services/customerQueueLifecycle').customerQueueLifecycle({status:'skipped',serviceStartedAt:firstStart}).state,'recovery');
+          await step('recall',{reason:'Return to same required stage'});
+          assert.equal(plan.currentStage.id,stage2);assert.equal(plan.currentStage.state,'awaiting_arrival');
+          assert.equal((await pool.query('SELECT md5(to_jsonb(s)::text) hash FROM queue_stage_attempts s WHERE id=$1',[earlierId])).rows[0].hash,earlier);
+          assert.equal((await pool.query('SELECT md5(to_jsonb(s)::text) hash FROM queue_stage_attempts s WHERE id=$1',[futureId])).rows[0].hash,futureBefore);
+          assert.deepEqual((await pool.query('SELECT service_started_at FROM tickets WHERE id=$1',[plan.ticketId])).rows[0].service_started_at,firstStart);
+          assert.equal((await pool.query('SELECT count(*)::int n FROM resource_allocations WHERE ticket_id=$1 AND released_at IS NULL',[plan.ticketId])).rows[0].n,0);
+          await step('arrive');await step('call',{counterSlug:'counter-b'});await step('start');await step('complete',{completeAll:true});
+          assert.equal(plan.currentStage.id,stage3);await step('arrive');await step('call',{counterSlug:'counter-a'});await step('start');await step('complete',{completeAll:true});assert.equal(plan.state,'served');
+        } finally {await pool.query("UPDATE store_locations SET queue_type='resource' WHERE id=10");}
       });
       await t.test('non-enforced Recall uses the current database-clock date rather than the skipped ticket date',async()=>{
         const workflow=(await workflowService.get(context)).workflow;await workflowService.put(context,{expectedConfigurationRevision:workflow.configurationRevision,mode:'linear',stations:[],stages:[]},randomUUID());
