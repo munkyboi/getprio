@@ -1,3 +1,4 @@
+const queueTypes = require("./queueTypeService");
 const maintenance = require('./platformMaintenanceService');
 const counterDispatchService = require("./counterDispatchService");
 const ticketBarcodeService = require("./ticketBarcodeService");
@@ -479,7 +480,7 @@ async function createTicketForTenantInTransaction(client, {
   // Request payloads are deliberately separate from this options argument.
   if (options.existingWork !== true) await maintenance.assertNewIntake({ client });
   const resolvedLocation = location || (await resolveLocation(tenant));
-  const queueExecution=await require('./queueTypeService').assertAdmission(client,{tenantId:String(tenant._id),locationId:String(resolvedLocation._id)},options.queueExecutionType || 'simple');
+  const queueExecution=await queueTypes.assertAdmission(client,{tenantId:String(tenant._id),locationId:String(resolvedLocation._id)},options.queueExecutionType || 'simple');
   let queueDay = null;
   let dateKey;
   let sequence;

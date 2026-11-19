@@ -1,3 +1,4 @@
+const queueTypes = require("./queueTypeService");
 const maintenance = require('./platformMaintenanceService');
 const ticketServicePlanService = require("./ticketServicePlanService");
 const bookingRepository = require("../repositories/bookings");
@@ -1928,7 +1929,7 @@ async function checkInBooking({ tenant, location, bookingId, user, overrideWindo
     }
 
     await bookingResourceReservationService.assertBookingReservationCurrent({ client, booking });
-    const queueExecution=await require('./queueTypeService').execution(client,{tenantId:String(tenant._id),locationId:String(location._id)});
+    const queueExecution=await queueTypes.execution(client,{tenantId:String(tenant._id),locationId:String(location._id)});
     const expectedExecution=booking.selectionContractVersion===4?'resource':'simple';
     if(queueExecution.type!==expectedExecution||!queueExecution.capabilities[expectedExecution])throw Object.assign(new Error('This booking needs staff review before check-in because the location’s queue setup or plan changed. Its reservation has been kept.'),{statusCode:409,code:'BOOKING_QUEUE_TYPE_RESOLUTION_REQUIRED'});
     await queueService.assertQueueIntakeOpen(tenant, location, { client });
