@@ -18,7 +18,8 @@ import type {
   RegisterVendorRequest,
   UserSummary
 } from "@shared";
-import { API_BASE_URL, apiRequest, setAuthHandlers } from "../api/client";
+import { API_BASE_URL, setAuthHandlers } from "../api/client";
+import { sessionRequest } from "./sessionRequest";
 import type { AuthContextValue } from "./AuthContext.types";
 import { isCurrentAuthRevision } from "./authSessionRevision";
 
@@ -95,7 +96,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       revision.current = peerRevision;
       if (value.action === "signed-out") { clearSession(); return; }
       const observed = peerRevision;
-      apiRequest<{ user: UserSummary; sessionExpiresAt?: string | Date | null }>("/auth/me", { skipAuthRefresh: true })
+      sessionRequest<{ user: UserSummary; sessionExpiresAt?: string | Date | null }>("/auth/me", { skipAuthRefresh: true })
         .then((data) => { if (active && revision.current === observed) applySession(data); })
         .catch(() => { if (active && revision.current === observed) clearSession(); });
     };
@@ -110,7 +111,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    apiRequest<OAuthProvidersResponse>("/auth/oauth/providers")
+    sessionRequest<OAuthProvidersResponse>("/auth/oauth/providers")
       .then((data) => {
         setOauthProviders({
           ...EMPTY_OAUTH_PROVIDERS,
@@ -128,7 +129,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     localStorage.removeItem("prio-auth");
     const observed = revision.current;
-    apiRequest<{ user: UserSummary; sessionExpiresAt?: string | Date | null }>("/auth/me", { skipAuthRefresh: true })
+    sessionRequest<{ user: UserSummary; sessionExpiresAt?: string | Date | null }>("/auth/me", { skipAuthRefresh: true })
       .then((data) => {
         if (revision.current !== observed) return;
         applySession(data);
@@ -156,7 +157,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       const observed = nextRevision();
       try {
-        const data = await apiRequest<AuthResponse, Record<string, never>>(
+        const data = await sessionRequest<AuthResponse, Record<string, never>>(
           "/auth/refresh",
           {
             method: "POST",
@@ -201,7 +202,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     oauthLoading,
     async login(credentials: LoginRequest): Promise<AuthLoginResponse> {
       const observed = nextRevision();
-      const data = await apiRequest<AuthLoginResponse, LoginRequest>("/auth/login", {
+      const data = await sessionRequest<AuthLoginResponse, LoginRequest>("/auth/login", {
         method: "POST",
         body: credentials
       });
@@ -215,7 +216,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     },
     async verifyMfaChallenge(payload): Promise<AuthResponse> {
       const observed = nextRevision();
-      const data = await apiRequest<AuthResponse, typeof payload>("/auth/mfa/verify", {
+      const data = await sessionRequest<AuthResponse, typeof payload>("/auth/mfa/verify", {
         method: "POST",
         body: payload
       });
@@ -225,14 +226,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return data;
     },
     async sendEmailMfaCode(payload): Promise<EmailMfaChallengeResponse> {
-      return apiRequest<EmailMfaChallengeResponse, typeof payload>("/auth/mfa/email/send", {
+      return sessionRequest<EmailMfaChallengeResponse, typeof payload>("/auth/mfa/email/send", {
         method: "POST",
         body: payload
       });
     },
     async registerVendor(payload: RegisterVendorRequest): Promise<AuthResponse> {
       const observed = nextRevision();
-      const data = await apiRequest<AuthResponse, RegisterVendorRequest>("/auth/register/vendor", {
+      const data = await sessionRequest<AuthResponse, RegisterVendorRequest>("/auth/register/vendor", {
         method: "POST",
         body: payload
       });
@@ -245,7 +246,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       payload: CompleteVendorOnboardingRequest
     ): Promise<AuthResponse> {
       const observed = nextRevision();
-      const data = await apiRequest<AuthResponse, CompleteVendorOnboardingRequest>(
+      const data = await sessionRequest<AuthResponse, CompleteVendorOnboardingRequest>(
         "/auth/register/vendor/complete",
         {
           method: "POST",
@@ -260,7 +261,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     },
     async registerCustomer(payload: RegisterCustomerRequest): Promise<AuthResponse> {
       const observed = nextRevision();
-      const data = await apiRequest<AuthResponse, RegisterCustomerRequest>(
+      const data = await sessionRequest<AuthResponse, RegisterCustomerRequest>(
         "/auth/register/customer",
         {
           method: "POST",
@@ -273,19 +274,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return data;
     },
     async requestPasswordReset(payload: PasswordResetRequest): Promise<AuthActionResponse> {
-      return apiRequest<AuthActionResponse, PasswordResetRequest>("/auth/password-reset/request", {
+      return sessionRequest<AuthActionResponse, PasswordResetRequest>("/auth/password-reset/request", {
         method: "POST",
         body: payload
       });
     },
     async confirmPasswordReset(payload: PasswordResetConfirmRequest): Promise<AuthActionResponse> {
-      return apiRequest<AuthActionResponse, PasswordResetConfirmRequest>("/auth/password-reset/confirm", {
+      return sessionRequest<AuthActionResponse, PasswordResetConfirmRequest>("/auth/password-reset/confirm", {
         method: "POST",
         body: payload
       });
     },
     async changePassword(payload: PasswordChangeRequest): Promise<AuthActionResponse> {
-      const result = await apiRequest<AuthActionResponse, PasswordChangeRequest>("/account/password", {
+      const result = await sessionRequest<AuthActionResponse, PasswordChangeRequest>("/account/password", {
         method: "POST",
         body: payload,
         token,
@@ -297,7 +298,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     },
     async refreshUser(): Promise<UserSummary | null> {
       const observed = nextRevision();
-      const data = await apiRequest<{ user: UserSummary; sessionExpiresAt?: string | Date | null }>("/auth/me", { token: undefined });
+      const data = await sessionRequest<{ user: UserSummary; sessionExpiresAt?: string | Date | null }>("/auth/me", { token: undefined });
       if (!isCurrentAuthRevision(revision.current, observed)) return null;
       applySession(data);
       publishAuthChange("signed-in");
@@ -324,7 +325,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const observed = nextRevision();
       try {
         if (refreshToken) {
-          await apiRequest<{ success: boolean }, Record<string, never>>("/auth/logout", {
+          await sessionRequest<{ success: boolean }, Record<string, never>>("/auth/logout", {
             method: "POST",
             body: {},
             skipAuthRefresh: true
@@ -341,7 +342,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  return <AuthContext.Provider value={value}>{children}<Modal centered closeOnClickOutside={false} closeOnEscape={false} opened={expiryWarningOpen} onClose={() => undefined} title={<div><Text c="orange" fw={700} size="xs">SESSION SECURITY</Text><Title order={3}>Your session will expire soon</Title></div>}><Stack><Text>For your security, you’ll be signed out soon. Continue your session to keep working without losing your place.</Text><Button onClick={async () => { const observed = nextRevision(); const next = await apiRequest<AuthResponse, Record<string, never>>("/auth/refresh", { method: "POST", body: {}, skipAuthRefresh: true }); if (revision.current === observed) { applySession(next); publishAuthChange("signed-in"); setExpiryWarningOpen(false); } }}>Continue session</Button><Button variant="subtle" onClick={() => void value.logout()}>Sign out now</Button></Stack></Modal></AuthContext.Provider>;
+  return <AuthContext.Provider value={value}>{children}<Modal centered closeOnClickOutside={false} closeOnEscape={false} opened={expiryWarningOpen} onClose={() => undefined} title={<div><Text c="orange" fw={700} size="xs">SESSION SECURITY</Text><Title order={3}>Your session will expire soon</Title></div>}><Stack><Text>For your security, you’ll be signed out soon. Continue your session to keep working without losing your place.</Text><Button onClick={async () => { const observed = nextRevision(); const next = await sessionRequest<AuthResponse, Record<string, never>>("/auth/refresh", { method: "POST", body: {}, skipAuthRefresh: true }); if (revision.current === observed) { applySession(next); publishAuthChange("signed-in"); setExpiryWarningOpen(false); } }}>Continue session</Button><Button variant="subtle" onClick={() => void value.logout()}>Sign out now</Button></Stack></Modal></AuthContext.Provider>;
 }
 
 export function useAuth(): AuthContextValue {

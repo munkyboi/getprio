@@ -1,3 +1,4 @@
+const { getPostOauthPath, normalizeOAuthSurface } = require("../services/oauthDestination");
 const queueBoardReturnPath = require("../services/queueBoardReturnPath");
 const businessCategories = require("../repositories/businessCategories");
 const express = require("express");
@@ -356,19 +357,6 @@ async function findOrCreateOauthUser(profile) {
   return { user, created: false };
 }
 
-function getPostOauthPath(intent, provider, user) {
-  const hasTenantMemberships = Boolean(user.tenantMemberships?.length);
-
-  if (intent === "register_vendor" && !hasTenantMemberships) {
-    return `/register/vendor?oauth=${provider}`;
-  }
-
-  if (hasTenantMemberships) {
-    return "/dashboard";
-  }
-
-  return "/";
-}
 
 function redirectOauthError(res, message) {
   const callbackUrl = buildClientCallbackUrl({ error: message });
@@ -527,7 +515,7 @@ router.get("/oauth/:provider/start", (req, res) => {
     ensureSupportedProvider(provider);
     ensureValidIntent(intent);
 
-    const state = createOAuthState({ provider, intent, next: intent === "login" ? queueBoardReturnPath(req.query.next) : null });
+    const state = createOAuthState({ provider, intent, surface: normalizeOAuthSurface(req.query.surface), next: intent === "login" ? queueBoardReturnPath(req.query.next) : null });
     res.redirect(buildAuthorizationUrl(provider, state));
   } catch (error) {
     redirectOauthError(res, error.message || "Unable to start social sign-in.");
@@ -562,7 +550,7 @@ router.all("/oauth/:provider/callback", async (req, res) => {
     });
 
     const { user, created } = await findOrCreateOauthUser(profile);
-    const next = (oauthState.intent === "login" && queueBoardReturnPath(oauthState.next)) || getPostOauthPath(oauthState.intent, provider, user);
+    const next = (oauthState.intent === "login" && queueBoardReturnPath(oauthState.next)) || getPostOauthPath(oauthState.intent, provider, user, oauthState.surface);
     const sessionResult = await sessionService.createAuthSession({
       user,
       authMethod: getAuthMethodForProvider(provider),
