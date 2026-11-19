@@ -1,3 +1,5 @@
+/* Control characters are intentionally rejected in redirect paths. */
+/* eslint-disable no-control-regex */
 export type BrowserSurface = "marketing" | "customer" | "vendor";
 export type AppPurpose = BrowserSurface | "platform" | "developers";
 const defaults: Record<AppPurpose, string> = {

@@ -18,16 +18,10 @@ import type {
   RegisterVendorRequest,
   UserSummary
 } from "@shared";
-import { API_BASE_URL, apiRequest, publicAuthRequest, setAuthHandlers, type ApiRequestOptions } from "../api/client";
-import { publicAuthPathAllowed } from "../../../shared/publicAuthPolicy";
-import { publicUniversalAuthEnabled } from "../surfaces/publicAuthEnabled";
+import { API_BASE_URL, setAuthHandlers } from "../api/client";
+import { sessionRequest } from "./sessionRequest";
 import type { AuthContextValue } from "./AuthContext.types";
 import { isCurrentAuthRevision } from "./authSessionRevision";
-
-function sessionRequest<TResponse, TBody = unknown>(path: string, options: ApiRequestOptions<TBody> = {}): Promise<TResponse> {
-  if (import.meta.env?.VITE_APP_SURFACE === "marketing" && publicUniversalAuthEnabled && publicAuthPathAllowed(path, options.method)) return publicAuthRequest<TResponse, TBody>(path, options);
-  return sessionRequest<TResponse, TBody>(path, options);
-}
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 const COOKIE_SESSION = "cookie-session";
