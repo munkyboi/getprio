@@ -99,6 +99,15 @@ test('draft resource configuration writer under PostgreSQL constraints', { skip:
       CREATE FUNCTION set_updated_at() RETURNS TRIGGER LANGUAGE plpgsql AS $$ BEGIN NEW.updated_at=NOW(); RETURN NEW; END; $$;
       CREATE TABLE users(id BIGINT PRIMARY KEY,roles TEXT[],deletion_requested_at TIMESTAMPTZ,platform_access_suspended_at TIMESTAMPTZ);
       CREATE TABLE tenants(id BIGINT PRIMARY KEY);
+      CREATE TABLE tenant_subscriptions(id BIGINT PRIMARY KEY,tenant_id BIGINT,plan_slug TEXT,status TEXT,current_period_start TIMESTAMPTZ,current_period_end TIMESTAMPTZ,entitlements JSONB,entitlement_model_version INTEGER,entitlement_comparison_hash TEXT,created_at TIMESTAMPTZ,updated_at TIMESTAMPTZ);
+      CREATE TABLE entitlement_rollout_anomalies(id BIGINT PRIMARY KEY,tenant_id BIGINT,blocking BOOLEAN,resolved_at TIMESTAMPTZ);
+      CREATE TABLE subscription_plans(slug TEXT PRIMARY KEY,policy_revision INTEGER,entitlements JSONB);
+      CREATE TABLE plan_feature_entitlements(plan_slug TEXT,feature_key TEXT,enabled BOOLEAN);
+      CREATE TABLE plan_allowances(plan_slug TEXT,allowance_key TEXT,monthly_limit INTEGER);
+      CREATE TABLE tenant_entitlement_overrides(id BIGINT PRIMARY KEY,subscription_id BIGINT,policy_key TEXT,value JSONB,reason TEXT,expires_at TIMESTAMPTZ,revoked_at TIMESTAMPTZ);
+      INSERT INTO tenant_subscriptions VALUES(1,1,'pro','active',NOW()-interval '1 day',NOW()+interval '1 year','{}',2,NULL,NOW(),NOW()),(2,2,'pro','active',NOW()-interval '1 day',NOW()+interval '1 year','{}',2,NULL,NOW(),NOW());
+      INSERT INTO subscription_plans VALUES('pro',1,'{}');
+      INSERT INTO plan_feature_entitlements VALUES('pro','queue',TRUE),('pro','resourceQueue',TRUE),('pro','workflowQueue',TRUE);
       CREATE TABLE tenant_memberships(id BIGINT PRIMARY KEY,user_id BIGINT REFERENCES users(id),tenant_id BIGINT REFERENCES tenants(id),role TEXT,is_active BOOLEAN);
       CREATE TABLE store_locations(id BIGINT PRIMARY KEY,tenant_id BIGINT REFERENCES tenants(id),UNIQUE(id,tenant_id));
       CREATE TABLE tenant_membership_locations(tenant_membership_id BIGINT REFERENCES tenant_memberships(id),location_id BIGINT REFERENCES store_locations(id));
