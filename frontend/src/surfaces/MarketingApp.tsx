@@ -8,6 +8,10 @@ import NotFoundPage from "../pages/NotFoundPage";
 import PublicShell from "./PublicShell";
 import UniversalAuthPage from "../pages/UniversalAuthPage";
 import { PublicThemeProvider } from "./PublicTheme";
+// Keep the universal auth stylesheet in the Marketing entry chunk. The auth
+// route is the public landing surface and must not depend on route discovery
+// to load its card, field, OAuth, and responsive layout styles.
+import "../pages/universal-auth.css";
 export default function MarketingApp() {
   return <PublicShell marketing><Routes>
     <Route path="/" element={<LandingPage />} />
