@@ -6,6 +6,9 @@ site_file="${NGINX_SITE_FILE:-/etc/nginx/sites-available/getprio}"
 developer_site_file="${NGINX_DEVELOPER_SITE_FILE:-/etc/nginx/sites-available/getprio-developer-portal}"
 config_dir="${NGINX_CONFIG_DIR:-}"
 app_root="${NGINX_APP_ROOT:-${DO_APP_DIR:-/var/www/getprio}}"
+while [[ "$app_root" != "/" && "$app_root" == */ ]]; do
+  app_root="${app_root%/}"
+done
 
 if [[ "$app_root" != /* ]]; then
   echo "An absolute Nginx application root is required." >&2
