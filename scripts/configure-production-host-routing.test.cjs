@@ -14,4 +14,11 @@ assert.match(output, /server_name app\.getprio\.online;\s+root \/srv\/getprio\/f
 assert.match(output, /server_name vendor\.getprio\.online;\s+root \/srv\/getprio\/frontend\/dist-vendor;/u);
 assert.match(output, /server_name platform\.getprio\.online;\s+root \/srv\/getprio\/platform-dashboard\/dist;/u);
 assert.match(output, /proxy_pass http:\/\/127\.0\.0\.1:5000;/u);
+
+fs.writeFileSync(site, `server {\n  listen 443 ssl;\n  server_name getprio.online app.getprio.online vendor.getprio.online;\n  root /old/frontend/dist;\n}\n`);
+execFileSync(script, { env: { ...process.env, NGINX_SITE_FILE: site, NGINX_APP_ROOT: "/srv/getprio", NGINX_SKIP_RELOAD: "1", NGINX_REQUIRE_ALL: "0" }, stdio: "pipe" });
+const splitOutput = fs.readFileSync(site, "utf8");
+assert.match(splitOutput, /server_name getprio\.online;\s+root \/srv\/getprio\/frontend\/dist;/u);
+assert.match(splitOutput, /server_name app\.getprio\.online;\s+root \/srv\/getprio\/frontend\/dist-customer;/u);
+assert.match(splitOutput, /server_name vendor\.getprio\.online;\s+root \/srv\/getprio\/frontend\/dist-vendor;/u);
 console.log("production host root configuration passed");

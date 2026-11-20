@@ -61,13 +61,24 @@ for match in server_start.finditer(text):
     block = text[match.start():end]
     names = re.search(r"\bserver_name\s+([^;]+);", block)
     hosts = set(names.group(1).split()) if names else set()
-    replacements = [mapping[host] for host in mapping if host in hosts]
-    if replacements:
-        expected = replacements[0]
-        block, count = re.subn(r"(?m)^([ \t]*)root\s+[^;]+;", rf"\g<1>root {expected};", block)
-        if count == 0:
-            block = re.sub(r"(\bserver_name\s+[^;]+;)", rf"\1\n  root {expected};", block, count=1)
-        changed.extend(host for host in mapping if host in hosts)
+    static_hosts = [host for host in mapping if host in hosts]
+    if static_hosts:
+        clones = []
+        for host in static_hosts:
+            clone = re.sub(r"(\bserver_name\s+)[^;]+;", rf"\1{host};", block, count=1)
+            expected = mapping[host]
+            clone, count = re.subn(r"(?m)^([ \t]*)root\s+[^;]+;", rf"\g<1>root {expected};", clone)
+            if count == 0:
+                clone = re.sub(r"(\bserver_name\s+[^;]+;)", rf"\1\n  root {expected};", clone, count=1)
+            clones.append(clone)
+            changed.append(host)
+        non_static_hosts = sorted(hosts - set(static_hosts))
+        if non_static_hosts:
+            clones.append(re.sub(r"(\bserver_name\s+)[^;]+;", rf"\1{' '.join(non_static_hosts)};", block, count=1))
+        out.append(text[cursor:match.start()])
+        out.append("\n".join(clones))
+        cursor = end
+        continue
     out.append(text[cursor:match.start()])
     out.append(block)
     cursor = end
