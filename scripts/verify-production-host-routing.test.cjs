@@ -17,6 +17,7 @@ const includes = path.join(root, "conf.d", "tls.conf");
 fs.mkdirSync(path.dirname(includes), { recursive: true });
 fs.writeFileSync(includes, "server { listen 443 ssl; server_name getprio.online; root /var/www/getprio/frontend/dist; }\n");
 execFileSync(script, { env: { ...env, NGINX_CONFIG_DIR: root }, stdio: "pipe" });
+assert.throws(() => execFileSync(script, { env: { ...env, NGINX_CONFIG_DIR: root, NGINX_REQUIRE_HTTPS: "1" }, stdio: "pipe" }));
 fs.writeFileSync(includes, "server { listen 443 ssl; server_name getprio.online; root /wrong/frontend/dist; }\n");
 assert.throws(() => execFileSync(script, { env: { ...env, NGINX_CONFIG_DIR: root }, stdio: "pipe" }));
 fs.writeFileSync(includes, "server { listen 443 ssl; server_name getprio.online; root /var/www/getprio/frontend/dist; }\n");

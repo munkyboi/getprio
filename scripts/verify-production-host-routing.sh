@@ -41,13 +41,14 @@ require_host() {
 }
 
 require_root() {
-  local host="$1" root="$2" contents="$3"
-  if python3 - "$host" "$root" "$site_file" "$developer_site_file" "$config_dir" <<'PY'
+  local host="$1" root="$2" contents="$3"; local https="${4:-0}"
+  if python3 - "$host" "$root" "$https" "$site_file" "$developer_site_file" "$config_dir" <<'PY'
 import pathlib
 import re
 import sys
 
-host, expected_root, *files = sys.argv[1:]
+host, expected_root, require_https, *files = sys.argv[1:]
+require_https = require_https == "1"
 paths = []
 for item in files:
     if not item:
@@ -55,6 +56,7 @@ for item in files:
     path = pathlib.Path(item)
     paths.extend(path.rglob("*") if path.is_dir() else [path])
 found = False
+found_https = False
 mismatches = []
 for path in paths:
     if not path.is_file():
@@ -73,13 +75,15 @@ for path in paths:
         names = re.search(r"\bserver_name\s+([^;]+);", block)
         if names and host in names.group(1).split():
             found = True
+            if re.search(r"\blisten\s+(?:\[::\]:)?443(?:\s+ssl)?\s*;", block):
+                found_https = True
             if not re.search(rf"\broot\s+{re.escape(expected_root)};", block):
                 roots = re.findall(r"\broot\s+([^;]+);", block)
                 mismatches.append((str(path), roots))
 if mismatches:
     print(f"{host}: active blocks have roots {mismatches}; expected {expected_root}", file=sys.stderr)
     raise SystemExit(1)
-raise SystemExit(0 if found else 1)
+raise SystemExit(0 if found and (not require_https or found_https) else 1)
 PY
   then :; else
     echo "Host ${host} is not mapped to the expected root ${root}." >&2
@@ -87,11 +91,11 @@ PY
   fi
 }
 
-require_root getprio.online "${app_root}/frontend/dist" "$site_contents"
-require_root app.getprio.online "${app_root}/frontend/dist-customer" "$site_contents"
-require_root vendor.getprio.online "${app_root}/frontend/dist-vendor" "$site_contents"
-require_root platform.getprio.online "${app_root}/platform-dashboard/dist" "$site_contents"
-require_root developers.getprio.online "${app_root}/developer-portal/dist" "$developer_contents"
+require_root getprio.online "${app_root}/frontend/dist" "$site_contents" "${NGINX_REQUIRE_HTTPS:-0}"
+require_root app.getprio.online "${app_root}/frontend/dist-customer" "$site_contents" "${NGINX_REQUIRE_HTTPS:-0}"
+require_root vendor.getprio.online "${app_root}/frontend/dist-vendor" "$site_contents" "${NGINX_REQUIRE_HTTPS:-0}"
+require_root platform.getprio.online "${app_root}/platform-dashboard/dist" "$site_contents" "${NGINX_REQUIRE_HTTPS:-0}"
+require_root developers.getprio.online "${app_root}/developer-portal/dist" "$developer_contents" "${NGINX_REQUIRE_HTTPS:-0}"
 require_host api.getprio.online
 require_host sandbox-api.getprio.online
 

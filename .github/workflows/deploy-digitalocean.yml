@@ -333,11 +333,12 @@ jobs:
           DEVELOPER_PORTAL_ROOT="${DO_APP_DIR}/developer-portal/dist" bash scripts/configure-developer-hosts.sh
           NGINX_SITE_FILE="/etc/nginx/sites-available/getprio" \
             NGINX_APP_ROOT="${DO_APP_DIR}" \
+            NGINX_REQUIRE_HTTPS=1 \
             bash scripts/configure-production-host-routing.sh
           while IFS= read -r nginx_file; do
             [ "$nginx_file" = "/etc/nginx/sites-available/getprio" ] && continue
             NGINX_SITE_FILE="$nginx_file" NGINX_APP_ROOT="${DO_APP_DIR}" \
-              NGINX_REQUIRE_ALL=0 NGINX_APPEND_MISSING=0 \
+              NGINX_REQUIRE_ALL=0 NGINX_APPEND_MISSING=0 NGINX_REQUIRE_HTTPS=1 \
               bash scripts/configure-production-host-routing.sh
           done < <(find /etc/nginx/sites-enabled /etc/nginx/conf.d \( -type f -o -type l \) -print 2>/dev/null)
           NGINX_SITE_FILE="/etc/nginx/sites-available/getprio" \

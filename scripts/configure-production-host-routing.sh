@@ -41,6 +41,8 @@ mapping = {
 }
 server_start = re.compile(r"\bserver\s*\{")
 changed = []
+changed_https = []
+ssl_template = None
 out = []
 cursor = 0
 for match in server_start.finditer(text):
@@ -59,6 +61,8 @@ for match in server_start.finditer(text):
     if end is None:
         raise SystemExit("Unbalanced Nginx server block.")
     block = text[match.start():end]
+    if re.search(r"\blisten\s+(?:\[::\]:)?443(?:\s+ssl)?\s*;", block):
+        ssl_template = ssl_template or block
     names = re.search(r"\bserver_name\s+([^;]+);", block)
     hosts = set(names.group(1).split()) if names else set()
     static_hosts = [host for host in mapping if host in hosts]
@@ -72,6 +76,8 @@ for match in server_start.finditer(text):
                 clone = re.sub(r"(\bserver_name\s+[^;]+;)", rf"\1\n  root {expected};", clone, count=1)
             clones.append(clone)
             changed.append(host)
+            if re.search(r"\blisten\s+(?:\[::\]:)?443(?:\s+ssl)?\s*;", clone):
+                changed_https.append(host)
         non_static_hosts = sorted(hosts - set(static_hosts))
         if non_static_hosts:
             clones.append(re.sub(r"(\bserver_name\s+)[^;]+;", rf"\1{' '.join(non_static_hosts)};", block, count=1))
@@ -97,6 +103,22 @@ if missing and os.environ.get("NGINX_APPEND_MISSING", "1") == "1":
             "  index index.html;\n"
             "  location / { try_files $uri $uri/ /index.html; }\n"
             "}\n"
+        )
+if os.environ.get("NGINX_REQUIRE_HTTPS", "0") == "1":
+    missing_https = sorted(set(mapping) - set(changed_https))
+    if missing_https and ssl_template is None:
+        raise SystemExit("Missing HTTPS server block template for: " + ", ".join(missing_https))
+    for host in missing_https:
+        certificate = re.findall(r"(?m)^\s*ssl_certificate(?:_key)?\s+[^;]+;", ssl_template or "")
+        out.append(
+            "\nserver {\n"
+            "  listen 443 ssl;\n"
+            f"  server_name {host};\n"
+            f"  root {mapping[host]};\n"
+            "  index index.html;\n"
+            "  location / { try_files $uri $uri/ /index.html; }\n"
+            + "".join(f"  {line.strip()}\n" for line in certificate)
+            + "}\n"
         )
 pathlib.Path(target).write_text("".join(out))
 PY
