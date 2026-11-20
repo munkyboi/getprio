@@ -14,7 +14,9 @@ It matches the current codebase:
 
 ## Recommended Shape
 
-- `app.getprio.online` serves `frontend/dist`
+- `getprio.online` serves the frozen Marketing surface from `frontend/dist`
+- `app.getprio.online` serves the frozen Customer surface from `frontend/dist-customer`
+- `vendor.getprio.online` serves the frozen Vendor surface from `frontend/dist-vendor`
 - `developers.getprio.online` serves the standalone developer portal from `developer-portal/dist`
 - `platform.getprio.online` serves the new `platform-dashboard-shadcn` build copied into `platform-dashboard/dist` during deployment
 - `api.getprio.online` proxies to the backend on `127.0.0.1:5000`
@@ -154,9 +156,12 @@ DATABASE_SSL_CA_FILE=
 JWT_SECRET=CHANGE_THIS_TO_A_LONG_RANDOM_SECRET
 
 SERVER_URL=https://api.getprio.online
-CLIENT_URL=https://getprio.online
-APP_BASE_URL=https://getprio.online
-MOBILE_QR_BASE_URL=https://getprio.online
+CLIENT_URL=https://app.getprio.online
+APP_BASE_URL=https://app.getprio.online
+CUSTOMER_APP_URL=https://app.getprio.online
+VENDOR_APP_URL=https://vendor.getprio.online
+MARKETING_URL=https://getprio.online
+MOBILE_QR_BASE_URL=https://app.getprio.online
 PLATFORM_DASHBOARD_URL=https://platform.getprio.online
 VITE_API_URL=https://api.getprio.online/api
 
@@ -386,9 +391,10 @@ deploy_sha="$(git rev-parse HEAD)"
 umask 022
 static_stage="$(mktemp -d /tmp/getprio-static.XXXXXX)"
 trap 'rm -rf -- "$static_stage"' EXIT
-VITE_DEPLOY_SHA="$deploy_sha" VITE_PLATFORM_DATA_SOURCE=live node scripts/static-release.mjs build "$static_stage"
+VITE_DEPLOY_SHA="$deploy_sha" VITE_API_URL=https://api.getprio.online/api VITE_PLATFORM_DATA_SOURCE=live npm --workspace developer-portal run build -- --outDir "$static_stage/developer" --emptyOutDir
+node scripts/release-bundle.mjs materialize "$static_stage" "$deploy_sha"
 npm run build:backend
-node scripts/static-release.mjs publish "$static_stage" "$deploy_sha"
+node scripts/release-bundle.mjs publish "$static_stage" "$deploy_sha"
 ```
 
 Builds run in a private temporary directory. Publication validates all served sites, copies assets first, and replaces each HTML file with an atomic rename. Prior assets remain available for cached HTML. See [static publication and incident evidence](deployment-static-publication.md) for failure behavior and limitations.
@@ -417,7 +423,7 @@ Create `/etc/nginx/sites-available/getprio`:
 ```nginx
 server {
   listen 80;
-  server_name app.getprio.online;
+  server_name getprio.online;
 
   root /var/www/getprio/frontend/dist;
   index index.html;
@@ -426,6 +432,30 @@ server {
     default_type application/json;
     try_files $uri =404;
   }
+
+  location / {
+    try_files $uri $uri/ /index.html;
+  }
+}
+
+server {
+  listen 80;
+  server_name app.getprio.online;
+
+  root /var/www/getprio/frontend/dist-customer;
+  index index.html;
+
+  location / {
+    try_files $uri $uri/ /index.html;
+  }
+}
+
+server {
+  listen 80;
+  server_name vendor.getprio.online;
+
+  root /var/www/getprio/frontend/dist-vendor;
+  index index.html;
 
   location / {
     try_files $uri $uri/ /index.html;
@@ -492,7 +522,7 @@ Install Certbot:
 
 ```bash
 apt install -y certbot python3-certbot-nginx
-certbot --nginx -d getprio.online -d developers.getprio.online -d platform.getprio.online -d api.getprio.online -d sandbox-api.getprio.online
+certbot --nginx -d getprio.online -d app.getprio.online -d vendor.getprio.online -d developers.getprio.online -d platform.getprio.online -d api.getprio.online -d sandbox-api.getprio.online
 ```
 
 ## 10. Payment Webhook URLs
@@ -516,9 +546,10 @@ deploy_sha="$(git rev-parse HEAD)"
 umask 022
 static_stage="$(mktemp -d /tmp/getprio-static.XXXXXX)"
 trap 'rm -rf -- "$static_stage"' EXIT
-VITE_DEPLOY_SHA="$deploy_sha" VITE_PLATFORM_DATA_SOURCE=live node scripts/static-release.mjs build "$static_stage"
+VITE_DEPLOY_SHA="$deploy_sha" VITE_API_URL=https://api.getprio.online/api VITE_PLATFORM_DATA_SOURCE=live npm --workspace developer-portal run build -- --outDir "$static_stage/developer" --emptyOutDir
+node scripts/release-bundle.mjs materialize "$static_stage" "$deploy_sha"
 npm run build:backend
-node scripts/static-release.mjs publish "$static_stage" "$deploy_sha"
+node scripts/release-bundle.mjs publish "$static_stage" "$deploy_sha"
 pm2 restart getprio-api
 ```
 
