@@ -68,9 +68,19 @@ for match in server_start.finditer(text):
     out.append(block)
     cursor = end
 out.append(text[cursor:])
-if set(changed) != set(mapping):
-    missing = sorted(set(mapping) - set(changed))
-    raise SystemExit("Missing production host server block(s): " + ", ".join(missing))
+missing = sorted(set(mapping) - set(changed))
+if missing:
+    out.append("\n")
+    for host in missing:
+        out.append(
+            "server {\n"
+            "  listen 80;\n"
+            f"  server_name {host};\n"
+            f"  root {mapping[host]};\n"
+            "  index index.html;\n"
+            "  location / { try_files $uri $uri/ /index.html; }\n"
+            "}\n"
+        )
 pathlib.Path(target).write_text("".join(out))
 PY
 
