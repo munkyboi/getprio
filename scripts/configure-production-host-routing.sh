@@ -4,6 +4,9 @@ set -euo pipefail
 
 site_file="${NGINX_SITE_FILE:-/etc/nginx/sites-available/getprio}"
 app_root="${NGINX_APP_ROOT:-${DO_APP_DIR:-/var/www/getprio}}"
+while [[ "$app_root" != "/" && "$app_root" == */ ]]; do
+  app_root="${app_root%/}"
+done
 if [[ "$site_file" != /* || "$app_root" != /* || ! -f "$site_file" ]]; then
   echo "An existing absolute Nginx site file and application root are required." >&2
   exit 1
