@@ -4,9 +4,16 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
+import { containsProductionApiReference } from "./release-bundle.mjs";
 
 const root = path.resolve(new URL("..", import.meta.url).pathname);
 const sha = "ff497ca2b2e0368a5770cd6097996fce11804da1";
+
+test("production API validation accepts only the configured host and path", () => {
+  assert.equal(containsProductionApiReference("https://api.getprio.online/api/auth"), true);
+  assert.equal(containsProductionApiReference("https://evil.example/https://api.getprio.online/api"), false);
+  assert.equal(containsProductionApiReference("https://api.getprio.online.evil/api"), false);
+});
 
 function run(stage, env = {}) {
   return new Promise((resolve, reject) => {

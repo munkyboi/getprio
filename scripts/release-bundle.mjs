@@ -5,11 +5,24 @@ import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 const API_ORIGIN = "https://api.getprio.online/api";
+const API_URL = new URL(API_ORIGIN);
 const TURNSTILE_PLACEHOLDER = "__GETPRIO_TURNSTILE_SITE_KEY__";
 const SITES = ["marketing", "customer", "vendor", "platform"];
 
 function fail(message) {
   throw new Error(message);
+}
+
+function containsProductionApiReference(contents) {
+  for (const match of contents.matchAll(/https?:\/\/[^"'`\s<>]+/gu)) {
+    try {
+      const url = new URL(match[0]);
+      if (url.origin === API_URL.origin && (url.pathname === API_URL.pathname || url.pathname.startsWith(`${API_URL.pathname}/`))) return true;
+    } catch {
+      // Ignore non-URL text and continue checking the remaining references.
+    }
+  }
+  return false;
 }
 
 async function readManifest(root) {
@@ -56,7 +69,7 @@ async function materialize(stage, deploymentSha) {
       if (/https?:\/\/(?:127\.0\.0\.1|localhost):(?:5091|5190|5191|5192|5193|5194)/u.test(contents)) {
         fail(`Frozen ${site} artifact still contains a local runtime origin.`);
       }
-      productionBound ||= contents.includes(API_ORIGIN);
+      productionBound ||= containsProductionApiReference(contents);
       if (contents.includes(TURNSTILE_PLACEHOLDER)) {
         const siteKey = process.env.TURNSTILE_SITE_KEY || process.env.VITE_TURNSTILE_SITE_KEY || "";
         if (process.env.TURNSTILE_SECRET_KEY && !siteKey) fail("TURNSTILE_SECRET_KEY is configured but TURNSTILE_SITE_KEY is missing.");
@@ -101,11 +114,15 @@ async function publish(stage, deploymentSha) {
 }
 
 const [command, stage, sha] = process.argv.slice(2);
-try {
-  if (!stage || !sha || !["materialize", "publish"].includes(command)) fail("Usage: release-bundle.mjs materialize|publish STAGE DEPLOY_SHA");
-  if (command === "materialize") await materialize(stage, sha);
-  else await publish(stage, sha);
-} catch (error) {
-  console.error(error.message);
-  process.exitCode = 1;
+if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname)) {
+  try {
+    if (!stage || !sha || !["materialize", "publish"].includes(command)) fail("Usage: release-bundle.mjs materialize|publish STAGE DEPLOY_SHA");
+    if (command === "materialize") await materialize(stage, sha);
+    else await publish(stage, sha);
+  } catch (error) {
+    console.error(error.message);
+    process.exitCode = 1;
+  }
 }
+
+export { containsProductionApiReference };
