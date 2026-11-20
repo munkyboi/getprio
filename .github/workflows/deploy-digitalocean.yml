@@ -330,15 +330,24 @@ jobs:
 
           git checkout --detach "${DEPLOY_SHA}"
 
+          nginx_ssl_certificate="$(grep -RhsE '^[[:space:]]*ssl_certificate[[:space:]]+[^;]+;' /etc/nginx/sites-enabled /etc/nginx/conf.d 2>/dev/null | awk '$1 == "ssl_certificate" { sub(/;$/, "", $2); print $2; exit }')"
+          nginx_ssl_certificate_key="$(grep -RhsE '^[[:space:]]*ssl_certificate_key[[:space:]]+[^;]+;' /etc/nginx/sites-enabled /etc/nginx/conf.d 2>/dev/null | awk '$1 == "ssl_certificate_key" { sub(/;$/, "", $2); print $2; exit }')"
+          if [ -z "$nginx_ssl_certificate" ] || [ -z "$nginx_ssl_certificate_key" ]; then
+            echo "No existing TLS certificate template was found in active Nginx includes." >&2
+            exit 1
+          fi
+
           DEVELOPER_PORTAL_ROOT="${DO_APP_DIR}/developer-portal/dist" bash scripts/configure-developer-hosts.sh
           NGINX_SITE_FILE="/etc/nginx/sites-available/getprio" \
             NGINX_APP_ROOT="${DO_APP_DIR}" \
             NGINX_REQUIRE_HTTPS=1 \
+            NGINX_SSL_CERT="$nginx_ssl_certificate" NGINX_SSL_KEY="$nginx_ssl_certificate_key" \
             bash scripts/configure-production-host-routing.sh
           while IFS= read -r nginx_file; do
             [ "$nginx_file" = "/etc/nginx/sites-available/getprio" ] && continue
             NGINX_SITE_FILE="$nginx_file" NGINX_APP_ROOT="${DO_APP_DIR}" \
               NGINX_REQUIRE_ALL=0 NGINX_APPEND_MISSING=0 NGINX_REQUIRE_HTTPS=1 \
+              NGINX_SSL_CERT="$nginx_ssl_certificate" NGINX_SSL_KEY="$nginx_ssl_certificate_key" \
               bash scripts/configure-production-host-routing.sh
           done < <(find /etc/nginx/sites-enabled /etc/nginx/conf.d \( -type f -o -type l \) -print 2>/dev/null)
           NGINX_SITE_FILE="/etc/nginx/sites-available/getprio" \
