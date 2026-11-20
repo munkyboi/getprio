@@ -29,7 +29,7 @@ all_contents="$site_contents\n$developer_contents"
 if [[ -n "$config_dir" && -d "$config_dir" ]]; then
   while IFS= read -r config_file; do
     all_contents+="\n$(cat "$config_file")"
-  done < <(find "$config_dir" -maxdepth 1 \( -type f -o -type l \) -print)
+  done < <(find "$config_dir" \( -type f -o -type l \) -print)
 fi
 
 require_host() {
@@ -42,14 +42,20 @@ require_host() {
 
 require_root() {
   local host="$1" root="$2" contents="$3"
-  if ! python3 - "$host" "$root" "$site_file" "$developer_site_file" "$config_dir" <<'PY'
+  if python3 - "$host" "$root" "$site_file" "$developer_site_file" "$config_dir" <<'PY'
 import pathlib
 import re
 import sys
 
 host, expected_root, *files = sys.argv[1:]
-paths = [pathlib.Path(item) for item in files if item]
-paths.extend(path for directory in paths[-1:] if directory.is_dir() for path in directory.iterdir()) if paths and paths[-1].is_dir() else None
+paths = []
+for item in files:
+    if not item:
+        continue
+    path = pathlib.Path(item)
+    paths.extend(path.rglob("*") if path.is_dir() else [path])
+found = False
+mismatches = []
 for path in paths:
     if not path.is_file():
         continue
@@ -65,9 +71,15 @@ for path in paths:
                 break
         block = text[match.start():end] if end else ""
         names = re.search(r"\bserver_name\s+([^;]+);", block)
-        if names and host in names.group(1).split() and re.search(rf"\broot\s+{re.escape(expected_root)};", block):
-            raise SystemExit(0)
-raise SystemExit(1)
+        if names and host in names.group(1).split():
+            found = True
+            if not re.search(rf"\broot\s+{re.escape(expected_root)};", block):
+                roots = re.findall(r"\broot\s+([^;]+);", block)
+                mismatches.append((str(path), roots))
+if mismatches:
+    print(f"{host}: active blocks have roots {mismatches}; expected {expected_root}", file=sys.stderr)
+    raise SystemExit(1)
+raise SystemExit(0 if found else 1)
 PY
   then :; else
     echo "Host ${host} is not mapped to the expected root ${root}." >&2
