@@ -5,6 +5,12 @@ set -euo pipefail
 site_file="${NGINX_SITE_FILE:-/etc/nginx/sites-available/getprio}"
 developer_site_file="${NGINX_DEVELOPER_SITE_FILE:-/etc/nginx/sites-available/getprio-developer-portal}"
 config_dir="${NGINX_CONFIG_DIR:-}"
+app_root="${NGINX_APP_ROOT:-${DO_APP_DIR:-/var/www/getprio}}"
+
+if [[ "$app_root" != /* ]]; then
+  echo "An absolute Nginx application root is required." >&2
+  exit 1
+fi
 
 for required in "$site_file" "$developer_site_file"; do
   if [[ ! -f "$required" ]]; then
@@ -66,11 +72,11 @@ PY
   fi
 }
 
-require_root getprio.online /var/www/getprio/frontend/dist "$site_contents"
-require_root app.getprio.online /var/www/getprio/frontend/dist-customer "$site_contents"
-require_root vendor.getprio.online /var/www/getprio/frontend/dist-vendor "$site_contents"
-require_root platform.getprio.online /var/www/getprio/platform-dashboard/dist "$site_contents"
-require_root developers.getprio.online /var/www/getprio/developer-portal/dist "$developer_contents"
+require_root getprio.online "${app_root}/frontend/dist" "$site_contents"
+require_root app.getprio.online "${app_root}/frontend/dist-customer" "$site_contents"
+require_root vendor.getprio.online "${app_root}/frontend/dist-vendor" "$site_contents"
+require_root platform.getprio.online "${app_root}/platform-dashboard/dist" "$site_contents"
+require_root developers.getprio.online "${app_root}/developer-portal/dist" "$developer_contents"
 require_host api.getprio.online
 require_host sandbox-api.getprio.online
 
