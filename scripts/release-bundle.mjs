@@ -69,8 +69,11 @@ async function validateMaterializedSite(site, output, deploymentSha) {
   if (!productionBound) fail(`Frozen ${site} artifact is not production-bound.`);
   if (site === "platform") {
     const revisionMeta = /(<meta\b[^>]*\bname=["']getprio-deploy-sha["'][^>]*\bcontent=["'])([a-f\d]{40})(["'])/iu;
-    if (!revisionMeta.test(html)) fail("Platform artifact is missing its deployment revision metadata.");
-    await fs.writeFile(index, html.replace(revisionMeta, `$1${deploymentSha}$3`));
+    const rewritten = revisionMeta.test(html)
+      ? html.replace(revisionMeta, `$1${deploymentSha}$3`)
+      : html.replace(/<\/head>/iu, `  <meta name="getprio-deploy-sha" content="${deploymentSha}" />\n</head>`);
+    if (rewritten === html && !revisionMeta.test(html)) fail("Platform artifact is missing a usable head for deployment revision metadata.");
+    await fs.writeFile(index, rewritten);
   }
 }
 

@@ -47,4 +47,5 @@ test("materialization preserves developer output and binds production runtime co
   assert.match(script, /endsWith\("\.html"\)/u);
   assert.match(script, /VITE_REBUILD_MARKETING/u);
   assert.match(script, /max-old-space-size=4096/u);
+  assert.match(script, /missing a usable head for deployment revision metadata/u);
 });
