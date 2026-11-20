@@ -21,4 +21,10 @@ const splitOutput = fs.readFileSync(site, "utf8");
 assert.match(splitOutput, /server_name getprio\.online;\s+root \/srv\/getprio\/frontend\/dist;/u);
 assert.match(splitOutput, /server_name app\.getprio\.online;\s+root \/srv\/getprio\/frontend\/dist-customer;/u);
 assert.match(splitOutput, /server_name vendor\.getprio\.online;\s+root \/srv\/getprio\/frontend\/dist-vendor;/u);
+
+fs.writeFileSync(site, `server {\n  listen 80;\n  server_name getprio.online;\n  root /old/frontend/dist;\n}\nserver {\n  listen 443 ssl;\n  server_name getprio.online;\n  root /old/frontend/dist;\n  ssl_certificate /etc/ssl/example.crt;\n  ssl_certificate_key /etc/ssl/example.key;\n}\n`);
+execFileSync(script, { env: { ...process.env, NGINX_SITE_FILE: site, NGINX_APP_ROOT: "/srv/getprio", NGINX_SKIP_RELOAD: "1", NGINX_REQUIRE_ALL: "0", NGINX_REQUIRE_HTTPS: "1" }, stdio: "pipe" });
+const httpsOutput = fs.readFileSync(site, "utf8");
+assert.match(httpsOutput, /listen 443 ssl;\s+server_name app\.getprio\.online;\s+root \/srv\/getprio\/frontend\/dist-customer;/u);
+assert.match(httpsOutput, /ssl_certificate_key \/etc\/ssl\/example\.key;/u);
 console.log("production host root configuration passed");
