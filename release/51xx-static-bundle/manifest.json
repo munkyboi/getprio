@@ -1,0 +1,53 @@
+{
+  "schema": 1,
+  "createdAt": "2026-11-20T00:00:00Z",
+  "api": {
+    "localOrigin": "http://127.0.0.1:5091/api",
+    "production": "https://api.getprio.online/api",
+    "sourceWorktree": "/Volumes/Storage0/Projects/getprio/web-app/worktrees/free-queue-service-setup-20261025",
+    "sourceCommit": "ff497ca2b2e0368a5770cd6097996fce11804da1"
+  },
+  "sites": [
+    {
+      "name": "marketing",
+      "port": 5190,
+      "sourcePath": "/Users/carloabella/.codex/private/getprio-marketing-illustration-size-20261029-profile2/build/dist-marketing",
+      "sourceCommit": "70bd376f7aa031878ea67be910a106fb9fb7fead",
+      "sourceHash": "d4451a8dad9330ff62e4453b6e45743c356e56a55eafa720ae3c8759cfaac1a7",
+      "archive": "marketing.tar.gz",
+      "archiveSha256": "14ab9f4107f821a310e124b352c3d05ba7538d56a6415e566d50159514791e5f"
+    },
+    {
+      "name": "customer",
+      "port": 5191,
+      "sourcePath": "/Users/carloabella/.codex/private/getprio-customer-navigation-theme-20261029/build/dist-customer",
+      "sourceCommit": "09f971b2b3016780dc072358976f748f1d08f5e5",
+      "sourceHash": "35956b3b53daf972acac96ccd367212e57413a65ca05264d241005948e21f16b",
+      "archive": "customer.tar.gz",
+      "archiveSha256": "37814bca700a8848199793dc4fceb3097415d23c3dc6567a31259be4dcc6a7f2"
+    },
+    {
+      "name": "vendor",
+      "port": 5192,
+      "sourcePath": "/Users/carloabella/.codex/private/getprio-vendor-b9-ed864-canonical-20261119/dist",
+      "sourceCommit": "b9f05eac39f5ec60ea458a43a5fd88f3ed598fa7",
+      "sourceHash": "f69db4c20509b0e5ad220b818fd9749fab7f0055583534743096e46c2c26632d",
+      "archive": "vendor.tar.gz",
+      "archiveSha256": "5071701cafc7382d6b7e986190c9135f4678a5a98b317baaa60669abdb31a9a8"
+    },
+    {
+      "name": "platform",
+      "port": 5193,
+      "sourcePath": "/Users/carloabella/.codex/private/getprio-free-queue-setup-activation-20261025/platform",
+      "sourceCommit": "ff497ca2b2e0368a5770cd6097996fce11804da1",
+      "sourceHash": "19d2077c7a210590c05997a69fc519867bfb71e033f1c387e09379adf35bd8d5",
+      "archive": "platform.tar.gz",
+      "archiveSha256": "b900848825a3231e4af7d826a787aa0cf5b6bfd68bb1f753a558295113038046"
+    }
+  ],
+  "transform": {
+    "from": "http://127.0.0.1:5091/api",
+    "to": "https://api.getprio.online/api",
+    "platformDeploymentSha": "rewritten at deploy time"
+  }
+}
