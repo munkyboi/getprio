@@ -332,6 +332,9 @@ jobs:
 
           DEVELOPER_PORTAL_ROOT="${DO_APP_DIR}/developer-portal/dist" bash scripts/configure-developer-hosts.sh
           NGINX_SITE_FILE="/etc/nginx/sites-available/getprio" \
+            NGINX_APP_ROOT="${DO_APP_DIR}" \
+            bash scripts/configure-production-host-routing.sh
+          NGINX_SITE_FILE="/etc/nginx/sites-available/getprio" \
             NGINX_DEVELOPER_SITE_FILE="/etc/nginx/sites-available/getprio-developer-portal" \
             bash scripts/verify-production-host-routing.sh
 
