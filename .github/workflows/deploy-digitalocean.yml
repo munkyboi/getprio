@@ -269,7 +269,46 @@ jobs:
             echo "Preserved known FCM runtime backup at ${fcm_runtime_backup_target}."
           fi
 
-          bash scripts/prepare-deployment-worktree.sh "${DO_APP_DIR}"
+          # The helper is not available until the requested revision is checked
+          # out, so keep this pre-check self-contained. Only generated output
+          # from the prior bundle publication is recoverable; all other drift
+          # remains a hard failure.
+          declare -a generated_output=()
+          declare -a unexpected_drift=()
+          while IFS= read -r status_line; do
+            [[ -z "$status_line" ]] && continue
+            status="${status_line:0:2}"
+            path="${status_line:3}"
+            case "$status $path" in
+              "?? frontend/dist-customer/"|"?? frontend/dist-vendor/") generated_output+=("$path") ;;
+              "?? frontend/")
+                while IFS= read -r child; do
+                  case "$(basename "$child")" in
+                    dist-customer|dist-vendor) generated_output+=("frontend/$(basename "$child")/") ;;
+                    *) unexpected_drift+=("?? frontend/$(basename "$child")/") ;;
+                  esac
+                done < <(find "${DO_APP_DIR}/frontend" -mindepth 1 -maxdepth 1 -type d -print)
+                find "${DO_APP_DIR}/frontend" -mindepth 1 -maxdepth 1 ! -type d -print -quit | grep -q . && unexpected_drift+=("?? frontend/") || true
+                ;;
+              *) unexpected_drift+=("$status_line") ;;
+            esac
+          done < <(git status --porcelain=v1)
+          if (( ${#unexpected_drift[@]} > 0 )); then
+            echo "Server working tree has unknown local changes. Refusing to deploy."
+            printf '%s\n' "${unexpected_drift[@]}"
+            exit 1
+          fi
+          if (( ${#generated_output[@]} > 0 )); then
+            generated_backup="${DO_APP_DIR%/}.generated-output-backup.$(date +%Y%m%d%H%M%S)"
+            mkdir -p "$generated_backup"
+            for generated_relative in "${generated_output[@]}"; do
+              generated_target="$generated_backup/${generated_relative%/}"
+              mkdir -p "$(dirname "$generated_target")"
+              mv -- "${DO_APP_DIR}/${generated_relative}" "$generated_target"
+            done
+            chmod -R go-rwx "$generated_backup"
+            echo "Preserved generated static output drift at $generated_backup."
+          fi
 
           git fetch origin "${DEPLOY_BRANCH}"
 
