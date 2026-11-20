@@ -52,7 +52,7 @@ function InputGroupAddon({
       data-slot="input-group-addon"
       data-align={align}
       className={cn(inputGroupAddonVariants({ align }), className)}
-      onClick={(e) => {
+      onClick={(e) => { // NOSONAR: This is a pointer shortcut to an independently keyboard-accessible input.
         if ((e.target as HTMLElement).closest("button")) {
           return
         }
