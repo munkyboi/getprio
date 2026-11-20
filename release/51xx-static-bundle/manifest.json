@@ -15,7 +15,7 @@
       "sourceCommit": "70bd376f7aa031878ea67be910a106fb9fb7fead",
       "sourceHash": "d4451a8dad9330ff62e4453b6e45743c356e56a55eafa720ae3c8759cfaac1a7",
       "archive": "marketing.tar.gz",
-      "archiveSha256": "14ab9f4107f821a310e124b352c3d05ba7538d56a6415e566d50159514791e5f"
+      "archiveSha256": "8da966a78b90b4a85db3c34ed1e8fe9dacd2d76bc227b69a018fb3ce9b8e71a0"
     },
     {
       "name": "customer",
@@ -24,7 +24,7 @@
       "sourceCommit": "09f971b2b3016780dc072358976f748f1d08f5e5",
       "sourceHash": "35956b3b53daf972acac96ccd367212e57413a65ca05264d241005948e21f16b",
       "archive": "customer.tar.gz",
-      "archiveSha256": "37814bca700a8848199793dc4fceb3097415d23c3dc6567a31259be4dcc6a7f2"
+      "archiveSha256": "25d4cee7cab9a055a7c424de335088cbe6701f2c171be5ac5ae35cd8006332bd"
     },
     {
       "name": "vendor",
@@ -33,7 +33,7 @@
       "sourceCommit": "b9f05eac39f5ec60ea458a43a5fd88f3ed598fa7",
       "sourceHash": "f69db4c20509b0e5ad220b818fd9749fab7f0055583534743096e46c2c26632d",
       "archive": "vendor.tar.gz",
-      "archiveSha256": "5071701cafc7382d6b7e986190c9135f4678a5a98b317baaa60669abdb31a9a8"
+      "archiveSha256": "0dfbd4bfae0ccfd6d4efcbdc938b948fdf1ffa1a682a6ea03c15cc25cd060413"
     },
     {
       "name": "platform",
@@ -42,12 +42,20 @@
       "sourceCommit": "ff497ca2b2e0368a5770cd6097996fce11804da1",
       "sourceHash": "19d2077c7a210590c05997a69fc519867bfb71e033f1c387e09379adf35bd8d5",
       "archive": "platform.tar.gz",
-      "archiveSha256": "b900848825a3231e4af7d826a787aa0cf5b6bfd68bb1f753a558295113038046"
+      "archiveSha256": "4a9ce07be040db68505278e398db5694096ef9b15d472b72f4237957cfc95711"
     }
   ],
   "transform": {
     "from": "http://127.0.0.1:5091/api",
     "to": "https://api.getprio.online/api",
-    "platformDeploymentSha": "rewritten at deploy time"
+    "platformDeploymentSha": "rewritten at deploy time",
+    "origins": {
+      "http://127.0.0.1:5091/api": "https://api.getprio.online/api",
+      "http://127.0.0.1:5190": "https://getprio.online",
+      "http://127.0.0.1:5191": "https://app.getprio.online",
+      "http://127.0.0.1:5192": "https://vendor.getprio.online",
+      "http://127.0.0.1:5193": "https://platform.getprio.online",
+      "http://127.0.0.1:5194": "https://developers.getprio.online"
+    }
   }
 }

@@ -38,8 +38,9 @@ async function materialize(stage, deploymentSha) {
   }
   await fs.rm(stage, { recursive: true, force: true });
   await fs.mkdir(stage, { recursive: true, mode: 0o755 });
+  const stageNames = { marketing: "frontend", customer: "customer", vendor: "vendor", platform: "platform" };
   for (const site of SITES) {
-    const output = path.join(stage, site);
+    const output = path.join(stage, stageNames[site]);
     await fs.mkdir(output, { recursive: true, mode: 0o755 });
     await safeExtract(path.join(bundle, `${site}.tar.gz`), output);
     const index = path.join(output, "index.html");
@@ -51,8 +52,8 @@ async function materialize(stage, deploymentSha) {
       const stat = await fs.stat(candidate);
       if (!stat.isFile()) continue;
       const contents = await fs.readFile(candidate, "utf8").catch(() => "");
-      if (contents.includes("http://127.0.0.1:5091/api") || contents.includes("http://localhost:5091/api")) {
-        fail(`Frozen ${site} artifact still contains a local API origin.`);
+      if (/https?:\/\/(?:127\.0\.0\.1|localhost):(?:5091|5190|5191|5192|5193|5194)/u.test(contents)) {
+        fail(`Frozen ${site} artifact still contains a local runtime origin.`);
       }
       productionBound ||= contents.includes(API_ORIGIN);
     }
@@ -67,10 +68,36 @@ async function materialize(stage, deploymentSha) {
   console.log(`Materialized four frozen static sites into ${stage}.`);
 }
 
+async function publish(stage, deploymentSha) {
+  if (!/^[a-f\d]{40}$/u.test(deploymentSha || "")) fail("A full deployment revision is required.");
+  const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
+  const manifest = await readManifest(root);
+  if (manifest.api.production !== API_ORIGIN) fail("Release manifest has an unexpected production API origin.");
+  const targets = { frontend: "frontend/dist", customer: "frontend/dist-customer", vendor: "frontend/dist-vendor", platform: "platform-dashboard/dist" };
+  for (const [site, relativeTarget] of Object.entries(targets)) {
+    const source = path.join(stage, site);
+    const target = path.join(root, relativeTarget);
+    await fs.mkdir(target, { recursive: true, mode: 0o755 });
+    const entries = await fs.readdir(source, { recursive: true });
+    for (const entry of entries) {
+      const sourceFile = path.join(source, entry);
+      const stat = await fs.stat(sourceFile);
+      if (!stat.isFile()) continue;
+      const targetFile = path.join(target, entry);
+      await fs.mkdir(path.dirname(targetFile), { recursive: true, mode: 0o755 });
+      const temporary = `${targetFile}.release-${process.pid}`;
+      await fs.copyFile(sourceFile, temporary);
+      await fs.rename(temporary, targetFile);
+    }
+  }
+  console.log("Published Marketing, Customer, Vendor, and Platform bundles to their configured roots.");
+}
+
 const [command, stage, sha] = process.argv.slice(2);
 try {
-  if (command !== "materialize" || !stage || !sha) fail("Usage: release-bundle.mjs materialize STAGE DEPLOY_SHA");
-  await materialize(stage, sha);
+  if (!stage || !sha || !["materialize", "publish"].includes(command)) fail("Usage: release-bundle.mjs materialize|publish STAGE DEPLOY_SHA");
+  if (command === "materialize") await materialize(stage, sha);
+  else await publish(stage, sha);
 } catch (error) {
   console.error(error.message);
   process.exitCode = 1;
