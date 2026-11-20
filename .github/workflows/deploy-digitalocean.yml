@@ -375,7 +375,7 @@ jobs:
           static_stage="$(mktemp -d "${TMPDIR:-/tmp}/getprio-static-${DEPLOY_SHA}.XXXXXX")"
           trap 'rm -rf -- "${static_stage}"' EXIT
           VITE_DEPLOY_SHA="${DEPLOY_SHA}" VITE_API_URL="https://api.getprio.online/api" VITE_PLATFORM_DATA_SOURCE=live NODE_OPTIONS="--max-old-space-size=4096" npm --workspace developer-portal run build -- --outDir "${static_stage}/developer" --emptyOutDir
-          node scripts/release-bundle.mjs materialize "${static_stage}" "${DEPLOY_SHA}"
+          VITE_REBUILD_MARKETING=1 node scripts/release-bundle.mjs materialize "${static_stage}" "${DEPLOY_SHA}"
           NODE_OPTIONS="--max-old-space-size=4096" npm run build:backend
           node scripts/release-bundle.mjs publish "${static_stage}" "${DEPLOY_SHA}"
 

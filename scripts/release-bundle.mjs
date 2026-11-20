@@ -57,6 +57,12 @@ async function materialize(stage, deploymentSha) {
     await fs.rm(output, { recursive: true, force: true });
     await fs.mkdir(output, { recursive: true, mode: 0o755 });
     await safeExtract(path.join(bundle, `${site}.tar.gz`), output);
+    if (site === "marketing" && process.env.VITE_REBUILD_MARKETING === "1") {
+      await execFileAsync("npm", ["--workspace", "frontend", "run", "build", "--", "--outDir", output, "--emptyOutDir"], {
+        cwd: root,
+        env: { ...process.env, VITE_PUBLIC_UNIVERSAL_AUTH: "1", VITE_APP_SURFACE: "marketing", VITE_LOCAL_SURFACES: "0", VITE_API_URL: API_ORIGIN, VITE_DEPLOY_SHA: deploymentSha }
+      });
+    }
     const index = path.join(output, "index.html");
     const html = await fs.readFile(index, "utf8");
     const files = await fs.readdir(output, { recursive: true });
