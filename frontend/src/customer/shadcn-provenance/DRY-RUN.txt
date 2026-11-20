@@ -1,0 +1,34 @@
+┌ shadcn add @shadcn/button, @shadcn/card, @shadcn/dialog, @shadcn/sheet, @shadcn/input, @shadcn/textarea, @shadcn/tabs, @shadcn/switch, @shadcn/checkbox, @shadcn/select, @shadcn/popover, @shadcn/badge, @shadcn/alert, @shadcn/avatar, @shadcn/dropdown-menu, @shadcn/separator, @shadcn/skeleton, @shadcn/field, @shadcn/progress (dry run)
+│
+├ Files (20) +1 new, ~9 overwrite, =10 skip
+│ ~ src/components/ui/button.tsx         overwrite
+│ = src/components/ui/card.tsx           skip (identical)
+│ = src/components/ui/input.tsx          skip (identical)
+│ = src/components/ui/textarea.tsx       skip (identical)
+│ ~ src/components/ui/tabs.tsx           overwrite
+│ ~ src/components/ui/switch.tsx         overwrite
+│ ~ src/components/ui/checkbox.tsx       overwrite
+│ = src/components/ui/select.tsx         skip (identical)
+│ = src/components/ui/popover.tsx        skip (identical)
+│ ~ src/components/ui/badge.tsx          overwrite
+│ ~ src/components/ui/alert.tsx          overwrite
+│ ~ src/components/ui/avatar.tsx         overwrite
+│ + src/components/ui/dropdown-menu.tsx  create
+│ ~ src/components/ui/separator.tsx      overwrite
+│ = src/components/ui/skeleton.tsx       skip (identical)
+│ = src/components/ui/progress.tsx       skip (identical)
+│ ~ src/components/ui/label.tsx          overwrite
+│ = src/components/ui/dialog.tsx         skip (identical)
+│ = src/components/ui/sheet.tsx          skip (identical)
+│ = src/components/ui/field.tsx          skip (identical)
+│
+├ Dependencies (1)
+│ + cn
+│
+⚠ 9 files will be overwritten.
+│
+│ 20 files, 1 dep
+│
+│ Run with --diff to view changes.
+│ Run with --view to view file contents.
+└ Run without --dry-run to apply.

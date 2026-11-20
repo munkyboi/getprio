@@ -6,9 +6,12 @@ import HelpPage from "../pages/HelpPage";
 import ContactPage from "../pages/ContactPage";
 import NotFoundPage from "../pages/NotFoundPage";
 import PublicShell from "./PublicShell";
+import UniversalAuthPage from "../pages/UniversalAuthPage";
+import { PublicThemeProvider } from "./PublicTheme";
 export default function MarketingApp() {
   return <PublicShell marketing><Routes>
     <Route path="/" element={<LandingPage />} />
+    {["/login", "/register", "/register/customer", "/register/vendor"].map(path => <Route key={path} path={path} element={<PublicThemeProvider><UniversalAuthPage /></PublicThemeProvider>} />)}
     <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
     <Route path="/terms" element={<TermsPage />} />
     <Route path="/help" element={<HelpPage />} />

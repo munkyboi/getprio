@@ -4,7 +4,7 @@ import {
   discardAccountTask,
 } from "../vendor/AccountPresentation";
 import { OtpInputField } from "./OtpInputField";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import {
   Alert,
   Button,
@@ -27,14 +27,18 @@ type StartResponse = {
   expiresAt: string;
 };
 
+export interface EmailChangePresentationModel {currentEmail:string;newEmail:string;setNewEmail:(v:string)=>void;password:string;setPassword:(v:string)=>void;totpCode:string;setTotpCode:(v:string)=>void;code:string;setCode:(v:string)=>void;method:"current_email"|"mfa";setMethod:(v:"current_email"|"mfa")=>void;step:EmailChangeStep;challenge:StartResponse|null;busy:boolean;error:string;success:string;reset:()=>void;startChange:()=>Promise<void>;verifyCurrent:()=>Promise<void>;verifyNew:()=>Promise<void>;}
+
 export default function EmailChangePanel({
   token,
   currentEmail,
   onCompleted,
+  renderPresentation,
 }: {
   token: string;
   currentEmail: string;
   onCompleted?: () => Promise<void>;
+  renderPresentation?: (model:EmailChangePresentationModel)=>ReactNode;
 }) {
   const [newEmail, setNewEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -152,6 +156,10 @@ export default function EmailChangePanel({
       setBusy(false);
     }
   }
+
+  // CUSTOMER PRESENTATION INJECTION START
+  if(renderPresentation)return renderPresentation({currentEmail,newEmail,setNewEmail,password,setPassword,totpCode,setTotpCode,code,setCode,method,setMethod,step,challenge,busy,error,success,reset,startChange,verifyCurrent,verifyNew});
+  // CUSTOMER PRESENTATION INJECTION END
 
   return (
     <Card className="email-change-panel" withBorder padding="lg">

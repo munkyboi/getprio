@@ -5,6 +5,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type ReactNode, type Dispatch, type SetStateAction, type RefObject,
   type CSSProperties,
   type FormEvent
 } from "react";
@@ -93,7 +94,10 @@ declare global {
   }
 }
 
-export default function JoinQueuePage() {
+// CUSTOMER JOIN PRESENTATION CONTRACT START
+export interface JoinQueuePresentationModel {tenantInfo:TenantSummary|null;locationName:string;queueSnapshot:QueueSnapshot|null;form:JoinQueueFormState;setForm:Dispatch<SetStateAction<JoinQueueFormState>>;error:string;submitting:boolean;otp:RequestJoinOtpResponse|null;otpCode:string;setOtpCode:(v:string)=>void;resendLabel:string;resendSecondsRemaining:number;requiresQueuePayment:boolean;canSkipOtp:boolean;queueIntakePaused:boolean;queueStateBadge:ReturnType<typeof getQueueStateSummary>;queueJoinUnavailable:boolean;requiresEmail:boolean;requiresPhone:boolean;pageTitle:string;signedInCustomer:boolean;shouldUseTurnstile:boolean;turnstileReady:boolean;turnstileContainerRef:RefObject<HTMLDivElement|null>;handleSubmit:(event:FormEvent<HTMLFormElement>)=>Promise<void>;handleVerifyOtp:(event?:FormEvent<HTMLFormElement>)=>Promise<void>;resendOtp:()=>Promise<void>;back:string;cancel:()=>void;maskedDeliveryTarget:string;}
+// CUSTOMER JOIN PRESENTATION CONTRACT END
+export default function JoinQueuePage({renderPresentation,onTicketIssued}:{renderPresentation?:(model:JoinQueuePresentationModel)=>ReactNode;onTicketIssued?:(path:string,state:unknown)=>void;}={}) {
   const { tenantSlug, locationSlug } = useParams<{ tenantSlug: string; locationSlug?: string }>();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -515,10 +519,9 @@ export default function JoinQueuePage() {
           message: "Your ticket has been issued.",
           title: "Joined queue"
         });
-        navigate(buildJoinedQueuePathWithTicket(tenantSlugValue, data.ticket.lookupCode, locationSlug), {
-          replace: true,
-          state: joinedQueueNavigationState
-        });
+        const issuedPath = buildJoinedQueuePathWithTicket(tenantSlugValue, data.ticket.lookupCode, locationSlug);
+        if (onTicketIssued) onTicketIssued(issuedPath, joinedQueueNavigationState);
+        else navigate(issuedPath, { replace: true, state: joinedQueueNavigationState });
         return;
       }
     } catch (submitError) {
@@ -610,10 +613,9 @@ export default function JoinQueuePage() {
           message: "Your ticket has been issued.",
           title: "Joined queue"
         });
-        navigate(buildJoinedQueuePathWithTicket(tenantSlugValue, data.ticket.lookupCode, locationSlug), {
-          replace: true,
-          state: joinedQueueNavigationState
-        });
+        const issuedPath = buildJoinedQueuePathWithTicket(tenantSlugValue, data.ticket.lookupCode, locationSlug);
+        if (onTicketIssued) onTicketIssued(issuedPath, joinedQueueNavigationState);
+        else navigate(issuedPath, { replace: true, state: joinedQueueNavigationState });
         return;
       }
 
@@ -628,8 +630,10 @@ export default function JoinQueuePage() {
     } finally {
       setSubmitting(false);
     }
-  }, [form.customerEmail, form.customerName, form.customerPhone, joinedQueueNavigationState, locationSlug, navigate, otp, otpCode, publicApiBase, tenantSlugValue, submitting, queueJoinUnavailable]);
+  }, [form.customerEmail, form.customerName, form.customerPhone, joinedQueueNavigationState, locationSlug, navigate, onTicketIssued, otp, otpCode, publicApiBase, tenantSlugValue, submitting, queueJoinUnavailable]);
 
+
+  if(renderPresentation)return renderPresentation({tenantInfo,locationName,queueSnapshot,form,setForm,error,submitting,otp,otpCode,setOtpCode,resendLabel,resendSecondsRemaining,requiresQueuePayment,canSkipOtp,queueIntakePaused,queueStateBadge,queueJoinUnavailable,requiresEmail,requiresPhone,pageTitle,signedInCustomer,shouldUseTurnstile,turnstileReady,turnstileContainerRef,handleSubmit,handleVerifyOtp,resendOtp,back:`/vendors/${tenantSlugValue}`,cancel:()=>navigate("/"),maskedDeliveryTarget:otp?maskDeliveryTarget(otp.deliveryChannel,otp.deliveryTarget):""});
 
   return (
     <Stack className="vendor-profile-page join-queue-page" gap="lg" style={themeStyle}>

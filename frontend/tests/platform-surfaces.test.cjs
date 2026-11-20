@@ -42,7 +42,10 @@ function routeApp(file) {
  const output=ts.transpileModule(text,{compilerOptions:{jsx:ts.JsxEmit.ReactJSX,module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
  const mod={exports:{}};const passthrough=({children})=>React.createElement('div',null,children);
  const fakeRequire=id=>{
-  if(id.includes('/pages/'))return {__esModule:true,default:()=>React.createElement('p',null,id.split('/').pop())};
+  if(id.includes('/pages/'))return {__esModule:true,default:()=>React.createElement('p',null,id.split('/').pop()),CustomerPaymentReturnPage:()=>React.createElement('p',null,'CustomerPaymentReturnPage')};
+  if(id.endsWith('/CustomerFallbackPresentations'))return {CustomerMaintenance:passthrough,CustomerLoading:passthrough,CustomerNotFound:()=>React.createElement('p',null,'NotFoundPage'),CustomerOAuthCallback:passthrough,CustomerLoginFallback:passthrough,CustomerRegistrationFallback:passthrough};
+  if(id.endsWith('/CustomerShell'))return {__esModule:true,default:passthrough};
+  if(id==='./PublicTheme')return {PublicThemeProvider:passthrough};
   if(id==='./PublicShell'||id.endsWith('/MaintenanceBoundary'))return {__esModule:true,default:passthrough};
   if(id.endsWith('/AuthContext'))return {useAuth:()=>({user:null,loading:false})};
   if(id.endsWith('/VendorAuthLayout'))return {VendorAuthLayout:passthrough};
@@ -55,8 +58,8 @@ function routeApp(file) {
 }
 test('separate real route registries own their auth aliases and never mount other application dashboards',()=>{
  for(const [file,cases] of [
-  ['MarketingApp.tsx',[['/','LandingPage'],['/dashboard/queue','NotFoundPage'],['/account/dashboard','NotFoundPage'],['/login','NotFoundPage']]],
-  ['CustomerApp.tsx',[['/','VendorDiscoveryPage'],['/login','LoginPage'],['/register','RegisterCustomerPage'],['/register/customer','RegisterCustomerPage'],['/dashboard/queue','NotFoundPage'],['/account/dashboard','CustomerDashboardPage']]],
+  ['MarketingApp.tsx',[['/','LandingPage'],['/dashboard/queue','NotFoundPage'],['/account/dashboard','NotFoundPage'],['/login','UniversalAuthPage']]],
+  ['CustomerApp.tsx',[['/','CustomerExplorePage'],['/login','LoginPage'],['/register','RegisterCustomerPage'],['/register/customer','RegisterCustomerPage'],['/dashboard/queue','NotFoundPage'],['/account/dashboard','CustomerHomePage']]],
   ['VendorApp.tsx',[['/login','LoginPage'],['/register','RegisterVendorPage'],['/register/vendor','RegisterVendorPage'],['/account/dashboard','NotFoundPage'],['/vendors','NotFoundPage']]],
  ]) {
   const App=routeApp(file);for(const [route,page] of cases){const html=renderToStaticMarkup(React.createElement(MemoryRouter,{initialEntries:[route]},React.createElement(App)));assert.ok(html.includes(page),`${file} ${route} -> ${page}`);}

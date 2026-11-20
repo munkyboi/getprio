@@ -1,6 +1,6 @@
 import {currentJourneyStage,journeyStageLabels,type QueueJourneyProgress} from "../../../shared/queueJourneyProgress";
 import { getBookingEmailStatus, needsEmailDeliveryFallback } from "../utils/ticketEmailStatus";
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import {
   Alert,
   Badge,
@@ -163,7 +163,8 @@ function TicketBarcode({ value }: { value: string }) {
   );
 }
 
-function RotatingTicketBarcode({ ticketId, token }: Readonly<{ ticketId: string; token: string }>) {
+export type ArrivalCodePresentationModel = ArrivalBarcodeState & { graphic: ReactNode; onRetry: () => void };
+function RotatingTicketBarcode({ ticketId, token, renderPresentation }: Readonly<{ ticketId: string; token: string; renderPresentation?: (model: ArrivalCodePresentationModel) => ReactNode }>) {
   const [state, setState] = useState<ArrivalBarcodeState>({ value: "", remainingSeconds: 0, loading: true, error: "" });
   const controller = useRef<ArrivalBarcodeController | null>(null);
   useEffect(() => {
@@ -188,6 +189,8 @@ function RotatingTicketBarcode({ ticketId, token }: Readonly<{ ticketId: string;
       window.removeEventListener("offline", refreshVisible);
     };
   }, [ticketId, token]);
+  // eslint-disable-next-line react-hooks/refs -- The presenter receives a ref or event callback without reading it during render.
+  if (renderPresentation) return renderPresentation({ ...state, graphic: state.value ? <ArrivalQRCode value={state.value} /> : null, onRetry: () => void controller.current?.refresh() });
   return <Stack gap="xs" aria-live="polite">
     {state.value ? <><ArrivalQRCode value={state.value} /><Text className="ticket-page-barcode-value" ta="center" c="dimmed" size="sm">{state.value}</Text><Text ta="center" c="dimmed" size="sm" aria-live="off">Refreshes in {state.remainingSeconds}s</Text></> :
       <Text ta="center" c="dimmed" size="sm">{state.loading ? "Loading arrival QR code…" : state.error}</Text>}
@@ -195,7 +198,14 @@ function RotatingTicketBarcode({ ticketId, token }: Readonly<{ ticketId: string;
   </Stack>;
 }
 
-export default function JoinedQueuePage() {
+// CUSTOMER TICKET PRESENTATION CONTRACT START
+export interface JoinedQueuePresentationModel {
+ snapshot:QueueSnapshot|null;error:string;businessName:string;locationName:string;backLink:string;vendorDetailsPath:string;joinPath:string;bookingPath:string;bookingAvailable:boolean;canJoinAgain:boolean;canCancelTicket:boolean;ticketState:ReturnType<typeof getCustomerTicketStateSummary>;queueState:ReturnType<typeof getQueueStateSummary>;ticketDisplayStatus:string;ticketBarcode:ReactNode;emailDeliveryFallback:boolean;isBookingTicket:boolean;linkedBookingReference?:string|null;bookingEmailStatus:string;customerAuthenticated:boolean;registrationState:unknown;
+ cancelSubmitting:boolean;cancelConfirmOpen:boolean;setCancelConfirmOpen:(v:boolean)=>void;cancelErrorModalOpen:boolean;setCancelErrorModalOpen:(v:boolean)=>void;handleCancelTicket:()=>Promise<void>;
+ queueRatingOpen:boolean;setQueueRatingOpen:(v:boolean)=>void;queueRatingStars:number;setQueueRatingStars:(v:number)=>void;queueRatingComment:string;setQueueRatingComment:(v:string)=>void;queueRatingSubmitting:boolean;queueRatingStatus:{eligible:boolean;rating:{id:string;stars:number;comment?:string|null}|null}|null;handleSubmitQueueRating:()=>Promise<void>;
+}
+// CUSTOMER TICKET PRESENTATION CONTRACT END
+export default function JoinedQueuePage({renderPresentation,renderUnavailable,renderPendingPayment,renderArrivalCode,renderArrivalStatus}:{renderArrivalCode?:(model:ArrivalCodePresentationModel)=>ReactNode;renderArrivalStatus?:(message:string)=>ReactNode;renderPresentation?:(model:JoinedQueuePresentationModel)=>ReactNode;renderUnavailable?:(error:string,back:string)=>ReactNode;renderPendingPayment?:(model:{error:string;pending:boolean;busy:boolean;back:string})=>ReactNode;}={}) {
   const { tenantSlug, locationSlug } = useParams<{ tenantSlug: string; locationSlug?: string }>();
   const location = useLocation();
   const navigate = useNavigate();
@@ -543,6 +553,7 @@ export default function JoinedQueuePage() {
   }
 
   if ([401, 403, 404].includes(responseStatus || 0)) {
+    if(renderUnavailable)return renderUnavailable(error,backLink);
     return (
       <ResourceErrorState
         backLabel={backLabel}
@@ -556,6 +567,7 @@ export default function JoinedQueuePage() {
   }
 
   if (shouldAwaitPaymentSync && !lookupCode) {
+    if(renderPendingPayment)return renderPendingPayment({error,pending:paymentSyncPending,busy:paymentSyncing,back:backLink});
     return (
       <Stack className="vendor-profile-page" gap="xl" style={themeStyle}>
         <Container size="sm" w="100%">
@@ -679,13 +691,15 @@ export default function JoinedQueuePage() {
   }
 
   const focusTicket = snapshot?.focusTicket;
-  let ticketBarcode = <Text ta="center" c="dimmed" size="sm">{error || "Loading ticket arrival details…"}</Text>;
+  let ticketBarcode = renderArrivalStatus ? renderArrivalStatus(error || "Loading ticket arrival details…") : <Text ta="center" c="dimmed" size="sm">{error || "Loading ticket arrival details…"}</Text>;
   if (focusTicket) ticketBarcode = <TicketBarcode value={focusTicket.lookupCode} />;
   if (focusTicket?.barcodeRotationRequired && ["waiting", "called", "skipped", "pending_carry_over"].includes(focusTicket.status) &&
       !focusTicket.customerConfirmedAt && !focusTicket.serviceStartedAt && !focusTicket.serviceEndedAt && !focusTicket.serviceOutcome) {
-    ticketBarcode = token ? <RotatingTicketBarcode key={`${focusTicket.id}:${token}`} ticketId={focusTicket.id} token={token} /> :
-      <Text ta="center" size="sm">Sign in to the ticket owner’s account to display its current arrival QR code.</Text>;
+    ticketBarcode = token ? <RotatingTicketBarcode key={`${focusTicket.id}:${token}`} ticketId={focusTicket.id} token={token} renderPresentation={renderArrivalCode} /> :
+      renderArrivalStatus ? renderArrivalStatus("Sign in to the ticket owner’s account to display its current arrival QR code.") : <Text ta="center" size="sm">Sign in to the ticket owner’s account to display its current arrival QR code.</Text>;
   }
+
+  if(renderPresentation)return renderPresentation({snapshot,error,businessName,locationName,backLink,vendorDetailsPath,joinPath,bookingPath,bookingAvailable,canJoinAgain,canCancelTicket,ticketState,queueState,ticketDisplayStatus,ticketBarcode,emailDeliveryFallback,isBookingTicket,linkedBookingReference,bookingEmailStatus,customerAuthenticated:userIsCustomer,registrationState,cancelSubmitting,cancelConfirmOpen,setCancelConfirmOpen,cancelErrorModalOpen,setCancelErrorModalOpen,handleCancelTicket,queueRatingOpen,setQueueRatingOpen,queueRatingStars,setQueueRatingStars,queueRatingComment,setQueueRatingComment,queueRatingSubmitting,queueRatingStatus,handleSubmitQueueRating});
 
   return (
     <Stack className="vendor-profile-page" gap="xl" style={themeStyle}>

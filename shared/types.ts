@@ -637,8 +637,14 @@ export interface BookingBundleItemSummary {
   sortOrder: number;
 }
 
+export interface CustomerBookingDetail extends CustomerBookingSummary {
+  customerName: string;
+  customerEmail: string;
+  customerPhone: string;
+}
+
 export interface CustomerBookingDetailResponse {
-  booking: CustomerBookingSummary;
+  booking: CustomerBookingDetail;
 }
 
 export interface BookingSlotRequest {

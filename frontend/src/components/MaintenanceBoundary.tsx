@@ -1,3 +1,4 @@
+import type { RefObject } from "react";
 import { useEffect, useRef, type ReactNode } from 'react';
 import { Alert, Anchor, Button, Container, Group, Loader, Paper, Stack, Text, Title } from '@mantine/core';
 import { useQuery } from '@tanstack/react-query';
@@ -25,7 +26,11 @@ function continuationPath(path: string) {
     || /^\/vendors\/[^/]+\/bookings\/[^/]+$/.test(path);
 }
 
-export default function MaintenanceBoundary({ children }: { children: ReactNode }) {
+export interface MaintenancePresentationModel {
+  pending: boolean; forced: boolean; enabled: boolean; message: string; isError: boolean; isFetching: boolean;
+  headingRef: RefObject<HTMLHeadingElement | null>; children: ReactNode; onRetry: () => void;
+}
+export default function MaintenanceBoundary({ children, renderPresentation }: { children: ReactNode; renderPresentation?: (model: MaintenancePresentationModel) => ReactNode }) {
   const { user } = useAuth();
   const { pathname, search } = useLocation();
   const status = useQuery({
@@ -47,6 +52,8 @@ export default function MaintenanceBoundary({ children }: { children: ReactNode 
     heading.current?.focus();
     return () => { document.title = previousTitle; };
   }, [forced]);
+  // eslint-disable-next-line react-hooks/refs -- The presenter receives a ref or event callback without reading it during render.
+  if (renderPresentation) return renderPresentation({ pending: !exempt && status.isPending, forced: Boolean(forced), enabled: Boolean(status.data?.enabled), message: status.data?.message || "", isError: status.isError, isFetching: status.isFetching, headingRef: heading, children, onRetry: () => void status.refetch() });
   if (!exempt && status.isPending) return <Container className="maintenance-page" size="sm"><Stack align="center"><Loader aria-label="Checking service availability" /><Text>Checking service availability…</Text></Stack></Container>;
   if (forced) return <Container className="maintenance-page" size="sm">
     <Paper p="xl" radius="xl" withBorder><Stack gap="lg">

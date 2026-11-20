@@ -1,5 +1,5 @@
 import { OtpInputField } from "../components/OtpInputField";
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent, type ReactNode, type Dispatch, type SetStateAction } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Alert,
@@ -60,7 +60,7 @@ import { isBrowserPushSupported, subscribeToBrowserPush } from "../utils/pushNot
 import CustomerAccountLayout, { type CustomerAccountSection } from "../components/CustomerAccountLayout";
 import { AccountDeletionPanel } from "../components/AccountDeletionPanel";
 import { EmailMfaSettingsPanel } from "../components/EmailMfaSettingsPanel";
-import EmailChangePanel from "../components/EmailChangePanel";
+import EmailChangePanel, {type EmailChangePresentationModel} from "../components/EmailChangePanel";
 import { getTicketStateSummary } from "../utils/queueStatus";
 
 const CUSTOMER_TABLE_PAGE_SIZE = 10;
@@ -134,7 +134,38 @@ function getInitials(value: string) {
     .join("") || "U";
 }
 
-export default function CustomerAccountPage() {
+// CUSTOMER PRESENTATION CONTRACT START
+export interface CustomerSecurityPresentationModel {
+ passwordForm:PasswordChangeRequest;setPasswordForm:Dispatch<SetStateAction<PasswordChangeRequest>>;changingPassword:boolean;handlePasswordChange:(event:FormEvent<HTMLFormElement>)=>Promise<void>;
+ mfaEnabled:boolean;totpMfaEnabled:boolean;emailMfaEnabled:boolean;required:boolean;mfaSecret:string;mfaUri:string;mfaCode:string;resetEnrollmentDraft:()=>void;setMfaCode:(v:string)=>void;mfaRecoveryCodes:string[];mfaBusy:boolean;startMfaEnrollment:()=>Promise<void>;confirmMfaEnrollment:()=>Promise<void>;
+ mfaRemovalOpened:boolean;setMfaRemovalOpened:(v:boolean)=>void;mfaRemovalPassword:string;setMfaRemovalPassword:(v:string)=>void;mfaRemovalCode:string;setMfaRemovalCode:(v:string)=>void;mfaRemovalRecoveryCode:string;setMfaRemovalRecoveryCode:(v:string)=>void;mfaRemovalAcknowledged:boolean;setMfaRemovalAcknowledged:(v:boolean)=>void;mfaRemovalBusy:boolean;closeMfaRemoval:()=>void;removeMfa:()=>Promise<void>;refresh:()=>void;
+}
+export interface CustomerAccountPresentationModel {
+ section: CustomerAccountSection;
+ account: CustomerAccountOverviewResponse | null;
+ user: NonNullable<ReturnType<typeof useAuth>["user"]>;
+ loading: boolean; error: string;
+ tickets: Awaited<ReturnType<typeof customerAccountApi.getTickets>>["tickets"];
+ ticketPagination: Awaited<ReturnType<typeof customerAccountApi.getTickets>>["pagination"] | null;
+ bookings: Awaited<ReturnType<typeof customerAccountApi.getBookings>>["bookings"];
+ bookingPagination: Awaited<ReturnType<typeof customerAccountApi.getBookings>>["pagination"] | null;
+ ticketPage: number; setTicketPage: Dispatch<SetStateAction<number>>;
+ bookingPage: number; setBookingPage: Dispatch<SetStateAction<number>>;
+ bookingSearch: string; setBookingSearch: Dispatch<SetStateAction<string>>;
+ bookingStatusFilter: "all" | BookingStatus; setBookingStatusFilter: Dispatch<SetStateAction<"all"|BookingStatus>>; bookingDateRange: [string|null,string|null]; setBookingDateRange: Dispatch<SetStateAction<[string|null,string|null]>>;
+ onPreferredContactChange:(value:CustomerNotificationSettings["preferredContactMethod"])=>Promise<void>;
+ profileForm: CustomerProfileUpdateRequest; setProfileForm: Dispatch<SetStateAction<CustomerProfileUpdateRequest>>;
+ savingProfile: boolean; handleProfileSave: (event: FormEvent<HTMLFormElement>)=>Promise<void>;
+ avatarPreviewUrl: string | null; avatarFile: File | null; uploadingAvatar: boolean; maxImageUploadKb: number | null;
+ handleAvatarFileChange: (file:File|null)=>void; handleAvatarUpload: ()=>Promise<void>;
+ notificationSettings: CustomerNotificationSettings; savingNotificationSettings: boolean;
+ handleNotificationToggle: (key:"bookingAlerts"|"queueAlerts",checked:boolean)=>Promise<void>;
+ browserPermission: NotificationPermission; browserPushSubscribed:boolean; requestingBrowserPermission:boolean;
+ browserNotificationsSupported:boolean; browserNotificationsSecure:boolean; handleRequestBrowserPermission:()=>Promise<void>;
+ refresh:()=>void; security: ReactNode; emailChange: ReactNode;
+}
+// CUSTOMER PRESENTATION CONTRACT END
+export default function CustomerAccountPage({renderPresentation,renderSecurityPresentation,renderEmailChangePresentation,renderLoading}: {renderLoading?:()=>ReactNode;renderPresentation?: (model:CustomerAccountPresentationModel)=>ReactNode;renderSecurityPresentation?:(model:CustomerSecurityPresentationModel)=>ReactNode;renderEmailChangePresentation?:(model:EmailChangePresentationModel)=>ReactNode} = {}) {
   const location = useLocation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -473,6 +504,7 @@ export default function CustomerAccountPage() {
   }
 
   if (loading) {
+    if (renderLoading) return renderLoading();
     return <Card className="finazze-auth-card">Loading account...</Card>;
   }
 
@@ -1299,6 +1331,10 @@ export default function CustomerAccountPage() {
         return renderSettings();
     }
   };
+
+  // CUSTOMER PRESENTATION INJECTION START
+  if(renderPresentation) return renderPresentation({section:location.pathname.endsWith("/notification-settings")?"notifications":activeSection, account, user, loading:accountQuery.isLoading || (activeSection === "tickets" && ticketQuery.isLoading) || (activeSection === "bookings" && bookingQuery.isLoading),error: accountQuery.error || ticketQuery.error || bookingQuery.error ? getErrorMessage(accountQuery.error || ticketQuery.error || bookingQuery.error) : "",tickets,ticketPagination,bookings,bookingPagination,ticketPage,setTicketPage,bookingPage,setBookingPage,bookingSearch,setBookingSearch,bookingStatusFilter,setBookingStatusFilter,bookingDateRange,setBookingDateRange,onPreferredContactChange:async value=>{if(!token)return;const next={...notificationSettings,preferredContactMethod:value};setNotificationSettings(next);setSavingNotificationSettings(true);try{setNotificationSettings((await customerAccountApi.updateNotificationSettings(token,next)).notificationSettings);}finally{setSavingNotificationSettings(false);}},profileForm,setProfileForm,savingProfile,handleProfileSave,avatarPreviewUrl,avatarFile,uploadingAvatar,maxImageUploadKb,handleAvatarFileChange,handleAvatarUpload,notificationSettings,savingNotificationSettings,handleNotificationToggle,browserPermission,browserPushSubscribed,requestingBrowserPermission,browserNotificationsSupported,browserNotificationsSecure,handleRequestBrowserPermission,refresh:()=>{void accountQuery.refetch();void ticketQuery.refetch();void bookingQuery.refetch();},security:renderSecurityPresentation?renderSecurityPresentation({passwordForm,setPasswordForm,changingPassword,handlePasswordChange,mfaEnabled,totpMfaEnabled,emailMfaEnabled,required:Boolean(accountUser?.mfaRequired),mfaSecret,mfaUri,mfaCode,resetEnrollmentDraft:()=>{if(changingPassword||mfaBusy||mfaRemovalBusy)return;setMfaSecret("");setMfaUri("");setMfaCode("");},setMfaCode,mfaRecoveryCodes,mfaBusy,startMfaEnrollment,confirmMfaEnrollment,mfaRemovalOpened,setMfaRemovalOpened,mfaRemovalPassword,setMfaRemovalPassword,mfaRemovalCode,setMfaRemovalCode,mfaRemovalRecoveryCode,setMfaRemovalRecoveryCode,mfaRemovalAcknowledged,setMfaRemovalAcknowledged,mfaRemovalBusy,closeMfaRemoval,removeMfa,refresh:()=>{void accountQuery.refetch();}}):renderSecurity(),emailChange:<EmailChangePanel renderPresentation={renderEmailChangePresentation} currentEmail={accountUser?.email || user.email || ""} token={token || ""} onCompleted={async()=>{await refreshUser();await queryClient.invalidateQueries({queryKey:["customer-account",token]});}}/>});
+  // CUSTOMER PRESENTATION INJECTION END
 
   return (
     <CustomerAccountLayout activeSection={activeSection}>

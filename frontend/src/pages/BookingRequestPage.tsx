@@ -1,8 +1,8 @@
-import BookingSelectionEditorV4 from "../components/BookingSelectionEditorV4";
+import BookingSelectionEditorV4, { type BookingSelectionPresentationModel } from "../components/BookingSelectionEditorV4";
 import type {BookingCatalogV4,BookingServiceSelectionV4} from "@shared/bookingSelectionV4";
 import {API_BASE_URL} from "../api/client";
 import { OtpInputField } from "../components/OtpInputField";
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import {
   Accordion,
   Alert,
@@ -163,7 +163,74 @@ interface PendingBookingPayload extends CreateCustomerBookingRequest {
   bookingVerificationToken: string;
 }
 
-export default function BookingRequestPage() {
+// CUSTOMER PRESENTATION CONTRACT START
+export interface BookingRequestPresentationModel {
+  booking: CustomerBookingResponse["booking"] | null;
+  requiresPaymentProof: boolean;
+  vendorDecision: ReturnType<typeof getVendorDecision>;
+  paymentReference: string;
+  setPaymentReference: (value: string) => void;
+  paymentProofFile: File | null;
+  setPaymentProofFile: (value: File | null) => void;
+  proofSubmitting: boolean;
+  handleSubmitPaymentProof: () => Promise<void>;
+  refreshSubmittedBooking: () => Promise<void>;
+  backToVendorPath: string;
+  vendor: PublicVendorProfile | null;
+  locationOptions: Array<{ value: string; label: string }>;
+  selectedLocationSlug: string;
+  setSelectedLocationSlug: (value: string) => void;
+  locationServices: PublicVendorService[];
+  selectedBundleServiceSlugs: string[];
+  selectServices: (values: string[]) => void;
+  resourceMode: boolean;
+  resourceBooking: boolean;
+  resourceCatalog: BookingCatalogV4 | null;
+  catalogError: string;
+  retryResourceCatalog: () => void;
+  resourceEditor: ReactNode;
+  changeBookingType: (resources: boolean) => void;
+  getBundleItemQuantity: (service: PublicVendorService) => number;
+  getBundleItemBounds: (service: PublicVendorService) => { min: number; max: number };
+  updateServiceQuantity: (service: PublicVendorService, quantity: number) => void;
+  executionMode: "parallel" | "sequential";
+  changeExecutionMode: (value: "parallel" | "sequential") => void;
+  bundleVisitDurationMinutes: number;
+  selectedBundleServices: PublicVendorService[];
+  bookingDate: string;
+  setBookingDate: (value: string) => void;
+  slots: BookingSlotSummary[];
+  slotsLoading: boolean;
+  selectedSlot: BookingSlotSummary | null;
+  selectedSlotStartAt: string;
+  setSelectedSlotStartAt: (value: string) => void;
+  slotPickerLabel: string;
+  slotIntervalLabel: string;
+  customerName: string;
+  setCustomerName: (value: string) => void;
+  customerEmail: string;
+  setCustomerEmail: (value: string) => void;
+  customerPhone: string;
+  setCustomerPhone: (value: string) => void;
+  notes: string;
+  setNotes: (value: string) => void;
+  payableAmountCents: number;
+  otp: BookingOtpResponse | null;
+  otpCode: string;
+  setOtpCode: (value: string) => void;
+  resendSecondsRemaining: number;
+  resendOtpLabel: string;
+  resendOtp: () => Promise<void>;
+  submitting: boolean;
+  error: string;
+  handleSubmit: (event?: FormEvent<HTMLFormElement>) => Promise<void>;
+}
+// CUSTOMER PRESENTATION CONTRACT END
+
+export default function BookingRequestPage({ renderPresentation, renderResourceSelection }: {
+  renderPresentation?: (model: BookingRequestPresentationModel) => ReactNode;
+  renderResourceSelection?: (model: BookingSelectionPresentationModel) => ReactNode;
+} = {}) {
   const { tenantSlug = "", serviceSlug = "", bookingId = "" } = useParams<{
     tenantSlug: string;
     serviceSlug?: string;
@@ -207,6 +274,8 @@ export default function BookingRequestPage() {
   const [resourceSelections,setResourceSelections]=useState<BookingServiceSelectionV4[]>([]);
   const [resourceBooking,setResourceBooking]=useState(true);
   const [resourceRefresh,setResourceRefresh]=useState(0);
+  const [catalogRetry,setCatalogRetry]=useState(0);
+  const [catalogError,setCatalogError]=useState("");
   const [resourceRequestKey]=useState(()=>crypto.randomUUID());
   const resourceMode=resourceCatalog?.enabled===true&&resourceBooking&&Boolean(resourceCatalog.resourceServiceIds?.length);
   const resourcePayload=resourceMode?{selectionContractVersion:4 as const,catalogVersion:resourceCatalog.catalogVersion,serviceSelections:resourceSelections,requestKey:resourceRequestKey}:{};
@@ -220,14 +289,14 @@ export default function BookingRequestPage() {
     const controller=new AbortController();
     const refresh=()=>{
       void apiRequest<BookingCatalogV4>(`/account/bookings/resource-catalog?tenantSlug=${encodeURIComponent(vendor.slug)}&locationSlug=${encodeURIComponent(selectedLocationSlug)}`,{token,signal:controller.signal})
-        .then(data=>{setResourceCatalog(data);setResourceRefresh(n=>n+1);}).catch(error=>{if(!controller.signal.aborted)setError(getErrorMessage(error));});
+        .then(data=>{setResourceCatalog(data);setCatalogError("");setResourceRefresh(n=>n+1);}).catch(error=>{if(!controller.signal.aborted){const message=getErrorMessage(error);setCatalogError(message);setError(message);}});
     };
     refresh();
     const events=new EventSource(`${API_BASE_URL}/public/tenant/${vendor.slug}/location/${selectedLocationSlug}/stream`);
     events.onmessage=refresh;
     const timer=window.setInterval(refresh,15000);
     return()=>{controller.abort();events.close();window.clearInterval(timer);};
-  },[token,vendor?.slug,selectedLocationSlug,bookingId]);
+  },[token,vendor?.slug,selectedLocationSlug,bookingId,catalogRetry]);
   const changeResourceSelections=(next:BookingServiceSelectionV4[])=>{
     setResourceSelections(next);setExecutionMode('parallel');setBookingQuantity(1);
     const slugs=next.map(root=>resourceCatalog?.services.find(service=>service.id===root.serviceId)?.slug||'').filter(Boolean);
@@ -823,6 +892,51 @@ export default function BookingRequestPage() {
       setProofSubmitting(false);
     }
   }
+
+  // CUSTOMER PRESENTATION INJECTION START
+  // All Customer stages reuse these existing controller commands.
+  if (renderPresentation) {
+    return renderPresentation({
+      booking, requiresPaymentProof, vendorDecision, paymentReference, setPaymentReference,
+      paymentProofFile, setPaymentProofFile, proofSubmitting, handleSubmitPaymentProof,
+      refreshSubmittedBooking: loadSubmittedBooking,
+      backToVendorPath: `/vendors/${tenantSlug}${selectedLocationSlug ? `?location=${encodeURIComponent(selectedLocationSlug)}` : ""}`,
+      vendor, locationOptions, selectedLocationSlug, setSelectedLocationSlug: (value) => {
+        if (value === selectedLocationSlug || otp || submitting) return;
+        setResourceSelections([]); setResourceCatalog(null); setLocationServices([]);
+        setError("");
+        setSelectedBundleServiceSlugs([]); setSelectedServiceSlug(""); setSelectedSlotStartAt(""); setSlots([]);
+        setSelectedLocationSlug(value);
+      },
+      locationServices, selectedBundleServiceSlugs,
+      selectServices: (values) => {
+        if (otp || submitting) return;
+        if (!values.length) return;
+        setSelectedBundleServiceSlugs(values);
+        setSelectedServiceSlug(values[0]);
+        setSelectedSlotStartAt("");
+      },
+      resourceMode, resourceBooking, resourceCatalog, catalogError,
+      retryResourceCatalog: () => { setCatalogError(""); setError(""); setCatalogRetry(value => value + 1); },
+      resourceEditor: resourceMode ? <BookingSelectionEditorV4 renderPresentation={renderResourceSelection} catalog={resourceCatalog!} value={resourceSelections} onChange={changeResourceSelections} disabled={Boolean(otp) || submitting} /> : null,
+      changeBookingType: (resources) => {
+        if (otp || submitting) return;
+        setResourceBooking(resources); setSelectedSlotStartAt('');
+        setSelectedBundleServiceSlugs([]); setSelectedServiceSlug('');
+      },
+      getBundleItemQuantity, getBundleItemBounds, updateServiceQuantity,
+      executionMode,
+      changeExecutionMode: (value) => { setExecutionMode(value); setSelectedSlotStartAt(""); },
+      bundleVisitDurationMinutes, selectedBundleServices,
+      bookingDate, setBookingDate, slots, slotsLoading, selectedSlot,
+      selectedSlotStartAt, setSelectedSlotStartAt, slotPickerLabel, slotIntervalLabel,
+      customerName, setCustomerName, customerEmail, setCustomerEmail,
+      customerPhone, setCustomerPhone, notes, setNotes, payableAmountCents,
+      otp, otpCode, setOtpCode, resendSecondsRemaining, resendOtpLabel, resendOtp,
+      submitting, error, handleSubmit,
+    });
+  }
+  // CUSTOMER PRESENTATION INJECTION END
 
   return (
     <Stack className="customer-account-page" gap="lg">

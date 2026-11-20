@@ -1,4 +1,4 @@
-﻿import { defineConfig, loadEnv } from "vite";
+import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { fileURLToPath, URL } from "node:url";
@@ -16,7 +16,7 @@ export default defineConfig(({ mode }) => {
     build: { outDir: surface === "legacy" ? "dist" : `dist-${surface}`, manifest: true },
     plugins: [react(), tailwindcss(), {
       name: "getprio-surface-identity",
-      transformIndexHtml(html) { return html.replace("</head>", `<meta name="getprio-app-surface" content="${surface}" /></head>`); },
+      transformIndexHtml(html) { if (surface === "customer") html = html.replace("/src/main.tsx", "/src/customer/main.tsx"); return html.replace("</head>", `<meta name="getprio-app-surface" content="${surface}" /></head>`); },
       generateBundle(_options, bundle) {
         const pages = [...new Set(Object.values(bundle).flatMap(item => item.type === "chunk" ? item.moduleIds.filter(id => id.includes("/src/pages/")).map(id => id.slice(id.indexOf("/src/pages/") + 1)) : []))].sort((a, b) => a < b ? -1 : a > b ? 1 : 0);
         this.emitFile({ type: "asset", fileName: "surface-manifest.json", source: JSON.stringify({ surface, sourceCommit: env.VITE_DEPLOY_SHA || "local", api: env.VITE_API_URL || null, pages }) });

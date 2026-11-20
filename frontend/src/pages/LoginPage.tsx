@@ -1,3 +1,5 @@
+import type { ReactNode } from "react";
+import type { UseFormReturn } from "react-hook-form";
 /* Control characters are intentionally rejected in return paths. */
 /* eslint-disable no-control-regex */
 import { AuthAppLinks } from "../surfaces/AuthAppLinks";
@@ -79,7 +81,20 @@ type SignInValues = z.infer<typeof signInSchema>;
 type ResetRequestValues = z.infer<typeof resetRequestSchema>;
 type ResetConfirmValues = z.infer<typeof resetConfirmSchema>;
 
-export default function LoginPage() {
+export interface CustomerLoginPresentationModel {
+  resetToken: string; showResetRequest: boolean; vendorResetRequest: boolean; vendorLogin: boolean; nextPath: string | null;
+  error: string; resetRequestMessage: string; resetConfirmMessage: string; passwordChanged: boolean; passwordResetSuccess: boolean;
+  mfaChallengeToken: string; mfaLoginChallengeToken: string; mfaMethods: Array<"totp" | "recovery" | "email">;
+  emailMfaActive: boolean; emailMfaDeliveryTarget: string; emailMfaSent: boolean; emailMfaSending: boolean; mfaSubmitting: boolean;
+  mfaCode: string; mfaRecoveryCode: string;
+  signInForm: UseFormReturn<SignInValues>; resetRequestForm: UseFormReturn<ResetRequestValues>; resetConfirmForm: UseFormReturn<ResetConfirmValues>;
+  handleSignIn: (e?: FormEvent<HTMLFormElement>) => Promise<void>; handlePasswordResetRequest: (e?: FormEvent<HTMLFormElement>) => Promise<void>; handlePasswordResetConfirm: (e?: FormEvent<HTMLFormElement>) => Promise<void>;
+  handleMfaVerification: (e?: FormEvent<HTMLFormElement>) => Promise<void>; sendEmailOtp: (token?: string) => Promise<void>; returnToSignIn: () => void;
+  setMfaCode: (v: string) => void; setMfaRecoveryCode: (v: string) => void; setError: (v: string) => void; setResetConfirmMessage: (v: string) => void; setResetRequestMessage: (v: string) => void;
+  setShowResetRequest: (v: boolean | ((v:boolean)=>boolean)) => void; setEmailMfaActive: (v:boolean)=>void; setMfaChallengeToken:(v:string)=>void;
+  setSearchParams: ReturnType<typeof useSearchParams>[1];
+}
+export default function LoginPage({ renderPresentation, renderLoading }: { renderPresentation?: (model: CustomerLoginPresentationModel) => ReactNode; renderLoading?: () => ReactNode } = {}) {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { login, loading, oauthLoading, requestPasswordReset, confirmPasswordReset, verifyMfaChallenge, sendEmailMfaCode, user } = useAuth();
@@ -166,6 +181,7 @@ export default function LoginPage() {
   const vendorResetRequest = vendorLogin && showResetRequest && !mfaChallengeToken;
 
   if (loading) {
+    if (renderLoading) return renderLoading();
     return <LoginPresentation vendor={vendorLogin} busy={false}><Paper className="finazze-auth-card" p="xl">Loading session...</Paper><AuthAppLinks surface={vendorLogin ? "vendor" : "customer"} /></LoginPresentation>;
   }
 
@@ -248,6 +264,8 @@ export default function LoginPage() {
       setError(getErrorMessage(submitError));
     }
   });
+
+  if (renderPresentation) return renderPresentation({ resetToken, showResetRequest, vendorResetRequest, vendorLogin, nextPath, error, resetRequestMessage, resetConfirmMessage, passwordChanged, passwordResetSuccess, mfaChallengeToken, mfaLoginChallengeToken, mfaMethods, emailMfaActive, emailMfaDeliveryTarget, emailMfaSent, emailMfaSending, mfaSubmitting, mfaCode, mfaRecoveryCode, signInForm, resetRequestForm, resetConfirmForm, handleSignIn, handlePasswordResetRequest, handlePasswordResetConfirm, handleMfaVerification, sendEmailOtp, returnToSignIn, setMfaCode, setMfaRecoveryCode, setError, setResetConfirmMessage, setResetRequestMessage, setShowResetRequest, setEmailMfaActive, setMfaChallengeToken, setSearchParams });
 
   return (
     <LoginPresentation vendor={vendorLogin} busy={signInForm.formState.isSubmitting || resetRequestForm.formState.isSubmitting || resetConfirmForm.formState.isSubmitting || mfaSubmitting || emailMfaSending || oauthLoading}>

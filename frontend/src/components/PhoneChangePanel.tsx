@@ -4,7 +4,7 @@ import {
   discardAccountTask,
 } from "../vendor/AccountPresentation";
 import { OtpInputField } from "./OtpInputField";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import {
   Alert,
   Button,
@@ -26,14 +26,18 @@ type StartResponse = {
   user?: { phone: string | null };
 };
 
+export interface PhoneChangePresentationModel {currentPhone?:string|null;newPhone:string;setNewPhone:(v:string)=>void;password:string;setPassword:(v:string)=>void;totpCode:string;setTotpCode:(v:string)=>void;code:string;setCode:(v:string)=>void;method:"totp"|"email";setMethod:(v:"totp"|"email")=>void;challenge:StartResponse|null;busy:boolean;error:string;success:string;reset:()=>void;startChange:()=>Promise<void>;verifyEmail:()=>Promise<void>;}
+
 export default function PhoneChangePanel({
   token,
   currentPhone,
   onCompleted,
+  renderPresentation,
 }: {
   token: string;
   currentPhone?: string | null;
   onCompleted?: () => Promise<void>;
+  renderPresentation?: (model:PhoneChangePresentationModel)=>ReactNode;
 }) {
   const [newPhone, setNewPhone] = useState("");
   const [password, setPassword] = useState("");
@@ -126,6 +130,10 @@ export default function PhoneChangePanel({
       setBusy(false);
     }
   }
+
+  // CUSTOMER PRESENTATION INJECTION START
+  if(renderPresentation)return renderPresentation({currentPhone,newPhone,setNewPhone,password,setPassword,totpCode,setTotpCode,code,setCode,method,setMethod,challenge,busy,error,success,reset,startChange,verifyEmail});
+  // CUSTOMER PRESENTATION INJECTION END
 
   return (
     <Card className="phone-change-panel" withBorder padding="lg" mt="md">

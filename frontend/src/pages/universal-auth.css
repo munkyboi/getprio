@@ -10,7 +10,7 @@
 .universal-auth-card { --card-spacing: 24px; }
 .universal-auth-title { font-size: 28px; font-family: var(--prio-heading-font), Georgia, serif; }
 .universal-auth-tabs { display: flex; width: 100%; min-height: 52px; margin-bottom: 16px; padding: 4px; background: var(--secondary); border-radius: 10px; }
-.universal-auth-tabs [data-slot=tabs-trigger] { flex: 1; border: 1px solid var(--border); }
+.universal-auth-tabs [data-slot=tabs-trigger] { flex: 1; border: 1px solid transparent; }
 .universal-auth-tabs [data-slot=tabs-trigger]:not([aria-selected=true]) { color: var(--muted-foreground); }
 .universal-auth-tabs [data-slot=tabs-trigger][aria-selected=true] { color: var(--brand); background: #fff; border: 1px solid var(--border); font-weight: 700; box-shadow: none; }
 .universal-auth-intent { color: var(--muted-foreground); font-size: 14px; margin-bottom: 28px; }

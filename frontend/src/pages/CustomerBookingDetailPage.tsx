@@ -1,4 +1,4 @@
-import { type FormEvent, useCallback, useEffect, useState } from "react";
+import { type FormEvent, type ReactNode, type Dispatch, type SetStateAction, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {  Alert, Badge, Button, Card, Container, FileInput, Group, Image, Modal, Paper, ScrollArea, SimpleGrid,  Stack, Text, Textarea, TextInput, ThemeIcon, Title } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import { IconAlertCircle, IconArrowLeft, IconBuildingBank, IconBuildingStore, IconCalendar, IconCircleCheck, IconExternalLink, IconEye, IconReceipt, IconStar, IconTicket, IconUpload,  IconX } from "@tabler/icons-react";
@@ -8,6 +8,7 @@ import type {
   BookingStatus,
   CancelCustomerBookingResponse,
   CustomerBookingDetailResponse,
+  CustomerBookingSummary,
   CustomerBookingResponse,
   PublicBoardThemeSettings,
   PublicVendorProfile,
@@ -134,10 +135,58 @@ function formatCheckInCountdown(milliseconds: number) {
   return `${seconds}s`;
 }
 
-export default function CustomerBookingDetailPage() {
+// CUSTOMER PRESENTATION CONTRACT START
+export function mergeOwnedBookingSummary(current: CustomerBookingDetailResponse["booking"] | null, next: CustomerBookingSummary): CustomerBookingDetailResponse["booking"] | null {
+  if (!current || current.id !== next.id || current.tenantId !== next.tenantId) return current;
+  return { ...current, ...next, customerName: current.customerName, customerEmail: current.customerEmail, customerPhone: current.customerPhone };
+}
+
+export interface CustomerBookingDetailPresentationModel {
+ booking: CustomerBookingDetailResponse["booking"]; vendorProfile: PublicVendorProfile|null; vendorTheme: PublicBoardThemeSettings|null;
+ error:string; busy:boolean; proofBusy:boolean; arrivalBusy:boolean; proofViewBusy:boolean;
+ cancellationAllowed:boolean; proofSubmissionAllowed:boolean; isGroupFundedBooking:boolean;
+ linkedQueuePath:string; checkInActionLabel:string; customerArrivalAvailable:boolean;
+ totalBookingHoursLabel:string; bookingTotalFeeDisplay:string;
+ services:Array<{serviceName:string;serviceSlug:string;bookingQuantity:number;scheduledStartAt:string|Date;scheduledEndAt:string|Date;priceAmountCents:number;currency:string;imageUrl:string}>;
+ reason:string; setReason:Dispatch<SetStateAction<string>>; cancelModalOpen:boolean;setCancelModalOpen:Dispatch<SetStateAction<boolean>>;handleCancel:(event?:FormEvent<HTMLFormElement>)=>Promise<void>;
+ paymentReference:string;setPaymentReference:Dispatch<SetStateAction<string>>; paymentProofFile:File|null;setPaymentProofFile:Dispatch<SetStateAction<File|null>>;handleSubmitPaymentProof:()=>Promise<void>;
+ proofModalOpen:boolean;setProofModalOpen:Dispatch<SetStateAction<boolean>>;proofAccessUrl:string;handleViewPaymentProof:()=>Promise<void>;
+ markArrival:()=>Promise<void>;refresh:()=>void;
+ ratingStars:number;setRatingStars:Dispatch<SetStateAction<number>>;ratingComment:string;setRatingComment:Dispatch<SetStateAction<string>>;ratingSubmitted:boolean;submitVendorRating:()=>Promise<void>;
+}
+// CUSTOMER PRESENTATION CONTRACT END
+export function createBookingScopeGate() {
+  let active = false;
+  let generation = 0;
+  let epoch = 0;
+  return {
+    mount() { active = true; },
+    unmount() { active = false; generation += 1; epoch += 1; },
+    capture() { return epoch; },
+    sameScope(value: number) { return active && value === epoch; },
+    invalidate() { generation += 1; },
+    begin() { return ++generation; },
+    current(request?: number) { return active && (request === undefined || request === generation); }
+  };
+}
+export function bookingDetailScopeKey(bookingId: string, token: string, userId: string | null, loading: boolean): string {
+  return JSON.stringify([bookingId, token, userId, loading]);
+}
+type CustomerBookingDetailPageProps = {renderUnavailable?:(model:{error:string;status:number|null;backTo:string;onRetry:()=>void})=>ReactNode;renderPresentation?:(model:CustomerBookingDetailPresentationModel)=>ReactNode;renderLoading?:()=>ReactNode};
+export default function CustomerBookingDetailPage(props: CustomerBookingDetailPageProps = {}) {
+  const { bookingId = "" } = useParams<{ bookingId: string }>();
+  const { token, user, loading } = useAuth();
+  // A new observed identity or route gets a fresh component before it can render.
+  const scope = bookingDetailScopeKey(bookingId, token, user?.id || null, loading);
+  return <OwnedBookingDetail key={scope} {...props} />;
+}
+function OwnedBookingDetail({renderPresentation,renderUnavailable,renderLoading}: CustomerBookingDetailPageProps) {
   const { bookingId = "" } = useParams<{ bookingId: string }>();
 
   const { token, user, loading: authLoading } = useAuth();
+  const gate = useRef(createBookingScopeGate()).current;
+  useLayoutEffect(() => { gate.mount(); return () => gate.unmount(); }, [gate]);
+  const isCurrent = (scope: number) => gate.sameScope(scope);
   const [booking, setBooking] = useState<CustomerBookingDetailResponse["booking"] | null>(null);
   const [reason, setReason] = useState("");
   const [paymentReference, setPaymentReference] = useState("");
@@ -162,16 +211,21 @@ export default function CustomerBookingDetailPage() {
 
   async function markArrival() {
     if (!booking || !token || arrivalBusy) return;
+    const actionScope = gate.capture();
     setArrivalBusy(true);
     try {
       const data = await apiRequest<CustomerBookingResponse>(`/account/bookings/${booking.id}/arrival`, { method: "POST", token });
-      setBooking(data.booking);
+      if (!isCurrent(actionScope)) return;
+      if (data.booking.id !== booking.id || data.booking.tenantId !== booking.tenantId) throw new Error("Booking response does not match this page.");
+      gate.invalidate();
+      setBooking(current => mergeOwnedBookingSummary(current, data.booking));
       notifications.show({ title: "Arrival recorded", message: "Your queue ticket is ready. The vendor can call it at or after your booked time.", color: "teal" });
     } catch (arrivalError) {
+      if (!isCurrent(actionScope)) return;
       showCustomerError(getErrorMessage(arrivalError), "Could not record arrival");
       await loadBooking();
     } finally {
-      setArrivalBusy(false);
+      if (isCurrent(actionScope)) setArrivalBusy(false);
     }
   }
 
@@ -180,20 +234,25 @@ export default function CustomerBookingDetailPage() {
       return;
     }
 
+    const generation = gate.begin();
     if (options.showLoading) {
       setLoading(true);
     }
 
     try {
       const data = await apiRequest<CustomerBookingDetailResponse>(`/account/bookings/${bookingId}`, { token });
+      if (!gate.current(generation)) return;
+      if (String(data.booking.id) !== bookingId) throw new Error("Booking does not match this page.");
       setBooking(data.booking);
       setError("");
       setResponseStatus(null);
     } catch (loadError) {
+      if (!gate.current(generation)) return;
+      if (loadError instanceof ApiError && [401, 403, 404].includes(loadError.status)) setBooking(null);
       setResponseStatus(loadError instanceof ApiError ? loadError.status : null);
       setError(getErrorMessage(loadError));
     } finally {
-      if (options.showLoading) {
+      if (gate.current(generation)) {
         setLoading(false);
       }
     }
@@ -201,32 +260,21 @@ export default function CustomerBookingDetailPage() {
 
   async function submitVendorRating() {
     if (!token || !booking || !ratingStars) return;
+    const actionScope = gate.capture();
     setBusy(true);
     try {
       await apiRequest(`/account/bookings/${booking.id}/rating`, { method: "POST", token, body: { stars: ratingStars, comment: ratingComment } });
+      if (!isCurrent(actionScope)) return;
       setRatingSubmitted(true);
       notifications.show({ color: "teal", title: "Rating submitted", message: "Thank you for rating this vendor." });
-    } catch (ratingError) { showCustomerError(getErrorMessage(ratingError), "Could not submit rating"); }
-    finally { setBusy(false); }
+    } catch (ratingError) { if (isCurrent(actionScope)) showCustomerError(getErrorMessage(ratingError), "Could not submit rating"); }
+    finally { if (isCurrent(actionScope)) setBusy(false); }
   }
 
   useEffect(() => {
-    let active = true;
-
-    if (!token || !bookingId) {
-      return undefined;
-    }
-
-    setLoading(true);
-    loadBooking({ showLoading: false }).finally(() => {
-      if (active) {
-        setLoading(false);
-      }
-    });
-
-    return () => {
-      active = false;
-    };
+    if (!token || !bookingId) return undefined;
+    void loadBooking({ showLoading: true });
+    return () => { gate.invalidate(); };
   }, [bookingId, loadBooking, token]);
 
   useEffect(() => {
@@ -269,21 +317,24 @@ export default function CustomerBookingDetailPage() {
     }
 
     const controller = new AbortController();
+    const scope = gate.capture();
+    let active = true;
     apiRequest<PublicVendorProfileResponse>(`/public/vendors/${booking.tenantSlug}`, { signal: controller.signal })
       .then((data) => {
+        if (!active || !gate.sameScope(scope)) return;
         setVendorTheme(resolveVendorProfileMedia(data.vendor.publicBoardTheme?.theme, data.vendor.businessProfileTheme?.theme));
         setVendorProfile(data.vendor);
       })
       .catch((themeError) => {
-        if (!controller.signal.aborted) {
+        if (active && gate.sameScope(scope) && !controller.signal.aborted) {
           setVendorTheme(null);
           setVendorProfile(null);
           console.error(themeError);
         }
       });
 
-    return () => controller.abort();
-  }, [booking?.tenantSlug]);
+    return () => { active = false; controller.abort(); };
+  }, [booking?.tenantSlug, gate]);
 
   useEffect(() => {
     const intervalId = window.setInterval(() => setCurrentTime(Date.now()), 1000);
@@ -291,6 +342,7 @@ export default function CustomerBookingDetailPage() {
   }, []);
 
   if (authLoading || loading) {
+    if (renderLoading) return renderLoading();
     return <Card className="finazze-auth-card">Loading booking...</Card>;
   }
 
@@ -304,6 +356,7 @@ export default function CustomerBookingDetailPage() {
       return;
     }
 
+    const actionScope = gate.capture();
     setBusy(true);
     setError("");
     try {
@@ -315,7 +368,10 @@ export default function CustomerBookingDetailPage() {
           body: { reason }
         }
       );
-      setBooking(data.booking);
+      if (!isCurrent(actionScope)) return;
+      if (data.booking.id !== booking.id || data.booking.tenantId !== booking.tenantId) throw new Error("Booking response does not match this page.");
+      gate.invalidate();
+      setBooking(current => mergeOwnedBookingSummary(current, data.booking));
       setReason("");
       setCancelModalOpen(false);
       notifications.show({
@@ -324,9 +380,10 @@ export default function CustomerBookingDetailPage() {
         message: `${data.booking.reference} was cancelled.`
       });
     } catch (cancelError) {
+      if (!isCurrent(actionScope)) return;
       showCustomerError(getErrorMessage(cancelError), "Could not cancel booking");
     } finally {
-      setBusy(false);
+      if (isCurrent(actionScope)) setBusy(false);
     }
   }
 
@@ -346,10 +403,12 @@ export default function CustomerBookingDetailPage() {
       return;
     }
 
+    const actionScope = gate.capture();
     setProofBusy(true);
     setError("");
     try {
       const uploadData = await customerAccountApi.uploadBookingPaymentProof(token, booking.id, paymentProofFile);
+      if (!isCurrent(actionScope)) return;
 
       const payload: SubmitBookingPaymentProofRequest = {
         paymentReference: trimmedReference,
@@ -366,7 +425,10 @@ export default function CustomerBookingDetailPage() {
           body: payload
         }
       );
-      setBooking(data.booking);
+      if (!isCurrent(actionScope)) return;
+      if (data.booking.id !== booking.id || data.booking.tenantId !== booking.tenantId) throw new Error("Booking response does not match this page.");
+      gate.invalidate();
+      setBooking(current => mergeOwnedBookingSummary(current, data.booking));
       setPaymentReference("");
       setPaymentProofFile(null);
       notifications.show({
@@ -375,9 +437,10 @@ export default function CustomerBookingDetailPage() {
         message: `${data.booking.reference} is waiting for vendor verification.`
       });
     } catch (proofError) {
+      if (!isCurrent(actionScope)) return;
       showCustomerError(getErrorMessage(proofError), "Could not submit payment proof");
     } finally {
-      setProofBusy(false);
+      if (isCurrent(actionScope)) setProofBusy(false);
     }
   }
 
@@ -386,6 +449,7 @@ export default function CustomerBookingDetailPage() {
       return;
     }
 
+    const actionScope = gate.capture();
     setProofViewBusy(true);
     setError("");
     try {
@@ -393,16 +457,19 @@ export default function CustomerBookingDetailPage() {
         `/account/bookings/${booking.id}/payment-proof`,
         { token }
       );
+      if (!isCurrent(actionScope)) return;
       setProofAccessUrl(data.access.url);
       setProofModalOpen(true);
     } catch (viewError) {
+      if (!isCurrent(actionScope)) return;
       showCustomerError(getErrorMessage(viewError), "Could not open payment proof");
     } finally {
-      setProofViewBusy(false);
+      if (isCurrent(actionScope)) setProofViewBusy(false);
     }
   }
 
   if (!booking) {
+    if (renderUnavailable) return renderUnavailable({error, status:responseStatus, backTo:"/account/bookings", onRetry:()=>void loadBooking({showLoading:true})});
     return (
       <ResourceErrorState
         backLabel="Back to booking list"
@@ -525,6 +592,8 @@ export default function CustomerBookingDetailPage() {
   );
   const themeStyle = buildVendorThemeStyle(vendorTheme);
   const themedMediaStyle = buildVendorThemeMediaStyle(vendorTheme);
+
+  if(renderPresentation)return renderPresentation({booking,vendorProfile,vendorTheme,error,busy,proofBusy,arrivalBusy,proofViewBusy,cancellationAllowed,proofSubmissionAllowed,isGroupFundedBooking,linkedQueuePath,checkInActionLabel,customerArrivalAvailable,totalBookingHoursLabel,bookingTotalFeeDisplay,services:bookingServiceItemsWithImages,reason,setReason,cancelModalOpen,setCancelModalOpen,handleCancel,paymentReference,setPaymentReference,paymentProofFile,setPaymentProofFile,handleSubmitPaymentProof,proofModalOpen,setProofModalOpen,proofAccessUrl,handleViewPaymentProof,markArrival,refresh:()=>void loadBooking(),ratingStars,setRatingStars,ratingComment,setRatingComment,ratingSubmitted,submitVendorRating});
 
   return (
     <Stack className="vendor-profile-page" gap="xl" style={themeStyle}>
