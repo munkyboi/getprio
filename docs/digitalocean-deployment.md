@@ -391,9 +391,10 @@ deploy_sha="$(git rev-parse HEAD)"
 umask 022
 static_stage="$(mktemp -d /tmp/getprio-static.XXXXXX)"
 trap 'rm -rf -- "$static_stage"' EXIT
-VITE_DEPLOY_SHA="$deploy_sha" VITE_PLATFORM_DATA_SOURCE=live node scripts/static-release.mjs build "$static_stage"
+VITE_DEPLOY_SHA="$deploy_sha" VITE_API_URL=https://api.getprio.online/api VITE_PLATFORM_DATA_SOURCE=live npm --workspace developer-portal run build -- --outDir "$static_stage/developer" --emptyOutDir
+node scripts/release-bundle.mjs materialize "$static_stage" "$deploy_sha"
 npm run build:backend
-node scripts/static-release.mjs publish "$static_stage" "$deploy_sha"
+node scripts/release-bundle.mjs publish "$static_stage" "$deploy_sha"
 ```
 
 Builds run in a private temporary directory. Publication validates all served sites, copies assets first, and replaces each HTML file with an atomic rename. Prior assets remain available for cached HTML. See [static publication and incident evidence](deployment-static-publication.md) for failure behavior and limitations.
@@ -545,9 +546,10 @@ deploy_sha="$(git rev-parse HEAD)"
 umask 022
 static_stage="$(mktemp -d /tmp/getprio-static.XXXXXX)"
 trap 'rm -rf -- "$static_stage"' EXIT
-VITE_DEPLOY_SHA="$deploy_sha" VITE_PLATFORM_DATA_SOURCE=live node scripts/static-release.mjs build "$static_stage"
+VITE_DEPLOY_SHA="$deploy_sha" VITE_API_URL=https://api.getprio.online/api VITE_PLATFORM_DATA_SOURCE=live npm --workspace developer-portal run build -- --outDir "$static_stage/developer" --emptyOutDir
+node scripts/release-bundle.mjs materialize "$static_stage" "$deploy_sha"
 npm run build:backend
-node scripts/static-release.mjs publish "$static_stage" "$deploy_sha"
+node scripts/release-bundle.mjs publish "$static_stage" "$deploy_sha"
 pm2 restart getprio-api
 ```
 

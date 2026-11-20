@@ -15,7 +15,8 @@
       "sourceCommit": "70bd376f7aa031878ea67be910a106fb9fb7fead",
       "sourceHash": "d4451a8dad9330ff62e4453b6e45743c356e56a55eafa720ae3c8759cfaac1a7",
       "archive": "marketing.tar.gz",
-      "archiveSha256": "8da966a78b90b4a85db3c34ed1e8fe9dacd2d76bc227b69a018fb3ce9b8e71a0"
+      "archiveSha256": "dd21a131fbfb9273ee6d90fa69450aec8b54a3b7f1f41ae1c7429178848449e5",
+      "builtHash": "cc7f1b7bee6806c21265198aaf1f09d6098e8268e691bedf8f7098a82ae1ab33"
     },
     {
       "name": "customer",
@@ -24,7 +25,8 @@
       "sourceCommit": "09f971b2b3016780dc072358976f748f1d08f5e5",
       "sourceHash": "35956b3b53daf972acac96ccd367212e57413a65ca05264d241005948e21f16b",
       "archive": "customer.tar.gz",
-      "archiveSha256": "25d4cee7cab9a055a7c424de335088cbe6701f2c171be5ac5ae35cd8006332bd"
+      "archiveSha256": "208ff223fef016c3891e9578dc78d797c5e1ca1cdf764fc8cb99bd0211c82340",
+      "builtHash": "42a9f1ebdf2597a4d7ec8bf301f0bf4044bbd55b0c4d077e45758ccf8bc4151c"
     },
     {
       "name": "vendor",
@@ -33,7 +35,8 @@
       "sourceCommit": "b9f05eac39f5ec60ea458a43a5fd88f3ed598fa7",
       "sourceHash": "f69db4c20509b0e5ad220b818fd9749fab7f0055583534743096e46c2c26632d",
       "archive": "vendor.tar.gz",
-      "archiveSha256": "0dfbd4bfae0ccfd6d4efcbdc938b948fdf1ffa1a682a6ea03c15cc25cd060413"
+      "archiveSha256": "94efcdbd31cc881ea786ba4264868ea4d06f259170b5ad918c650d8dd6f131c2",
+      "builtHash": "04c1de57119612accbb5d207fcad1d6b552ecb7cb2c572a64a5a66beb57261f4"
     },
     {
       "name": "platform",
@@ -57,5 +60,10 @@
       "http://127.0.0.1:5193": "https://platform.getprio.online",
       "http://127.0.0.1:5194": "https://developers.getprio.online"
     }
+  },
+  "build": {
+    "localSurfaces": false,
+    "turnstilePlaceholder": "__GETPRIO_TURNSTILE_SITE_KEY__",
+    "productionOriginsBound": true
   }
 }

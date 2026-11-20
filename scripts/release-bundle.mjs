@@ -5,6 +5,7 @@ import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 const API_ORIGIN = "https://api.getprio.online/api";
+const TURNSTILE_PLACEHOLDER = "__GETPRIO_TURNSTILE_SITE_KEY__";
 const SITES = ["marketing", "customer", "vendor", "platform"];
 
 function fail(message) {
@@ -36,11 +37,11 @@ async function materialize(stage, deploymentSha) {
   if (manifest.sites.length !== SITES.length || SITES.some((site) => !manifest.sites.some((item) => item.name === site))) {
     fail("Release manifest does not contain all four frozen sites.");
   }
-  await fs.rm(stage, { recursive: true, force: true });
   await fs.mkdir(stage, { recursive: true, mode: 0o755 });
   const stageNames = { marketing: "frontend", customer: "customer", vendor: "vendor", platform: "platform" };
   for (const site of SITES) {
     const output = path.join(stage, stageNames[site]);
+    await fs.rm(output, { recursive: true, force: true });
     await fs.mkdir(output, { recursive: true, mode: 0o755 });
     await safeExtract(path.join(bundle, `${site}.tar.gz`), output);
     const index = path.join(output, "index.html");
@@ -56,6 +57,11 @@ async function materialize(stage, deploymentSha) {
         fail(`Frozen ${site} artifact still contains a local runtime origin.`);
       }
       productionBound ||= contents.includes(API_ORIGIN);
+      if (contents.includes(TURNSTILE_PLACEHOLDER)) {
+        const siteKey = process.env.TURNSTILE_SITE_KEY || process.env.VITE_TURNSTILE_SITE_KEY || "";
+        if (process.env.TURNSTILE_SECRET_KEY && !siteKey) fail("TURNSTILE_SECRET_KEY is configured but TURNSTILE_SITE_KEY is missing.");
+        await fs.writeFile(candidate, contents.replaceAll(TURNSTILE_PLACEHOLDER, siteKey));
+      }
     }
     if (!productionBound) fail(`Frozen ${site} artifact is not production-bound.`);
     if (site === "platform") {
@@ -73,13 +79,14 @@ async function publish(stage, deploymentSha) {
   const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
   const manifest = await readManifest(root);
   if (manifest.api.production !== API_ORIGIN) fail("Release manifest has an unexpected production API origin.");
-  const targets = { frontend: "frontend/dist", customer: "frontend/dist-customer", vendor: "frontend/dist-vendor", platform: "platform-dashboard/dist" };
+  const targets = { frontend: "frontend/dist", customer: "frontend/dist-customer", vendor: "frontend/dist-vendor", platform: "platform-dashboard/dist", developer: "developer-portal/dist" };
   for (const [site, relativeTarget] of Object.entries(targets)) {
     const source = path.join(stage, site);
     const target = path.join(root, relativeTarget);
     await fs.mkdir(target, { recursive: true, mode: 0o755 });
     const entries = await fs.readdir(source, { recursive: true });
-    for (const entry of entries) {
+    const ordered = [...entries].sort((a, b) => Number(a.endsWith(".html")) - Number(b.endsWith(".html")) || a.localeCompare(b));
+    for (const entry of ordered) {
       const sourceFile = path.join(source, entry);
       const stat = await fs.stat(sourceFile);
       if (!stat.isFile()) continue;
