@@ -189,6 +189,7 @@ function RotatingTicketBarcode({ ticketId, token, renderPresentation }: Readonly
       window.removeEventListener("offline", refreshVisible);
     };
   }, [ticketId, token]);
+  // eslint-disable-next-line react-hooks/refs -- The presenter receives a ref or event callback without reading it during render.
   if (renderPresentation) return renderPresentation({ ...state, graphic: state.value ? <ArrivalQRCode value={state.value} /> : null, onRetry: () => void controller.current?.refresh() });
   return <Stack gap="xs" aria-live="polite">
     {state.value ? <><ArrivalQRCode value={state.value} /><Text className="ticket-page-barcode-value" ta="center" c="dimmed" size="sm">{state.value}</Text><Text ta="center" c="dimmed" size="sm" aria-live="off">Refreshes in {state.remainingSeconds}s</Text></> :

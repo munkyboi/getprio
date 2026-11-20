@@ -14,7 +14,7 @@ import {
 import { CustomerSecurityView } from "../components/security/CustomerSecurityView";
 import { useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "../components/shadcn/tabs";
+import { Tabs, TabsList, TabsTrigger } from "../components/shadcn/tabs";
 import { Switch } from "../components/shadcn/switch";
 import {
   Camera as IconCamera,
@@ -25,8 +25,6 @@ import {
   ShieldCheck as IconShield,
   LogOut as IconLogout,
   ChevronRight as IconChevronRight,
-  Ticket as IconTicket,
-  CalendarDays as IconCalendar,
 } from "lucide-react";
 import CustomerAccountPage, {
   type CustomerAccountPresentationModel,

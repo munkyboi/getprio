@@ -10,17 +10,11 @@ import {
   Check as IconCheck,
   Clock as IconClock,
   Ticket as IconTicket,
-  CalendarDays as IconCalendar,
 } from "lucide-react";
 import CustomerDashboardPage, {
   type CustomerDashboardPresentationModel,
 } from "../../pages/CustomerDashboardPage";
 import { buildJoinedQueuePathWithTicket } from "../../queuePaths";
-import {
-  formatDateTime,
-  formatBookingScheduleDate,
-  formatBookingScheduleTimeRange,
-} from "../../utils/dates";
 import { Button, Card, CardHeader, CardTitle, CardContent } from "../components/ui";
 import { CustomerFavorites } from "./CustomerFavoritesPage";
 import {

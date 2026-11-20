@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/refs -- Presentation models forward ref objects to JSX without reading their current values. */
 import type { ReactNode, ComponentProps } from "react";
 import googleIcon from "../assets/auth/google.svg";
 import facebookIcon from "../assets/auth/facebook-supplied.png";

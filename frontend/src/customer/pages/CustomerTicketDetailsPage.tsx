@@ -16,7 +16,7 @@ import {
 import JoinedQueuePage, {
   type JoinedQueuePresentationModel,
 } from "../../pages/JoinedQueuePage";
-import { formatDateTime, formatBookingScheduleDateTime } from "../../utils/dates";
+import { formatBookingScheduleDateTime } from "../../utils/dates";
 import { Alert, Button, Card, Textarea, ToggleGroup, ToggleGroupItem } from "../components/ui";
 import {
   CustomerError,
@@ -44,20 +44,20 @@ function TicketView({ model: m }: { model: JoinedQueuePresentationModel }) {
   }, [m.queueRatingOpen, m.queueRatingComment]);
   const s = m.snapshot,
     t = s?.focusTicket;
-  const qrTicket = useRef<{ id: string; wasConfirmed: boolean } | null>(null);
+  const [qrTicket, setQrTicket] = useState<{ id: string; wasConfirmed: boolean } | null>(null);
   const qrTrigger = useRef<HTMLElement | null>(null);
   const refreshButton = useRef<HTMLButtonElement | null>(null);
   const statusAnchor = useRef<HTMLDivElement | null>(null);
   const openQr = () => {
     if (!t?.id) return;
-    qrTicket.current = { id: String(t.id), wasConfirmed: Boolean(t.customerConfirmedAt) };
+    setQrTicket({ id: String(t.id), wasConfirmed: Boolean(t.customerConfirmedAt) });
     qrTrigger.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     setQr(true);
   };
   useEffect(() => {
-    const opened = qrTicket.current;
+    const opened = qrTicket;
     if (qr && opened && t && String(t.id) === opened.id && (t.status === "skipped" || (!opened.wasConfirmed && t.customerConfirmedAt))) {
-      qrTicket.current = null;
+      setQrTicket(null);
       setQr(false);
       window.requestAnimationFrame(() => {
         if (t.status === "skipped") statusAnchor.current?.focus();
@@ -66,7 +66,7 @@ function TicketView({ model: m }: { model: JoinedQueuePresentationModel }) {
         else statusAnchor.current?.focus();
       });
     }
-  }, [qr, t?.id, t?.status, t?.customerConfirmedAt]);
+  }, [qr, qrTicket, t?.id, t?.status, t?.customerConfirmedAt]);
   const theme =
     s?.businessProfileTheme?.theme || s?.publicBoardTheme?.theme || null;
   const completed = t?.status === "served" || t?.serviceOutcome === "completed";
@@ -154,7 +154,7 @@ function TicketView({ model: m }: { model: JoinedQueuePresentationModel }) {
           </div> : null}
           <CustomerDialog
             title="Your arrival pass"
-            open={qr && Boolean(t && qrTicket.current?.id === String(t.id))}
+            open={qr && Boolean(t && qrTicket?.id === String(t.id))}
             onOpenChange={setQr}
           >
             {m.ticketBarcode}

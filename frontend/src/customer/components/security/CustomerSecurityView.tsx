@@ -10,7 +10,7 @@ import { EmailMfaSettingsPanel } from "../../../components/EmailMfaSettingsPanel
 import { AccountDeletionPanel } from "../../../components/AccountDeletionPanel";
 import StyledQRCode from "../../../components/StyledQRCode";
 import { Checkbox } from "../shadcn/checkbox";
-import { Card, Alert, Button, Input, Badge } from "../ui";
+import { Alert, Button, Input, Badge } from "../ui";
 import { Info as IconInfoCircle } from "lucide-react";
 import { ControlledDrawer } from "../details/ControlledDrawer";
 import { CustomerOtpField } from "./CustomerOtpField";

@@ -1,4 +1,4 @@
-import { createContext, useEffect, useRef, useState } from "react";
+import { createContext, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { apiRequest } from "../../../api/client";
 
 type ServiceDetails = { slug: string; imageUrl?: string; priceDisplay?: string; description?: string };
@@ -7,9 +7,11 @@ export const CustomerBookingServiceDetailsContext = createContext<ServiceDetails
 /** Fetch presentation details independently, with a request identity for every scope change. */
 export function useLocationServiceDetails(vendor: string | undefined, location: string) {
   const key = JSON.stringify([vendor || "", location]);
-  const scope = useRef({ key, generation: 0 });
-  if (scope.current.key !== key) scope.current = { key, generation: scope.current.generation + 1 };
-  const generation = scope.current.generation;
+  const [scope, setScope] = useState({ key, generation: 0 });
+  if (scope.key !== key) setScope({ key, generation: scope.generation + 1 });
+  const generation = scope.generation;
+  const committedScope = useRef(scope);
+  useLayoutEffect(() => { committedScope.current = scope; }, [scope]);
   const [scoped, setScoped] = useState<{ key: string; generation: number; services: ServiceDetails[] }>({ key: "", generation: -1, services: [] });
   useEffect(() => {
     if (!vendor || !location) return;
@@ -18,7 +20,7 @@ export function useLocationServiceDetails(vendor: string | undefined, location: 
       `/public/vendors/${encodeURIComponent(vendor)}/locations/${encodeURIComponent(location)}/services`,
       { signal: controller.signal },
     ).then(({ services }) => {
-      if (!controller.signal.aborted && scope.current.key === key && scope.current.generation === generation) {
+      if (!controller.signal.aborted && committedScope.current.key === key && committedScope.current.generation === generation) {
         const validServices: ServiceDetails[] = Array.isArray(services)
           ? services.flatMap((service): ServiceDetails[] => {
               if (service === null || typeof service !== "object" || typeof service.slug !== "string") return [];

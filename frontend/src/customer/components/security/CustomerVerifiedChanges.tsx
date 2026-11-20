@@ -12,7 +12,7 @@ import {
   EyeOff as IconEyeOff,
   Info as IconInfoCircle,
 } from "lucide-react";
-import { Alert, Button, Card, Input } from "../ui";
+import { Alert, Button, Input } from "../ui";
 import { ControlledDrawer } from "../details/ControlledDrawer";
 import { CustomerOtpField } from "./CustomerOtpField";
 export function PasswordField({

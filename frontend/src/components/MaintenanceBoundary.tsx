@@ -52,6 +52,7 @@ export default function MaintenanceBoundary({ children, renderPresentation }: { 
     heading.current?.focus();
     return () => { document.title = previousTitle; };
   }, [forced]);
+  // eslint-disable-next-line react-hooks/refs -- The presenter receives a ref or event callback without reading it during render.
   if (renderPresentation) return renderPresentation({ pending: !exempt && status.isPending, forced: Boolean(forced), enabled: Boolean(status.data?.enabled), message: status.data?.message || "", isError: status.isError, isFetching: status.isFetching, headingRef: heading, children, onRetry: () => void status.refetch() });
   if (!exempt && status.isPending) return <Container className="maintenance-page" size="sm"><Stack align="center"><Loader aria-label="Checking service availability" /><Text>Checking service availability…</Text></Stack></Container>;
   if (forced) return <Container className="maintenance-page" size="sm">

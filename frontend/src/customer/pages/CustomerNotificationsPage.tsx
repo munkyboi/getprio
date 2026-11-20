@@ -1,19 +1,16 @@
 import { FieldLabel } from "../components/shadcn/field";
 import type { CustomerNotificationSettings } from "@shared";
 import { Switch } from "../components/shadcn/switch";
-import { RefreshCw, Ticket, CalendarDays, Trash2 } from "lucide-react";
+import { RefreshCw, Ticket, CalendarDays } from "lucide-react";
 import { CustomerDialog } from "../components/details/CustomerDialog";
 import { useEffect, useState } from "react";
 import { Link, Navigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
-  Settings as IconSettings,
   Bell as IconBell,
-  Check as IconCheck,
 } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 import { apiRequest } from "../../api/client";
-import { formatDateTime } from "../../utils/dates";
 import { getErrorMessage } from "../../utils/errors";
 import {
   groupInboxNotifications,
@@ -199,7 +196,7 @@ export default function CustomerNotificationsPage() {
         ))}
         {inbox.data?.notifications.length === 0 ? (
           <Card>
-            <h2>You're all caught up</h2>
+            <h2>You&apos;re all caught up</h2>
             <p>New updates will appear here.</p>
           </Card>
         ) : null}

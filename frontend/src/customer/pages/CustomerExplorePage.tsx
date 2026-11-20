@@ -32,8 +32,6 @@ import {
   CardFooter,
   CardHeader,
   CardTitle,
-  Input,
-  Separator,
   Skeleton,
 } from "../components/ui";
 function VendorCard({ vendor }: { vendor: PublicVendorProfile }) {

@@ -7,7 +7,7 @@ import { useParams } from "react-router-dom";
 import { CardHeader, CardContent } from "../components/ui";
 import { Field, FieldLabel } from "../components/shadcn/field";
 import { Textarea } from "../components/shadcn/textarea";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   MapPin, CalendarDays, Mail,
@@ -67,9 +67,11 @@ function BookingDetailsView({
   const [proofOpen, setProofOpen] = useState(false);
   const [contactFor, setContactFor] = useState("");
   const identity = JSON.stringify([b.id, b.tenantSlug, b.locationSlug]);
-  const identityRef = useRef({ key: identity, generation: 0 });
-  if (identityRef.current.key !== identity) identityRef.current = { key: identity, generation: identityRef.current.generation + 1 };
-  const generation = identityRef.current.generation;
+  const [scope, setScope] = useState({ key: identity, generation: 0 });
+  if (scope.key !== identity) setScope({ key: identity, generation: scope.generation + 1 });
+  const generation = scope.generation;
+  const identityRef = useRef(scope);
+  useLayoutEffect(() => { identityRef.current = scope; }, [scope]);
   const [contactData, setContactData] = useState<{ generation: number; email?: string; phone?: string } | null>(null);
   useEffect(() => {
     const controller = new AbortController();
@@ -101,7 +103,7 @@ function BookingDetailsView({
         <Alert data-intent="success">
           <IconInfoCircle />
           <div>
-            <strong>You're checked in</strong>
+            <strong>You&apos;re checked in</strong>
             <p>
               Your booking is linked to a queue ticket.{" "}
               <Link to={m.linkedQueuePath}>Open linked queue ticket</Link>
@@ -492,13 +494,13 @@ const renderCustomerBookingLoading = () => <CustomerLoading message="Loading boo
 export default function CustomerBookingDetailsViewPage() {
   const { bookingId } = useParams();
   const { token, user } = useAuth();
-  const identity = useRef({ token, userId: user?.id, generation: 0 });
-  if (identity.current.token !== token || identity.current.userId !== user?.id) {
-    identity.current = { token, userId: user?.id, generation: identity.current.generation + 1 };
+  const [identity, setIdentity] = useState({ token, userId: user?.id, generation: 0 });
+  if (identity.token !== token || identity.userId !== user?.id) {
+    setIdentity({ token, userId: user?.id, generation: identity.generation + 1 });
   }
   return (
     <CustomerBookingDetailPage
-      key={JSON.stringify([bookingId, identity.current.generation])}
+      key={JSON.stringify([bookingId, identity.generation])}
       renderLoading={renderCustomerBookingLoading}
       renderUnavailable={CustomerBookingUnavailable}
       renderPresentation={(model) => <BookingDetailsView model={model} />}

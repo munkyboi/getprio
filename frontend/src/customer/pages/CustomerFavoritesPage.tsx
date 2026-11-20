@@ -1,12 +1,12 @@
-import { useState } from "react";
-import { Heart, ChevronRight } from "lucide-react";
+
+import { ChevronRight } from "lucide-react";
 import { ResponsiveDrawer } from "../components/vendor/ResponsiveDrawer";
 import { Link, Navigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "../../context/AuthContext";
 import { apiRequest } from "../../api/client";
 import { getErrorMessage } from "../../utils/errors";
-import { Button, Card } from "../components/ui";
+import { Button } from "../components/ui";
 import {
   CustomerPage,
   CustomerError,

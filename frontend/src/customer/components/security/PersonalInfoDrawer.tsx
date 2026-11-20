@@ -24,7 +24,7 @@ export function usePersonalInfoCommand(
 ) {
   const report = useContext(CommandContext);
   const discardRef = useRef(onDiscard);
-  discardRef.current = onDiscard;
+  useLayoutEffect(() => { discardRef.current = onDiscard; }, [onDiscard]);
   useLayoutEffect(() => {
     report?.(key, { busy, dirty, discard: () => discardRef.current?.() });
     return () => report?.(key, null);

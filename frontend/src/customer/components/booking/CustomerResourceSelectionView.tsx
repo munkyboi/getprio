@@ -4,7 +4,7 @@ import type { BookingCatalogServiceV4 } from "@shared/bookingSelectionV4";
 import { useContext, useRef, useState } from "react";
 import { Check as IconCheck, Info as IconInfoCircle, Plus as IconPlus } from "lucide-react";
 import { Checkbox } from "../shadcn/checkbox";
-import { Alert, Input, Button, Card } from "../ui";
+import { Alert, Button, Card } from "../ui";
 import { ResponsiveDrawer } from "../vendor/ResponsiveDrawer";
 import { CustomerBookingServiceDetailsContext, findCustomerBookingServiceDetails } from "./CustomerBookingServiceDetailsContext";
 function BookingServiceThumbnail({ imageUrl, name }: { imageUrl?: string; name: string }) {

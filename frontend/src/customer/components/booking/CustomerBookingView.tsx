@@ -9,7 +9,6 @@ import { Textarea } from "../shadcn/textarea";
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { Sheet, SheetClose, SheetContent, SheetTitle, SheetDescription } from "../shadcn/sheet";
-import { Checkbox } from "../shadcn/checkbox";
 import {
   ArrowLeft as IconArrowLeft,
   Check as IconCheck,

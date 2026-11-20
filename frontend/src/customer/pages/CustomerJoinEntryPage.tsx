@@ -134,7 +134,7 @@ export default function CustomerJoinEntryPage() {
                 muted
                 className="customer-camera-video"
               />
-              <p>Point your camera at the business's GetPrio queue QR code.</p>
+              <p>Point your camera at the business&apos;s GetPrio queue QR code.</p>
             </div>
           </SheetContent>
       </Sheet>

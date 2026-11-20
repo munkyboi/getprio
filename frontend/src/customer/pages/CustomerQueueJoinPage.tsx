@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/refs -- Presentation models forward ref objects to JSX without reading their current values. */
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Info } from "lucide-react";
