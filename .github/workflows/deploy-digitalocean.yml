@@ -339,10 +339,10 @@ jobs:
             NGINX_SITE_FILE="$nginx_file" NGINX_APP_ROOT="${DO_APP_DIR}" \
               NGINX_REQUIRE_ALL=0 NGINX_APPEND_MISSING=0 \
               bash scripts/configure-production-host-routing.sh
-done < <(find /etc/nginx/sites-enabled /etc/nginx/conf.d \( -type f -o -type l \) -print 2>/dev/null)
+          done < <(find /etc/nginx/sites-enabled /etc/nginx/conf.d \( -type f -o -type l \) -print 2>/dev/null)
           NGINX_SITE_FILE="/etc/nginx/sites-available/getprio" \
             NGINX_DEVELOPER_SITE_FILE="/etc/nginx/sites-available/getprio-developer-portal" \
-  NGINX_CONFIG_DIR="/etc/nginx" \
+            NGINX_CONFIG_DIR="/etc/nginx" \
             bash scripts/verify-production-host-routing.sh
 
           bash scripts/verify-fcm-config.sh
