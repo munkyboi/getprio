@@ -26,7 +26,7 @@ require_host() {
 
 require_root() {
   local host="$1" root="$2" contents="$3"
-  if ! grep -Fq "server_name ${host};" <<<"$contents" || ! grep -Fq "root ${root};" <<<"$contents"; then
+  if ! grep -Eq "server_name[^;]*${host}([[:space:];]|$)" <<<"$contents" || ! grep -Fq "root ${root};" <<<"$contents"; then
     echo "Host ${host} is not mapped to the expected root ${root}." >&2
     exit 1
   fi
