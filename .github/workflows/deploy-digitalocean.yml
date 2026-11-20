@@ -269,11 +269,7 @@ jobs:
             echo "Preserved known FCM runtime backup at ${fcm_runtime_backup_target}."
           fi
 
-          if [ -n "$(git status --porcelain)" ]; then
-            echo "Server working tree has local changes. Refusing to deploy."
-            git status --short
-            exit 1
-          fi
+          bash scripts/prepare-deployment-worktree.sh "${DO_APP_DIR}"
 
           git fetch origin "${DEPLOY_BRANCH}"
 
