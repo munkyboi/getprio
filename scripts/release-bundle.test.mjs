@@ -46,4 +46,5 @@ test("materialization preserves developer output and binds production runtime co
   const script = await fs.readFile(path.join(root, "scripts/release-bundle.mjs"), "utf8");
   assert.match(script, /endsWith\("\.html"\)/u);
   assert.match(script, /VITE_REBUILD_MARKETING/u);
+  assert.match(script, /max-old-space-size=4096/u);
 });
