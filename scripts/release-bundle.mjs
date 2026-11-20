@@ -41,6 +41,39 @@ async function safeExtract(archive, destination) {
   await execFileAsync("tar", ["-xzf", archive, "-C", destination]);
 }
 
+async function rebuildMarketing(output, root, deploymentSha) {
+  if (process.env.VITE_REBUILD_MARKETING !== "1") return;
+  await execFileAsync("npm", ["--workspace", "frontend", "run", "build", "--", "--outDir", output, "--emptyOutDir"], {
+    cwd: root,
+    env: { ...process.env, VITE_PUBLIC_UNIVERSAL_AUTH: "1", VITE_APP_SURFACE: "marketing", VITE_LOCAL_SURFACES: "0", VITE_API_URL: API_ORIGIN, VITE_DEPLOY_SHA: deploymentSha }
+  });
+}
+
+async function validateMaterializedSite(site, output, deploymentSha) {
+  const index = path.join(output, "index.html");
+  const html = await fs.readFile(index, "utf8");
+  const files = await fs.readdir(output, { recursive: true });
+  let productionBound = false;
+  for (const file of files) {
+    const candidate = path.join(output, file);
+    if (!(await fs.stat(candidate)).isFile()) continue;
+    const contents = await fs.readFile(candidate, "utf8").catch(() => "");
+    if (/https?:\/\/(?:127\.0\.0\.1|localhost):(?:5091|5190|5191|5192|5193|5194)/u.test(contents)) fail(`Frozen ${site} artifact still contains a local runtime origin.`);
+    productionBound ||= containsProductionApiReference(contents);
+    if (contents.includes(TURNSTILE_PLACEHOLDER)) {
+      const siteKey = process.env.TURNSTILE_SITE_KEY || process.env.VITE_TURNSTILE_SITE_KEY || "";
+      if (process.env.TURNSTILE_SECRET_KEY && !siteKey) fail("TURNSTILE_SECRET_KEY is configured but TURNSTILE_SITE_KEY is missing.");
+      await fs.writeFile(candidate, contents.replaceAll(TURNSTILE_PLACEHOLDER, siteKey));
+    }
+  }
+  if (!productionBound) fail(`Frozen ${site} artifact is not production-bound.`);
+  if (site === "platform") {
+    const revisionMeta = /(<meta\b[^>]*\bname=["']getprio-deploy-sha["'][^>]*\bcontent=["'])([a-f\d]{40})(["'])/iu;
+    if (!revisionMeta.test(html)) fail("Platform artifact is missing its deployment revision metadata.");
+    await fs.writeFile(index, html.replace(revisionMeta, `$1${deploymentSha}$3`));
+  }
+}
+
 async function materialize(stage, deploymentSha) {
   if (!/^[a-f\d]{40}$/u.test(deploymentSha || "")) fail("A full deployment revision is required.");
   const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
@@ -57,32 +90,8 @@ async function materialize(stage, deploymentSha) {
     await fs.rm(output, { recursive: true, force: true });
     await fs.mkdir(output, { recursive: true, mode: 0o755 });
     await safeExtract(path.join(bundle, `${site}.tar.gz`), output);
-    const index = path.join(output, "index.html");
-    const html = await fs.readFile(index, "utf8");
-    const files = await fs.readdir(output, { recursive: true });
-    let productionBound = false;
-    for (const file of files) {
-      const candidate = path.join(output, file);
-      const stat = await fs.stat(candidate);
-      if (!stat.isFile()) continue;
-      const contents = await fs.readFile(candidate, "utf8").catch(() => "");
-      if (/https?:\/\/(?:127\.0\.0\.1|localhost):(?:5091|5190|5191|5192|5193|5194)/u.test(contents)) {
-        fail(`Frozen ${site} artifact still contains a local runtime origin.`);
-      }
-      productionBound ||= containsProductionApiReference(contents);
-      if (contents.includes(TURNSTILE_PLACEHOLDER)) {
-        const siteKey = process.env.TURNSTILE_SITE_KEY || process.env.VITE_TURNSTILE_SITE_KEY || "";
-        if (process.env.TURNSTILE_SECRET_KEY && !siteKey) fail("TURNSTILE_SECRET_KEY is configured but TURNSTILE_SITE_KEY is missing.");
-        await fs.writeFile(candidate, contents.replaceAll(TURNSTILE_PLACEHOLDER, siteKey));
-      }
-    }
-    if (!productionBound) fail(`Frozen ${site} artifact is not production-bound.`);
-    if (site === "platform") {
-      const revisionMeta = /(<meta\b[^>]*\bname=["']getprio-deploy-sha["'][^>]*\bcontent=["'])([a-f\d]{40})(["'])/iu;
-      const rewritten = html.replace(revisionMeta, `$1${deploymentSha}$3`);
-      if (!revisionMeta.test(html)) fail("Platform artifact is missing its deployment revision metadata.");
-      await fs.writeFile(index, rewritten);
-    }
+    await rebuildMarketing(output, root, deploymentSha);
+    await validateMaterializedSite(site, output, deploymentSha);
   }
   console.log(`Materialized four frozen static sites into ${stage}.`);
 }
