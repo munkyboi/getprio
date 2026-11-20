@@ -26,6 +26,7 @@ python3 - "$site_file" "$app_root" "$tmp_file" <<'PY'
 import pathlib
 import re
 import sys
+import os
 
 source, root, target = map(pathlib.Path, sys.argv[1:])
 text = source.read_text()
@@ -69,7 +70,9 @@ for match in server_start.finditer(text):
     cursor = end
 out.append(text[cursor:])
 missing = sorted(set(mapping) - set(changed))
-if missing:
+if missing and os.environ.get("NGINX_REQUIRE_ALL", "1") == "1":
+    raise SystemExit("Missing production host server block(s): " + ", ".join(missing))
+if missing and os.environ.get("NGINX_APPEND_MISSING", "1") == "1":
     out.append("\n")
     for host in missing:
         out.append(

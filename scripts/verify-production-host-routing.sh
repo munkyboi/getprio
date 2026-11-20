@@ -4,6 +4,7 @@ set -euo pipefail
 
 site_file="${NGINX_SITE_FILE:-/etc/nginx/sites-available/getprio}"
 developer_site_file="${NGINX_DEVELOPER_SITE_FILE:-/etc/nginx/sites-available/getprio-developer-portal}"
+config_dir="${NGINX_CONFIG_DIR:-}"
 
 for required in "$site_file" "$developer_site_file"; do
   if [[ ! -f "$required" ]]; then
@@ -16,6 +17,12 @@ site_contents="$(cat "$site_file")"
 developer_contents="$(cat "$developer_site_file")"
 all_contents="$site_contents\n$developer_contents"
 
+if [[ -n "$config_dir" && -d "$config_dir" ]]; then
+  while IFS= read -r config_file; do
+    all_contents+="\n$(cat "$config_file")"
+  done < <(find "$config_dir" -maxdepth 1 \( -type f -o -type l \) -print)
+fi
+
 require_host() {
   local host="$1"
   if ! grep -Eq "server_name[^;]*${host}([[:space:];]|$)" <<<"$all_contents"; then
@@ -26,7 +33,34 @@ require_host() {
 
 require_root() {
   local host="$1" root="$2" contents="$3"
-  if ! grep -Eq "server_name[^;]*${host}([[:space:];]|$)" <<<"$contents" || ! grep -Fq "root ${root};" <<<"$contents"; then
+  if ! python3 - "$host" "$root" "$site_file" "$developer_site_file" "$config_dir" <<'PY'
+import pathlib
+import re
+import sys
+
+host, expected_root, *files = sys.argv[1:]
+paths = [pathlib.Path(item) for item in files if item]
+paths.extend(path for directory in paths[-1:] if directory.is_dir() for path in directory.iterdir()) if paths and paths[-1].is_dir() else None
+for path in paths:
+    if not path.is_file():
+        continue
+    text = path.read_text(errors="replace")
+    for match in re.finditer(r"\bserver\s*\{", text):
+        depth = 0
+        end = None
+        for index in range(match.end() - 1, len(text)):
+            depth += text[index] == "{"
+            depth -= text[index] == "}"
+            if depth == 0:
+                end = index + 1
+                break
+        block = text[match.start():end] if end else ""
+        names = re.search(r"\bserver_name\s+([^;]+);", block)
+        if names and host in names.group(1).split() and re.search(rf"\broot\s+{re.escape(expected_root)};", block):
+            raise SystemExit(0)
+raise SystemExit(1)
+PY
+  then :; else
     echo "Host ${host} is not mapped to the expected root ${root}." >&2
     exit 1
   fi
