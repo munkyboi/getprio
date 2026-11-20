@@ -27,4 +27,10 @@ execFileSync(script, { env: { ...process.env, NGINX_SITE_FILE: site, NGINX_APP_R
 const httpsOutput = fs.readFileSync(site, "utf8");
 assert.match(httpsOutput, /listen 443 ssl;\s+server_name app\.getprio\.online;\s+root \/srv\/getprio\/frontend\/dist-customer;/u);
 assert.match(httpsOutput, /ssl_certificate_key \/etc\/ssl\/example\.key;/u);
+
+fs.writeFileSync(site, `server {\n  listen 80;\n  server_name getprio.online;\n  root /old/frontend/dist;\n}\n`);
+execFileSync(script, { env: { ...process.env, NGINX_SITE_FILE: site, NGINX_APP_ROOT: "/srv/getprio", NGINX_SKIP_RELOAD: "1", NGINX_REQUIRE_ALL: "0", NGINX_REQUIRE_HTTPS: "1", NGINX_SSL_CERT: "/etc/ssl/shared.crt", NGINX_SSL_KEY: "/etc/ssl/shared.key" }, stdio: "pipe" });
+const inheritedTlsOutput = fs.readFileSync(site, "utf8");
+assert.match(inheritedTlsOutput, /listen 443 ssl;\s+server_name app\.getprio\.online;\s+root \/srv\/getprio\/frontend\/dist-customer;/u);
+assert.match(inheritedTlsOutput, /ssl_certificate_key \/etc\/ssl\/shared\.key;/u);
 console.log("production host root configuration passed");

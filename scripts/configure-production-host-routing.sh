@@ -106,10 +106,12 @@ if missing and os.environ.get("NGINX_APPEND_MISSING", "1") == "1":
         )
 if os.environ.get("NGINX_REQUIRE_HTTPS", "0") == "1":
     missing_https = sorted(set(mapping) - set(changed_https))
-    if missing_https and ssl_template is None:
+    if missing_https and ssl_template is None and not (os.environ.get("NGINX_SSL_CERT") and os.environ.get("NGINX_SSL_KEY")):
         raise SystemExit("Missing HTTPS server block template for: " + ", ".join(missing_https))
     for host in missing_https:
         certificate = re.findall(r"(?m)^\s*ssl_certificate(?:_key)?\s+[^;]+;", ssl_template or "")
+        if not certificate:
+            certificate = [f"ssl_certificate {os.environ['NGINX_SSL_CERT']};", f"ssl_certificate_key {os.environ['NGINX_SSL_KEY']};"]
         out.append(
             "\nserver {\n"
             "  listen 443 ssl;\n"
