@@ -45,7 +45,7 @@ async function rebuildMarketing(output, root, deploymentSha) {
   if (process.env.VITE_REBUILD_MARKETING !== "1") return;
   await execFileAsync("npm", ["--workspace", "frontend", "run", "build", "--", "--outDir", output, "--emptyOutDir"], {
     cwd: root,
-    env: { ...process.env, VITE_PUBLIC_UNIVERSAL_AUTH: "1", VITE_APP_SURFACE: "marketing", VITE_LOCAL_SURFACES: "0", VITE_API_URL: API_ORIGIN, VITE_DEPLOY_SHA: deploymentSha }
+    env: { ...process.env, NODE_OPTIONS: process.env.NODE_OPTIONS || "--max-old-space-size=4096", VITE_PUBLIC_UNIVERSAL_AUTH: "1", VITE_APP_SURFACE: "marketing", VITE_LOCAL_SURFACES: "0", VITE_API_URL: API_ORIGIN, VITE_DEPLOY_SHA: deploymentSha }
   });
 }
 
