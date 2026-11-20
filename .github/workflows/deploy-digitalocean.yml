@@ -296,6 +296,9 @@ jobs:
           git checkout --detach "${DEPLOY_SHA}"
 
           DEVELOPER_PORTAL_ROOT="${DO_APP_DIR}/developer-portal/dist" bash scripts/configure-developer-hosts.sh
+          NGINX_SITE_FILE="/etc/nginx/sites-available/getprio" \
+            NGINX_DEVELOPER_SITE_FILE="/etc/nginx/sites-available/getprio-developer-portal" \
+            bash scripts/verify-production-host-routing.sh
 
           bash scripts/verify-fcm-config.sh
 
