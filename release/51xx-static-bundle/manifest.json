@@ -1,5 +1,7 @@
 {
   "schema": 1,
+  "buildStrategy": "source-checkout",
+  "sourceOfTruth": "release-commit",
   "createdAt": "2026-11-20T00:00:00Z",
   "api": {
     "localOrigin": "http://127.0.0.1:5091/api",

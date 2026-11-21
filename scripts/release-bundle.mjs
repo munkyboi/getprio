@@ -30,22 +30,25 @@ async function readManifest(root) {
   return JSON.parse(await fs.readFile(file, "utf8"));
 }
 
-async function safeExtract(archive, destination) {
-  const { stdout } = await execFileAsync("tar", ["-tzf", archive]);
-  for (const entry of stdout.split("\n").filter(Boolean)) {
-    const normalized = path.posix.normalize(entry);
-    if (normalized.startsWith("/") || normalized === ".." || normalized.startsWith("../")) {
-      fail(`Unsafe release archive entry: ${entry}`);
-    }
-  }
-  await execFileAsync("tar", ["-xzf", archive, "-C", destination]);
-}
-
-async function rebuildMarketing(output, root, deploymentSha) {
-  if (process.env.VITE_REBUILD_MARKETING !== "1") return;
+async function buildFrontendSurface(output, root, deploymentSha, surface) {
   await execFileAsync("npm", ["--workspace", "frontend", "run", "build", "--", "--outDir", output, "--emptyOutDir"], {
     cwd: root,
-    env: { ...process.env, NODE_OPTIONS: process.env.NODE_OPTIONS || "--max-old-space-size=4096", VITE_PUBLIC_UNIVERSAL_AUTH: "1", VITE_APP_SURFACE: "marketing", VITE_LOCAL_SURFACES: "0", VITE_API_URL: API_ORIGIN, VITE_DEPLOY_SHA: deploymentSha }
+    env: {
+      ...process.env,
+      NODE_OPTIONS: process.env.NODE_OPTIONS || "--max-old-space-size=4096",
+      VITE_PUBLIC_UNIVERSAL_AUTH: "1",
+      VITE_APP_SURFACE: surface,
+      VITE_LOCAL_SURFACES: "0",
+      VITE_API_URL: API_ORIGIN,
+      VITE_DEPLOY_SHA: deploymentSha
+    }
+  });
+}
+
+async function buildPlatformSurface(output, root, deploymentSha) {
+  await execFileAsync("npm", ["--prefix", "platform-dashboard-shadcn", "run", "build", "--", "--outDir", output, "--emptyOutDir"], {
+    cwd: root,
+    env: { ...process.env, NODE_OPTIONS: process.env.NODE_OPTIONS || "--max-old-space-size=4096", VITE_API_URL: API_ORIGIN, VITE_DEPLOY_SHA: deploymentSha }
   });
 }
 
@@ -66,7 +69,7 @@ async function validateMaterializedSite(site, output, deploymentSha) {
       await fs.writeFile(candidate, contents.replaceAll(TURNSTILE_PLACEHOLDER, siteKey));
     }
   }
-  if (!productionBound) fail(`Frozen ${site} artifact is not production-bound.`);
+  if (!productionBound) fail(`${site} artifact is not production-bound.`);
   if (site === "platform") {
     const revisionMeta = /(<meta\b[^>]*\bname=["']getprio-deploy-sha["'][^>]*\bcontent=["'])([a-f\d]{40})(["'])/iu;
     const rewritten = revisionMeta.test(html)
@@ -80,11 +83,10 @@ async function validateMaterializedSite(site, output, deploymentSha) {
 async function materialize(stage, deploymentSha) {
   if (!/^[a-f\d]{40}$/u.test(deploymentSha || "")) fail("A full deployment revision is required.");
   const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
-  const bundle = path.join(root, "release", "51xx-static-bundle");
   const manifest = await readManifest(root);
   if (manifest.api.production !== API_ORIGIN) fail("Release manifest has an unexpected production API origin.");
-  if (manifest.sites.length !== SITES.length || SITES.some((site) => !manifest.sites.some((item) => item.name === site))) {
-    fail("Release manifest does not contain all four frozen sites.");
+  if (manifest.buildStrategy !== "source-checkout" || manifest.sourceOfTruth !== "release-commit") {
+    fail("Release manifest must declare source-checkout as its source of truth.");
   }
   await fs.mkdir(stage, { recursive: true, mode: 0o755 });
   const stageNames = { marketing: "frontend", customer: "customer", vendor: "vendor", platform: "platform" };
@@ -92,11 +94,11 @@ async function materialize(stage, deploymentSha) {
     const output = path.join(stage, stageNames[site]);
     await fs.rm(output, { recursive: true, force: true });
     await fs.mkdir(output, { recursive: true, mode: 0o755 });
-    await safeExtract(path.join(bundle, `${site}.tar.gz`), output);
-    await rebuildMarketing(output, root, deploymentSha);
+    if (site === "platform") await buildPlatformSurface(output, root, deploymentSha);
+    else await buildFrontendSurface(output, root, deploymentSha, site);
     await validateMaterializedSite(site, output, deploymentSha);
   }
-  console.log(`Materialized four frozen static sites into ${stage}.`);
+  console.log(`Built and materialized four static sites from ${deploymentSha} into ${stage}.`);
 }
 
 async function publish(stage, deploymentSha) {
