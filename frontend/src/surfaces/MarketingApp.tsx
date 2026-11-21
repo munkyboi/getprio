@@ -8,6 +8,13 @@ import NotFoundPage from "../pages/NotFoundPage";
 import PublicShell from "./PublicShell";
 import UniversalAuthPage from "../pages/UniversalAuthPage";
 import { PublicThemeProvider } from "./PublicTheme";
+// Marketing can be built as a standalone surface; keep the first-party shell
+// reset and layout rules in this entry rather than relying on the legacy app
+// entry to import them.
+import "../styles.css";
+// Universal auth uses the shared shadcn primitives with the `v:` utility
+// prefix; load their utility layer in the standalone Marketing bundle too.
+import "../vendor/styles.css";
 // Keep the universal auth stylesheet in the Marketing entry chunk. The auth
 // route is the public landing surface and must not depend on route discovery
 // to load its card, field, OAuth, and responsive layout styles.
