@@ -52,3 +52,8 @@ test('local universal auth keeps the OAuth-enabled browser contract',()=>{
  assert.match(html,/auth-tab-customer/);
  assert.match(html,/Continue to Customer/);
 });
+test('unselected universal auth tab has no border or outline while selected tab keeps active treatment',()=>{
+ const css=fs.readFileSync(path.resolve(__dirname,'../src/pages/universal-auth.css'),'utf8');
+ assert.match(css,/\.universal-auth-tabs \[data-slot=tabs-trigger\]:not\(\[aria-selected=true\]\) \{[^}]*border: 0;[^}]*outline: 0/u);
+ assert.match(css,/\.universal-auth-tabs \[data-slot=tabs-trigger\]\[aria-selected=true\] \{[^}]*border: 1px solid var\(--border\)/u);
+});
