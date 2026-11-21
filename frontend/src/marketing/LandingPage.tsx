@@ -64,7 +64,7 @@ const services = [
 ] as const;
 
 const planArt: Record<SubscriptionPlan["slug"], string> = {
-  free: "/illustrations/generated/pricing-economical-transparent.png",
+  free: "/illustrations/generated/vendor-onboarding.png",
   economical: "/illustrations/generated/pricing-economical-transparent.png",
   pro: "/illustrations/generated/pricing-pro-transparent.png",
   enterprise: "/illustrations/generated/pricing-enterprise-transparent.png"
@@ -299,8 +299,8 @@ export default function LandingPage() {
       <section className="lp-pricing" id="pricing"><div className="marketing-container"><header className="prio-centered-copy" data-reveal><h2>A calmer day. At every scale.</h2></header>
         {pricingError && <Alert variant="error"><AlertDescription>{pricingError}</AlertDescription></Alert>}
         <div className="marketing-pricing-grid">{pricingPlans.map(plan => <Card className={plan.slug === "pro" ? "prio-pricing-card prio-pricing-card-featured" : "prio-pricing-card"} key={plan.slug}>
-          <CardHeader><img className="prio-plan-art" src={planArt[plan.slug]} alt="" /><h3 className="marketing-pricing-plan-name">{plan.name}</h3><CardDescription>{plan.bestFor}</CardDescription></CardHeader>
-          <CardContent><div className="prio-price" aria-label={getPlanPriceDisplay(plan)}><span>{plan.slug === "enterprise" ? "Starts at " : ""}{plan.price.currency}</span><div className="prio-price-line"><strong className="prio-price-amount">{monthlyPriceFormatter.format(plan.price.monthlyAmountCents / 100)}</strong><span>/mo</span></div></div><PricingHighlights plan={plan} expanded={pricingExpanded} onToggle={() => setPricingExpanded(value => !value)} /></CardContent>
+          <CardHeader><img className="prio-plan-art" src={planArt[plan.slug]} alt="" /><h3 className="marketing-pricing-plan-name">{plan.name}</h3></CardHeader>
+          <CardContent><div className="prio-price" aria-label={getPlanPriceDisplay(plan)}><span>{plan.slug === "enterprise" ? "Starts at " : ""}{plan.price.currency}</span><div className="prio-price-line"><strong className="prio-price-amount">{monthlyPriceFormatter.format(plan.price.monthlyAmountCents / 100)}</strong><span>/mo</span></div></div><CardDescription className="marketing-pricing-subtitle">{plan.bestFor}</CardDescription><PricingHighlights plan={plan} expanded={pricingExpanded} onToggle={() => setPricingExpanded(value => !value)} /></CardContent>
           <CardFooter>{plan.name === "Enterprise" ? <Button variant="outline" onClick={() => setEnterpriseDialogOpen(true)}>Request setup</Button> : <Button variant={plan.slug === "pro" ? "default" : "outline"} render={<a href={appUrl("vendor", "/register")} />}>{plan.slug === "free" ? "Start free" : "Choose plan"}</Button>}</CardFooter>
         </Card>)}</div></div></section>
       <section id="get-started" className="lp-closing" aria-labelledby="closing-title">

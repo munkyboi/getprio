@@ -21,7 +21,10 @@ assert.match(styles, /\.lp-section-head \{ grid-template-columns: minmax\(0, 1\.
 assert.match(styles, /\.lp-page \.lp-pricing \.prio-centered-copy > h2 \{ display: block; max-width: 760px; margin: 0 auto 48px; text-align: center;.*font-size: clamp\(40px, 5vw, 64px\)/u);
 assert.match(pricingHighlights, /className="marketing-pricing-toggle"/u);
 assert.match(landing, /<h3 className="marketing-pricing-plan-name">\{plan\.name\}<\/h3>/u);
+assert.match(landing, /free: "\/illustrations\/generated\/vendor-onboarding\.png"/u);
+assert.match(landing, /<CardDescription className="marketing-pricing-subtitle">\{plan\.bestFor\}<\/CardDescription>/u);
 assert.match(styles, /\.lp-page \.marketing-pricing-plan-name \{[^}]*font-family: var\(--lp-heading-font\);/u);
+assert.match(styles, /\.lp-page \.marketing-pricing-subtitle \{[^}]*color: var\(--muted-foreground\);/u);
 assert.match(styles, /\.marketing-pricing-toggle \{ display: flex; align-items: center; justify-content: center; gap: 12px; width: 100%; min-height: 44px; margin-top: 8px;.*color: #786c5d/u);
 assert.match(styles, /\.marketing-pricing-toggle::before, \.marketing-pricing-toggle::after \{ content: ""; flex: 1 1 auto; height: 1px; min-width: 24px;/u);
 assert.match(marketingStyles, /\.marketing-pricing-features > div:not\(\[hidden\]\) \{ display: grid; gap: 14px; \}/u);
