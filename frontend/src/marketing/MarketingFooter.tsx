@@ -59,6 +59,6 @@ export default function MarketingFooter() {
       <p>GetPrio connects you with trusted professionals for every task. Book with confidence, pay securely, and get things done.</p>
       <div className="marketing-social-links">{socialLinks.map(({ label, Icon, href }) => <a key={label} aria-label={label} href={href} target={href === "#" ? undefined : "_blank"} rel={href === "#" ? undefined : "noopener noreferrer"}><Icon aria-hidden="true" size={18} /></a>)}</div>
     </div>{footerGroups.map(group => <section key={group.title}><h2>{group.title}</h2><ul>{group.links.map(link => <li key={link.label}>{"href" in link ? <a href={link.href} target="_blank" rel="noopener noreferrer">{link.label}<IconChevronRight aria-hidden="true" size={14} /></a> : <Link to={link.to} reloadDocument={link.to.includes("#")}>{link.label}<IconChevronRight aria-hidden="true" size={14} /></Link>}</li>)}</ul></section>)}</div>
-    <Separator /><div className="marketing-footer-bottom"><p>© 2026 MNK-Labs Software Development Services</p><div><a href={appUrl("marketing", "/privacy-policy")}>Privacy Policy</a><a href={appUrl("marketing", "/terms")}>Terms of Service</a></div></div>
+    <Separator className="marketing-footer-separator" /><div className="marketing-footer-bottom"><p>© 2026 MNK-Labs Software Development Services</p><div><a href={appUrl("marketing", "/privacy-policy")}>Privacy Policy</a><a href={appUrl("marketing", "/terms")}>Terms of Service</a></div></div>
   </div></footer>;
 }

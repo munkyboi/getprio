@@ -8,6 +8,7 @@ const pricingHighlights = fs.readFileSync(path.join(root, "marketing/PricingHigh
 const workflow = fs.readFileSync(path.join(root, "pages/WorkflowSpotlight.tsx"), "utf8");
 const styles = fs.readFileSync(path.join(root, "marketing/LandingMotion.css"), "utf8");
 const marketingStyles = fs.readFileSync(path.join(root, "marketing/styles.css"), "utf8");
+const footer = fs.readFileSync(path.join(root, "marketing/MarketingFooter.tsx"), "utf8");
 
 for (const label of ["LESS WAITING. MORE LIVING.", "01 / A BETTER KIND OF WAIT", "02 / CONNECTED BY DESIGN", "A BETTER DAY STARTS HERE"]) {
   assert.doesNotMatch(landing, new RegExp(label.replace(/[.*+?^${}()|[\\]\\]/g, "\\$&"), "u"));
@@ -15,7 +16,11 @@ for (const label of ["LESS WAITING. MORE LIVING.", "01 / A BETTER KIND OF WAIT",
 assert.doesNotMatch(workflow, /03 \/ THE GETPRIO WAY/u);
 assert.doesNotMatch(landing, /YOUR PLACE IS KEPT|YOUR DAY IS YOURS/u);
 assert.match(landing, /className="lp-feature-heading"/u);
+assert.doesNotMatch(landing, /lp-feature-number|0\{index \+ 1\}/u);
 assert.match(styles, /\.lp-feature-heading \{ display: flex; align-items: center;/u);
+assert.match(styles, /\.lp-feature h3 \{[^}]*margin: 0;/u);
+assert.match(footer, /<Separator className="marketing-footer-separator" \/>/u);
+assert.match(marketingStyles, /\.marketing-footer-separator \{ width: 100%; height: 1px; min-height: 1px; background: rgba\(255, 255, 255, \.16\); \}/u);
 assert.match(styles, /\.lp-page \.prio-pricing-card \.mantine-Button-root \{ width: 100%; \}/u);
 assert.match(styles, /\.lp-section-head \{ grid-template-columns: minmax\(0, 1\.25fr\) minmax\(240px, \.75fr\); align-items: center;/u);
 assert.match(styles, /\.lp-page \.lp-pricing \.prio-centered-copy > h2 \{ display: block; max-width: 760px; margin: 0 auto 48px; text-align: center;.*font-size: clamp\(40px, 5vw, 64px\)/u);

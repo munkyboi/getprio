@@ -51,8 +51,7 @@
 .lp-feature { position: relative; border-bottom: 1px solid #d8cebc; padding: 25px 0; }
 .lp-feature-heading { display: flex; align-items: center; gap: 12px; }
 .lp-feature-heading > svg { color: #ba6026; flex: 0 0 auto; }
-.lp-feature-number { position: absolute; right: 0; top: 25px; color: #a89a88; font-size: 10px; }
-.lp-feature h3 { font-family: "Aleo", Georgia, serif; font-weight: 400; font-size: 23px; line-height: 1.15; margin: 0 0 10px; }
+.lp-feature h3 { font-family: "Aleo", Georgia, serif; font-weight: 400; font-size: 23px; line-height: 1.15; margin: 0; }
 .lp-feature p { color: #796e60; line-height: 1.7; font-size: 13px; max-width: 270px; }
 .lp-page .lp-pricing { background: #f4efe4; padding: 75px 0; }
 .lp-page .prio-pricing-card .mantine-Button-root { width: 100%; }

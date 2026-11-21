@@ -287,9 +287,9 @@ export default function LandingPage() {
             <ConnectedScreensParallax />
             <div className="lp-stage-foot"><span>THE PUBLIC BOARD</span><span>YOUR PHONE</span><span>YOUR TEAM</span></div>
           </div>
-          <div className="lp-feature-list">{services.map((service, index) => {
+          <div className="lp-feature-list">{services.map(service => {
             const Icon = service.icon;
-            return <article className="lp-feature" key={service.title}><span className="lp-feature-number">0{index + 1}</span><div className="lp-feature-heading"><Icon size={26} stroke={1.5} /><h3>{service.title}</h3></div><p>{service.text}</p></article>;
+            return <article className="lp-feature" key={service.title}><div className="lp-feature-heading"><Icon size={26} stroke={1.5} /><h3>{service.title}</h3></div><p>{service.text}</p></article>;
           })}</div>
         </div>
       </section>
