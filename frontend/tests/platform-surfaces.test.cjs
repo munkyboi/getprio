@@ -7,7 +7,7 @@ function loadModule(file,envOverrides={},globals={}) {
 const config=loadModule('surfaces/surfaceConfig.ts');
 test('cross-app origin registry keeps all local links local and rejects malformed or missing origins',()=>{
  const urls=config.createAppUrls({marketing:env.VITE_MARKETING_URL,customer:env.VITE_CUSTOMER_APP_URL,vendor:env.VITE_VENDOR_APP_URL,platform:env.VITE_PLATFORM_DASHBOARD_URL,developers:env.VITE_DEVELOPER_PORTAL_URL},true);
- assert.equal(urls('vendor','/login'),'http://127.0.0.1:5192/login');assert.equal(urls('customer','/register'),'http://127.0.0.1:5191/register');assert.throws(()=>urls('vendor','//evil.example'));assert.throws(()=>config.createAppUrls({},true));
+ assert.equal(urls('vendor','/login'),'http://localhost:5192/login');assert.equal(urls('customer','/register'),'http://localhost:5191/register');assert.throws(()=>urls('vendor','//evil.example'));assert.throws(()=>config.createAppUrls({},true));
  for(const value of ['https://user:pass@example.com','https://example.com/path','http://evil.example']) assert.throws(()=>config.validateAppOrigin(value));
 });
 test('same-app next keeps legitimate query and fragment and rejects other app / hostile targets',()=>{
@@ -18,7 +18,7 @@ test('same-app next keeps legitimate query and fragment and rejects other app / 
 test('customer and vendor auth navigation each include other login/register and public home without token transfer',()=>{
  for(const surface of ['vendor','customer']) {
   const {AuthAppLinks}=loadModule('surfaces/AuthAppLinks.tsx',{VITE_APP_SURFACE:surface});const html=renderToStaticMarkup(React.createElement(MemoryRouter,null,React.createElement(AuthAppLinks,{surface})));const port=surface==='vendor'?5191:5192;
-  assert.ok(html.includes(`http://127.0.0.1:${port}/login`));assert.ok(html.includes(`http://127.0.0.1:${port}/register`));assert.ok(html.includes('http://127.0.0.1:5190/'));assert.doesNotMatch(html,/token=|next=|password=/);
+  assert.ok(html.includes(`http://localhost:${port}/login`));assert.ok(html.includes(`http://localhost:${port}/register`));assert.ok(html.includes('http://localhost:5190/'));assert.doesNotMatch(html,/token=|next=|password=/);
  }
 });
 function extract(file,find,context){const source=fs.readFileSync(path.resolve(__dirname,'../src',file),'utf8');const ast=ts.createSourceFile(file,source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TSX);let found;function visit(node){if(find(node))found=node;ts.forEachChild(node,visit);}visit(ast);assert.ok(found);const ctx={...context,exports:{}};vm.createContext(ctx);vm.runInContext(ts.transpileModule('exports.run='+(ts.isVariableDeclaration(found) ? found.initializer : found).getText(ast),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText,ctx);return ctx.exports.run;}
@@ -43,12 +43,17 @@ function routeApp(file, universal = false) {
  const mod={exports:{}};const passthrough=({children})=>React.createElement('div',null,children);
  const fakeRequire=id=>{
   if(id.includes('/pages/'))return {__esModule:true,default:()=>React.createElement('p',null,id.split('/').pop())};
+  if(id.includes('/marketing/')&&!id.endsWith('/marketing/MarketingShell'))return {__esModule:true,default:()=>React.createElement('p',null,id.split('/').pop())};
+  if(id.endsWith('/marketing/MarketingShell'))return {__esModule:true,default:passthrough};
+  if(id.endsWith('/styles.css')||id.endsWith('/vendor/styles.css'))return {};
   if(id==='./PublicShell'||id.endsWith('/MaintenanceBoundary'))return {__esModule:true,default:passthrough};
+  if(id==='./PublicTheme')return {PublicThemeProvider:passthrough};
   if(id==='./PublicAuthRedirect')return {__esModule:true,default:()=>React.createElement('p',null,'PublicAuthRedirect'),publicUniversalAuthEnabled:universal};
   if(id.endsWith('/AuthContext'))return {useAuth:()=>({user:null,loading:false})};
   if(id.endsWith('/VendorAuthLayout'))return {VendorAuthLayout:passthrough};
   if(id.endsWith('/workspace'))return {activeMemberships:()=>[],readPreference:()=>null,workspacePath:()=>'/dashboard/overview',preferenceKey:()=>''};
   if(id.endsWith('/navigationGuard'))return {VendorNavigationGuard:React.createContext(null)};
+  if(id==='@vendor/components/ui/toast')return {Toaster:passthrough};
   if(id==='../queuePaths')return {JOINED_QUEUE_ROUTE_PATH:'/ticket/:tenantSlug/:locationSlug?',MONITOR_ROUTE_PATH:'/monitor/:tenantSlug/:locationSlug?',LEGACY_MONITOR_ROUTE_PATH:'/legacy/:tenantSlug/:locationSlug?'};
   return require(id);
  };

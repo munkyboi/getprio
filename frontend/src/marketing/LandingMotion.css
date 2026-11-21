@@ -100,8 +100,9 @@
   .lp-hero-footer { font-size: 9px; margin-top: 35px; }
   .lp-manifesto { padding: 110px 0; }
   .lp-features { padding: 85px 0 110px; }
-  .lp-section-head { grid-template-columns: .65fr 1.25fr .8fr; align-items: end; gap: 25px; }
-  .lp-section-head .lp-eyebrow { align-self: start; }
+  .lp-section-head { grid-template-columns: minmax(0, 1.25fr) minmax(240px, .75fr); align-items: center; gap: 48px; }
+  .lp-section-head h2 { max-width: 760px; }
+  .lp-section-head > p:last-child { justify-self: end; }
   .lp-feature-stage { padding: 35px 40px 20px; }
   .lp-scene-art { width: min(100%, 920px); }
   .lp-stage-foot { font-size: 10px; }

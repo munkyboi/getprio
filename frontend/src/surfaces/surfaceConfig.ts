@@ -21,8 +21,12 @@ export function createAppUrls(values: Partial<Record<AppPurpose, string>>, local
     const value = values[purpose as AppPurpose];
     if (local && !value) throw new Error(`Missing local ${purpose} application origin.`);
     const canonical = validateAppOrigin(value || fallback);
-    if (local && !["localhost", "127.0.0.1", "[::1]"].includes(new URL(canonical).hostname)) throw new Error("Local application origins must stay on loopback.");
-    return [purpose, canonical];
+    const parsed = new URL(canonical);
+    if (local && !["localhost", "127.0.0.1", "[::1]"].includes(parsed.hostname)) throw new Error("Local application origins must stay on loopback.");
+    // Keep local browser links on the same hostname users opened. This avoids
+    // switching from localhost to 127.0.0.1 and losing host-scoped sessions.
+    if (local && parsed.hostname === "127.0.0.1") parsed.hostname = "localhost";
+    return [purpose, parsed.origin];
   })) as Record<AppPurpose, string>;
   return (purpose: AppPurpose, path = "/") => {
     if (!path.startsWith("/") || path.startsWith("//") || /[\\\u0000-\u001f\u007f]/.test(path)) throw new Error("Invalid application path.");

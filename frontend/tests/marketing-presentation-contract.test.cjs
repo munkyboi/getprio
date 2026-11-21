@@ -14,5 +14,6 @@ assert.doesNotMatch(workflow, /03 \/ THE GETPRIO WAY/u);
 assert.match(landing, /className="lp-feature-heading"/u);
 assert.match(styles, /\.lp-feature-heading \{ display: flex; align-items: center;/u);
 assert.match(styles, /\.lp-page \.prio-pricing-card \.mantine-Button-root \{ width: 100%; \}/u);
+assert.match(styles, /\.lp-section-head \{ grid-template-columns: minmax\(0, 1\.25fr\) minmax\(240px, \.75fr\); align-items: center;/u);
 
 console.log("marketing presentation contract passed");

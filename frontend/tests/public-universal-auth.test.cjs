@@ -21,16 +21,16 @@ test('browser and server auth capability lists stay identical for every advertis
 test('destination depends on selected app and real membership; rejects hostile and cross-app next',()=>{
  const {authDestination}=load('pages/UniversalAuthPage.tsx');
  const user={name:'Example',tenants:[{isActive:true}],mfaRequired:false,mfaEnabled:false};
- assert.equal(authDestination('customer',user,'/dashboard'),'http://127.0.0.1:5191/account/dashboard');
+ assert.equal(authDestination('customer',user,'/dashboard'),'http://localhost:5191/account/dashboard');
  assert.equal(authDestination('vendor',{...user,tenants:[]},'/dashboard'),null);
- assert.equal(authDestination('vendor',user,'//evil.example'),'http://127.0.0.1:5192/dashboard');
- assert.equal(authDestination('customer',user,'/account/bookings?q=50%25#details'),'http://127.0.0.1:5191/account/bookings?q=50%25#details');
- assert.equal(authDestination('vendor',{...user,mfaRequired:true},'/dashboard/queue'),'http://127.0.0.1:5192/dashboard/account');
+ assert.equal(authDestination('vendor',user,'//evil.example'),'http://localhost:5192/dashboard');
+ assert.equal(authDestination('customer',user,'/account/bookings?q=50%25#details'),'http://localhost:5191/account/bookings?q=50%25#details');
+ assert.equal(authDestination('vendor',{...user,mfaRequired:true},'/dashboard/queue'),'http://localhost:5192/dashboard/account');
 });
 test('compatibility forwarding carries allowlisted intent and relative return only',()=>{
  const {publicAuthEntry}=load('surfaces/PublicAuthRedirect.tsx');
  const url=new URL(publicAuthEntry('customer','register','?app=vendor&next=%2Faccount%2Fbookings%3Fx%3D1%23details&token=secret&email=private'));
- assert.equal(url.origin,'http://127.0.0.1:5190');assert.equal(url.pathname,'/register');assert.equal(url.searchParams.get('app'),'customer');assert.equal(url.searchParams.get('next'),'/account/bookings?x=1#details');assert.equal(url.searchParams.has('token'),false);assert.equal(url.searchParams.has('email'),false);
+ assert.equal(url.origin,'http://localhost:5190');assert.equal(url.pathname,'/register');assert.equal(url.searchParams.get('app'),'customer');assert.equal(url.searchParams.get('next'),'/account/bookings?x=1#details');assert.equal(url.searchParams.has('token'),false);assert.equal(url.searchParams.has('email'),false);
  assert.throws(()=>publicAuthEntry('customer','login','?resetToken=offline-secret'),/originating app/);
 });
 test('public login and registration render complete selected forms and accessible tabs',()=>{
