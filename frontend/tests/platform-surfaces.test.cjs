@@ -51,6 +51,7 @@ function routeApp(file) {
   if(id.endsWith('/VendorAuthLayout'))return {VendorAuthLayout:passthrough};
   if(id.endsWith('/workspace'))return {activeMemberships:()=>[],readPreference:()=>null,workspacePath:()=>'/dashboard/overview',preferenceKey:()=>''};
   if(id.endsWith('/navigationGuard'))return {VendorNavigationGuard:React.createContext(null)};
+  if(id.endsWith('.css'))return {};
   if(id==='../queuePaths')return {JOINED_QUEUE_ROUTE_PATH:'/ticket/:tenantSlug/:locationSlug?',MONITOR_ROUTE_PATH:'/monitor/:tenantSlug/:locationSlug?',LEGACY_MONITOR_ROUTE_PATH:'/legacy/:tenantSlug/:locationSlug?'};
   return require(id);
  };
