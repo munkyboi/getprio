@@ -39,7 +39,7 @@ function MarketingPublicShell({ children }: { children: ReactNode }) {
         <div className="marketing-header-actions">
           <nav className="marketing-desktop-nav" aria-label="Main navigation">{links}</nav>
           <button
-            className="marketing-theme-toggle public-theme-toggle"
+            className="public-theme-toggle"
             type="button"
             onClick={publicTheme?.toggleTheme}
             aria-label={dark ? "Switch to light mode" : "Switch to dark mode"}

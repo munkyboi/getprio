@@ -3262,6 +3262,7 @@ button {
 .marketing-nav-link,
 .marketing-nav-cta,
 .marketing-theme-toggle,
+.public-theme-toggle,
 .marketing-menu-trigger {
   min-height: 44px;
   border-radius: 0.65rem;
@@ -3293,6 +3294,7 @@ button {
 }
 
 .marketing-theme-toggle,
+.public-theme-toggle,
 .marketing-menu-trigger {
   display: inline-grid;
   place-items: center;
