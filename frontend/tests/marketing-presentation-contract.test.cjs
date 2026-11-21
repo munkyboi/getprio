@@ -9,6 +9,8 @@ const workflow = fs.readFileSync(path.join(root, "pages/WorkflowSpotlight.tsx"),
 const styles = fs.readFileSync(path.join(root, "marketing/LandingMotion.css"), "utf8");
 const marketingStyles = fs.readFileSync(path.join(root, "marketing/styles.css"), "utf8");
 const footer = fs.readFileSync(path.join(root, "marketing/MarketingFooter.tsx"), "utf8");
+const auth = fs.readFileSync(path.join(root, "pages/UniversalAuthPage.tsx"), "utf8");
+const authStyles = fs.readFileSync(path.join(root, "pages/universal-auth.css"), "utf8");
 
 for (const label of ["LESS WAITING. MORE LIVING.", "01 / A BETTER KIND OF WAIT", "02 / CONNECTED BY DESIGN", "A BETTER DAY STARTS HERE"]) {
   assert.doesNotMatch(landing, new RegExp(label.replace(/[.*+?^${}()|[\\]\\]/g, "\\$&"), "u"));
@@ -21,6 +23,11 @@ assert.match(styles, /\.lp-feature-heading \{ display: flex; align-items: center
 assert.match(styles, /\.lp-feature h3 \{[^}]*margin: 0;/u);
 assert.match(footer, /<Separator className="marketing-footer-separator" \/>/u);
 assert.match(marketingStyles, /\.marketing-footer-separator \{ width: 100%; height: 1px; min-height: 1px; background: rgba\(255, 255, 255, \.16\); \}/u);
+assert.match(marketingStyles, /\.marketing-footer-bottom \{ display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 24px; margin-top: 24px; \}/u);
+assert.match(marketingStyles, /\.marketing-footer-bottom > div \{ display: flex; flex-wrap: wrap; gap: 24px; \}/u);
+assert.match(auth, /<Link className="universal-auth-back-link" to="\/">\s*<IconArrowLeft/u);
+assert.match(authStyles, /\.universal-auth-back-link \{ display: inline-flex; align-items: center; gap: 8px; \}/u);
+assert.match(auth, /fetch\(`\$\{oauthApiBase\}\/public\/business-categories`/u);
 assert.match(styles, /\.lp-page \.prio-pricing-card \.mantine-Button-root \{ width: 100%; \}/u);
 assert.match(styles, /\.lp-section-head \{ grid-template-columns: minmax\(0, 1\.25fr\) minmax\(240px, \.75fr\); align-items: center;/u);
 assert.match(styles, /\.lp-page \.lp-pricing \.prio-centered-copy > h2 \{ display: block; max-width: 760px; margin: 0 auto 48px; text-align: center;.*font-size: clamp\(40px, 5vw, 64px\)/u);

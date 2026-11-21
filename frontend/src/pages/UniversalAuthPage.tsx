@@ -11,7 +11,7 @@ import googleIcon from "../assets/auth/google.svg";
 import facebookIcon from "../assets/auth/facebook-supplied.png";
 import appleLightIcon from "../assets/auth/apple-light.png";
 import appleDarkIcon from "../assets/auth/apple-dark.png";
-import { IconBuildingStore, IconUser } from "@tabler/icons-react";
+import { IconArrowLeft, IconBuildingStore, IconUser } from "@tabler/icons-react";
 import { Button } from "@vendor/components/ui/button";
 import { Input } from "@vendor/components/ui/input";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@vendor/components/ui/tabs";
@@ -77,10 +77,13 @@ export default function UniversalAuthPage() {
   useEffect(() => {
     if (!publicUniversalAuthEnabled || !register || app !== "vendor") return;
     const controller = new AbortController(); setCategoryError("");
-    publicAuthRequest<{ items: Array<{ id: string; name: string }> }>("/public/business-categories", { signal: controller.signal })
+    const categoryRequest = localOAuth
+      ? fetch(`${oauthApiBase}/public/business-categories`, { signal: controller.signal, credentials: "include" }).then(response => { if (!response.ok) throw new Error("Business categories unavailable"); return response.json() as Promise<{ items: Array<{ id: string; name: string }> }>; })
+      : publicAuthRequest<{ items: Array<{ id: string; name: string }> }>("/public/business-categories", { signal: controller.signal });
+    categoryRequest
       .then(data => setCategories(data.items)).catch(failure => { if (!controller.signal.aborted) setCategoryError(getErrorMessage(failure)); });
     return () => controller.abort();
-  }, [app, register, categoryRetry]);
+  }, [app, register, categoryRetry, localOAuth, oauthApiBase]);
   const next = safeSurfaceNext(params.get("next"), app);
   function finish(user: UserSummary) {
     const destination = authDestination(app, user, next);
@@ -124,7 +127,7 @@ export default function UniversalAuthPage() {
   if (!publicUniversalAuthEnabled) return <section className="universal-auth"><h1>Sign in to GetPrio</h1><p>Choose your application.</p><a href={appUrl("vendor", "/login")}>Vendor login</a> <a href={appUrl("customer", "/login")}>Customer login</a></section>;
   const title = challenge ? "Verify your sign-in" : recovery ? "Reset your password" : register ? "Create your GetPrio account" : "Welcome back";
   return <section className="universal-auth" data-theme={dark ? "dark" : "light"}>
-    <div className="universal-auth-board"><aside className="universal-auth-editorial"><h1>{register ? "Start with GetPrio." : "Make room for what matters."}</h1><p className="universal-auth-editorial-lead">Bookings, queues, and your business in one place.</p><img className="universal-auth-graphic" src="/illustrations/public/getprio-auth-reference-redraw.png" alt="Ink illustration of a customer with a phone beside a vendor at a counter" /><Link to="/">Back to home</Link></aside>
+    <div className="universal-auth-board"><aside className="universal-auth-editorial"><h1>{register ? "Start with GetPrio." : "Make room for what matters."}</h1><p className="universal-auth-editorial-lead">Bookings, queues, and your business in one place.</p><img className="universal-auth-graphic" src="/illustrations/public/getprio-auth-reference-redraw.png" alt="Ink illustration of a customer with a phone beside a vendor at a counter" /><Link className="universal-auth-back-link" to="/"><IconArrowLeft aria-hidden="true" size={16} />Back to home</Link></aside>
     <Card className="universal-auth-card"><CardHeader><CardTitle className="universal-auth-title">{title}</CardTitle><CardDescription>{register ? "Choose how you’ll use GetPrio, then create your account." : "Choose where you want to continue after signing in."}</CardDescription></CardHeader><CardContent>
       <Tabs value={app} onValueChange={value => choose(value as "customer" | "vendor")}><TabsList className="universal-auth-tabs" aria-label="Choose Customer or Vendor">{(["customer", "vendor"] as const).map(surface => <TabsTrigger id={`auth-tab-${surface}`} key={surface} value={surface} disabled={busy || !!challenge}>{surface === "customer" ? <IconUser aria-hidden="true" /> : <IconBuildingStore aria-hidden="true" />}{surface === "customer" ? "Customer" : "Vendor"}</TabsTrigger>)}</TabsList>
       <p className="universal-auth-intent">{app === "vendor" ? "Continue to your Vendor workspace" : "Continue to your Customer dashboard"}</p>
