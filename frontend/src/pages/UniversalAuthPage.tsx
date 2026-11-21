@@ -7,6 +7,10 @@ import { publicUniversalAuthEnabled } from "../surfaces/PublicAuthRedirect";
 import { getErrorMessage } from "../utils/errors";
 import { readPublicAuthTheme } from "./publicAuthTheme";
 import { usePublicTheme } from "../surfaces/PublicTheme";
+import googleIcon from "../assets/auth/google.svg";
+import facebookIcon from "../assets/auth/facebook-supplied.png";
+import appleLightIcon from "../assets/auth/apple-light.png";
+import appleDarkIcon from "../assets/auth/apple-dark.png";
 import { IconBuildingStore, IconUser } from "@tabler/icons-react";
 import { Button } from "@vendor/components/ui/button";
 import { Input } from "@vendor/components/ui/input";
@@ -29,7 +33,7 @@ export function authDestination(surface: "customer" | "vendor", user: UserSummar
 export default function UniversalAuthPage() {
   const location = useLocation();
   const [params, setParams] = useSearchParams();
-  const app = params.get("app") === "customer" ? "customer" : params.get("app") === "vendor" ? "vendor" : !params.has("app") && location.pathname.endsWith("/customer") ? "customer" : "vendor";
+  const app = params.get("app") === "customer" ? "customer" : params.get("app") === "vendor" ? "vendor" : "customer";
   const register = location.pathname.startsWith("/register");
   const [busy, setBusy] = useState(false);
   const commandVersion = useRef(0);
@@ -48,18 +52,27 @@ export default function UniversalAuthPage() {
   const [categories, setCategories] = useState<Array<{ id: string; name: string }>>([]);
   const [categoryError, setCategoryError] = useState("");
   const [categoryRetry, setCategoryRetry] = useState(0);
+  // The 5190 local marketing preview uses the OAuth-enabled local API on 5390.
+  // Keep this origin explicit so provider discovery does not silently inherit
+  // the dashboard API's disabled-provider fixture.
+  const localOAuth = import.meta.env.VITE_LOCAL_SURFACES === "1" && typeof window !== "undefined" && window.location.hostname === "localhost" && window.location.port === "5190";
+  const oauthApiBase = localOAuth ? "http://localhost:5390/api" : API_BASE_URL;
   useEffect(() => {
     if (!publicUniversalAuthEnabled) return;
     const version = commandVersion.current;
     const controller = new AbortController();
-    publicAuthRequest<OAuthProvidersResponse>("/auth/oauth/providers", { signal: controller.signal }).then(data => setProviders(data.providers)).catch(() => {});
+    setProviders({ google: false, facebook: false, apple: false });
+    const discovery = localOAuth
+      ? fetch(`${oauthApiBase}/auth/oauth/providers`, { signal: controller.signal, credentials: "include" }).then(response => { if (!response.ok) throw new Error("OAuth providers unavailable"); return response.json() as Promise<OAuthProvidersResponse & { browserProviders?: OAuthProvidersResponse["providers"] }>; })
+      : publicAuthRequest<OAuthProvidersResponse>("/auth/oauth/providers", { signal: controller.signal });
+    discovery.then(data => { if (!controller.signal.aborted) setProviders(localOAuth ? ((data as OAuthProvidersResponse & { browserProviders?: OAuthProvidersResponse["providers"] }).browserProviders || data.providers) : data.providers); }).catch(() => {});
     publicAuthRequest<{ user: UserSummary }>("/auth/me", { signal: controller.signal }).catch(async failure => {
       if (!(failure instanceof ApiError) || failure.status !== 401 || controller.signal.aborted) throw failure;
       await publicAuthRequest("/auth/csrf", { signal: controller.signal });
       return publicAuthRequest<AuthResponse>("/auth/refresh", { method: "POST", body: {}, signal: controller.signal });
     }).then(data => { if (commandVersion.current === version) setIdentity(data.user); }).catch(() => {});
     return () => controller.abort();
-  }, []);
+  }, [localOAuth, oauthApiBase]);
   useEffect(() => { restart(); setRecovery(false); }, [app, register]);
   useEffect(() => {
     if (!publicUniversalAuthEnabled || !register || app !== "vendor") return;
@@ -128,7 +141,8 @@ export default function UniversalAuthPage() {
       {error && <Alert variant="error" role="alert"><AlertDescription>{error}</AlertDescription></Alert>}{message && <Alert role="status"><AlertDescription>{message}</AlertDescription></Alert>}
       {challenge ? <div className="universal-auth-actions">{methods.includes("email") && <Button variant="outline" type="button" disabled={busy} onClick={() => void sendEmail()}>Send a new email code</Button>}{methods.includes("recovery") && <Button variant="outline" type="button" disabled={busy} onClick={() => { setRecoveryMethod(true); setEmailMethod(false); setChallenge(originalChallenge); setMessage(""); }}>Use a recovery code</Button>}{methods.includes("totp") && <Button variant="outline" type="button" disabled={busy} onClick={() => { setRecoveryMethod(false); setEmailMethod(false); setChallenge(originalChallenge); setMessage(""); }}>Use authenticator</Button>}<Button variant="outline" type="button" disabled={busy} onClick={restart}>Start over</Button></div> : <>
       <Button variant="link" type="button" className="universal-auth-link" disabled={busy} onClick={() => { setRecovery(!recovery); setError(""); setMessage(""); }}>{recovery ? "Back to sign in" : "Forgot your password?"}</Button>
-      {!recovery && !identity && <div className="universal-auth-actions">{Object.entries(providers).filter(([, enabled]) => enabled).map(([provider]) => <Button variant="outline" key={provider} type="button" disabled={busy} onClick={() => { const url = new URL(`${API_BASE_URL}/auth/oauth/${provider}/start`); url.searchParams.set("surface", app); url.searchParams.set("intent", register ? `register_${app}` : "login"); url.searchParams.set("next", next); window.location.assign(url.href); }}>Continue with {provider}</Button>)}</div>}
+      {!recovery && !identity && Object.values(providers).some(Boolean) && <div style={{ display: "flex", alignItems: "center", gap: 12, color: "var(--muted-foreground)", fontSize: 14, marginTop: 20 }}><span aria-hidden="true" style={{ flex: 1, height: 1, backgroundColor: "currentColor", opacity: 0.35 }} /><span>or continue with</span><span aria-hidden="true" style={{ flex: 1, height: 1, backgroundColor: "currentColor", opacity: 0.35 }} /></div>}
+      {!recovery && !identity && <div className="universal-auth-actions" style={{ display: "flex", justifyContent: "center", flexWrap: "wrap" }}>{Object.entries(providers).filter(([, enabled]) => enabled).map(([provider]) => { const icon = provider === "google" ? googleIcon : provider === "facebook" ? facebookIcon : provider === "apple" ? (dark ? appleDarkIcon : appleLightIcon) : undefined; const label = `Continue with ${provider.charAt(0).toUpperCase()}${provider.slice(1)}`; return <Button variant="outline" key={provider} type="button" disabled={busy} aria-label={icon ? label : undefined} title={icon ? label : undefined} style={icon ? { width: 48, height: 48, padding: 8, flex: "0 0 48px" } : undefined} onClick={() => { const url = new URL(`${oauthApiBase}/auth/oauth/${provider}/start`); url.searchParams.set("surface", app); url.searchParams.set("intent", register ? `register_${app}` : "login"); url.searchParams.set("next", next); window.location.assign(url.href); }}>{icon ? <img src={icon} alt="" width={32} height={32} style={provider === "facebook" ? { transform: "scale(1.5)" } : undefined} /> : <>Continue with {provider}</>}</Button>; })}</div>}
       </>}
       </TabsContent></Tabs></CardContent>{!challenge && <CardFooter><p>{register ? "Already have an account?" : "New to GetPrio?"} <Link aria-disabled={busy} onClick={event => { if (busy) event.preventDefault(); }} to={`/${register ? "login" : "register"}?app=${app}&next=${encodeURIComponent(next)}`}>{register ? "Sign in" : "Create an account"}</Link></p></CardFooter>}</Card></div>
   </section>;

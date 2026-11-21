@@ -1,8 +1,8 @@
-const test=require('node:test'),assert=require('node:assert/strict'),path=require('node:path'),vm=require('node:vm');
+const test=require('node:test'),assert=require('node:assert/strict'),path=require('node:path'),fs=require('node:fs'),vm=require('node:vm');
 const {buildSync}=require('esbuild'),React=require('react'),{renderToStaticMarkup}=require('react-dom/server'),{MemoryRouter}=require('react-router-dom');
 const env={VITE_PUBLIC_UNIVERSAL_AUTH:'1',VITE_LOCAL_SURFACES:'1',VITE_APP_SURFACE:'marketing',VITE_API_URL:'http://127.0.0.1:5091/api',VITE_MARKETING_URL:'http://127.0.0.1:5190',VITE_CUSTOMER_APP_URL:'http://127.0.0.1:5191',VITE_VENDOR_APP_URL:'http://127.0.0.1:5192',VITE_PLATFORM_DASHBOARD_URL:'http://127.0.0.1:5193',VITE_DEVELOPER_PORTAL_URL:'http://127.0.0.1:5194'};
 function load(file,extra={},globals={}){
- const result=buildSync({entryPoints:[path.resolve(__dirname,'../src',file)],bundle:true,write:false,platform:'node',format:'cjs',packages:'external',loader:{'.css':'empty'},define:{'import.meta.env':JSON.stringify({...env,...extra})},jsx:'automatic'}),mod={exports:{}};
+ const result=buildSync({entryPoints:[path.resolve(__dirname,'../src',file)],bundle:true,write:false,platform:'node',format:'cjs',packages:'external',loader:{'.css':'empty','.svg':'text','.png':'dataurl'},define:{'import.meta.env':JSON.stringify({...env,...extra})},jsx:'automatic'}),mod={exports:{}};
  vm.runInNewContext(result.outputFiles[0].text,{module:mod,exports:mod.exports,require:require('node:module').createRequire(path.resolve(__dirname,'../src',file)),URL,URLSearchParams,console,...globals});return mod.exports;
 }
 test('universal transport cannot credential private APIs and ordinary marketing remains anonymous',async()=>{
@@ -40,4 +40,15 @@ test('public login and registration render complete selected forms and accessibl
   assert.ok(html.includes('role="tablist"'));assert.ok(html.includes('role="tabpanel"'));assert.ok(html.includes('name="password"'));assert.ok(html.toLowerCase().includes('autocomplete="'+(route.startsWith('/register')?'new-password':'current-password')+'"'));
   assert.equal(html.includes('name="tenantName"'),route==='/register?app=vendor');assert.equal(html.includes('name="categoryId"'),route==='/register?app=vendor');
  }
+});
+test('local universal auth keeps the OAuth-enabled browser contract',()=>{
+ const source=fs.readFileSync(path.resolve(__dirname,'../src/pages/UniversalAuthPage.tsx'),'utf8');
+ for(const provider of ['googleIcon','facebookIcon','appleLightIcon','appleDarkIcon'])assert.match(source,new RegExp(`import ${provider}`));
+ assert.match(source,/http:\/\/localhost:5390\/api/);
+ assert.match(source,/provider\.charAt\(0\)\.toUpperCase\(\)/);
+ assert.match(source,/or continue with/);
+ const Page=load('pages/UniversalAuthPage.tsx').default;
+ const html=renderToStaticMarkup(React.createElement(MemoryRouter,{initialEntries:['/login']},React.createElement(Page)));
+ assert.match(html,/auth-tab-customer/);
+ assert.match(html,/Continue to Customer/);
 });
