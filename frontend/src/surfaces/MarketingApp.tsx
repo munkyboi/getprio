@@ -20,7 +20,7 @@ import "../vendor/styles.css";
 // to load its card, field, OAuth, and responsive layout styles.
 import "../pages/universal-auth.css";
 export default function MarketingApp() {
-  return <PublicShell marketing><Routes>
+  return <PublicThemeProvider><PublicShell marketing><Routes>
     <Route path="/" element={<LandingPage />} />
     {["/login", "/register", "/register/customer", "/register/vendor"].map(path => <Route key={path} path={path} element={<PublicThemeProvider><UniversalAuthPage /></PublicThemeProvider>} />)}
     <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
@@ -28,5 +28,5 @@ export default function MarketingApp() {
     <Route path="/help" element={<HelpPage />} />
     <Route path="/contact" element={<ContactPage />} />
     <Route path="*" element={<NotFoundPage />} />
-  </Routes></PublicShell>;
+  </Routes></PublicShell></PublicThemeProvider>;
 }

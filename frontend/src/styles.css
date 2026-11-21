@@ -3220,12 +3220,36 @@ button {
   min-height: 42px;
 }
 
+.finazze-topbar .getprio-brand-logo { width: 58px; height: 45px; }
+.finazze-topbar .public-topbar-inner { max-width: 1288px; margin-inline: auto; }
+
 .desktop-nav-links {
   flex-wrap: nowrap;
 }
 
 .desktop-nav-links .mantine-Button-root {
   font-weight: 700;
+  min-height: 42px;
+  padding-inline: 0.75rem;
+  font-size: 0.9rem;
+}
+
+.desktop-nav-links .mantine-Button-root[data-variant="filled"] {
+  min-height: 42px;
+  padding-inline: 1.15rem;
+  border-radius: 0.8rem;
+}
+
+.public-theme-toggle.mantine-Button-root,
+.public-theme-toggle.mantine-Button-root:hover {
+  min-width: 42px;
+  width: 42px;
+  height: 42px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  font-size: 1.05rem;
 }
 
 .header-avatar-button {
