@@ -28,8 +28,8 @@ test("switching surfaces retains only a return path valid for the new app", () =
   assert.equal(keepSurfaceReturnPath("//evil.invalid", "customer"), null);
 });
 
-test("unconfigured app destinations use the deployed shared origin", () => {
+test("unconfigured app destinations use their deployed application origins", () => {
   const appUrl = createAppUrls({});
-  assert.equal(appUrl("vendor", "/dashboard"), "https://getprio.online/dashboard");
-  assert.equal(appUrl("customer", "/account/dashboard"), "https://getprio.online/account/dashboard");
+  assert.equal(appUrl("vendor", "/dashboard"), "https://vendor.getprio.online/dashboard");
+  assert.equal(appUrl("customer", "/account/dashboard"), "https://app.getprio.online/account/dashboard");
 });
