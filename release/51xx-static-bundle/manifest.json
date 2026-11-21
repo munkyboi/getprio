@@ -1,0 +1,71 @@
+{
+  "schema": 1,
+  "buildStrategy": "source-checkout",
+  "sourceOfTruth": "release-commit",
+  "createdAt": "2026-11-20T00:00:00Z",
+  "api": {
+    "localOrigin": "http://127.0.0.1:5091/api",
+    "production": "https://api.getprio.online/api",
+    "sourceWorktree": "/Volumes/Storage0/Projects/getprio/web-app/worktrees/free-queue-service-setup-20261025",
+    "sourceCommit": "ff497ca2b2e0368a5770cd6097996fce11804da1"
+  },
+  "sites": [
+    {
+      "name": "marketing",
+      "port": 5190,
+      "sourcePath": "/Users/carloabella/.codex/private/getprio-marketing-illustration-size-20261029-profile2/build/dist-marketing",
+      "sourceCommit": "70bd376f7aa031878ea67be910a106fb9fb7fead",
+      "sourceHash": "d4451a8dad9330ff62e4453b6e45743c356e56a55eafa720ae3c8759cfaac1a7",
+      "archive": "marketing.tar.gz",
+      "archiveSha256": "dd21a131fbfb9273ee6d90fa69450aec8b54a3b7f1f41ae1c7429178848449e5",
+      "builtHash": "cc7f1b7bee6806c21265198aaf1f09d6098e8268e691bedf8f7098a82ae1ab33"
+    },
+    {
+      "name": "customer",
+      "port": 5191,
+      "sourcePath": "/Users/carloabella/.codex/private/getprio-customer-navigation-theme-20261029/build/dist-customer",
+      "sourceCommit": "09f971b2b3016780dc072358976f748f1d08f5e5",
+      "sourceHash": "35956b3b53daf972acac96ccd367212e57413a65ca05264d241005948e21f16b",
+      "archive": "customer.tar.gz",
+      "archiveSha256": "208ff223fef016c3891e9578dc78d797c5e1ca1cdf764fc8cb99bd0211c82340",
+      "builtHash": "42a9f1ebdf2597a4d7ec8bf301f0bf4044bbd55b0c4d077e45758ccf8bc4151c"
+    },
+    {
+      "name": "vendor",
+      "port": 5192,
+      "sourcePath": "/Users/carloabella/.codex/private/getprio-vendor-b9-ed864-canonical-20261119/dist",
+      "sourceCommit": "b9f05eac39f5ec60ea458a43a5fd88f3ed598fa7",
+      "sourceHash": "f69db4c20509b0e5ad220b818fd9749fab7f0055583534743096e46c2c26632d",
+      "archive": "vendor.tar.gz",
+      "archiveSha256": "94efcdbd31cc881ea786ba4264868ea4d06f259170b5ad918c650d8dd6f131c2",
+      "builtHash": "04c1de57119612accbb5d207fcad1d6b552ecb7cb2c572a64a5a66beb57261f4"
+    },
+    {
+      "name": "platform",
+      "port": 5193,
+      "sourcePath": "/Users/carloabella/.codex/private/getprio-free-queue-setup-activation-20261025/platform",
+      "sourceCommit": "ff497ca2b2e0368a5770cd6097996fce11804da1",
+      "sourceHash": "19d2077c7a210590c05997a69fc519867bfb71e033f1c387e09379adf35bd8d5",
+      "archive": "platform.tar.gz",
+      "archiveSha256": "4a9ce07be040db68505278e398db5694096ef9b15d472b72f4237957cfc95711"
+    }
+  ],
+  "transform": {
+    "from": "http://127.0.0.1:5091/api",
+    "to": "https://api.getprio.online/api",
+    "platformDeploymentSha": "rewritten at deploy time",
+    "origins": {
+      "http://127.0.0.1:5091/api": "https://api.getprio.online/api",
+      "http://127.0.0.1:5190": "https://getprio.online",
+      "http://127.0.0.1:5191": "https://app.getprio.online",
+      "http://127.0.0.1:5192": "https://vendor.getprio.online",
+      "http://127.0.0.1:5193": "https://platform.getprio.online",
+      "http://127.0.0.1:5194": "https://developers.getprio.online"
+    }
+  },
+  "build": {
+    "localSurfaces": false,
+    "turnstilePlaceholder": "__GETPRIO_TURNSTILE_SITE_KEY__",
+    "productionOriginsBound": true
+  }
+}
