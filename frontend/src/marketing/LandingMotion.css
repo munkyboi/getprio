@@ -61,8 +61,8 @@
 .lp-page .marketing-pricing-grid [data-slot=card-footer] > * { width: 100%; }
 .lp-page .prio-pricing-card { background: #fffcf5; box-shadow: none; border-radius: 18px; transform-origin: 50% 50%; }
 .lp-page .prio-pricing-card-featured { background: #ffe6bd; border-color: #d48c44; }
-.lp-pricing-toggle { display: flex; align-items: center; justify-content: center; gap: 12px; width: 100%; min-height: 44px; margin-top: 8px; padding: 8px 0; border: 0; background: transparent; color: #786c5d; font: inherit; font-size: 14px; cursor: pointer; }
-.lp-pricing-toggle::before, .lp-pricing-toggle::after { content: ""; flex: 1 1 auto; height: 1px; min-width: 24px; background: currentColor; opacity: .35; }
+.marketing-pricing-toggle { display: flex; align-items: center; justify-content: center; gap: 12px; width: 100%; min-height: 44px; margin-top: 8px; padding: 8px 0; border: 0; background: transparent; color: #786c5d; font: inherit; font-size: 14px; cursor: pointer; }
+.marketing-pricing-toggle::before, .marketing-pricing-toggle::after { content: ""; flex: 1 1 auto; height: 1px; min-width: 24px; background: currentColor; opacity: .35; }
 .lp-pricing-toggle:focus-visible { outline: 2px solid #d46a08; outline-offset: 4px; border-radius: 4px; }
 
 @media (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference) {

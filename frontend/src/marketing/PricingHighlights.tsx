@@ -10,5 +10,5 @@ export default function PricingHighlights({ plan, expanded, onToggle }: { plan: 
   const splitAt = qrIndex === -1 ? highlights.length : qrIndex + 1;
   const remaining = highlights.slice(splitAt);
   const feature = (item: string) => <p key={item}><IconCheck aria-hidden="true" size={18} /><span>{item}</span></p>;
-  return <div className="marketing-pricing-features">{highlights.slice(0, splitAt).map(feature)}{remaining.length > 0 && <><div id={id} hidden={!expanded}>{remaining.map(feature)}</div><Button variant="ghost" type="button" aria-expanded={expanded} aria-controls={id} aria-label={`${expanded ? "Show less" : "Show more"} for all plans`} onClick={onToggle}>{expanded ? "Show less" : "Show more"}</Button></>}</div>;
+  return <div className="marketing-pricing-features">{highlights.slice(0, splitAt).map(feature)}{remaining.length > 0 && <><div id={id} hidden={!expanded}>{remaining.map(feature)}</div><Button className="marketing-pricing-toggle" variant="ghost" type="button" aria-expanded={expanded} aria-controls={id} aria-label={`${expanded ? "Show less" : "Show more"} for all plans`} onClick={onToggle}>{expanded ? "Show less" : "Show more"}</Button></>}</div>;
 }
