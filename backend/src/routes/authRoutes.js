@@ -553,7 +553,7 @@ router.all("/oauth/:provider/callback", async (req, res) => {
       provider,
       code,
       requestBody: req.body,
-      nonce: oauthState.nonce
+      ...(oauthState.nonce ? { nonce: oauthState.nonce } : {})
     });
 
     const { user, created } = await findOrCreateOauthUser(profile);
