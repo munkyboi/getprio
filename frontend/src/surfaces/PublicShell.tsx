@@ -14,7 +14,7 @@ export default function PublicShell({ children, marketing = false }: { children:
 }
 
 function MarketingPublicShell({ children }: { children: ReactNode }) {
-  const publicTheme = usePublicTheme();
+  const publicTheme = usePublicTheme() ?? { theme: "light" as const, toggleTheme: () => undefined };
   const [opened, setOpened] = useState(false);
   const location = useLocation();
   useEffect(() => setOpened(false), [location.pathname, location.search, location.hash]);
@@ -27,7 +27,7 @@ function MarketingPublicShell({ children }: { children: ReactNode }) {
     <a className="marketing-nav-link" href={loginHref}>Login</a>
     <a className="marketing-nav-cta" href={registerHref}>Start Free</a>
   </>;
-  const dark = publicTheme?.theme === "dark";
+  const dark = publicTheme.theme === "dark";
 
   return <div className="marketing-app public-marketing-shell">
     <header className="marketing-topbar">
@@ -41,8 +41,8 @@ function MarketingPublicShell({ children }: { children: ReactNode }) {
           <button
             className="public-theme-toggle"
             type="button"
-            onClick={publicTheme?.toggleTheme}
-            aria-label={dark ? "Switch to light mode" : "Switch to dark mode"}
+            onClick={publicTheme.toggleTheme}
+            aria-label={publicTheme.theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
           >
             {dark ? "☀" : "☾"}
           </button>
