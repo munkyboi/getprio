@@ -8,6 +8,7 @@ const publicShell = fs.readFileSync(path.join(root, "frontend/src/surfaces/Publi
 const styles = fs.readFileSync(path.join(root, "frontend/src/styles.css"), "utf8");
 
 assert.match(marketingApp, /<PublicThemeProvider><PublicShell marketing>/u);
+assert.match(marketingApp, /import "\.\.\/styles\.css"/u, "Marketing entry must include its standalone shell styles");
 for (const route of ["/", "/login", "/register", "/register/customer", "/register/vendor", "/privacy-policy", "/terms", "/help", "/contact"]) {
   assert.ok(marketingApp.includes(`"${route}"`), `missing Marketing route ${route}`);
 }
