@@ -318,7 +318,6 @@ export default function LandingPage() {
             <img className="lp-closing-logo" src="/logo.svg" alt="" aria-hidden="true" />
             <div className="lp-closing-scene-label"><span className="lp-dot" />LESS WAITING. MORE POSSIBILITY.</div>
             <img className="lp-closing-art" src="/illustrations/generated/cta-queue-scene-transparent.png" alt="Customers enjoying a calm service queue" loading="lazy" />
-            <div className="lp-closing-scene-footer"><span>YOUR PLACE IS KEPT.</span><span>YOUR DAY IS YOURS. <IconArrowUpRight size={12} aria-hidden="true" /></span></div>
           </div>
         </div>
       </section>

@@ -11,9 +11,12 @@ for (const label of ["LESS WAITING. MORE LIVING.", "01 / A BETTER KIND OF WAIT",
   assert.doesNotMatch(landing, new RegExp(label.replace(/[.*+?^${}()|[\\]\\]/g, "\\$&"), "u"));
 }
 assert.doesNotMatch(workflow, /03 \/ THE GETPRIO WAY/u);
+assert.doesNotMatch(landing, /YOUR PLACE IS KEPT|YOUR DAY IS YOURS/u);
 assert.match(landing, /className="lp-feature-heading"/u);
 assert.match(styles, /\.lp-feature-heading \{ display: flex; align-items: center;/u);
 assert.match(styles, /\.lp-page \.prio-pricing-card \.mantine-Button-root \{ width: 100%; \}/u);
 assert.match(styles, /\.lp-section-head \{ grid-template-columns: minmax\(0, 1\.25fr\) minmax\(240px, \.75fr\); align-items: center;/u);
+assert.match(styles, /\.lp-page \.lp-pricing \.prio-centered-copy > h2 \{ display: block; max-width: 760px; margin: 0 auto; text-align: center;.*font-size: clamp\(40px, 5vw, 64px\)/u);
+assert.match(styles, /\.lp-page \.marketing-pricing-grid \[data-slot=card-footer\] \{ width: 100%; border-top: 0; background: transparent; \}/u);
 
 console.log("marketing presentation contract passed");
