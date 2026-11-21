@@ -167,6 +167,45 @@ test("oauth service builds provider-specific authorization URLs", () => {
   assert.equal(appleUrl.searchParams.get("nonce"), "apple-nonce");
 });
 
+test("oauth callbacks use the API origin exactly once and normalize provider verification claims", async () => {
+  const oauthService = requireWithMocks("../src/services/oauthService.js", {
+    "../config/env": {
+      googleClientId: "google-client",
+      googleClientSecret: "google-secret",
+      facebookAppId: "facebook-app",
+      facebookAppSecret: "facebook-secret",
+      serverUrl: "https://api.example.com/api",
+      appBaseUrl: "https://app.example.com",
+      oauthCallbackPath: "/oauth/callback",
+      oauthStateTtlMinutes: 10,
+      jwtSecret: "test-secret",
+      appleClientId: "",
+      appleTeamId: "",
+      appleKeyId: "",
+      applePrivateKey: ""
+    }
+  });
+
+  const state = oauthService.createOAuthState({ provider: "google", intent: "login" });
+  const url = new URL(oauthService.buildAuthorizationUrl("google", state));
+  assert.equal(url.searchParams.get("redirect_uri"), "https://api.example.com/api/auth/oauth/google/callback");
+
+  const originalFetch = global.fetch;
+  global.fetch = async (url) => {
+    if (url === "https://oauth2.googleapis.com/token") {
+      return { ok: true, text: async () => JSON.stringify({ access_token: "token" }) };
+    }
+    assert.equal(url, "https://openidconnect.googleapis.com/v1/userinfo");
+    return { ok: true, text: async () => JSON.stringify({ sub: "google-user", email: "user@example.com", email_verified: "false" }) };
+  };
+  try {
+    const profile = await oauthService.exchangeCodeForProfile({ provider: "google", code: "code" });
+    assert.equal(profile.emailVerified, false);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
 test("oauth code exchange preserves the callback URI used by mobile authorization", async () => {
   const oauthService = requireWithMocks("../src/services/oauthService.js", {
     "../config/env": {
