@@ -43,7 +43,13 @@ function getProviderLabel(provider) {
 }
 
 function getServerOrigin() {
-  return String(env.serverUrl || "").replace(/\/$/, "");
+  // SERVER_URL is the API origin. Accept a mistakenly suffixed /api value
+  // without producing the invalid /api/api/auth callback used by providers.
+  return String(env.serverUrl || "").replace(/\/$/, "").replace(/\/api$/, "");
+}
+
+function providerEmailVerified(value) {
+  return value === true || value === "true";
 }
 
 function getAppOrigin() {
@@ -217,7 +223,7 @@ async function exchangeGoogleCode(code, redirectUri) {
     provider: "google",
     providerUserId: String(userInfo.sub),
     email: userInfo.email || "",
-    emailVerified: Boolean(userInfo.email_verified),
+    emailVerified: providerEmailVerified(userInfo.email_verified),
     name: userInfo.name || buildFallbackName("google", userInfo.email)
   };
 }
@@ -245,7 +251,9 @@ async function exchangeFacebookCode(code, redirectUri) {
     provider: "facebook",
     providerUserId: String(userInfo.id),
     email: userInfo.email || "",
-    emailVerified: Boolean(userInfo.email),
+    // Facebook does not return an email-verification claim. An email address
+    // alone must not be treated as provider-verified.
+    emailVerified: false,
     name: userInfo.name || buildFallbackName("facebook", userInfo.email)
   };
 }

@@ -3220,12 +3220,36 @@ button {
   min-height: 42px;
 }
 
+.finazze-topbar .getprio-brand-logo { width: 58px; height: 45px; }
+.finazze-topbar .public-topbar-inner { max-width: 1288px; margin-inline: auto; }
+
 .desktop-nav-links {
   flex-wrap: nowrap;
 }
 
 .desktop-nav-links .mantine-Button-root {
   font-weight: 700;
+  min-height: 42px;
+  padding-inline: 0.75rem;
+  font-size: 0.9rem;
+}
+
+.desktop-nav-links .mantine-Button-root[data-variant="filled"] {
+  min-height: 42px;
+  padding-inline: 1.15rem;
+  border-radius: 0.8rem;
+}
+
+.public-theme-toggle.mantine-Button-root,
+.public-theme-toggle.mantine-Button-root:hover {
+  min-width: 42px;
+  width: 42px;
+  height: 42px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  font-size: 1.05rem;
 }
 
 .header-avatar-button {
@@ -3272,7 +3296,7 @@ button {
 
 @media (max-width: 768px) {
   .desktop-nav-links {
-    display: none;
+    display: none !important;
   }
 
   .mobile-nav-trigger {
@@ -3360,17 +3384,29 @@ button {
 
 .site-footer-link,
 .site-footer-bottom-link {
-  color: rgba(255, 255, 255, 0.72);
+  color: #f68128;
   text-decoration: none;
+}
+
+.site-footer-link:visited,
+.site-footer-bottom-link:visited {
+  color: #f68128;
 }
 
 .site-footer-link:hover,
 .site-footer-bottom-link:hover {
-  color: #7d9bff;
+  color: #ffad5c;
+}
+
+.site-footer-link:focus-visible,
+.site-footer-bottom-link:focus-visible,
+.site-footer-social:focus-visible {
+  outline: 2px solid #f68128;
+  outline-offset: 4px;
 }
 
 .site-footer-arrow {
-  color: rgba(255, 255, 255, 0.35);
+  color: #f68128;
 }
 
 .site-footer-socials {
@@ -3383,9 +3419,12 @@ button {
   width: 42px;
   height: 42px;
   border-radius: 999px;
-  color: #f7f9ff;
-  background: rgba(255, 255, 255, 0.09);
+  color: #f68128;
+  background: rgba(246, 129, 40, 0.12);
 }
+
+.site-footer-social:visited { color: #f68128; }
+.site-footer-social:hover { color: #ffad5c; }
 
 .site-footer-social svg {
   display: block;
