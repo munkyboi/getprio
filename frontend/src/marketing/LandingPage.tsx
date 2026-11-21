@@ -1,6 +1,6 @@
 import { Button } from "@vendor/components/ui/button";
 import { Alert, AlertDescription } from "@vendor/components/ui/alert";
-import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@vendor/components/ui/card";
+import { Card, CardHeader, CardDescription, CardContent, CardFooter } from "@vendor/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@vendor/components/ui/dialog";
 import { Field, FieldGroup, FieldLabel } from "@vendor/components/ui/field";
 import { Input } from "@vendor/components/ui/input";
@@ -299,7 +299,7 @@ export default function LandingPage() {
       <section className="lp-pricing" id="pricing"><div className="marketing-container"><header className="prio-centered-copy" data-reveal><h2>A calmer day. At every scale.</h2></header>
         {pricingError && <Alert variant="error"><AlertDescription>{pricingError}</AlertDescription></Alert>}
         <div className="marketing-pricing-grid">{pricingPlans.map(plan => <Card className={plan.slug === "pro" ? "prio-pricing-card prio-pricing-card-featured" : "prio-pricing-card"} key={plan.slug}>
-          <CardHeader><img className="prio-plan-art" src={planArt[plan.slug]} alt="" /><CardTitle>{plan.name}</CardTitle><CardDescription>{plan.bestFor}</CardDescription></CardHeader>
+          <CardHeader><img className="prio-plan-art" src={planArt[plan.slug]} alt="" /><h3 className="marketing-pricing-plan-name">{plan.name}</h3><CardDescription>{plan.bestFor}</CardDescription></CardHeader>
           <CardContent><div className="prio-price" aria-label={getPlanPriceDisplay(plan)}><span>{plan.slug === "enterprise" ? "Starts at " : ""}{plan.price.currency}</span><div className="prio-price-line"><strong className="prio-price-amount">{monthlyPriceFormatter.format(plan.price.monthlyAmountCents / 100)}</strong><span>/mo</span></div></div><PricingHighlights plan={plan} expanded={pricingExpanded} onToggle={() => setPricingExpanded(value => !value)} /></CardContent>
           <CardFooter>{plan.name === "Enterprise" ? <Button variant="outline" onClick={() => setEnterpriseDialogOpen(true)}>Request setup</Button> : <Button variant={plan.slug === "pro" ? "default" : "outline"} render={<a href={appUrl("vendor", "/register")} />}>{plan.slug === "free" ? "Start free" : "Choose plan"}</Button>}</CardFooter>
         </Card>)}</div></div></section>
