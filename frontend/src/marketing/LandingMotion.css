@@ -49,7 +49,7 @@
 .lp-stage-foot { display: flex; justify-content: space-around; gap: 8px; border-top: 1px solid #d2c4b0; padding-top: 15px; font-size: 7px; letter-spacing: .1em; color: #826d55; }
 .lp-feature-list { display: grid; gap: 0 28px; margin-top: 30px; }
 .lp-feature { position: relative; border-bottom: 1px solid #d8cebc; padding: 25px 0; }
-.lp-feature-heading { display: flex; align-items: baseline; gap: 12px; }
+.lp-feature-heading { display: flex; align-items: center; gap: 12px; }
 .lp-feature-heading > svg { color: #ba6026; flex: 0 0 auto; }
 .lp-feature-number { position: absolute; right: 0; top: 25px; color: #a89a88; font-size: 10px; }
 .lp-feature h3 { font-family: "Aleo", Georgia, serif; font-weight: 400; font-size: 23px; line-height: 1.15; margin: 0 0 10px; }

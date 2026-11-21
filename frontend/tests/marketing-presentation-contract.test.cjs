@@ -12,7 +12,7 @@ for (const label of ["LESS WAITING. MORE LIVING.", "01 / A BETTER KIND OF WAIT",
 }
 assert.doesNotMatch(workflow, /03 \/ THE GETPRIO WAY/u);
 assert.match(landing, /className="lp-feature-heading"/u);
-assert.match(styles, /\.lp-feature-heading \{ display: flex; align-items: baseline;/u);
+assert.match(styles, /\.lp-feature-heading \{ display: flex; align-items: center;/u);
 assert.match(styles, /\.lp-page \.prio-pricing-card \.mantine-Button-root \{ width: 100%; \}/u);
 
 console.log("marketing presentation contract passed");
