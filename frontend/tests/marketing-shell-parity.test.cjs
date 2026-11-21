@@ -13,5 +13,6 @@ assert.match(shell, /aria-label=\{publicTheme\.theme === "dark"/u);
 assert.match(styles, /\.finazze-topbar \.getprio-brand-logo \{ width: 58px; height: 45px; \}/u);
 assert.match(styles, /\.desktop-nav-links \.mantine-Button-root \{[^}]*min-height: 42px;[^}]*font-size: 0\.9rem;/u);
 assert.match(styles, /\.public-theme-toggle\.mantine-Button-root,[\s\S]*?border: 0;[\s\S]*?background: transparent;/u);
+assert.match(styles, /@media \(max-width: 768px\) \{[\s\S]*?\.desktop-nav-links \{\s*display: none !important;/u);
 
 console.log("marketing shell parity contract passed");

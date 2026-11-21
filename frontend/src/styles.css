@@ -3296,7 +3296,7 @@ button {
 
 @media (max-width: 768px) {
   .desktop-nav-links {
-    display: none;
+    display: none !important;
   }
 
   .mobile-nav-trigger {
