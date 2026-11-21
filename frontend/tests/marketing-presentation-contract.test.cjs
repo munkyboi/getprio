@@ -16,7 +16,9 @@ assert.match(landing, /className="lp-feature-heading"/u);
 assert.match(styles, /\.lp-feature-heading \{ display: flex; align-items: center;/u);
 assert.match(styles, /\.lp-page \.prio-pricing-card \.mantine-Button-root \{ width: 100%; \}/u);
 assert.match(styles, /\.lp-section-head \{ grid-template-columns: minmax\(0, 1\.25fr\) minmax\(240px, \.75fr\); align-items: center;/u);
-assert.match(styles, /\.lp-page \.lp-pricing \.prio-centered-copy > h2 \{ display: block; max-width: 760px; margin: 0 auto; text-align: center;.*font-size: clamp\(40px, 5vw, 64px\)/u);
+assert.match(styles, /\.lp-page \.lp-pricing \.prio-centered-copy > h2 \{ display: block; max-width: 760px; margin: 0 auto 48px; text-align: center;.*font-size: clamp\(40px, 5vw, 64px\)/u);
+assert.match(styles, /\.lp-pricing-toggle \{ display: flex; align-items: center; justify-content: center; gap: 12px; width: 100%; min-height: 44px; margin-top: 8px;.*color: #786c5d/u);
+assert.match(styles, /\.lp-pricing-toggle::before, \.lp-pricing-toggle::after \{ content: ""; flex: 1 1 auto; height: 1px; min-width: 24px;/u);
 assert.match(styles, /\.lp-page \.marketing-pricing-grid \[data-slot=card-footer\] \{ width: 100%; border-top: 0; background: transparent; \}/u);
 
 console.log("marketing presentation contract passed");
