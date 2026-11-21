@@ -384,9 +384,9 @@ export default function LandingPage() {
             <p className="lp-eyebrow" data-closing-reveal>A BETTER DAY STARTS HERE</p>
             <h2 id="closing-title"><span data-closing-reveal>Good service.</span><br /><em data-closing-reveal>More breathing room.</em></h2>
             <p data-closing-reveal>Give your customers their time back.<br />Give your team a clearer way to serve.</p>
-            <div className="lp-closing-actions">
-              <Button data-closing-reveal component="a" href={appUrl("vendor", "/register")} color="orange" size="xl" radius="xl" rightSection={<IconArrowUpRight size={22} stroke={1.5} aria-hidden="true" />}>Create your workspace</Button>
-              <a data-closing-reveal href={appUrl("customer", "/vendors")} className="lp-text-link">Explore vendors <IconArrowRight size={16} aria-hidden="true" /></a>
+            <div className="lp-closing-actions" data-closing-reveal>
+              <Button component="a" href={appUrl("vendor", "/register")} color="orange" size="xl" radius="xl" rightSection={<IconArrowUpRight size={22} stroke={1.5} aria-hidden="true" />}>Create your workspace</Button>
+              <a href={appUrl("customer", "/vendors")} className="lp-text-link">Explore vendors <IconArrowRight size={16} aria-hidden="true" /></a>
             </div>
             <div className="lp-closing-footnote" data-closing-reveal>From the first scan to the final smile.</div>
           </div>
