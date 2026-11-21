@@ -12,9 +12,6 @@ import { PublicThemeProvider } from "./PublicTheme";
 // reset and layout rules in this entry rather than relying on the legacy app
 // entry to import them.
 import "../styles.css";
-// Universal auth uses the shared shadcn primitives with the `v:` utility
-// prefix; load their utility layer in the standalone Marketing bundle too.
-import "../vendor/styles.css";
 // Keep the universal auth stylesheet in the Marketing entry chunk. The auth
 // route is the public landing surface and must not depend on route discovery
 // to load its card, field, OAuth, and responsive layout styles.
@@ -22,7 +19,7 @@ import "../pages/universal-auth.css";
 export default function MarketingApp() {
   return <PublicThemeProvider><PublicShell marketing><Routes>
     <Route path="/" element={<LandingPage />} />
-    {["/login", "/register", "/register/customer", "/register/vendor"].map(path => <Route key={path} path={path} element={<PublicThemeProvider><UniversalAuthPage /></PublicThemeProvider>} />)}
+    {["/login", "/register", "/register/customer", "/register/vendor"].map(path => <Route key={path} path={path} element={<UniversalAuthPage />} />)}
     <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
     <Route path="/terms" element={<TermsPage />} />
     <Route path="/help" element={<HelpPage />} />
