@@ -14,7 +14,7 @@ assert.match(entry, /import "\.\.\/pages\/universal-auth\.css"/u);
 assert.match(authStyles, /\.universal-auth-card/u);
 assert.match(authStyles, /\[data-slot=input\]/u);
 assert.match(authStyles, /\[data-slot=tabs-trigger\]/u);
-assert.match(authPage, /enabled\s*&&\s*provider\s*!==\s*"apple"/u);
-assert.doesNotMatch(customerFallback, /oauthProviders\.apple \?/u);
+assert.match(authPage, /provider === "apple"/u);
+assert.match(customerFallback, /oauthProviders\.apple \?/u);
 
 console.log("universal auth style entry passed");
