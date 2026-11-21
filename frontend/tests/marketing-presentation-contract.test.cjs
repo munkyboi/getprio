@@ -7,6 +7,7 @@ const landing = fs.readFileSync(path.join(root, "marketing/LandingPage.tsx"), "u
 const pricingHighlights = fs.readFileSync(path.join(root, "marketing/PricingHighlights.tsx"), "utf8");
 const workflow = fs.readFileSync(path.join(root, "pages/WorkflowSpotlight.tsx"), "utf8");
 const styles = fs.readFileSync(path.join(root, "marketing/LandingMotion.css"), "utf8");
+const marketingStyles = fs.readFileSync(path.join(root, "marketing/styles.css"), "utf8");
 
 for (const label of ["LESS WAITING. MORE LIVING.", "01 / A BETTER KIND OF WAIT", "02 / CONNECTED BY DESIGN", "A BETTER DAY STARTS HERE"]) {
   assert.doesNotMatch(landing, new RegExp(label.replace(/[.*+?^${}()|[\\]\\]/g, "\\$&"), "u"));
@@ -21,6 +22,7 @@ assert.match(styles, /\.lp-page \.lp-pricing \.prio-centered-copy > h2 \{ displa
 assert.match(pricingHighlights, /className="marketing-pricing-toggle"/u);
 assert.match(styles, /\.marketing-pricing-toggle \{ display: flex; align-items: center; justify-content: center; gap: 12px; width: 100%; min-height: 44px; margin-top: 8px;.*color: #786c5d/u);
 assert.match(styles, /\.marketing-pricing-toggle::before, \.marketing-pricing-toggle::after \{ content: ""; flex: 1 1 auto; height: 1px; min-width: 24px;/u);
+assert.match(marketingStyles, /\.marketing-pricing-features > div:not\(\[hidden\]\) \{ display: grid; gap: 14px; \}/u);
 assert.match(styles, /\.lp-page \.marketing-pricing-grid \[data-slot=card-footer\] \{ width: 100%; border-top: 0; background: transparent; \}/u);
 
 console.log("marketing presentation contract passed");

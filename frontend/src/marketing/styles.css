@@ -116,6 +116,7 @@ html[data-public-theme] [data-slot=button][class~="v:bg-primary"]:hover { backgr
 .marketing-pricing-grid [data-slot=card] { height: 100%; }
 .marketing-pricing-grid [data-slot=card-footer] { margin-top: auto; }
 .marketing-pricing-features { display: grid; gap: 12px; margin: 20px 0; }
+.marketing-pricing-features > div:not([hidden]) { display: grid; gap: 14px; }
 .marketing-pricing-features p { display: flex; gap: 10px; font-size: 14px; margin: 0; }
 .marketing-pricing-features svg { flex: 0 0 18px; color: var(--success); }
 .marketing-enterprise-dialog { max-width: min(920px, calc(100vw - 32px)); max-height: calc(100dvh - 48px); overflow-y: auto; }
