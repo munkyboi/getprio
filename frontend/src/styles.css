@@ -3567,7 +3567,7 @@ html[data-public-theme="dark"] .public-marketing-shell {
   height: 42px;
   border-radius: 999px;
   color: #f68128;
-  background: rgba(246, 129, 40, 0.12);
+  background: transparent;
 }
 
 .site-footer-social:visited { color: #f68128; }

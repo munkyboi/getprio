@@ -332,7 +332,7 @@ async function exchangeAppleAuthorizationCode(authorizationCode, redirectUri) {
     code: authorizationCode,
     grant_type: "authorization_code"
   };
-  body.redirect_uri = redirectUri || buildServerCallbackUrl("apple");
+  if (redirectUri) body.redirect_uri = redirectUri;
   return fetchJson("https://appleid.apple.com/auth/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -401,6 +401,7 @@ module.exports = {
   OAUTH_PROVIDERS,
   buildAuthorizationUrl,
   buildClientCallbackUrl,
+  buildServerCallbackUrl,
   buildProviderAvailability,
   createOAuthState,
   exchangeCodeForProfile,
