@@ -119,7 +119,11 @@ test("oauth service builds provider-specific authorization URLs", () => {
       appBaseUrl: "https://app.example.com",
       oauthCallbackPath: "/oauth/callback",
       oauthStateTtlMinutes: 10,
-      jwtSecret: "test-secret"
+      jwtSecret: "test-secret",
+      appleClientId: "com.getprio.web",
+      appleTeamId: "apple-team",
+      appleKeyId: "apple-key",
+      applePrivateKey: "-----BEGIN PRIVATE KEY-----\nnot-a-real-key\n-----END PRIVATE KEY-----"
     }
   });
 
@@ -152,6 +156,15 @@ test("oauth service builds provider-specific authorization URLs", () => {
   );
   assert.equal(facebookUrl.searchParams.get("response_type"), "code");
   assert.equal(facebookUrl.searchParams.get("state"), facebookState);
+
+  const appleState = oauthService.createOAuthState({ provider: "apple", intent: "login", surface: "customer" });
+  const appleUrl = new URL(oauthService.buildAuthorizationUrl("apple", appleState, { nonce: "apple-nonce" }));
+  assert.equal(appleUrl.origin, "https://appleid.apple.com");
+  assert.equal(appleUrl.pathname, "/auth/authorize");
+  assert.equal(appleUrl.searchParams.get("client_id"), "com.getprio.web");
+  assert.equal(appleUrl.searchParams.get("redirect_uri"), "https://api.example.com/api/auth/oauth/apple/callback");
+  assert.equal(appleUrl.searchParams.get("response_mode"), "form_post");
+  assert.equal(appleUrl.searchParams.get("nonce"), "apple-nonce");
 });
 
 test("oauth code exchange preserves the callback URI used by mobile authorization", async () => {

@@ -121,9 +121,17 @@ function buildAuthorizationUrl(provider, state, options = {}) {
       return url.toString();
     }
     case "apple": {
-      const error = new Error("Apple sign-in is available through the native mobile app.");
-      error.statusCode = 400;
-      throw error;
+      const url = new URL("https://appleid.apple.com/auth/authorize");
+      url.search = new URLSearchParams({
+        client_id: env.appleClientId,
+        redirect_uri: redirectUri,
+        response_type: "code",
+        response_mode: "form_post",
+        scope: "name email",
+        state,
+        ...(options.nonce ? { nonce: options.nonce } : {})
+      }).toString();
+      return url.toString();
     }
     default:
       ensureSupportedProvider(provider);
@@ -309,16 +317,18 @@ function verifyAppleIdentityTokenWithKey(identityToken, nonce, jwk) {
   return payload;
 }
 
-async function exchangeAppleAuthorizationCode(authorizationCode) {
+async function exchangeAppleAuthorizationCode(authorizationCode, redirectUri) {
+  const body = {
+    client_id: env.appleClientId,
+    client_secret: buildAppleClientSecret(),
+    code: authorizationCode,
+    grant_type: "authorization_code"
+  };
+  body.redirect_uri = redirectUri || buildServerCallbackUrl("apple");
   return fetchJson("https://appleid.apple.com/auth/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      client_id: env.appleClientId,
-      client_secret: buildAppleClientSecret(),
-      code: authorizationCode,
-      grant_type: "authorization_code"
-    })
+    body: new URLSearchParams(body)
   });
 }
 
@@ -347,7 +357,7 @@ async function exchangeAppleCredential({ identityToken, authorizationCode, nonce
   };
 }
 
-async function exchangeCodeForProfile({ provider, code, redirectUri }) {
+async function exchangeCodeForProfile({ provider, code, redirectUri, nonce }) {
   ensureConfiguredProvider(provider);
 
   if (!code) {
@@ -361,8 +371,18 @@ async function exchangeCodeForProfile({ provider, code, redirectUri }) {
       return exchangeGoogleCode(code, redirectUri);
     case "facebook":
       return exchangeFacebookCode(code, redirectUri);
-    case "apple":
-      throw new Error("Apple sign-in uses the native credential exchange.");
+    case "apple": {
+      const exchanged = await exchangeAppleAuthorizationCode(code, redirectUri);
+      if (!exchanged.id_token) throw Object.assign(new Error("Apple sign-in returned no identity token."), { statusCode: 401 });
+      const identity = await verifyAppleIdentityToken(exchanged.id_token, nonce);
+      return {
+        provider: "apple",
+        providerUserId: String(identity.sub),
+        email: identity.email || "",
+        emailVerified: identity.email_verified === true || identity.email_verified === "true",
+        name: ""
+      };
+    }
     default:
       ensureSupportedProvider(provider);
       return null;
