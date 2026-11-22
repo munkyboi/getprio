@@ -1,3 +1,4 @@
+/* oxlint-disable react/only-export-components -- generated shadcn component and hook exports are intentionally colocated. */
 import * as React from "react"
 import { mergeProps } from "@base-ui/react/merge-props"
 import { useRender } from "@base-ui/react/use-render"

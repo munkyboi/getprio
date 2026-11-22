@@ -1,3 +1,4 @@
+/* oxlint-disable react/only-export-components -- generated shadcn component and variant exports are intentionally colocated. */
 import { NavigationMenu as NavigationMenuPrimitive } from "@base-ui/react/navigation-menu"
 import { cva } from "class-variance-authority"
 import { cn } from "cn"
