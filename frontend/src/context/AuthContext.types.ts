@@ -24,6 +24,7 @@ export interface AuthContextValue {
   oauthLoading: boolean;
   login(credentials: LoginRequest): Promise<AuthLoginResponse>;
   verifyMfaChallenge(payload: { challengeToken: string; code?: string; recoveryCode?: string }): Promise<AuthResponse>;
+  sendEmailMfaCode(payload: { challengeToken: string }): Promise<{ token: string; deliveryTarget: string }>;
   registerVendor(payload: RegisterVendorRequest): Promise<AuthResponse>;
   completeVendorOnboarding(payload: CompleteVendorOnboardingRequest): Promise<AuthResponse>;
   registerCustomer(payload: RegisterCustomerRequest): Promise<AuthResponse>;

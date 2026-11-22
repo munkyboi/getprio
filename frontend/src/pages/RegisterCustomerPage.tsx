@@ -1,3 +1,7 @@
+import type { ReactNode, FormEvent } from "react";
+import type { UseFormReturn } from "react-hook-form";
+import { AuthAppLinks } from "../surfaces/AuthAppLinks";
+import { currentSurface, safeSurfaceNext } from "../surfaces/surfaceConfig";
 import { useEffect, useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
@@ -27,7 +31,12 @@ const customerSchema = z.object({
 
 type CustomerFormValues = z.infer<typeof customerSchema>;
 
-export default function RegisterCustomerPage() {
+export interface CustomerRegistrationPresentationModel {
+  form: UseFormReturn<CustomerFormValues>; handleSubmit: (e?: FormEvent<HTMLFormElement>) => Promise<void>;
+  username: string; usernameMessage: string; usernameAvailable: boolean; checkingUsername: boolean; error: string; redirectTo: string;
+  setUsernameManuallyEdited: (v:boolean)=>void;
+}
+export default function RegisterCustomerPage({ renderPresentation, renderLoading }: { renderPresentation?: (model: CustomerRegistrationPresentationModel)=>ReactNode; renderLoading?: ()=>ReactNode } = {}) {
   const location = useLocation();
   const navigate = useNavigate();
   const { loading, registerCustomer, user } = useAuth();
@@ -36,7 +45,7 @@ export default function RegisterCustomerPage() {
     redirectTo?: string;
     claimLookupCode?: string;
   } | null) || null;
-  const redirectTo = registrationState?.redirectTo || "/";
+  const redirectTo = currentSurface === "customer" ? safeSurfaceNext(registrationState?.redirectTo, "customer") : registrationState?.redirectTo || "/";
   const claimLookupCode = registrationState?.claimLookupCode || "";
   const [usernameMessage, setUsernameMessage] = useState("");
   const [usernameAvailable, setUsernameAvailable] = useState(false);
@@ -59,7 +68,7 @@ export default function RegisterCustomerPage() {
   const name = form.watch("name");
 
   useEffect(() => {
-    if (user && !user.tenants?.length) {
+    if (user && (currentSurface === "customer" || !user.tenants?.length)) {
       navigate(redirectTo, { replace: true });
     }
   }, [navigate, redirectTo, user]);
@@ -126,10 +135,11 @@ export default function RegisterCustomerPage() {
   }, [form, name, usernameManuallyEdited]);
 
   if (loading) {
+    if (renderLoading) return renderLoading();
     return <Paper className="finazze-auth-card" p="xl">Loading session...</Paper>;
   }
 
-  if (user && !user.tenants?.length) {
+  if (user && (currentSurface === "customer" || !user.tenants?.length)) {
     return <Navigate to={redirectTo} replace />;
   }
 
@@ -153,6 +163,8 @@ export default function RegisterCustomerPage() {
       setError(getErrorMessage(submitError));
     }
   });
+
+  if (renderPresentation) return renderPresentation({ form, handleSubmit, username, usernameMessage, usernameAvailable, checkingUsername, error, redirectTo, setUsernameManuallyEdited });
 
   return (
     <Paper className="finazze-auth-card finazze-auth-card-wide onboarding-shell" p={{ base: "xl", md: 44 }}>
@@ -212,7 +224,8 @@ export default function RegisterCustomerPage() {
               </Button>
             </Stack>
           </form>
-          <SocialAuthButtons iconOnly intent="register_customer" />
+          <SocialAuthButtons iconOnly intent="register_customer" returnPath={redirectTo} />
+          <AuthAppLinks surface="customer" showOwnLogin />
         </Stack>
         <Stack className="onboarding-art-panel" justify="space-between" gap="lg">
           <img

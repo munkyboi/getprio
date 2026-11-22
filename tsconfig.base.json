@@ -15,7 +15,8 @@
     "baseUrl": ".",
     "paths": {
       "@shared": ["shared/types"],
-      "@shared/*": ["shared/*"]
+      "@shared/*": ["shared/*"],
+      "@vendor/*": ["frontend/src/vendor/*"]
     }
   }
 }

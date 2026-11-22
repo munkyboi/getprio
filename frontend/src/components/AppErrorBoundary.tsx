@@ -1,8 +1,6 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
 
-type AppErrorBoundaryProps = {
-  children: ReactNode;
-};
+type AppErrorBoundaryProps = { children: ReactNode };
 
 type AppErrorBoundaryState = {
   hasError: boolean;

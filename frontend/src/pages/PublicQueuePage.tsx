@@ -72,11 +72,11 @@ function getEtaLabel(ticket: QueueListTicket, averageServiceMinutes: number) {
   return `${minutes}m`;
 }
 
-export default function PublicQueuePage() {
+export default function PublicQueuePage({ initialSnapshot }: { initialSnapshot?: QueueSnapshot } = {}) {
   const { tenantSlug, locationSlug } = useParams<{ tenantSlug: string; locationSlug?: string }>();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const [snapshot, setSnapshot] = useState<QueueSnapshot | null>(null);
+  const [snapshot, setSnapshot] = useState<QueueSnapshot | null>(initialSnapshot || null);
   const [error, setError] = useState("");
   const [paymentSyncing, setPaymentSyncing] = useState(false);
   const [clockNow, setClockNow] = useState(() => new Date());

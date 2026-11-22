@@ -1,4 +1,6 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import {currentJourneyStage,journeyStageLabels,type QueueJourneyProgress} from "../../../shared/queueJourneyProgress";
+import { getBookingEmailStatus, needsEmailDeliveryFallback } from "../utils/ticketEmailStatus";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import {
   Alert,
   Badge,
@@ -11,7 +13,6 @@ import {
   ScrollArea,
   SimpleGrid,
   Stack,
-  Table,
   Text,
   Textarea,
   Title
@@ -23,9 +24,11 @@ import "jsbarcode/dist/barcodes/JsBarcode.code128.min.js";
 import { Link, Navigate, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import type { CancelQueueTicketRequest, PublicVendorProfileResponse, QueueJoinPaymentSyncResponse, QueueSnapshot, StoreHourSummary } from "@shared";
 import { API_BASE_URL, ApiError, apiRequest } from "../api/client";
+import { ArrivalBarcodeController, type ArrivalBarcode, type ArrivalBarcodeState } from "../utils/arrivalBarcode";
+import ArrivalQRCode from "../components/ArrivalQRCode";
 import ResourceErrorState from "../components/ResourceErrorState";
 import { useAuth } from "../context/AuthContext";
-import { buildJoinPath, buildJoinedQueuePathWithTicket, buildMonitorPath } from "../queuePaths";
+import { buildJoinPath, buildJoinedQueuePathWithTicket } from "../queuePaths";
 import ContactForm from "../components/ContactForm";
 import FiveStarRatingInput from "../components/FiveStarRatingInput";
 import { clearJoinedQueueAccess, getJoinedQueueAccess } from "../utils/joinedQueueAccess";
@@ -36,10 +39,12 @@ import {
   getQueueStateSummary,
   isQueueAcceptingJoins
 } from "../utils/queueStatus";
-import {
-  getQueueCustomerDisplayName,
-  getQueueCustomerFullNameLabel
-} from "../utils/queueNames";
+import { getQueueCustomerFullNameLabel } from "../utils/queueNames";
+
+export function QueueJourneyProgressView({journey}:{journey:QueueJourneyProgress}) {
+ const current=currentJourneyStage(journey);
+ return <section aria-label="Your service journey"><h3>Your service journey</h3><p>Keep reference {journey.reference} throughout your visit.</p>{current?<p role="status"><strong>{current.label}</strong>: {journeyStageLabels[current.state]}{current.queuePosition?` · Position ${current.queuePosition} at this station`:''}</p>:null}<ol>{journey.stages.map(stage=><li key={stage.ordinal} aria-current={stage.ordinal===journey.currentStage?'step':undefined}><strong>{stage.label}</strong> · {journeyStageLabels[stage.state]} · Reference {stage.reference}</li>)}</ol><p>Ask staff if you need to change or cancel the remaining steps.</p></section>;
+}
 
 function hexToRgba(hex: string, alpha: number): string {
   const normalized = /^#[0-9a-f]{6}$/i.test(hex) ? hex : "#ffffff";
@@ -129,12 +134,16 @@ function TicketBarcode({ value }: { value: string }) {
     }
 
     window.JsBarcode(barcodeRef.current, value, {
-      background: "transparent",
+      background: "#ffffff",
       displayValue: false,
       format: "CODE128",
       height: 56,
       lineColor: "#17202a",
       margin: 0,
+      marginLeft: 20,
+      marginRight: 20,
+      marginTop: 4,
+      marginBottom: 4,
       width: 2
     });
   }, [value]);
@@ -143,7 +152,7 @@ function TicketBarcode({ value }: { value: string }) {
     <div className="ticket-page-barcode" aria-label={`Ticket ID ${value}`}>
       <svg
         ref={barcodeRef}
-        aria-label={`Barcode for ticket ID ${value}`}
+        aria-label={`Ticket code for ticket ID ${value}`}
         preserveAspectRatio="none"
         role="img"
       />
@@ -154,13 +163,55 @@ function TicketBarcode({ value }: { value: string }) {
   );
 }
 
-export default function JoinedQueuePage() {
+export type ArrivalCodePresentationModel = ArrivalBarcodeState & { graphic: ReactNode; onRetry: () => void };
+function RotatingTicketBarcode({ ticketId, token, renderPresentation }: Readonly<{ ticketId: string; token: string; renderPresentation?: (model: ArrivalCodePresentationModel) => ReactNode }>) {
+  const [state, setState] = useState<ArrivalBarcodeState>({ value: "", remainingSeconds: 0, loading: true, error: "" });
+  const controller = useRef<ArrivalBarcodeController | null>(null);
+  useEffect(() => {
+    const current = new ArrivalBarcodeController({
+      fetchBarcode: () => apiRequest<ArrivalBarcode>(`/account/queue/tickets/${encodeURIComponent(ticketId)}/barcode`, { method: "POST", token, body: {} }),
+      onChange: setState
+    });
+    controller.current = current;
+    const refreshVisible = () => {
+      if (document.hidden) current.pause();
+      else current.setOffline(!navigator.onLine);
+    };
+    refreshVisible();
+    document.addEventListener("visibilitychange", refreshVisible);
+    window.addEventListener("online", refreshVisible);
+    window.addEventListener("offline", refreshVisible);
+    return () => {
+      current.dispose();
+      controller.current = null;
+      document.removeEventListener("visibilitychange", refreshVisible);
+      window.removeEventListener("online", refreshVisible);
+      window.removeEventListener("offline", refreshVisible);
+    };
+  }, [ticketId, token]);
+  // eslint-disable-next-line react-hooks/refs -- The presenter receives a ref or event callback without reading it during render.
+  if (renderPresentation) return renderPresentation({ ...state, graphic: state.value ? <ArrivalQRCode value={state.value} /> : null, onRetry: () => void controller.current?.refresh() });
+  return <Stack gap="xs" aria-live="polite">
+    {state.value ? <><ArrivalQRCode value={state.value} /><Text className="ticket-page-barcode-value" ta="center" c="dimmed" size="sm">{state.value}</Text><Text ta="center" c="dimmed" size="sm" aria-live="off">Refreshes in {state.remainingSeconds}s</Text></> :
+      <Text ta="center" c="dimmed" size="sm">{state.loading ? "Loading arrival QR code…" : state.error}</Text>}
+    {state.error ? <Button mih={44} onClick={() => void controller.current?.refresh()} variant="default">Retry QR code</Button> : null}
+  </Stack>;
+}
+
+// CUSTOMER TICKET PRESENTATION CONTRACT START
+export interface JoinedQueuePresentationModel {
+ snapshot:QueueSnapshot|null;error:string;businessName:string;locationName:string;backLink:string;vendorDetailsPath:string;joinPath:string;bookingPath:string;bookingAvailable:boolean;canJoinAgain:boolean;canCancelTicket:boolean;ticketState:ReturnType<typeof getCustomerTicketStateSummary>;queueState:ReturnType<typeof getQueueStateSummary>;ticketDisplayStatus:string;ticketBarcode:ReactNode;emailDeliveryFallback:boolean;isBookingTicket:boolean;linkedBookingReference?:string|null;bookingEmailStatus:string;customerAuthenticated:boolean;registrationState:unknown;
+ cancelSubmitting:boolean;cancelConfirmOpen:boolean;setCancelConfirmOpen:(v:boolean)=>void;cancelErrorModalOpen:boolean;setCancelErrorModalOpen:(v:boolean)=>void;handleCancelTicket:()=>Promise<void>;
+ queueRatingOpen:boolean;setQueueRatingOpen:(v:boolean)=>void;queueRatingStars:number;setQueueRatingStars:(v:number)=>void;queueRatingComment:string;setQueueRatingComment:(v:string)=>void;queueRatingSubmitting:boolean;queueRatingStatus:{eligible:boolean;rating:{id:string;stars:number;comment?:string|null}|null}|null;handleSubmitQueueRating:()=>Promise<void>;
+}
+// CUSTOMER TICKET PRESENTATION CONTRACT END
+export default function JoinedQueuePage({renderPresentation,renderUnavailable,renderPendingPayment,renderArrivalCode,renderArrivalStatus}:{renderArrivalCode?:(model:ArrivalCodePresentationModel)=>ReactNode;renderArrivalStatus?:(message:string)=>ReactNode;renderPresentation?:(model:JoinedQueuePresentationModel)=>ReactNode;renderUnavailable?:(error:string,back:string)=>ReactNode;renderPendingPayment?:(model:{error:string;pending:boolean;busy:boolean;back:string})=>ReactNode;}={}) {
   const { tenantSlug, locationSlug } = useParams<{ tenantSlug: string; locationSlug?: string }>();
   const location = useLocation();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { token, user } = useAuth();
-  const [snapshot, setSnapshot] = useState<QueueSnapshot | null>(null);
+  const [snapshot, setSnapshot] = useState<(QueueSnapshot & { emailQuotaPolicy?: "unmetered" }) | null>(null);
   const [bookingAvailable, setBookingAvailable] = useState(false);
   const [error, setError] = useState("");
   const [responseStatus, setResponseStatus] = useState<number | null>(null);
@@ -264,13 +315,20 @@ export default function JoinedQueuePage() {
   const businessName = snapshot?.tenant?.name || tenantSlugValue;
   const locationName = snapshot?.location?.name || "Main location";
   const locationDetailLabel = [snapshot?.location?.city, snapshot?.location?.province].filter(Boolean).join(", ") || snapshot?.location?.country || "Philippines";
+  const linkedBookingReference = snapshot?.focusTicket?.linkedBookingReference;
+  const isBookingTicket = Boolean(linkedBookingReference) || snapshot?.focusTicket?.servicePriorityBand === "checked_in_booking";
+  const emailDeliveryFallback = needsEmailDeliveryFallback(snapshot?.focusTicket, snapshot?.emailQuotaPolicy);
+  const bookingEmailStatus = getBookingEmailStatus(snapshot?.focusTicket, snapshot?.emailQuotaPolicy);
   const ticketIsConfirmed = Boolean(
     snapshot?.focusTicket?.status === "called" && snapshot.focusTicket.customerConfirmedAt
   );
-  const ticketState = getCustomerTicketStateSummary(
+  const legacyTicketState = getCustomerTicketStateSummary(
     snapshot?.focusTicket?.status,
     snapshot?.focusTicket?.customerConfirmedAt
   );
+  const ownJourney=snapshot?.focusTicket?.journey;
+  const ownJourneyStage=ownJourney?currentJourneyStage(ownJourney):null;
+  const ticketState=ownJourneyStage?{...legacyTicketState,label:journeyStageLabels[ownJourneyStage.state]}:legacyTicketState;
   const ticketDisplayStatus = ticketIsConfirmed
     ? "confirmed"
     : snapshot?.focusTicket?.status || "waiting";
@@ -289,48 +347,24 @@ export default function JoinedQueuePage() {
   const vendorIsInactive = snapshot ? !snapshot.tenant.isActive : false;
   const locationIsClosed = snapshot?.location ? !snapshot.location.openStatus.isOpen : false;
   const queueState = getQueueStateSummary(snapshot);
-  const ticketIsWaiting = snapshot?.focusTicket?.status === "waiting";
+  const ticketIsWaiting = ownJourneyStage?ownJourneyStage.state==="waiting":snapshot?.focusTicket?.status === "waiting";
   const ticketIsCarriedOver = Boolean(
     snapshot?.focusTicket?.isCarriedOver ||
     snapshot?.focusTicket?.servicePriorityBand === "carry_over" ||
     Number(snapshot?.focusTicket?.carryOverCount || 0) > 0
   );
   const canJoinAgain =
-    isQueueAcceptingJoins(snapshot) &&
+    !ownJourney && isQueueAcceptingJoins(snapshot) &&
     !ticketIsWaiting &&
     !vendorIsInactive &&
     !locationIsClosed;
-  const queueProgressTickets = [
-    ...(snapshot?.current
-      ? [
-          {
-            id: `current-${snapshot.current.id}`,
-            ticketNumber: snapshot.current.ticketNumber,
-            customerName: getQueueCustomerDisplayName(
-              snapshot.current.customerName,
-              snapshot.current.customerDisplayName
-            ),
-            progressLabel: "Now serving"
-          }
-        ]
-      : []),
-    ...((snapshot?.nextUp || []).map((ticket) => ({
-      id: ticket.id,
-      ticketNumber: ticket.ticketNumber,
-      customerName: getQueueCustomerDisplayName(
-        ticket.customerName,
-        ticket.customerDisplayName
-      ),
-      progressLabel: `#${ticket.position}`
-    })))
-  ].slice(0, 10);
   const userIsCustomer = Boolean(user?.roles?.includes("customer"));
   const storedAccess = getJoinedQueueAccess(lookupCode);
   const cancellationContact = {
     customerEmail: user?.email || storedAccess?.customerEmail || prefill?.email || "",
     customerPhone: user?.phone || storedAccess?.customerPhone || prefill?.phone || ""
   };
-  const canCancelTicket = snapshot?.focusTicket?.status === "waiting";
+  const canCancelTicket = !ownJourney&&snapshot?.focusTicket?.status === "waiting";
   const ownershipVerificationError = "We could not verify that this ticket belongs to you.";
 
   useEffect(() => {
@@ -477,7 +511,7 @@ export default function JoinedQueuePage() {
             message: "Your ticket has been issued.",
             title: "Joined queue"
           });
-          navigate(buildJoinedQueuePathWithTicket(tenantSlugValue, data.ticket.lookupCode, locationSlug), {
+          navigate(buildJoinedQueuePathWithTicket(tenantSlugValue, data.ticket.lookupCode, data.payment.locationSlug ?? locationSlug), {
             replace: true
           });
           return;
@@ -514,10 +548,11 @@ export default function JoinedQueuePage() {
   }
 
   if (missingLookupCode) {
-    return <Navigate replace to={buildMonitorPath(tenantSlugValue, locationSlug)} />;
+    return <Navigate replace to={buildJoinPath(tenantSlugValue, locationSlug)} />;
   }
 
   if ([401, 403, 404].includes(responseStatus || 0)) {
+    if(renderUnavailable)return renderUnavailable(error,backLink);
     return (
       <ResourceErrorState
         backLabel={backLabel}
@@ -531,6 +566,7 @@ export default function JoinedQueuePage() {
   }
 
   if (shouldAwaitPaymentSync && !lookupCode) {
+    if(renderPendingPayment)return renderPendingPayment({error,pending:paymentSyncPending,busy:paymentSyncing,back:backLink});
     return (
       <Stack className="vendor-profile-page" gap="xl" style={themeStyle}>
         <Container size="sm" w="100%">
@@ -652,6 +688,17 @@ export default function JoinedQueuePage() {
       setQueueRatingSubmitting(false);
     }
   }
+
+  const focusTicket = snapshot?.focusTicket;
+  let ticketBarcode = renderArrivalStatus ? renderArrivalStatus(error || "Loading ticket arrival details…") : <Text ta="center" c="dimmed" size="sm">{error || "Loading ticket arrival details…"}</Text>;
+  if (focusTicket) ticketBarcode = <TicketBarcode value={focusTicket.lookupCode} />;
+  if (focusTicket?.barcodeRotationRequired && ["waiting", "called", "skipped", "pending_carry_over"].includes(focusTicket.status) &&
+      !focusTicket.customerConfirmedAt && !focusTicket.serviceStartedAt && !focusTicket.serviceEndedAt && !focusTicket.serviceOutcome) {
+    ticketBarcode = token ? <RotatingTicketBarcode key={`${focusTicket.id}:${token}`} ticketId={focusTicket.id} token={token} renderPresentation={renderArrivalCode} /> :
+      renderArrivalStatus ? renderArrivalStatus("Sign in to the ticket owner’s account to display its current arrival QR code.") : <Text ta="center" size="sm">Sign in to the ticket owner’s account to display its current arrival QR code.</Text>;
+  }
+
+  if(renderPresentation)return renderPresentation({snapshot,error,businessName,locationName,backLink,vendorDetailsPath,joinPath,bookingPath,bookingAvailable,canJoinAgain,canCancelTicket,ticketState,queueState,ticketDisplayStatus,ticketBarcode,emailDeliveryFallback,isBookingTicket,linkedBookingReference,bookingEmailStatus,customerAuthenticated:userIsCustomer,registrationState,cancelSubmitting,cancelConfirmOpen,setCancelConfirmOpen,cancelErrorModalOpen,setCancelErrorModalOpen,handleCancelTicket,queueRatingOpen,setQueueRatingOpen,queueRatingStars,setQueueRatingStars,queueRatingComment,setQueueRatingComment,queueRatingSubmitting,queueRatingStatus,handleSubmitQueueRating});
 
   return (
     <Stack className="vendor-profile-page" gap="xl" style={themeStyle}>
@@ -859,8 +906,9 @@ export default function JoinedQueuePage() {
             </Group>
           </div>
         </Modal>
-        {(shouldAwaitPaymentSync || paymentSyncing || snapshot?.focusTicket?.emailJourneyMode === "journey_exhausted" || (snapshot && queueState.label !== "Open")) ? (
+        {(shouldAwaitPaymentSync || paymentSyncing || emailDeliveryFallback || (snapshot && queueState.label !== "Open")) ? (
           <Stack className="ticket-page-notifications" gap="sm">
+            {emailDeliveryFallback ? <Alert className="ticket-page-status-alert" color="blue" title="Follow updates here">Email updates are not confirmed for this ticket. Keep this page open or use browser notifications to follow your turn.</Alert> : null}
             {shouldAwaitPaymentSync || paymentSyncing ? (
               <Alert className="ticket-page-status-alert" color="blue" title="Confirming payment">
                 We are confirming your queue fee payment and loading your ticket.
@@ -876,11 +924,7 @@ export default function JoinedQueuePage() {
                 {queueState.message}
               </Alert>
             ) : null}
-            {snapshot?.focusTicket?.emailJourneyMode === "journey_exhausted" ? (
-              <Alert className="ticket-page-status-alert" color="blue" icon={<IconInfoCircle size={18} />} title="Follow updates here">
-                Your ticket is active. This vendor has reached its monthly email journey allowance, so email updates are paused. Keep this page open or enable browser notifications for live updates.
-              </Alert>
-            ) : null}
+
           </Stack>
         ) : null}
         <Paper className="vendor-hero-shell ticket-page-hero booking-detail-page-hero" p={{ base: "lg", md: "xl" }}>
@@ -937,6 +981,9 @@ export default function JoinedQueuePage() {
                       <Badge className={`booking-detail-ticket-status ticket-page-ticket-status ticket-page-ticket-status--${ticketDisplayStatus}`} size="lg">
                         {ticketState.label}
                       </Badge>
+                      {isBookingTicket ? (
+                        <Badge color="teal" size="lg" variant="light">Booking</Badge>
+                      ) : null}
                       {ticketIsCarriedOver ? (
                         <Badge className="ticket-page-carry-over-badge" color="blue" size="lg" variant="light">
                           Carried over
@@ -944,8 +991,26 @@ export default function JoinedQueuePage() {
                       ) : null}
                     </Group>
                   </div>
+                  {snapshot?.focusTicket?.journey?<QueueJourneyProgressView journey={snapshot.focusTicket.journey}/>:null}
+                  {isBookingTicket ? (
+                    <Stack gap="xs">
+                      {linkedBookingReference ? <Text size="sm">Booking reference: <strong>{linkedBookingReference}</strong></Text> : null}
+                      <Text c="dimmed" size="sm">Your arrival has been recorded. This ticket now tracks your place in the queue.</Text>
+                      {snapshot?.focusTicket?.bookingScheduledStartAt ? <Text c="dimmed" size="sm">The vendor can call this ticket at or after {formatJoinedDate(snapshot.focusTicket.bookingScheduledStartAt, snapshot.location?.timezone)}.</Text> : null}
+                      <Text size="sm"><strong>Email alerts:</strong> {bookingEmailStatus}</Text>
+                      <Text c="dimmed" size="sm">
+                        Browser alerts require queue alerts to be enabled in your account, browser permission, and an active browser subscription.
+                        Check your notification settings if you are unsure. Keep this page open to follow live updates.
+                      </Text>
+                      {user ? (
+                        <Button component={Link} to="/account/notifications" variant="subtle" mih={44} size="md">
+                          View notification settings
+                        </Button>
+                      ) : null}
+                    </Stack>
+                  ) : null}
                   <Divider className="ticket-page-barcode-divider" />
-                  <TicketBarcode value={snapshot?.focusTicket?.lookupCode || lookupCode} />
+                  {ticketBarcode}
                 </Stack>
               </Paper>
 
@@ -1001,13 +1066,13 @@ export default function JoinedQueuePage() {
                     <Text className="booking-detail-ticket-number" fw={900}>{snapshot?.focusTicket?.ticketNumber || lookupCode}</Text>
                   </div>
                   <div className="booking-detail-visual-tile">
-                    <Text size="xs">Position</Text>
+                    <Text size="xs">{snapshot?.focusTicket?.journey?"Station position":"Position"}</Text>
                     <Text fw={800}>{ticketIsWaiting && snapshot?.focusTicket?.position ? `#${snapshot.focusTicket.position}` : "--"}</Text>
                     <Text size="sm">{ticketIsWaiting ? "in the queue" : ticketState.label}</Text>
                   </div>
                   <div className="booking-detail-visual-tile">
-                    <Text size="xs">Estimated wait</Text>
-                    <Text fw={800}>{snapshot?.focusTicket?.estimatedWaitMinutes ?? snapshot?.stats?.estimatedWaitMinutes ?? 0} mins</Text>
+                    <Text size="xs">{snapshot?.focusTicket?.journey?"Current step":"Estimated wait"}</Text>
+                    <Text fw={800}>{snapshot?.focusTicket?.journey?currentJourneyStage(snapshot.focusTicket.journey)?.label:`${snapshot?.focusTicket?.estimatedWaitMinutes ?? snapshot?.stats?.estimatedWaitMinutes ?? 0} mins`}</Text>
                     <Text size="sm">{ticketState.label}</Text>
                   </div>
                 </SimpleGrid>
@@ -1115,7 +1180,7 @@ export default function JoinedQueuePage() {
                   ETA
                 </Text>
                 <Title className="ticket-page-metric-value" order={2}>
-                  {snapshot?.focusTicket?.estimatedWaitMinutes ?? snapshot?.stats?.estimatedWaitMinutes ?? 0} mins
+                  {ownJourneyStage?journeyStageLabels[ownJourneyStage.state]:`${snapshot?.focusTicket?.estimatedWaitMinutes ?? snapshot?.stats?.estimatedWaitMinutes ?? 0} mins`}
                 </Title>
               </Paper>
               <Paper className="ticket-page-metric" p="md">
@@ -1135,56 +1200,6 @@ export default function JoinedQueuePage() {
                 </Title>
               </Paper>
             </SimpleGrid>
-            <Text c={bodyColor} fw={700}>
-              Currently serving: {snapshot?.current?.ticketNumber || "--"}
-            </Text>
-          </Stack>
-        </Paper>
-
-        <Paper className="ticket-page-queue-list-section" p="xl" shadow="lg" style={cardStyle}>
-          <Stack gap="md">
-            <Group justify="space-between" align="flex-start">
-              <div>
-                <Text c={subheaderColor} fw={800} size="xs" tt="uppercase" lts={2}>
-                  Queue list
-                </Text>
-                <Title className="vendor-section-title ticket-page-section-title" order={2}>Up next and waiting</Title>
-              </div>
-            </Group>
-            <Table.ScrollContainer minWidth={560}>
-              <Table verticalSpacing="sm">
-                <Table.Thead>
-                  <Table.Tr>
-                    <Table.Th>Ticket</Table.Th>
-                    <Table.Th>Customer</Table.Th>
-                    <Table.Th ta="right">Position</Table.Th>
-                  </Table.Tr>
-                </Table.Thead>
-                <Table.Tbody>
-                  {queueProgressTickets.length ? (
-                    queueProgressTickets.map((ticket) => (
-                      <Table.Tr key={ticket.id}>
-                        <Table.Td>
-                          <Text c={headerColor} fw={800}>{ticket.ticketNumber}</Text>
-                        </Table.Td>
-                        <Table.Td>
-                          <Text c={bodyColor} size="sm">{ticket.customerName}</Text>
-                        </Table.Td>
-                        <Table.Td ta="right">
-                          <Badge radius="xl" variant="light">{ticket.progressLabel}</Badge>
-                        </Table.Td>
-                      </Table.Tr>
-                    ))
-                  ) : (
-                    <Table.Tr>
-                      <Table.Td colSpan={3}>
-                        <Text c={bodyColor}>The queue is currently empty.</Text>
-                      </Table.Td>
-                    </Table.Tr>
-                  )}
-                </Table.Tbody>
-              </Table>
-            </Table.ScrollContainer>
           </Stack>
         </Paper>
       </Container>

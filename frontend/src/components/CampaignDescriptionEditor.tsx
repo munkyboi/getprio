@@ -50,11 +50,13 @@ export default function CampaignDescriptionEditor({ disabled = false, maxCharact
   const editor = useEditor({
     content: toEditorHtml(value),
     editable: !disabled,
-    extensions: [StarterKit],
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    extensions: [StarterKit] as any,
     onUpdate: ({ editor: updatedEditor }) => {
       const nextValue = updatedEditor.getHTML();
       if (getPlainText(nextValue).length > maxCharacters) {
-        updatedEditor.commands.undo();
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (updatedEditor.commands as any).undo?.();
         return;
       }
       onChange(nextValue);

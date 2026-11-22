@@ -42,11 +42,15 @@ function readCsrfToken(): string {
 
 export class ApiError extends Error {
   readonly status: number;
+  readonly code?: string;
+  readonly retryAt?: number;
 
-  constructor(message: string, status: number) {
+  constructor(message: string, status: number, details: { code?: string; retryAt?: number } = {}) {
     super(message);
     this.name = "ApiError";
     this.status = status;
+    this.code = details.code;
+    this.retryAt = details.retryAt;
   }
 }
 
@@ -114,13 +118,13 @@ export async function apiRequest<TResponse, TBody = unknown>(
     }
   }
 
-  const data = (await response.json().catch(() => ({}))) as { message?: string };
+  const data = (await response.json().catch(() => ({}))) as { message?: string; code?: string; retryAt?: number };
   rememberCsrfToken(data);
   if (!response.ok) {
     if (response.status === 401 && authFailureHandler && skipAuthRefresh) {
       authFailureHandler();
     }
-    throw new ApiError(data.message || "Request failed.", response.status);
+    throw new ApiError(data.message || "Request failed.", response.status, data);
   }
 
   return data as TResponse;
@@ -184,13 +188,13 @@ export async function apiUpload<TResponse>(
     }
   }
 
-  const data = (await response.json().catch(() => ({}))) as { message?: string };
+  const data = (await response.json().catch(() => ({}))) as { message?: string; code?: string; retryAt?: number };
   rememberCsrfToken(data);
   if (!response.ok) {
     if (response.status === 401 && authFailureHandler && skipAuthRefresh) {
       authFailureHandler();
     }
-    throw new ApiError(data.message || "Request failed.", response.status);
+    throw new ApiError(data.message || "Request failed.", response.status, data);
   }
 
   return data as TResponse;

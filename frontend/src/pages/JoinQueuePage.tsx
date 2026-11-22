@@ -1,9 +1,11 @@
+import { OtpInputField } from "../components/OtpInputField";
 import {
   useCallback,
   useEffect,
   useMemo,
   useRef,
   useState,
+  type ReactNode, type Dispatch, type SetStateAction, type RefObject,
   type CSSProperties,
   type FormEvent
 } from "react";
@@ -13,7 +15,6 @@ import {
   Button,
   Checkbox,
   Group,
-  PinInput,
   Paper,
   SimpleGrid,
   Stack,
@@ -93,7 +94,10 @@ declare global {
   }
 }
 
-export default function JoinQueuePage() {
+// CUSTOMER JOIN PRESENTATION CONTRACT START
+export interface JoinQueuePresentationModel {tenantInfo:TenantSummary|null;locationName:string;queueSnapshot:QueueSnapshot|null;form:JoinQueueFormState;setForm:Dispatch<SetStateAction<JoinQueueFormState>>;error:string;submitting:boolean;otp:RequestJoinOtpResponse|null;otpCode:string;setOtpCode:(v:string)=>void;resendLabel:string;resendSecondsRemaining:number;requiresQueuePayment:boolean;canSkipOtp:boolean;queueIntakePaused:boolean;queueStateBadge:ReturnType<typeof getQueueStateSummary>;queueJoinUnavailable:boolean;requiresEmail:boolean;requiresPhone:boolean;pageTitle:string;signedInCustomer:boolean;shouldUseTurnstile:boolean;turnstileReady:boolean;turnstileContainerRef:RefObject<HTMLDivElement|null>;handleSubmit:(event:FormEvent<HTMLFormElement>)=>Promise<void>;handleVerifyOtp:(event?:FormEvent<HTMLFormElement>)=>Promise<void>;resendOtp:()=>Promise<void>;back:string;cancel:()=>void;maskedDeliveryTarget:string;}
+// CUSTOMER JOIN PRESENTATION CONTRACT END
+export default function JoinQueuePage({renderPresentation,onTicketIssued}:{renderPresentation?:(model:JoinQueuePresentationModel)=>ReactNode;onTicketIssued?:(path:string,state:unknown)=>void;}={}) {
   const { tenantSlug, locationSlug } = useParams<{ tenantSlug: string; locationSlug?: string }>();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -117,8 +121,6 @@ export default function JoinQueuePage() {
   const [turnstileReady, setTurnstileReady] = useState(false);
   const [otp, setOtp] = useState<RequestJoinOtpResponse | null>(null);
   const [otpCode, setOtpCode] = useState("");
-  const otpAutoSubmitRef = useRef(false);
-  const lastAutoSubmittedOtpRef = useRef<string>("");
   const [now, setNow] = useState(() => Date.now());
   const tenantSlugValue = tenantSlug || "";
   const publicApiBase = locationSlug
@@ -299,7 +301,7 @@ export default function JoinQueuePage() {
             customerName: prefill.name
           });
           navigate(
-            buildJoinedQueuePathWithTicket(tenantSlugValue, data.ticket.lookupCode, locationSlug),
+            buildJoinedQueuePathWithTicket(tenantSlugValue, data.ticket.lookupCode, data.payment?.locationSlug ?? locationSlug),
             {
               replace: true,
               state: joinedQueueNavigationState
@@ -463,7 +465,6 @@ export default function JoinQueuePage() {
       );
       setOtp(data);
       setOtpCode("");
-      lastAutoSubmittedOtpRef.current = "";
     } catch (submitError) {
       setError(getErrorMessage(submitError));
       if (shouldUseTurnstile) {
@@ -518,10 +519,9 @@ export default function JoinQueuePage() {
           message: "Your ticket has been issued.",
           title: "Joined queue"
         });
-        navigate(buildJoinedQueuePathWithTicket(tenantSlugValue, data.ticket.lookupCode, locationSlug), {
-          replace: true,
-          state: joinedQueueNavigationState
-        });
+        const issuedPath = buildJoinedQueuePathWithTicket(tenantSlugValue, data.ticket.lookupCode, locationSlug);
+        if (onTicketIssued) onTicketIssued(issuedPath, joinedQueueNavigationState);
+        else navigate(issuedPath, { replace: true, state: joinedQueueNavigationState });
         return;
       }
     } catch (submitError) {
@@ -551,7 +551,6 @@ export default function JoinQueuePage() {
       );
       setOtp(data);
       setOtpCode("");
-      lastAutoSubmittedOtpRef.current = "";
     } catch (submitError) {
       setError(getErrorMessage(submitError));
     } finally {
@@ -569,10 +568,10 @@ export default function JoinQueuePage() {
     await requestOtp();
   }
 
-  const handleVerifyOtp = useCallback(async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  const handleVerifyOtp = useCallback(async (event?: FormEvent<HTMLFormElement>) => {
+    event?.preventDefault();
 
-    if (!otp) {
+    if (submitting || queueJoinUnavailable || !otp) {
       return;
     }
 
@@ -614,10 +613,9 @@ export default function JoinQueuePage() {
           message: "Your ticket has been issued.",
           title: "Joined queue"
         });
-        navigate(buildJoinedQueuePathWithTicket(tenantSlugValue, data.ticket.lookupCode, locationSlug), {
-          replace: true,
-          state: joinedQueueNavigationState
-        });
+        const issuedPath = buildJoinedQueuePathWithTicket(tenantSlugValue, data.ticket.lookupCode, locationSlug);
+        if (onTicketIssued) onTicketIssued(issuedPath, joinedQueueNavigationState);
+        else navigate(issuedPath, { replace: true, state: joinedQueueNavigationState });
         return;
       }
 
@@ -632,24 +630,10 @@ export default function JoinQueuePage() {
     } finally {
       setSubmitting(false);
     }
-  }, [form.customerEmail, form.customerName, form.customerPhone, joinedQueueNavigationState, locationSlug, navigate, otp, otpCode, publicApiBase, tenantSlugValue]);
+  }, [form.customerEmail, form.customerName, form.customerPhone, joinedQueueNavigationState, locationSlug, navigate, onTicketIssued, otp, otpCode, publicApiBase, tenantSlugValue, submitting, queueJoinUnavailable]);
 
-  useEffect(() => {
-    if (!otp || otpCode.length !== 6 || submitting || otpAutoSubmitRef.current) {
-      return;
-    }
 
-    const submissionKey = `${otp.otpId}:${otpCode}`;
-    if (lastAutoSubmittedOtpRef.current === submissionKey) {
-      return;
-    }
-
-    lastAutoSubmittedOtpRef.current = submissionKey;
-    otpAutoSubmitRef.current = true;
-    handleVerifyOtp({ preventDefault() {} } as FormEvent<HTMLFormElement>).finally(() => {
-      otpAutoSubmitRef.current = false;
-    });
-  }, [handleVerifyOtp, otp, otpCode, submitting]);
+  if(renderPresentation)return renderPresentation({tenantInfo,locationName,queueSnapshot,form,setForm,error,submitting,otp,otpCode,setOtpCode,resendLabel,resendSecondsRemaining,requiresQueuePayment,canSkipOtp,queueIntakePaused,queueStateBadge,queueJoinUnavailable,requiresEmail,requiresPhone,pageTitle,signedInCustomer,shouldUseTurnstile,turnstileReady,turnstileContainerRef,handleSubmit,handleVerifyOtp,resendOtp,back:`/vendors/${tenantSlugValue}`,cancel:()=>navigate("/"),maskedDeliveryTarget:otp?maskDeliveryTarget(otp.deliveryChannel,otp.deliveryTarget):""});
 
   return (
     <Stack className="vendor-profile-page join-queue-page" gap="lg" style={themeStyle}>
@@ -755,16 +739,14 @@ export default function JoinQueuePage() {
                       It expires at {formatDisplayTime(otp.expiresAt)}.
                     </Text>
                   </Paper>
-                  <PinInput
-                    aria-label="OTP"
-                    inputMode="numeric"
-                    length={6}
+                  <OtpInputField
+                    label="Verification code"
                     name="otpCode"
-                    oneTimeCode
-                    size="lg"
-                    type="number"
                     value={otpCode}
-                    onChange={(value) => setOtpCode(value.replace(/\D/g, ""))}
+                    onChange={setOtpCode}
+                    onVerify={() => handleVerifyOtp()}
+                    verificationKey={otp.otpId}
+                    disabled={submitting || queueJoinUnavailable}
                   />
                   {error ? <Alert color="red">{error}</Alert> : null}
                   <Button

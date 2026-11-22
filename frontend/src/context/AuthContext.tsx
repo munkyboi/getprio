@@ -160,6 +160,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setSessionExpiresAt(data.sessionExpiresAt ? new Date(data.sessionExpiresAt).getTime() : null);
       return data;
     },
+    async sendEmailMfaCode(payload) {
+      return apiRequest<{ token: string; deliveryTarget: string }, typeof payload>("/auth/mfa/email/send", {
+        method: "POST",
+        body: payload
+      });
+    },
     async registerVendor(payload: RegisterVendorRequest): Promise<AuthResponse> {
       const data = await apiRequest<AuthResponse, RegisterVendorRequest>("/auth/register/vendor", {
         method: "POST",
