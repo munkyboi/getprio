@@ -136,6 +136,37 @@ function formatRemaining(milliseconds: number) {
   return `${String(minutes).padStart(2, "0")}:${String(remainder).padStart(2, "0")}`;
 }
 
+function getTrayCopy({
+  locationName,
+  deadlineLabel,
+  remaining,
+  isReconciling,
+  reconciliationError
+}: {
+  locationName: string;
+  deadlineLabel: string;
+  remaining: number;
+  isReconciling: boolean;
+  reconciliationError?: string | null;
+}) {
+  if (reconciliationError) {
+    return {
+      title: "Queue status needs attention",
+      message: "Automatic reconciliation could not confirm a trustworthy queue state. Queue actions are locked."
+    };
+  }
+  if (isReconciling) {
+    return {
+      title: "Queue is closing",
+      message: "Ticket outcomes are being reconciled. This is a short-lived operation, not a draining state."
+    };
+  }
+  return {
+    title: `Auto-close in ${formatRemaining(remaining)}`,
+    message: `${locationName} closes at ${deadlineLabel}. Every unresolved ticket will receive an outcome.`
+  };
+}
+
 export default function VendorQueueLifecycleTray({
   snapshot,
   locationName,
@@ -201,16 +232,13 @@ export default function VendorQueueLifecycleTray({
   if (!showTray) return null;
 
   const deadlineLabel = formatDeadline(queueDay?.currentClosesAt, queueDay?.timezone);
-  let trayTitle = `Auto-close in ${formatRemaining(remaining)}`;
-  let trayMessage = `${locationName} closes at ${deadlineLabel}. Every unresolved ticket will receive an outcome.`;
-  if (isReconciling) {
-    trayTitle = "Queue is closing";
-    trayMessage = "Ticket outcomes are being reconciled. This is a short-lived operation, not a draining state.";
-  }
-  if (reconciliationError) {
-    trayTitle = "Queue status needs attention";
-    trayMessage = "Automatic reconciliation could not confirm a trustworthy queue state. Queue actions are locked.";
-  }
+  const { title: trayTitle, message: trayMessage } = getTrayCopy({
+    locationName,
+    deadlineLabel,
+    remaining,
+    isReconciling,
+    reconciliationError
+  });
 
   async function confirmAction() {
     const succeeded = confirmation === "extend" ? await onExtend() : await onCloseNow();
