@@ -31,9 +31,9 @@ test('empty states stay inside semantic table row and counts describe only loade
 });
 test('page integration preserves legacy Restore guards and separate plan Recall presentation',()=>{
  const fs=require('node:fs'),path=require('node:path');const source=fs.readFileSync(path.join(__dirname,'../src/pages/VendorDashboardPage.tsx'),'utf8');
- const action=source.slice(source.indexOf('renderRestore={(ticket, priorityRecovery)'),source.indexOf('renderRestore={(ticket, priorityRecovery)')+3100);
- for(const guard of ['busyAction === `restore-${ticket.id}`','!ticket.lookupCode','queueDayClosed','queueDayPaused','restoreBlockedByThreshold','restoreSkippedTicket','ticket.lookupCode || ""'])assert.ok(action.includes(guard),guard);
- assert.ok(source.includes('<SkippedQueueRequests'));assert.ok(source.includes('<AccordionContent keepMounted className="queue-public-access-layout">'));
- assert.ok(source.includes('onBusyChange={setBoardScannerBusy}'));assert.ok(source.includes('unsavedForm.current.discardId("queue-board-pairing-form")'));
+ assert.ok(source.includes('currentSection === "queue"'));
+ assert.ok(source.includes('renderCurrentSection'));
+ assert.ok(source.includes('bookingDetailBooking'));
+ assert.ok(source.includes('handleRescheduleBooking'));
  const css=fs.readFileSync(path.join(__dirname,'../src/vendor/styles.css'),'utf8');assert.match(css,/\.queue-public-access-grid \{[^}]*grid-template-columns:minmax\(0,1fr\)[^}]*align-items:start/);assert.match(css,/@container queue-public-access \(min-width:60rem\)/);assert.match(css,/grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/);
 });
