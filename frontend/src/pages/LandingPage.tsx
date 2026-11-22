@@ -258,7 +258,6 @@ export default function LandingPage() {
       <section className="lp-hero" id="product">
         <div className="lp-container lp-hero-grid">
           <div className="lp-hero-content">
-            <p className="lp-eyebrow"><span className="lp-dot" /> LESS WAITING. MORE LIVING.</p>
             <h1 className="lp-title">
               <span className="lp-hero-line"><span>Your day.</span></span>
               <span className="lp-hero-line"><span>Your pace.</span></span>
@@ -286,7 +285,6 @@ export default function LandingPage() {
 
       <section className="lp-manifesto" aria-labelledby="lp-manifesto-title">
         <div className="lp-container">
-          <p className="lp-eyebrow" data-reveal>01 / A BETTER KIND OF WAIT</p>
           <h2 id="lp-manifesto-title">{'A coffee. A conversation. A moment to yourself.'.split(' ').map((word, i) => <span className="lp-manifesto-word" key={i}>{word} </span>)}<em>{'There’s more to your day than waiting.'.split(' ').map((word, i) => <span className="lp-manifesto-word" key={i}>{word} </span>)}</em></h2>
           <div className="lp-manifesto-bottom"><IconAsterisk className="lp-asterisk" size={65} stroke={1} aria-hidden="true" /><p data-reveal>We give people a clearer wait.<br />And service teams a calmer way to work.</p></div>
         </div>
@@ -295,15 +293,15 @@ export default function LandingPage() {
       <section className="lp-features" id="solutions">
         <div className="lp-container">
           <div className="lp-section-rule" />
-          <header className="lp-section-head" data-reveal><p className="lp-eyebrow">02 / CONNECTED BY DESIGN</p><h2>One rhythm.<br /><em>Every screen.</em></h2><p>From the phone in your hand to the team behind the counter. Everyone sees what’s next.</p></header>
+          <header className="lp-section-head" data-reveal><h2>One rhythm.<br /><em>Every screen.</em></h2><p>From the phone in your hand to the team behind the counter. Everyone sees what’s next.</p></header>
           <div className="lp-feature-stage">
             <span className="lp-stage-label">THE WHOLE QUEUE, IN SYNC</span>
             <ConnectedScreensParallax />
             <div className="lp-stage-foot"><span>THE PUBLIC BOARD</span><span>YOUR PHONE</span><span>YOUR TEAM</span></div>
           </div>
-          <div className="lp-feature-list">{services.map((service, index) => {
+          <div className="lp-feature-list">{services.map((service) => {
             const Icon = service.icon;
-            return <article className="lp-feature" key={service.title}><span className="lp-feature-number">0{index + 1}</span><Icon size={26} stroke={1.5} /><h3>{service.title}</h3><p>{service.text}</p></article>;
+            return <article className="lp-feature" key={service.title}><Icon size={26} stroke={1.5} /><h3>{service.title}</h3><p>{service.text}</p></article>;
           })}</div>
         </div>
       </section>
@@ -314,7 +312,6 @@ export default function LandingPage() {
         <Container size="xl">
           <Stack gap="xl">
             <div className="prio-centered-copy" data-reveal>
-              <Text className="prio-label">04 / ROOM TO GROW</Text>
               <Title className="prio-section-title" order={2}>
                 A calmer day. At every scale.
               </Title>
@@ -380,20 +377,16 @@ export default function LandingPage() {
       <section id="get-started" className="lp-closing" aria-labelledby="closing-title">
         <div className="lp-container lp-closing-grid">
           <div className="lp-closing-copy">
-            <p className="lp-eyebrow" data-closing-reveal>A BETTER DAY STARTS HERE</p>
             <h2 id="closing-title"><span data-closing-reveal>Good service.</span><br /><em data-closing-reveal>More breathing room.</em></h2>
             <p data-closing-reveal>Give your customers their time back.<br />Give your team a clearer way to serve.</p>
             <div className="lp-closing-actions">
               <Button data-closing-reveal component={Link} to="/register/vendor" color="orange" size="xl" radius="xl" rightSection={<IconArrowUpRight size={22} stroke={1.5} aria-hidden="true" />}>Create your workspace</Button>
               <a data-closing-reveal href="/vendors" className="lp-text-link">Explore vendors <IconArrowRight size={16} aria-hidden="true" /></a>
             </div>
-            <div className="lp-closing-footnote" data-closing-reveal>From the first scan to the final smile.</div>
           </div>
           <div className="lp-closing-scene">
             <img className="lp-closing-logo" src="/logo.svg" alt="" aria-hidden="true" />
-            <div className="lp-closing-scene-label"><span className="lp-dot" />LESS WAITING. MORE POSSIBILITY.</div>
             <img className="lp-closing-art" src="/illustrations/generated/cta-queue-scene-transparent.png" alt="Customers enjoying a calm service queue" loading="lazy" />
-            <div className="lp-closing-scene-footer"><span>YOUR PLACE IS KEPT.</span><span>YOUR DAY IS YOURS. <IconArrowUpRight size={12} aria-hidden="true" /></span></div>
           </div>
         </div>
       </section>

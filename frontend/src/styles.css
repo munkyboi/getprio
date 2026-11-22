@@ -3195,6 +3195,13 @@ button {
   font-weight: 700;
 }
 
+.public-theme-toggle.mantine-Button-root {
+  min-width: 42px;
+  min-height: 42px;
+  border: 0;
+  background: transparent;
+}
+
 .header-avatar-button {
   padding: 0;
   height: auto;
@@ -3239,7 +3246,7 @@ button {
 
 @media (max-width: 768px) {
   .desktop-nav-links {
-    display: none;
+    display: none !important;
   }
 
   .mobile-nav-trigger {
@@ -3305,6 +3312,18 @@ button {
   color: #7d9bff;
 }
 
+.site-footer-link:visited,
+.site-footer-bottom-link:visited {
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.site-footer-link:focus-visible,
+.site-footer-bottom-link:focus-visible,
+.site-footer-social:focus-visible {
+  outline: 2px solid #7d9bff;
+  outline-offset: 3px;
+}
+
 .site-footer-arrow {
   color: rgba(255, 255, 255, 0.35);
 }
@@ -3325,6 +3344,11 @@ button {
 
 .site-footer-social svg {
   display: block;
+}
+
+.site-footer-social:hover,
+.site-footer-social:visited {
+  color: #7d9bff;
 }
 
 .site-footer-bottom {
