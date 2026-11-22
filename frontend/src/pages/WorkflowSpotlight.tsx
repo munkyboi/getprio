@@ -61,7 +61,7 @@ export default function WorkflowSpotlight() {
     <div className="wf-scroll-shell">
     <section ref={root} className="wf-spotlight" id="workflow" aria-label="How GetPrio works">
       <div className="wf-wrap">
-        <header className="wf-header"><div><h2><span className="wf-heading-line">A little less waiting.</span><br /><em className="wf-heading-line">A little more living.</em></h2></div><p className="wf-intro">From scan to served<br />in four simple moments.<span>Scroll to follow the journey <IconArrowDown size={12} aria-hidden="true" /></span></p></header>
+        <header className="wf-header"><div><p className="wf-eyebrow">03 / THE GETPRIO WAY</p><h2><span className="wf-heading-line">A little less waiting.</span><br /><em className="wf-heading-line">A little more living.</em></h2></div><p className="wf-intro">From scan to served<br />in four simple moments.<span>Scroll to follow the journey <IconArrowDown size={12} aria-hidden="true" /></span></p></header>
         <div className="wf-scenes">{scenes.map((scene, i) => <article className={`wf-scene ${active === i ? 'is-active' : ''}`} key={scene.title}>
           <div className="wf-image"><Art index={i} /><span className="wf-status">{scene.icon && <scene.icon size={13} stroke={1.5} aria-hidden="true" />}{scene.status}</span></div>
           <div className="wf-copy"><div className="wf-step"><span>0{i + 1}</span>{scene.title}</div><h3>{scene.headline}</h3><p>{scene.copy}</p><small>{scene.tag}</small></div>

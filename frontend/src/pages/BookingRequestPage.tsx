@@ -1,8 +1,4 @@
-import BookingSelectionEditorV4, { type BookingSelectionPresentationModel } from "../components/BookingSelectionEditorV4";
-import type {BookingCatalogV4,BookingServiceSelectionV4} from "@shared/bookingSelectionV4";
-import {API_BASE_URL} from "../api/client";
-import { OtpInputField } from "../components/OtpInputField";
-import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   Accordion,
   Alert,
@@ -14,6 +10,7 @@ import {
   FileInput,
   Group,
   Image,
+  PinInput,
   Select,
   SegmentedControl,
   SimpleGrid,
@@ -27,18 +24,18 @@ import {
   Title
 } from "@mantine/core";
 import { Carousel } from "@mantine/carousel";
-import { DatePickerInput } from "@mantine/dates";
+import { DatePickerInput, DateTimePicker } from "@mantine/dates";
 import { useMediaQuery } from "@mantine/hooks";
 import { IconAlertTriangle, IconArrowLeft, IconBuildingBank, IconCalendar, IconMapPin, IconUpload } from "@tabler/icons-react";
 import { addDays, format } from "date-fns";
 import { Link, Navigate, useLocation, useNavigate, useParams } from "react-router-dom";
-
+import CampaignDescriptionEditor from "../components/CampaignDescriptionEditor";
 import type {
   BookingOtpResponse,
   BookingSlotsResponse,
   BookingSlotSummary,
   CreateCustomerBookingRequest,
-
+  CreateGroupFundedCampaignRequest,
   CustomerBookingDetailResponse,
   CustomerBookingResponse,
   PublicVendorProfile,
@@ -58,7 +55,7 @@ import {
   formatDateInputValue,
   toTimestamp
 } from "../utils/dates";
-import { durationUnitBounds, clampDurationUnits, sharedDurationUnitBounds, bundleDurationUnitBounds } from "../utils/durationUnits";
+import { getMaxBookableHours } from "../utils/availability";
 import { getErrorMessage } from "../utils/errors";
 import { showCustomerError, showCustomerSuccess } from "../utils/customerNotifications";
 
@@ -104,6 +101,63 @@ function formatPaymentAmount(amountCents: number, currency: string) {
 
 function getPendingStorageKey(tenantSlug: string) {
   return `getprio:booking:${tenantSlug}:pending`;
+}
+
+function toDateTimeLocalValue(date: Date) {
+  const offsetMs = date.getTimezoneOffset() * 60 * 1000;
+  return new Date(date.getTime() - offsetMs).toISOString().slice(0, 16);
+}
+
+function roundUpToHalfHour(date: Date) {
+  const rounded = new Date(date);
+  rounded.setSeconds(0, 0);
+  const minutes = rounded.getMinutes();
+  const nextMinutes = minutes === 0 || minutes === 30 ? minutes : minutes < 30 ? 30 : 60;
+  rounded.setMinutes(nextMinutes);
+  return rounded;
+}
+
+function roundDownToHalfHour(date: Date) {
+  const rounded = new Date(date);
+  rounded.setSeconds(0, 0);
+  rounded.setMinutes(rounded.getMinutes() < 30 ? 0 : 30);
+  return rounded;
+}
+
+function parseDateTimePickerValue(value: string) {
+  if (!value) {
+    return null;
+  }
+  const date = new Date(value.replace(" ", "T"));
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function isSameLocalDate(first: Date, second: Date) {
+  return (
+    first.getFullYear() === second.getFullYear() &&
+    first.getMonth() === second.getMonth() &&
+    first.getDate() === second.getDate()
+  );
+}
+
+function getLocalDayStart(date: Date) {
+  const next = new Date(date);
+  next.setHours(0, 0, 0, 0);
+  return next;
+}
+
+function getLocalDayEnd(date: Date) {
+  const next = new Date(date);
+  next.setHours(23, 59, 59, 999);
+  return next;
+}
+
+function formatTimeConstraint(date: Date) {
+  return [
+    String(date.getHours()).padStart(2, "0"),
+    String(date.getMinutes()).padStart(2, "0"),
+    "00"
+  ].join(":");
 }
 
 function getBookingFlowStep(
@@ -163,84 +217,15 @@ interface PendingBookingPayload extends CreateCustomerBookingRequest {
   bookingVerificationToken: string;
 }
 
-// CUSTOMER PRESENTATION CONTRACT START
-export interface BookingRequestPresentationModel {
-  booking: CustomerBookingResponse["booking"] | null;
-  requiresPaymentProof: boolean;
-  vendorDecision: ReturnType<typeof getVendorDecision>;
-  paymentReference: string;
-  setPaymentReference: (value: string) => void;
-  paymentProofFile: File | null;
-  setPaymentProofFile: (value: File | null) => void;
-  proofSubmitting: boolean;
-  handleSubmitPaymentProof: () => Promise<void>;
-  refreshSubmittedBooking: () => Promise<void>;
-  backToVendorPath: string;
-  vendor: PublicVendorProfile | null;
-  locationOptions: Array<{ value: string; label: string }>;
-  selectedLocationSlug: string;
-  setSelectedLocationSlug: (value: string) => void;
-  locationServices: PublicVendorService[];
-  selectedBundleServiceSlugs: string[];
-  selectServices: (values: string[]) => void;
-  resourceMode: boolean;
-  resourceBooking: boolean;
-  resourceCatalog: BookingCatalogV4 | null;
-  catalogError: string;
-  retryResourceCatalog: () => void;
-  resourceEditor: ReactNode;
-  changeBookingType: (resources: boolean) => void;
-  getBundleItemQuantity: (service: PublicVendorService) => number;
-  getBundleItemBounds: (service: PublicVendorService) => { min: number; max: number };
-  updateServiceQuantity: (service: PublicVendorService, quantity: number) => void;
-  executionMode: "parallel" | "sequential";
-  changeExecutionMode: (value: "parallel" | "sequential") => void;
-  bundleVisitDurationMinutes: number;
-  selectedBundleServices: PublicVendorService[];
-  bookingDate: string;
-  setBookingDate: (value: string) => void;
-  slots: BookingSlotSummary[];
-  slotsLoading: boolean;
-  selectedSlot: BookingSlotSummary | null;
-  selectedSlotStartAt: string;
-  setSelectedSlotStartAt: (value: string) => void;
-  slotPickerLabel: string;
-  slotIntervalLabel: string;
-  customerName: string;
-  setCustomerName: (value: string) => void;
-  customerEmail: string;
-  setCustomerEmail: (value: string) => void;
-  customerPhone: string;
-  setCustomerPhone: (value: string) => void;
-  notes: string;
-  setNotes: (value: string) => void;
-  payableAmountCents: number;
-  otp: BookingOtpResponse | null;
-  otpCode: string;
-  setOtpCode: (value: string) => void;
-  resendSecondsRemaining: number;
-  resendOtpLabel: string;
-  resendOtp: () => Promise<void>;
-  submitting: boolean;
-  error: string;
-  handleSubmit: (event?: FormEvent<HTMLFormElement>) => Promise<void>;
-}
-// CUSTOMER PRESENTATION CONTRACT END
-
-export default function BookingRequestPage({ renderPresentation, renderResourceSelection }: {
-  renderPresentation?: (model: BookingRequestPresentationModel) => ReactNode;
-  renderResourceSelection?: (model: BookingSelectionPresentationModel) => ReactNode;
-} = {}) {
-  const { tenantSlug = "", serviceSlug = "", bookingId = "" } = useParams<{
+export default function BookingRequestPage() {
+  const { tenantSlug = "", serviceSlug = "" } = useParams<{
     tenantSlug: string;
     serviceSlug?: string;
-    bookingId?: string;
   }>();
   const location = useLocation();
   const navigate = useNavigate();
-
   const selectedLocationFromQuery = useMemo(() => new URLSearchParams(location.search).get("location") || "", [location.search]);
-
+  const isGroupFundedMode = false;
   const { token, user, loading: authLoading } = useAuth();
   const [vendor, setVendor] = useState<PublicVendorProfile | null>(null);
   const [selectedLocationSlug, setSelectedLocationSlug] = useState("");
@@ -258,50 +243,24 @@ export default function BookingRequestPage({ renderPresentation, renderResourceS
   const [customerEmail, setCustomerEmail] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
   const [notes, setNotes] = useState("");
-
+  const [organizerCampaignOptIn, setOrganizerCampaignOptIn] = useState(false);
   const [otp, setOtp] = useState<BookingOtpResponse | null>(null);
   const [otpCode, setOtpCode] = useState("");
   const [now, setNow] = useState(() => Date.now());
   const [bookingVerificationToken, setBookingVerificationToken] = useState("");
   const [booking, setBooking] = useState<CustomerBookingResponse["booking"] | null>(null);
-  const submittedBookingMatches = Boolean(bookingId && booking?.id === bookingId && booking.tenantSlug === tenantSlug);
-  const [submittedBookingLoading, setSubmittedBookingLoading] = useState(Boolean(bookingId));
   const [paymentReference, setPaymentReference] = useState("");
   const [paymentProofFile, setPaymentProofFile] = useState<File | null>(null);
-
+  const [requiredContributors, setRequiredContributors] = useState(2);
+  const [fundingDeadlineAt, setFundingDeadlineAt] = useState("");
+  const [campaignVisibility, setCampaignVisibility] = useState<"private_link" | "public">("private_link");
+  const [campaignTitle, setCampaignTitle] = useState("");
+  const [campaignDescription, setCampaignDescription] = useState("");
   const [loading, setLoading] = useState(true);
-  const [resourceCatalog,setResourceCatalog]=useState<BookingCatalogV4|null>(null);
-  const [resourceSelections,setResourceSelections]=useState<BookingServiceSelectionV4[]>([]);
-  const [resourceBooking,setResourceBooking]=useState(true);
-  const [resourceRefresh,setResourceRefresh]=useState(0);
-  const [catalogRetry,setCatalogRetry]=useState(0);
-  const [catalogError,setCatalogError]=useState("");
-  const [resourceRequestKey]=useState(()=>crypto.randomUUID());
-  const resourceMode=resourceCatalog?.enabled===true&&resourceBooking&&Boolean(resourceCatalog.resourceServiceIds?.length);
-  const resourcePayload=resourceMode?{selectionContractVersion:4 as const,catalogVersion:resourceCatalog.catalogVersion,serviceSelections:resourceSelections,requestKey:resourceRequestKey}:{};
   const [slotsLoading, setSlotsLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [proofSubmitting, setProofSubmitting] = useState(false);
   const [error, setError] = useState("");
-
-  useEffect(()=>{
-    if(!token||!vendor||!selectedLocationSlug||bookingId)return;
-    const controller=new AbortController();
-    const refresh=()=>{
-      void apiRequest<BookingCatalogV4>(`/account/bookings/resource-catalog?tenantSlug=${encodeURIComponent(vendor.slug)}&locationSlug=${encodeURIComponent(selectedLocationSlug)}`,{token,signal:controller.signal})
-        .then(data=>{setResourceCatalog(data);setCatalogError("");setResourceRefresh(n=>n+1);}).catch(error=>{if(!controller.signal.aborted){const message=getErrorMessage(error);setCatalogError(message);setError(message);}});
-    };
-    refresh();
-    const events=new EventSource(`${API_BASE_URL}/public/tenant/${vendor.slug}/location/${selectedLocationSlug}/stream`);
-    events.onmessage=refresh;
-    const timer=window.setInterval(refresh,15000);
-    return()=>{controller.abort();events.close();window.clearInterval(timer);};
-  },[token,vendor?.slug,selectedLocationSlug,bookingId,catalogRetry]);
-  const changeResourceSelections=(next:BookingServiceSelectionV4[])=>{
-    setResourceSelections(next);setExecutionMode('parallel');setBookingQuantity(1);
-    const slugs=next.map(root=>resourceCatalog?.services.find(service=>service.id===root.serviceId)?.slug||'').filter(Boolean);
-    setSelectedBundleServiceSlugs(slugs);setSelectedServiceSlug(slugs[0]||'');setSelectedSlotStartAt('');
-  };
 
   useEffect(() => {
     if (error) {
@@ -310,44 +269,6 @@ export default function BookingRequestPage({ renderPresentation, renderResourceS
   }, [error]);
 
   useEffect(() => {
-    if (!bookingId || !token) return;
-    if (submittedBookingMatches) {
-      setSubmittedBookingLoading(false);
-      return;
-    }
-    const controller = new AbortController();
-    setSubmittedBookingLoading(true);
-    setBooking(null);
-    setError("");
-    apiRequest<CustomerBookingDetailResponse>(`/account/bookings/${encodeURIComponent(bookingId)}`, {
-      token, signal: controller.signal
-    }).then((data) => {
-      if (controller.signal.aborted) return;
-      if (data.booking.tenantSlug !== tenantSlug) throw new Error("Booking not found for this vendor.");
-      setBooking(data.booking);
-      setSelectedLocationSlug(data.booking.locationSlug);
-    }).catch((loadError) => {
-      if (!controller.signal.aborted) {
-        setBooking(null);
-        setError(getErrorMessage(loadError));
-      }
-    }).finally(() => {
-      if (!controller.signal.aborted) setSubmittedBookingLoading(false);
-    });
-    return () => controller.abort();
-  }, [bookingId, submittedBookingMatches, tenantSlug, token]);
-
-  useEffect(() => {
-    if (booking && !bookingId) {
-      navigate(`/vendors/${encodeURIComponent(booking.tenantSlug)}/bookings/${encodeURIComponent(booking.id)}`, { replace: true });
-    }
-  }, [booking, bookingId, navigate]);
-
-  useEffect(() => {
-    if (bookingId) {
-      setLoading(false);
-      return;
-    }
     if (!tenantSlug) {
       setError("Vendor not found.");
       setLoading(false);
@@ -393,7 +314,7 @@ export default function BookingRequestPage({ renderPresentation, renderResourceS
     return () => {
       active = false;
     };
-  }, [bookingId, tenantSlug, selectedLocationFromQuery]);
+  }, [tenantSlug, selectedLocationFromQuery]);
 
   useEffect(() => {
     if (!user) {
@@ -406,7 +327,7 @@ export default function BookingRequestPage({ renderPresentation, renderResourceS
   }, [user]);
 
   useEffect(() => {
-    if (bookingId || !vendor || !selectedLocationSlug) {
+    if (!vendor || !selectedLocationSlug) {
       setLocationServices([]);
       return;
     }
@@ -420,10 +341,12 @@ export default function BookingRequestPage({ renderPresentation, renderResourceS
         setLocationServices(data.services);
         setSelectedServiceSlug((current) => {
           const currentService = data.services.find((service) => service.slug === current);
-          if (currentService && ((true))) {
+          if (currentService && (!isGroupFundedMode || currentService.groupFunded?.enabled)) {
             return current;
           }
-          const defaultService = data.services[0];
+          const defaultService = isGroupFundedMode
+            ? data.services.find((service) => service.groupFunded?.enabled)
+            : data.services[0];
           return defaultService?.slug || "";
         });
       })
@@ -435,63 +358,105 @@ export default function BookingRequestPage({ renderPresentation, renderResourceS
       });
 
     return () => controller.abort();
-  }, [bookingId, selectedLocationSlug, vendor]);
+  }, [isGroupFundedMode, selectedLocationSlug, vendor]);
 
   const selectedService = useMemo(
     () => locationServices.find((service) => service.slug === selectedServiceSlug) || null,
     [locationServices, selectedServiceSlug]
   );
+  const selectedLocation = useMemo(
+    () => vendor?.locations.find((location) => location.slug === selectedLocationSlug) || null,
+    [selectedLocationSlug, vendor]
+  );
+  const allowBookingQuantity = selectedService?.allowBookingQuantity === true;
+  const maxGroupFundedBookingQuantity = getMaxBookableHours(
+    selectedLocation?.hours || [],
+    new Date(`${bookingDate}T00:00:00`).getDay()
+  );
+  const quantityForRequest = allowBookingQuantity ? bookingQuantity : 1;
+  const groupFundedSettings = selectedService?.groupFunded || null;
+  const groupFundedAvailable = Boolean(groupFundedSettings?.enabled);
+  const groupFundedEligibleServices = useMemo(
+    () => locationServices.filter((service) => service.groupFunded?.enabled),
+    [locationServices]
+  );
   const selectedBundleServices = useMemo(() => {
-    {
+    if (!isGroupFundedMode) {
       const selectedSlugs = new Set(selectedBundleServiceSlugs);
       const services = locationServices.filter((service) => selectedSlugs.has(service.slug));
       return selectedService
         ? [selectedService, ...services.filter((service) => service.slug !== selectedService.slug)]
         : services;
     }
-
+    const selectedSlugs = new Set(selectedBundleServiceSlugs);
+    const services = groupFundedEligibleServices.filter((service) => selectedSlugs.has(service.slug));
+    return selectedService
+      ? [selectedService, ...services.filter((service) => service.slug !== selectedService.slug)]
+      : services;
   }, [
+    groupFundedEligibleServices,
+    isGroupFundedMode,
     locationServices,
     selectedBundleServiceSlugs,
     selectedService
   ]);
-  const synchronizedBounds = useMemo(() => sharedDurationUnitBounds(selectedBundleServices, executionMode), [executionMode, selectedBundleServices]);
-  const shouldSynchronizeTogetherQuantities = synchronizedBounds !== null;
-  const primaryBounds = synchronizedBounds || durationUnitBounds(selectedService);
-  const quantityForRequest = clampDurationUnits(bookingQuantity, primaryBounds);
-  const getBundleItemBounds = useCallback((service: PublicVendorService) => {
-    return bundleDurationUnitBounds(service, selectedBundleServices, synchronizedBounds);
-  }, [selectedBundleServices, synchronizedBounds]);
   const getBundleItemQuantity = useCallback((service: PublicVendorService) => {
-    const bounds = getBundleItemBounds(service);
-    return clampDurationUnits(service.slug === selectedServiceSlug ? bookingQuantity : bundleQuantities[service.slug] ?? bounds.min, bounds);
-  }, [bookingQuantity, bundleQuantities, selectedServiceSlug, getBundleItemBounds]);
+    if (!service.allowBookingQuantity) return 1;
+    if (service.slug === selectedServiceSlug) return bookingQuantity;
+    return bundleQuantities[service.slug] || 1;
+  }, [bookingQuantity, bundleQuantities, selectedServiceSlug]);
+  const shouldSynchronizeTogetherQuantities = useMemo(() => {
+    if (executionMode !== "parallel" || selectedBundleServices.length < 2) {
+      return false;
+    }
+
+    const sharedDuration = selectedBundleServices[0]?.durationMinutes;
+    return selectedBundleServices.every((service) => (
+      service.allowBookingQuantity
+      && service.durationMinutes === sharedDuration
+    ));
+  }, [executionMode, selectedBundleServices]);
   const bundleAmountCents = selectedBundleServices.reduce((sum, service) => {
     return sum + getServiceLineAmountCents(service, getBundleItemQuantity(service));
   }, 0);
   const payableAmountCents = bundleAmountCents;
-
+  const groupFundedMinContributors = groupFundedSettings?.minRequiredContributors || 2;
+  const groupFundedMaxContributors = Math.max(
+    groupFundedMinContributors,
+    groupFundedSettings?.maxRequiredContributors || 100
+  );
+  const computedContributionCents = requiredContributors > 0 ? Math.ceil(payableAmountCents / requiredContributors) : 0;
+  const fundingAdjustmentCents = Math.max(0, (computedContributionCents * requiredContributors) - payableAmountCents);
+  const fundingTargetAmountCents = payableAmountCents + fundingAdjustmentCents;
   const isMobileViewport = useMediaQuery("(max-width: 47.99em)");
 
   useEffect(() => {
-    setBookingQuantity((current) => clampDurationUnits(current, { min: primaryBounds.min, max: primaryBounds.max }));
-  }, [primaryBounds.min, primaryBounds.max]);
+    if (!allowBookingQuantity && bookingQuantity !== 1) {
+      setBookingQuantity(1);
+    }
+  }, [allowBookingQuantity, bookingQuantity]);
 
   useEffect(() => {
-    if ((!selectedServiceSlug)) {
+    if (isGroupFundedMode || !selectedServiceSlug) {
       return;
     }
     setSelectedBundleServiceSlugs((current) => current.includes(selectedServiceSlug)
       ? current
       : [selectedServiceSlug, ...current]);
-  }, [selectedServiceSlug]);
+  }, [isGroupFundedMode, selectedServiceSlug]);
+
+  useEffect(() => {
+    if (isGroupFundedMode && bookingQuantity > maxGroupFundedBookingQuantity) {
+      setBookingQuantity(maxGroupFundedBookingQuantity);
+    }
+  }, [bookingQuantity, isGroupFundedMode, maxGroupFundedBookingQuantity]);
 
   useEffect(() => {
     if (!shouldSynchronizeTogetherQuantities) {
       return;
     }
 
-    const synchronizedQuantity = clampDurationUnits(bookingQuantity, synchronizedBounds!);
+    const synchronizedQuantity = Math.max(1, Math.min(bookingQuantity, maxGroupFundedBookingQuantity));
     if (synchronizedQuantity !== bookingQuantity) {
       setBookingQuantity(synchronizedQuantity);
     }
@@ -509,7 +474,7 @@ export default function BookingRequestPage({ renderPresentation, renderResourceS
 
       return changed ? next : current;
     });
-  }, [bookingQuantity, synchronizedBounds, selectedBundleServices, selectedServiceSlug, shouldSynchronizeTogetherQuantities]);
+  }, [bookingQuantity, maxGroupFundedBookingQuantity, selectedBundleServices, selectedServiceSlug, shouldSynchronizeTogetherQuantities]);
 
   const updateServiceQuantity = useCallback((service: PublicVendorService, quantity: number) => {
     setSelectedSlotStartAt("");
@@ -536,22 +501,38 @@ export default function BookingRequestPage({ renderPresentation, renderResourceS
   }, [selectedBundleServices, selectedServiceSlug, shouldSynchronizeTogetherQuantities]);
 
   useEffect(() => {
-    if (bookingId || !vendor || !selectedLocationSlug || !selectedServiceSlug || !bookingDate || booking) {
+    if (!groupFundedSettings?.enabled) {
+      return;
+    }
+    const defaultCount = Math.min(
+      groupFundedMaxContributors,
+      Math.max(
+        groupFundedMinContributors,
+        groupFundedSettings.defaultRequiredContributors || groupFundedMinContributors
+      )
+    );
+    setRequiredContributors((current) => {
+      return current >= groupFundedMinContributors && current <= groupFundedMaxContributors
+        ? current
+        : defaultCount;
+    });
+  }, [groupFundedMaxContributors, groupFundedMinContributors, groupFundedSettings]);
+
+  useEffect(() => {
+    if (!vendor || !selectedLocationSlug || !selectedServiceSlug || !bookingDate || booking) {
       setSlots([]);
       return;
     }
 
     const controller = new AbortController();
     setSlotsLoading(true);
-    if(!resourceMode)setSelectedSlotStartAt("");
+    setSelectedSlotStartAt("");
 
     const requestedItems = selectedBundleServices.map((service) => ({
       serviceSlug: service.slug,
       bookingQuantity: getBundleItemQuantity(service)
     }));
-    const request = resourceMode
-      ? apiRequest<{slots:BookingSlotSummary[]}>("/account/bookings/resource-slots",{method:"POST",token,signal:controller.signal,body:{...resourcePayload,tenantSlug:vendor.slug,locationSlug:selectedLocationSlug,date:formatDateInputValue(bookingDate),executionMode:'parallel',bookingQuantity:1}})
-      : requestedItems.length > 1
+    const request = requestedItems.length > 1
       ? apiRequest<{ slots: BookingSlotSummary[] }>(
           `/public/vendors/${vendor.slug}/locations/${selectedLocationSlug}/composed-slots`,
           {
@@ -561,12 +542,12 @@ export default function BookingRequestPage({ renderPresentation, renderResourceS
               date: formatDateInputValue(bookingDate),
               executionMode,
               items: requestedItems,
-              includeGroupFundedHolds: false
+              includeGroupFundedHolds: isGroupFundedMode
             }
           }
         )
       : apiRequest<BookingSlotsResponse>(
-          `/public/vendors/${vendor.slug}/locations/${selectedLocationSlug}/services/${selectedServiceSlug}/slots?date=${encodeURIComponent(formatDateInputValue(bookingDate))}&bookingQuantity=${quantityForRequest}${""}`,
+          `/public/vendors/${vendor.slug}/locations/${selectedLocationSlug}/services/${selectedServiceSlug}/slots?date=${encodeURIComponent(formatDateInputValue(bookingDate))}&bookingQuantity=${quantityForRequest}${isGroupFundedMode ? "&groupFunded=1" : ""}`,
           { signal: controller.signal }
         );
 
@@ -588,7 +569,7 @@ export default function BookingRequestPage({ renderPresentation, renderResourceS
       });
 
     return () => controller.abort();
-  }, [booking, bookingId, bookingDate, executionMode, getBundleItemQuantity, quantityForRequest, selectedBundleServices, selectedLocationSlug, selectedServiceSlug, vendor,resourceMode,resourceSelections,resourceRefresh,token]);
+  }, [booking, bookingDate, executionMode, getBundleItemQuantity, isGroupFundedMode, quantityForRequest, selectedBundleServices, selectedLocationSlug, selectedServiceSlug, vendor]);
 
   const loadSubmittedBooking = useCallback(async () => {
     if (!token || !booking) {
@@ -622,6 +603,105 @@ export default function BookingRequestPage({ renderPresentation, renderResourceS
       || null;
   }, [selectedSlotStartAt, slots]);
 
+  const fundingDeadlineBounds = useMemo(() => {
+    if (!isGroupFundedMode || !selectedSlot || !groupFundedSettings?.enabled) {
+      return { min: null, max: null, hasValidWindow: false };
+    }
+
+    const slotStart = new Date(String(selectedSlot.startAt));
+    if (Number.isNaN(slotStart.getTime())) {
+      return { min: null, max: null, hasValidWindow: false };
+    }
+
+    const minDeadlineHours = Number(groupFundedSettings.minDeadlineHours || 24);
+    const maxDeadlineDays = Number(groupFundedSettings.maxDeadlineDays || 14);
+    const minimumDeadline = roundUpToHalfHour(new Date(Date.now() + minDeadlineHours * 60 * 60 * 1000));
+    const maximumBySettings = roundDownToHalfHour(new Date(Date.now() + maxDeadlineDays * 24 * 60 * 60 * 1000));
+    const maximumBySlot = roundDownToHalfHour(new Date(slotStart.getTime() - 24 * 60 * 60 * 1000));
+    const maximumDeadline = maximumBySlot < maximumBySettings ? maximumBySlot : maximumBySettings;
+
+    return {
+      min: minimumDeadline,
+      max: maximumDeadline,
+      hasValidWindow: minimumDeadline <= maximumDeadline
+    };
+  }, [
+    groupFundedSettings?.enabled,
+    groupFundedSettings?.maxDeadlineDays,
+    groupFundedSettings?.minDeadlineHours,
+    isGroupFundedMode,
+    selectedSlot
+  ]);
+
+  const fundingDeadlineValue = useMemo(
+    () => parseDateTimePickerValue(fundingDeadlineAt),
+    [fundingDeadlineAt]
+  );
+  const isCampaignReady = Boolean(
+    groupFundedAvailable &&
+    selectedBundleServices.length &&
+    selectedSlot &&
+    campaignTitle.trim() &&
+    fundingDeadlineBounds.hasValidWindow &&
+    fundingDeadlineBounds.min &&
+    fundingDeadlineBounds.max &&
+    fundingDeadlineValue &&
+    fundingDeadlineValue >= fundingDeadlineBounds.min &&
+    fundingDeadlineValue <= fundingDeadlineBounds.max
+  );
+
+  const fundingDeadlineTimeBounds = useMemo(() => ({
+    min:
+      fundingDeadlineBounds.min && fundingDeadlineValue && isSameLocalDate(fundingDeadlineValue, fundingDeadlineBounds.min)
+        ? formatTimeConstraint(fundingDeadlineBounds.min)
+        : undefined,
+    max:
+      fundingDeadlineBounds.max && fundingDeadlineValue && isSameLocalDate(fundingDeadlineValue, fundingDeadlineBounds.max)
+        ? formatTimeConstraint(fundingDeadlineBounds.max)
+        : undefined
+  }), [fundingDeadlineBounds.max, fundingDeadlineBounds.min, fundingDeadlineValue]);
+
+  const excludeFundingDeadlineDate = useCallback((value: string | Date) => {
+    if (!fundingDeadlineBounds.min || !fundingDeadlineBounds.max || !fundingDeadlineBounds.hasValidWindow) {
+      return true;
+    }
+
+    const date = value instanceof Date ? value : new Date(`${value}T00:00:00`);
+    if (Number.isNaN(date.getTime())) {
+      return true;
+    }
+
+    return (
+      getLocalDayEnd(date) < fundingDeadlineBounds.min ||
+      getLocalDayStart(date) > fundingDeadlineBounds.max
+    );
+  }, [fundingDeadlineBounds.hasValidWindow, fundingDeadlineBounds.max, fundingDeadlineBounds.min]);
+
+  useEffect(() => {
+    if (!isGroupFundedMode) {
+      return;
+    }
+
+    if (!selectedSlot || !fundingDeadlineBounds.min || !fundingDeadlineBounds.max || !fundingDeadlineBounds.hasValidWindow) {
+      setFundingDeadlineAt("");
+      return;
+    }
+
+    const preferredDeadline = roundUpToHalfHour(new Date(Date.now() + 48 * 60 * 60 * 1000));
+    const deadline = preferredDeadline < fundingDeadlineBounds.min
+      ? fundingDeadlineBounds.min
+      : preferredDeadline > fundingDeadlineBounds.max
+        ? fundingDeadlineBounds.max
+        : preferredDeadline;
+    setFundingDeadlineAt(toDateTimeLocalValue(deadline));
+  }, [
+    fundingDeadlineBounds.hasValidWindow,
+    fundingDeadlineBounds.max,
+    fundingDeadlineBounds.min,
+    isGroupFundedMode,
+    selectedSlot
+  ]);
+
   const locationOptions = useMemo(
     () => vendor?.locations.map((location) => ({
       value: location.slug,
@@ -631,7 +711,7 @@ export default function BookingRequestPage({ renderPresentation, renderResourceS
   );
   const slotIntervalLabel = useMemo(() => {
     if (slots.length < 2) {
-      return "Choose an available start time.";
+      return isGroupFundedMode ? "Start times are offered every 30 minutes." : "Choose an available start time.";
     }
 
     const firstStart = toTimestamp(slots[0]?.startAt);
@@ -641,12 +721,12 @@ export default function BookingRequestPage({ renderPresentation, renderResourceS
     return Number.isFinite(intervalMinutes) && intervalMinutes > 0
       ? `Start times are offered every ${formatDuration(intervalMinutes)}.`
       : "Choose an available start time.";
-  }, [slots]);
+  }, [isGroupFundedMode, slots]);
   const bundleVisitDurationMinutes = selectedBundleServices.reduce((total, service) => {
     const duration = service.durationMinutes * getBundleItemQuantity(service);
     return executionMode === "sequential" ? total + duration : Math.max(total, duration);
   }, 0);
-  const slotPickerLabel = resourceMode?"Available start times for your selected resources":`Available start times — ${formatDuration(bundleVisitDurationMinutes || selectedService?.durationMinutes || 0)} booking`;
+  const slotPickerLabel = `Available start times — ${formatDuration(bundleVisitDurationMinutes || selectedService?.durationMinutes || 0)} booking`;
   const unavailableSlotResourceLabel = selectedBundleServices.length === 1
     ? selectedBundleServices[0]?.name || "This service"
     : "A selected service";
@@ -660,11 +740,12 @@ export default function BookingRequestPage({ renderPresentation, renderResourceS
       return groups;
     }, []);
   }, [isMobileViewport, slots]);
-  const requiresPaymentProof = Boolean(booking
-    ? booking.serviceManualPaymentRequired
-    : selectedService?.manualPaymentRequired);
+  const requiresPaymentProof = !isGroupFundedMode && Boolean(
+    booking?.serviceManualPaymentRequired ||
+    selectedService?.manualPaymentRequired
+  );
   const vendorDecision = getVendorDecision(booking);
-  const currentFlowStep = getBookingFlowStep(booking, otp, requiresPaymentProof, Boolean(vendorDecision));
+  const currentFlowStep = isGroupFundedMode ? 0 : getBookingFlowStep(booking, otp, requiresPaymentProof, Boolean(vendorDecision));
   const manualPaymentDestination = booking?.manualPaymentDestination || null;
   const resendAvailableAtMs = otp ? toTimestamp(otp.resendAvailableAt) : 0;
   const resendSecondsRemaining = Math.max(0, Math.ceil((resendAvailableAtMs - now) / 1000));
@@ -697,10 +778,9 @@ export default function BookingRequestPage({ renderPresentation, renderResourceS
       locationSlug: selectedLocationSlug,
       serviceSlug: selectedServiceSlug,
       scheduledStartAt: String(selectedSlot.startAt),
-      ...resourcePayload,
-      bookingQuantity: resourceMode?1:quantityForRequest,
-      executionMode:resourceMode?"parallel":executionMode,
-      bundleItems: resourceMode?resourceSelections.map(root=>({serviceSlug:resourceCatalog!.services.find(service=>service.id===root.serviceId)!.slug,bookingQuantity:1})):selectedBundleServices.map((service) => ({
+      bookingQuantity: quantityForRequest,
+      executionMode,
+      bundleItems: selectedBundleServices.map((service) => ({
         serviceSlug: service.slug,
         bookingQuantity: getBundleItemQuantity(service)
       })),
@@ -708,7 +788,46 @@ export default function BookingRequestPage({ renderPresentation, renderResourceS
       customerEmail,
       customerPhone,
       notes,
+      organizerCampaignOptIn,
       bookingVerificationToken: verificationToken
+    };
+  }
+
+  function buildGroupFundedPayload(): CreateGroupFundedCampaignRequest {
+    if (!vendor || !selectedSlot) {
+      throw new Error("Select an available booking slot.");
+    }
+    if (!selectedBundleServices.length) {
+      throw new Error("Select at least one available service for this slot.");
+    }
+    if (!fundingDeadlineBounds.hasValidWindow || !fundingDeadlineBounds.min || !fundingDeadlineBounds.max) {
+      throw new Error("Choose a later booking slot so funding can close before vendor review.");
+    }
+    const fundingDeadlineDate = parseDateTimePickerValue(fundingDeadlineAt);
+    if (!fundingDeadlineDate) {
+      throw new Error("Set a valid funding deadline.");
+    }
+    if (
+      (fundingDeadlineDate < fundingDeadlineBounds.min || fundingDeadlineDate > fundingDeadlineBounds.max)
+    ) {
+      throw new Error("Funding deadline must be within the allowed window for the selected booking slot.");
+    }
+    return {
+      tenantSlug: vendor.slug,
+      locationSlug: selectedLocationSlug,
+      serviceSlug: selectedBundleServices[0].slug,
+      scheduledStartAt: String(selectedSlot.startAt),
+      bookingQuantity: quantityForRequest,
+      executionMode,
+      bundleItems: selectedBundleServices.map((service) => ({
+        serviceSlug: service.slug,
+        bookingQuantity: getBundleItemQuantity(service)
+      })),
+      requiredContributors,
+      fundingDeadlineAt: fundingDeadlineDate.toISOString(),
+      visibility: campaignVisibility,
+      campaignTitle: campaignTitle.trim(),
+      description: campaignDescription.trim()
     };
   }
 
@@ -727,7 +846,24 @@ export default function BookingRequestPage({ renderPresentation, renderResourceS
     showCustomerSuccess("Booking request created", "Your booking request is ready for the next step.");
   }, [token]);
 
-  if (authLoading || loading || (user && bookingId && submittedBookingLoading)) {
+  const submitGroupFundedCampaign = useCallback(async (payload: CreateGroupFundedCampaignRequest) => {
+    if (!token) {
+      return;
+    }
+
+    const response = await apiRequest<{ campaign: { publicToken: string } }, CreateGroupFundedCampaignRequest>(
+      "/account/group-funded-campaigns",
+      {
+        method: "POST",
+        token,
+        body: payload
+      }
+    );
+    showCustomerSuccess("Campaign created", "Your group-funded campaign is ready to share.");
+    navigate(`/group-funded/${response.campaign.publicToken}`);
+  }, [navigate, token]);
+
+  if (authLoading || loading) {
     return <Card className="finazze-auth-card">Loading booking flow...</Card>;
   }
 
@@ -736,16 +872,14 @@ export default function BookingRequestPage({ renderPresentation, renderResourceS
     if (selectedLocationSlug) {
       params.set("location", selectedLocationSlug);
     }
-
-    const nextPath = bookingId ? location.pathname : `${serviceSlug ? `/vendors/${tenantSlug}/book/${serviceSlug}` : `/vendors/${tenantSlug}/book`}${
+    if (isGroupFundedMode) {
+      params.set("mode", "group-funded");
+    }
+    const nextPath = `${serviceSlug ? `/vendors/${tenantSlug}/book/${serviceSlug}` : `/vendors/${tenantSlug}/book`}${
       params.toString() ? `?${params.toString()}` : ""
     }`;
 
     return <Navigate to={`/login?next=${encodeURIComponent(nextPath)}`} replace />;
-  }
-
-  if (bookingId && !submittedBookingMatches) {
-    return <Alert color="red" title="Could not load booking">{error || "This booking is unavailable."}</Alert>;
   }
 
   async function continueAfterVerification(verificationToken: string) {
@@ -755,9 +889,8 @@ export default function BookingRequestPage({ renderPresentation, renderResourceS
     await submitBooking(buildBookingPayload(verificationToken));
   }
 
-  async function handleSubmit(event?: FormEvent<HTMLFormElement>) {
-    event?.preventDefault();
-    if (submitting) return;
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
     if (!vendor || !selectedServiceSlug || !selectedLocationSlug || !selectedSlot || !token) {
       setError("Select an available booking slot.");
       return;
@@ -767,6 +900,13 @@ export default function BookingRequestPage({ renderPresentation, renderResourceS
     setError("");
 
     try {
+      if (isGroupFundedMode) {
+        if (!groupFundedAvailable) {
+          throw new Error("Group-funded booking is not enabled for this service at this branch.");
+        }
+        await submitGroupFundedCampaign(buildGroupFundedPayload());
+        return;
+      }
 
       if (!otp) {
         const otpResponse = await apiRequest<BookingOtpResponse>(
@@ -775,14 +915,13 @@ export default function BookingRequestPage({ renderPresentation, renderResourceS
             method: "POST",
             token,
             body: {
-              ...resourcePayload,
               tenantSlug: vendor.slug,
               locationSlug: selectedLocationSlug,
               serviceSlug: selectedServiceSlug,
               scheduledStartAt: String(selectedSlot.startAt),
-              bookingQuantity: resourceMode?1:quantityForRequest,
-              executionMode:resourceMode?"parallel":executionMode,
-              bundleItems: resourceMode?resourceSelections.map(root=>({serviceSlug:resourceCatalog!.services.find(service=>service.id===root.serviceId)!.slug,bookingQuantity:1})):selectedBundleServices.map((service) => ({
+              bookingQuantity: quantityForRequest,
+              executionMode,
+              bundleItems: selectedBundleServices.map((service) => ({
                 serviceSlug: service.slug,
                 bookingQuantity: getBundleItemQuantity(service)
               })),
@@ -893,72 +1032,22 @@ export default function BookingRequestPage({ renderPresentation, renderResourceS
     }
   }
 
-  // CUSTOMER PRESENTATION INJECTION START
-  // All Customer stages reuse these existing controller commands.
-  if (renderPresentation) {
-    return renderPresentation({
-      booking, requiresPaymentProof, vendorDecision, paymentReference, setPaymentReference,
-      paymentProofFile, setPaymentProofFile, proofSubmitting, handleSubmitPaymentProof,
-      refreshSubmittedBooking: loadSubmittedBooking,
-      backToVendorPath: `/vendors/${tenantSlug}${selectedLocationSlug ? `?location=${encodeURIComponent(selectedLocationSlug)}` : ""}`,
-      vendor, locationOptions, selectedLocationSlug, setSelectedLocationSlug: (value) => {
-        if (value === selectedLocationSlug || otp || submitting) return;
-        setResourceSelections([]); setResourceCatalog(null); setLocationServices([]);
-        setError("");
-        setSelectedBundleServiceSlugs([]); setSelectedServiceSlug(""); setSelectedSlotStartAt(""); setSlots([]);
-        setSelectedLocationSlug(value);
-      },
-      locationServices, selectedBundleServiceSlugs,
-      selectServices: (values) => {
-        if (otp || submitting) return;
-        if (!values.length) return;
-        setSelectedBundleServiceSlugs(values);
-        setSelectedServiceSlug(values[0]);
-        setSelectedSlotStartAt("");
-      },
-      resourceMode, resourceBooking, resourceCatalog, catalogError,
-      retryResourceCatalog: () => { setCatalogError(""); setError(""); setCatalogRetry(value => value + 1); },
-      resourceEditor: resourceMode ? <BookingSelectionEditorV4 renderPresentation={renderResourceSelection} catalog={resourceCatalog!} value={resourceSelections} onChange={changeResourceSelections} disabled={Boolean(otp) || submitting} /> : null,
-      changeBookingType: (resources) => {
-        if (otp || submitting) return;
-        setResourceBooking(resources); setSelectedSlotStartAt('');
-        setSelectedBundleServiceSlugs([]); setSelectedServiceSlug('');
-      },
-      getBundleItemQuantity, getBundleItemBounds, updateServiceQuantity,
-      executionMode,
-      changeExecutionMode: (value) => { setExecutionMode(value); setSelectedSlotStartAt(""); },
-      bundleVisitDurationMinutes, selectedBundleServices,
-      bookingDate, setBookingDate, slots, slotsLoading, selectedSlot,
-      selectedSlotStartAt, setSelectedSlotStartAt, slotPickerLabel, slotIntervalLabel,
-      customerName, setCustomerName, customerEmail, setCustomerEmail,
-      customerPhone, setCustomerPhone, notes, setNotes, payableAmountCents,
-      otp, otpCode, setOtpCode, resendSecondsRemaining, resendOtpLabel, resendOtp,
-      submitting, error, handleSubmit,
-    });
-  }
-  // CUSTOMER PRESENTATION INJECTION END
-
   return (
     <Stack className="customer-account-page" gap="lg">
-      <Button component={Link} leftSection={<IconArrowLeft size={16} />} to={`/vendors/${booking?.tenantSlug || tenantSlug}${booking?.locationSlug || selectedLocationSlug ? `?location=${encodeURIComponent(booking?.locationSlug || selectedLocationSlug)}` : ""}`} variant="subtle" w="fit-content">
+      <Button component={Link} leftSection={<IconArrowLeft size={16} />} to={`/vendors/${booking?.tenantSlug || tenantSlug}`} variant="subtle" w="fit-content">
         Back to vendor
       </Button>
 
       <Card className="finazze-auth-card customer-account-card" p="xl">
         <Stack gap="sm">
-          <Text className="finazze-section-label">{"Booking request"}</Text>
-          <Title order={1}>{booking?.reference || vendor?.name || ("Start a booking")}</Title>
-          {booking ? (
-            <Group gap="xs" wrap="wrap">
-              <IconMapPin aria-hidden="true" size={18} />
-              <Text fw={700}>Booked branch: {booking.locationName}</Text>
-              <Text c="dimmed">· {booking.tenantName}</Text>
-            </Group>
-          ) : null}
+          <Text className="finazze-section-label">{isGroupFundedMode ? "Group-funded campaign" : "Booking request"}</Text>
+          <Title order={1}>{booking?.reference || vendor?.name || (isGroupFundedMode ? "Start group-funded booking" : "Start a booking")}</Title>
           <Text c="dimmed">
             {booking
               ? "Continue the booking request on this page."
-              : "Plan your visit by choosing a branch, services, visit length, and an available start time."}
+              : isGroupFundedMode
+                ? "Choose the branch, services, schedule, contributor count, and funding deadline. The slot is not reserved until the campaign is fully funded and vendor-approved."
+                : "Plan your visit by choosing a branch, services, visit length, and an available start time."}
           </Text>
         </Stack>
       </Card>
@@ -968,13 +1057,13 @@ export default function BookingRequestPage({ renderPresentation, renderResourceS
           <Stack gap="lg">
             <Stepper
               active={currentFlowStep}
-              className={`booking-flow-stepper ${"booking-flow-stepper--booking"}`}
+              className={`booking-flow-stepper ${isGroupFundedMode ? "booking-flow-stepper--group-funded" : "booking-flow-stepper--booking"}`}
               color="orange"
               size="sm"
             >
               <Stepper.Step
-                label={"Plan Visit"}
-                description={"Branch, services, and schedule"}
+                label={isGroupFundedMode ? "Plan Campaign" : "Plan Visit"}
+                description={isGroupFundedMode ? "Branch, bundle, schedule, funding" : "Branch, services, and schedule"}
               >
                 {booking ? (
                   <Stack gap="md">
@@ -1003,8 +1092,6 @@ export default function BookingRequestPage({ renderPresentation, renderResourceS
                             required
                             value={selectedLocationSlug}
                           />
-                          {resourceCatalog?.enabled&&resourceCatalog.resourceServiceIds?.length?<SegmentedControl aria-label="Booking type" disabled={Boolean(otp)} value={resourceBooking?'resources':'ordinary'} data={[{label:'Resource booking',value:'resources'},{label:'Other services',value:'ordinary'}]} onChange={value=>{setResourceBooking(value==='resources');setSelectedSlotStartAt('');setSelectedBundleServiceSlugs([]);setSelectedServiceSlug('');}}/>:null}
-                          {resourceMode?<BookingSelectionEditorV4 catalog={resourceCatalog!} value={resourceSelections} onChange={changeResourceSelections} disabled={Boolean(otp)}/>:<>
                           <div>
                             <Text fw={600} size="sm">Services</Text>
                             <Text c="dimmed" size="sm">Choose one service, or combine services for the same visit.</Text>
@@ -1019,11 +1106,10 @@ export default function BookingRequestPage({ renderPresentation, renderResourceS
                             value={selectedBundleServiceSlugs}
                           >
                             <SimpleGrid cols={{ base: 1, md: 2 }} spacing="xs">
-                              {(locationServices).filter(service=>!resourceCatalog?.enabled||!resourceCatalog.resourceServiceSlugs?.includes(service.slug)).map((service) => {
+                              {(isGroupFundedMode ? groupFundedEligibleServices : locationServices).map((service) => {
                                 const isSelected = selectedBundleServiceSlugs.includes(service.slug);
                                 const quantityLabel = getBookingQuantityLabel(service);
                                 const quantity = getBundleItemQuantity(service);
-                                const bounds = getBundleItemBounds(service);
 
                                 return (
                                   <Stack className="booking-bundle-option" gap="xs" key={service.slug}>
@@ -1041,17 +1127,17 @@ export default function BookingRequestPage({ renderPresentation, renderResourceS
                                             {formatBookingQuantityValue(quantity, quantityLabel)}
                                           </Badge>
                                         </Group>
-                                        {bounds.min === bounds.max ? <Text size="xs" c="dimmed">Fixed at {formatBookingQuantityValue(bounds.min, quantityLabel)}.</Text> : <Slider
+                                        <Slider
                                           aria-label={`${service.name} ${quantityLabel}`}
                                           className="booking-value-slider"
                                           disabled={Boolean(otp) || !isSelected}
                                           label={(value) => formatBookingQuantityValue(value, quantityLabel)}
-                                          max={bounds.max}
-                                          min={bounds.min}
+                                          max={maxGroupFundedBookingQuantity}
+                                          min={1}
                                           onChange={(value) => updateServiceQuantity(service, value)}
                                           step={1}
                                           value={quantity}
-                                        />}
+                                        />
                                       </Stack>
                                     ) : null}
                                   </Stack>
@@ -1059,7 +1145,7 @@ export default function BookingRequestPage({ renderPresentation, renderResourceS
                               })}
                             </SimpleGrid>
                           </Checkbox.Group>
-                          <Text c="dimmed" size="sm">Choose duration units within each service’s limits. Available times follow the selected date’s branch hours.</Text>
+                          <Text c="dimmed" size="sm">Set each selected service&apos;s quantity with its slider. The maximum follows the selected date&apos;s store hours.</Text>
                           {selectedBundleServices.length > 1 ? (
                             <Stack gap={4}>
                               <SegmentedControl
@@ -1086,11 +1172,9 @@ export default function BookingRequestPage({ renderPresentation, renderResourceS
                               ? formatPaymentAmount(payableAmountCents, selectedBundleServices[0]?.currency || "PHP")
                               : "Choose at least one service"}
                           </Text>
-                          </>}
                         </Stack>
                       </Card>
 
-                      {resourceMode&&selectedSlotStartAt&&!selectedSlot&&!slotsLoading?<Alert color="yellow">Your selected time no longer fits the current hours or resource availability. Your resources and duration counts are kept. Please choose another start time.</Alert>:null}
                       <DatePickerInput
                         className="booking-schedule-field booking-schedule-field--date"
                         clearable={false}
@@ -1175,11 +1259,107 @@ export default function BookingRequestPage({ renderPresentation, renderResourceS
                         </Stack>
                       </Card>
 
-                      {null}
+                      {isGroupFundedMode && selectedSlot ? (
+                        fundingDeadlineBounds.hasValidWindow && fundingDeadlineBounds.min && fundingDeadlineBounds.max ? (
+                          <Alert color="blue" variant="light">
+                            Funding deadline: {format(fundingDeadlineBounds.min, "MMM d, yyyy h:mm a")} – {format(fundingDeadlineBounds.max, "MMM d, yyyy h:mm a")}.
+                          </Alert>
+                        ) : (
+                          <Alert color="yellow" icon={<IconAlertTriangle size={16} />} variant="light">
+                            This slot is too soon for a group-funded campaign. Choose a later booking slot so funding can close before vendor review.
+                          </Alert>
+                        )
+                      ) : null}
 
-                      {null}
+                      {isGroupFundedMode ? (
+                        <Stack className="booking-funding-section" gap="md">
+                          <div>
+                            <Text fw={800}>4. Set up funding</Text>
+                            <Text c="dimmed" size="sm">Set the contribution goal and how people can discover this campaign.</Text>
+                          </div>
+                          <Alert color="yellow" icon={<IconAlertTriangle size={16} />} variant="light">
+                            This funding-stage campaign does not reserve the slot. It moves to vendor review only after all required contributions are verified.
+                          </Alert>
+                          <Stack gap={6}>
+                            <Group justify="space-between" gap="sm">
+                              <Text fw={500} size="sm">Required contributors <Text component="span" c="red">*</Text></Text>
+                              <Badge color="orange" variant="light">
+                                <span style={{ fontWeight: 400 }}>{requiredContributors} people: </span>
+                                <strong>{formatPaymentAmount(computedContributionCents, selectedService?.currency || "PHP")} each</strong>
+                              </Badge>
+                            </Group>
+                            <Slider
+                              aria-label="Required contributors"
+                              className="booking-value-slider"
+                              disabled={Boolean(otp) || !groupFundedAvailable}
+                              label={(value) => `${value} contributors`}
+                              max={groupFundedMaxContributors}
+                              min={groupFundedMinContributors}
+                              onChange={setRequiredContributors}
+                              step={1}
+                              value={requiredContributors}
+                            />
+                            <Group className="booking-slider-bounds" justify="space-between">
+                              <Text c="dimmed" size="xs">Min {groupFundedMinContributors}</Text>
+                              <Text c="dimmed" size="xs">Max {groupFundedMaxContributors}</Text>
+                            </Group>
+                          </Stack>
+                          <DateTimePicker
+                            clearable
+                            defaultTimeValue="12:00"
+                            disabled={Boolean(otp) || !groupFundedAvailable || !selectedSlot || !fundingDeadlineBounds.hasValidWindow}
+                            excludeDate={excludeFundingDeadlineDate}
+                            label="Funding deadline"
+                            maxDate={fundingDeadlineBounds.hasValidWindow ? fundingDeadlineBounds.max || undefined : undefined}
+                            minDate={fundingDeadlineBounds.hasValidWindow ? fundingDeadlineBounds.min || undefined : undefined}
+                            onChange={(value) => setFundingDeadlineAt(value || "")}
+                            placeholder="Select funding deadline"
+                            required
+                            timePickerProps={{
+                              format: "12h",
+                              max: fundingDeadlineTimeBounds.max,
+                              min: fundingDeadlineTimeBounds.min,
+                              minutesStep: 30,
+                              popoverProps: { withinPortal: false },
+                              withDropdown: true
+                            }}
+                            value={fundingDeadlineAt}
+                            valueFormat="MMM D, YYYY h:mm A"
+                          />
+                          <Select
+                            data={[
+                              { label: "Private link only", value: "private_link" },
+                              { label: "Public on vendor profile", value: "public", disabled: !groupFundedSettings?.allowPublicCampaigns }
+                            ]}
+                            disabled={Boolean(otp) || !groupFundedAvailable}
+                            label="Visibility"
+                            onChange={(value) => setCampaignVisibility((value || "private_link") as "private_link" | "public")}
+                            value={campaignVisibility}
+                          />
+                          <TextInput
+                            disabled={Boolean(otp) || !groupFundedAvailable}
+                            label="Campaign title"
+                            maxLength={90}
+                            onChange={(event) => setCampaignTitle(event.currentTarget.value)}
+                            placeholder={selectedService ? `${selectedService.name} group booking` : "Weekend group session"}
+                            required
+                            value={campaignTitle}
+                          />
+                          <Stack gap={4}>
+                            <Text fw={500} size="sm">Campaign description</Text>
+                            <CampaignDescriptionEditor
+                              disabled={Boolean(otp) || !groupFundedAvailable}
+                              onChange={setCampaignDescription}
+                              value={campaignDescription}
+                            />
+                          </Stack>
+                          <Alert color="teal" variant="light">
+                            Each person contributes {formatPaymentAmount(computedContributionCents, selectedService?.currency || "PHP")}. Everyone pays the same amount in full, so there are no partial payments, extra payments, or tips.
+                          </Alert>
+                        </Stack>
+                      ) : null}
 
-                      {(
+                      {!isGroupFundedMode ? (
                         <Stack className="booking-customer-section" gap="md">
                           <div>
                             <Text fw={800}>4. Add your contact details</Text>
@@ -1212,21 +1392,34 @@ export default function BookingRequestPage({ renderPresentation, renderResourceS
                             onChange={(event) => setNotes(event.currentTarget.value)}
                             value={notes}
                           />
-
+                          {!isGroupFundedMode ? (
+                            <Checkbox
+                              checked={organizerCampaignOptIn}
+                              disabled={Boolean(otp)}
+                              label="Use this booking for a group-funded campaign after vendor confirmation"
+                              description="You will pay and confirm this booking normally first. Contributor payments will be collected by you separately."
+                              onChange={(event) => setOrganizerCampaignOptIn(event.currentTarget.checked)}
+                            />
+                          ) : null}
                         </Stack>
-                      )}
+                      ) : null}
 
-                      {null}
+                      {isGroupFundedMode ? (
+                        <Alert className="booking-next-steps" color="blue" variant="light">
+                          <Text fw={800} size="sm">What happens next</Text>
+                          <Text size="sm">Create campaign → contributors fund it → vendor reviews → booking confirmed.</Text>
+                        </Alert>
+                      ) : null}
 
                       <Stack className="booking-flow-actions" gap="sm">
-                        {(
+                        {isGroupFundedMode ? (
                           <Accordion className="booking-campaign-summary">
-                            <Accordion.Item value="booking-summary">
+                            <Accordion.Item value="campaign-summary">
                               <Accordion.Control>
                                 <Group justify="space-between" gap="sm" wrap="nowrap">
-                                  <Text fw={800}>Booking summary</Text>
-                                  <Badge color="teal" variant="light">
-                                    {resourceMode?"Amount confirmed by vendor":formatPaymentAmount(payableAmountCents, selectedService?.currency || "PHP")}
+                                  <Text fw={800}>Campaign summary</Text>
+                                  <Badge color={isCampaignReady ? "green" : "gray"} variant="light">
+                                    {isCampaignReady ? "Ready" : "Not ready"}
                                   </Badge>
                                 </Group>
                               </Accordion.Control>
@@ -1246,8 +1439,74 @@ export default function BookingRequestPage({ renderPresentation, renderResourceS
                                     <Text c="dimmed" size="sm">Services</Text>
                                     {selectedBundleServices.length ? selectedBundleServices.map((service) => (
                                       <Group justify="space-between" key={service.slug} wrap="nowrap">
-                                        <Text size="sm">{service.name}{resourceMode?"":` · ${formatDuration(service.durationMinutes * getBundleItemQuantity(service))}`}</Text>
-                                        <Text fw={600} size="sm">{resourceMode?"Amount confirmed by vendor":formatPaymentAmount(getServiceLineAmountCents(service, getBundleItemQuantity(service)), service.currency)}</Text>
+                                        <Text size="sm">{service.name} · {formatDuration(service.durationMinutes * getBundleItemQuantity(service))}</Text>
+                                        <Text fw={600} size="sm">{formatPaymentAmount(getServiceLineAmountCents(service, getBundleItemQuantity(service)), service.currency)}</Text>
+                                      </Group>
+                                    )) : <Text size="sm">Choose at least one available service</Text>}
+                                  </Stack>
+                                  <Group className="booking-campaign-summary-row" justify="space-between" gap="sm" wrap="nowrap">
+                                    <Text c="dimmed" size="sm">Funding adjustment</Text>
+                                    <Text fw={600} size="sm" ta="right">
+                                      +{formatPaymentAmount(fundingAdjustmentCents, selectedService?.currency || "PHP")}
+                                    </Text>
+                                  </Group>
+                                  <Group className="booking-campaign-summary-row" justify="space-between" gap="sm" wrap="nowrap">
+                                    <Text c="dimmed" size="sm">Funding target</Text>
+                                    <Text fw={700} size="sm" ta="right">
+                                      {formatPaymentAmount(fundingTargetAmountCents, selectedService?.currency || "PHP")}
+                                    </Text>
+                                  </Group>
+                                  <Group className="booking-campaign-summary-row" justify="space-between" gap="sm" wrap="nowrap">
+                                    <Text c="dimmed" size="sm">Funding</Text>
+                                    <Text fw={600} size="sm" ta="right">
+                                      {requiredContributors} people · {formatPaymentAmount(computedContributionCents, selectedService?.currency || "PHP")} each
+                                    </Text>
+                                  </Group>
+                                  <Group className="booking-campaign-summary-row" justify="space-between" gap="sm" wrap="nowrap">
+                                    <Text c="dimmed" size="sm">Funding deadline</Text>
+                                    <Text fw={600} size="sm" ta="right">
+                                      {fundingDeadlineAt ? format(new Date(fundingDeadlineAt), "MMM d, yyyy h:mm a") : "Choose a deadline"}
+                                    </Text>
+                                  </Group>
+                                  <Group justify="space-between" gap="sm" wrap="nowrap">
+                                    <Text c="dimmed" size="sm">Visibility</Text>
+                                    <Text fw={600} size="sm" ta="right">
+                                      {campaignVisibility === "public" ? "Public on vendor profile" : "Private link only"}
+                                    </Text>
+                                  </Group>
+                                </Stack>
+                              </Accordion.Panel>
+                            </Accordion.Item>
+                          </Accordion>
+                        ) : (
+                          <Accordion className="booking-campaign-summary">
+                            <Accordion.Item value="booking-summary">
+                              <Accordion.Control>
+                                <Group justify="space-between" gap="sm" wrap="nowrap">
+                                  <Text fw={800}>Booking summary</Text>
+                                  <Badge color="teal" variant="light">
+                                    {formatPaymentAmount(payableAmountCents, selectedService?.currency || "PHP")}
+                                  </Badge>
+                                </Group>
+                              </Accordion.Control>
+                              <Accordion.Panel>
+                                <Stack gap="sm">
+                                  <Group className="booking-campaign-summary-row" justify="space-between" gap="sm" wrap="nowrap">
+                                    <Text c="dimmed" size="sm">Visit</Text>
+                                    <Text fw={600} size="sm" ta="right">
+                                      {selectedSlot
+                                        ? `${formatBookingScheduleDate(selectedSlot.startAt)} · ${formatBookingScheduleTimeRange(selectedSlot.startAt, selectedSlot.endAt)}`
+                                        : bookingDate
+                                          ? `${formatBookingScheduleDate(bookingDate)} · Choose a start time`
+                                          : "Choose a date and time"}
+                                    </Text>
+                                  </Group>
+                                  <Stack className="booking-campaign-summary-row" gap={4}>
+                                    <Text c="dimmed" size="sm">Services</Text>
+                                    {selectedBundleServices.length ? selectedBundleServices.map((service) => (
+                                      <Group justify="space-between" key={service.slug} wrap="nowrap">
+                                        <Text size="sm">{service.name} · {formatDuration(service.durationMinutes * getBundleItemQuantity(service))}</Text>
+                                        <Text fw={600} size="sm">{formatPaymentAmount(getServiceLineAmountCents(service, getBundleItemQuantity(service)), service.currency)}</Text>
                                       </Group>
                                     )) : <Text size="sm">Choose at least one service</Text>}
                                   </Stack>
@@ -1260,7 +1519,7 @@ export default function BookingRequestPage({ renderPresentation, renderResourceS
                                   <Group justify="space-between" gap="sm" wrap="nowrap">
                                     <Text c="dimmed" size="sm">Total</Text>
                                     <Text fw={700} size="sm" ta="right">
-                                      {resourceMode?"Amount confirmed by vendor":formatPaymentAmount(payableAmountCents, selectedService?.currency || "PHP")}
+                                      {formatPaymentAmount(payableAmountCents, selectedService?.currency || "PHP")}
                                     </Text>
                                   </Group>
                                 </Stack>
@@ -1277,14 +1536,21 @@ export default function BookingRequestPage({ renderPresentation, renderResourceS
                             submitting ||
                             !vendor?.services.length ||
                             !selectedSlot ||
-                            ((!selectedBundleServices.length)) ||
-                            ((false))
+                            (!isGroupFundedMode && !selectedBundleServices.length) ||
+                            (isGroupFundedMode && !isCampaignReady)
                           }
                           h={56}
                           size="lg"
                           type="submit"
                         >
-                          {submitting ? "Processing..." : "Send verification code"}
+                          {submitting ? "Processing..." : isGroupFundedMode ? (
+                            <span className="booking-campaign-submit__content">
+                              <span>Create campaign</span>
+                              <Badge className="booking-campaign-submit__total" color="green" component="span" variant="filled">
+                                {formatPaymentAmount(fundingTargetAmountCents, selectedBundleServices[0]?.currency || "PHP")}
+                              </Badge>
+                            </span>
+                          ) : "Send verification code"}
                         </Button>
                       </Group>
                       </Stack>
@@ -1293,7 +1559,23 @@ export default function BookingRequestPage({ renderPresentation, renderResourceS
                 )}
               </Stepper.Step>
 
-              {[
+              {isGroupFundedMode ? [
+                  <Stepper.Step key="funding" label="Funding" description="Contributors upload proof">
+                    <Text c="dimmed" size="sm">
+                      After creation, contributors join from the campaign page and submit their payment proof.
+                    </Text>
+                  </Stepper.Step>,
+                  <Stepper.Step key="vendor-review" label="Vendor Review" description="Capacity hold and approval">
+                    <Text c="dimmed" size="sm">
+                      When funding is verified, the vendor reviews capacity before confirming the linked booking.
+                    </Text>
+                  </Stepper.Step>,
+                  <Stepper.Step key="confirmed-booking" label="Confirmed Booking" description="Organizer booking created">
+                    <Text c="dimmed" size="sm">
+                      Vendor approval creates one organizer-owned booking backed by the contribution ledger.
+                    </Text>
+                  </Stepper.Step>
+                ] : [
               <Stepper.Step key="verify-otp" label="Verify contact" description="Confirm your OTP">
                 {otp ? (
                   <form onSubmit={handleSubmit}>
@@ -1301,13 +1583,12 @@ export default function BookingRequestPage({ renderPresentation, renderResourceS
                       <Text c="dimmed" size="sm">
                         Sent by {otp.deliveryChannel} to {otp.deliveryTarget}.
                       </Text>
-                      <OtpInputField
-                        label="Email verification code"
+                      <PinInput
+                        length={6}
+                        onChange={(value) => setOtpCode(value.replace(/\D/g, ""))}
+                        oneTimeCode
+                        type="number"
                         value={otpCode}
-                        onChange={setOtpCode}
-                        onVerify={() => handleSubmit()}
-                        verificationKey={otp.otpId}
-                        disabled={submitting}
                       />
                       <Group className="customer-action-row booking-step-action" justify="space-between">
                         <Button
@@ -1366,7 +1647,7 @@ export default function BookingRequestPage({ renderPresentation, renderResourceS
                                 {manualPaymentDestination.methodLabel !== "Bank Transfer" ? <Text c="dimmed" mt={6} size="sm">Scan the QR, pay the exact amount, then submit your proof.</Text> : null}
                               </div>
                               <Text fw={800}>
-                                {manualPaymentDestination.amountCents === null ? 'Amount confirmed by the vendor. Please confirm the amount before paying.' : `Total payable: ${formatPaymentAmount(manualPaymentDestination.amountCents, manualPaymentDestination.currency)}`}
+                                Total payable: {formatPaymentAmount(manualPaymentDestination.amountCents, manualPaymentDestination.currency)}
                               </Text>
                               <TextInput
                                 label="Payment reference"
@@ -1452,7 +1733,7 @@ export default function BookingRequestPage({ renderPresentation, renderResourceS
                         </Badge>
                       </Stack>
                     </Group>
-                    <Button component={Link} to={`/vendors/${booking.tenantSlug}?location=${encodeURIComponent(booking.locationSlug)}`} variant="light" w="fit-content">
+                    <Button component={Link} to={`/vendors/${booking.tenantSlug}`} variant="light" w="fit-content">
                       Back to vendor profile
                     </Button>
                   </Stack>

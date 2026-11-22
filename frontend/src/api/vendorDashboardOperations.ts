@@ -83,8 +83,8 @@ export function syncCheckout(token: string, tenantSlug: string, checkoutId: stri
   });
 }
 
-export function updateSettings(token: string, tenantSlug: string, settings: Partial<UpdateTenantSettingsRequest>) {
-  return apiRequest<{ message?: string; snapshot?: import("@shared").QueueSnapshot }, Partial<UpdateTenantSettingsRequest>>(
+export function updateSettings(token: string, tenantSlug: string, settings: UpdateTenantSettingsRequest) {
+  return apiRequest<{ message?: string; snapshot?: import("@shared").QueueSnapshot }, UpdateTenantSettingsRequest>(
     `/vendor/tenant/${tenantSlug}/settings`,
     { method: "PATCH", token, body: settings }
   );
@@ -200,10 +200,10 @@ export function uploadThemeAsset(token: string, tenantSlug: string, locationSlug
   );
 }
 
-export function uploadLocationPaymentQr(token: string, tenantSlug: string, locationSlug: string, file: File, onPreparedImage?: (blob: Blob) => void) {
+export function uploadLocationPaymentQr(token: string, tenantSlug: string, locationSlug: string, file: File) {
   return apiUpload<import("@shared").LocationPaymentQrUploadResponse>(
     `/vendor/tenant/${tenantSlug}/location-payment-qrs/uploads/direct?locationSlug=${encodeURIComponent(locationSlug)}&fileName=${encodeURIComponent(file.name)}`,
-    { token, body: file, contentType: file.type, onPreparedImage }
+    { token, body: file, contentType: file.type }
   );
 }
 

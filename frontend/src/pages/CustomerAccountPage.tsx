@@ -1,5 +1,4 @@
-import { OtpInputField } from "../components/OtpInputField";
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode, type Dispatch, type SetStateAction } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Alert,
@@ -36,7 +35,8 @@ import { Navigate, Link, useLocation, useNavigate } from "react-router-dom";
 import type {
   BookingStatus,
   CustomerAccountOverviewResponse,
-
+  GroupFundedCampaignSummary,
+  GroupFundedContributionStatus,
   CustomerNotificationSettings,
   CustomerProfileUpdateRequest,
   PasswordChangeRequest,
@@ -44,7 +44,7 @@ import type {
   UpdateCustomerNotificationSettingsResponse,
   TicketStatus
 } from "@shared";
-import { ApiError, apiRequest } from "../api/client";
+import { apiRequest } from "../api/client";
 import { customerAccountApi } from "../api/customerAccount";
 import StyledQRCode from "../components/StyledQRCode";
 import { useAuth } from "../context/AuthContext";
@@ -58,9 +58,7 @@ import { getErrorMessage } from "../utils/errors";
 import { showCustomerError, showCustomerSuccess } from "../utils/customerNotifications";
 import { isBrowserPushSupported, subscribeToBrowserPush } from "../utils/pushNotifications";
 import CustomerAccountLayout, { type CustomerAccountSection } from "../components/CustomerAccountLayout";
-import { AccountDeletionPanel } from "../components/AccountDeletionPanel";
-import { EmailMfaSettingsPanel } from "../components/EmailMfaSettingsPanel";
-import EmailChangePanel, {type EmailChangePresentationModel} from "../components/EmailChangePanel";
+import EmailChangePanel from "../components/EmailChangePanel";
 import { getTicketStateSummary } from "../utils/queueStatus";
 
 const CUSTOMER_TABLE_PAGE_SIZE = 10;
@@ -118,11 +116,89 @@ function formatBookingBundleTotal(amountCents: number, currency = "PHP") {
 
 function getActiveSection(pathname: string): CustomerAccountSection {
   const [, , section] = pathname.split("/");
-  if (section === "tickets" || section === "bookings" || section === "settings" || section === "notifications" || section === "security") {
+  if (section === "tickets" || section === "bookings" || section === "campaigns" || section === "group-funded" || section === "settings" || section === "notifications" || section === "security") {
     return section;
   }
 
   return "settings";
+}
+
+function getGroupFundedBadgeColor(status: GroupFundedCampaignSummary["campaignStatus"]): "gray" | "red" | "yellow" | "orange" | "teal" | "blue" {
+  switch (status) {
+    case "funding":
+      return "yellow";
+    case "funded":
+    case "vendor_review":
+    case "replacement_proposed":
+      return "blue";
+    case "confirmed":
+      return "teal";
+    case "organizer_canceled":
+    case "funding_failed":
+    case "vendor_rejected":
+    case "vendor_review_expired":
+    case "vendor_canceled":
+      return "red";
+    default:
+      return "gray";
+  }
+}
+
+function getGroupFundedContributionBadgeColor(status: GroupFundedContributionStatus): "gray" | "red" | "yellow" | "orange" | "teal" | "blue" {
+  switch (status) {
+    case "verified":
+      return "teal";
+    case "submitted":
+    case "pending_proof":
+      return "yellow";
+    case "rejected":
+      return "red";
+    case "refund_pending":
+      return "orange";
+    case "refunded":
+      return "blue";
+    case "policy_review_required":
+      return "orange";
+    default:
+      return "gray";
+  }
+}
+
+function getGroupFundedContributionLabel(status: GroupFundedContributionStatus) {
+  switch (status) {
+    case "verified":
+      return "Your proof verified";
+    case "submitted":
+      return "Your proof submitted";
+    case "pending_proof":
+      return "Payment proof needed";
+    case "rejected":
+      return "Your proof rejected";
+    case "refund_pending":
+      return "Refund pending";
+    case "refunded":
+      return "Refunded";
+    case "policy_review_required":
+      return "Policy review";
+    default:
+      return "Contribution update";
+  }
+}
+
+function toLocalDateKey(value: string | Date | null) {
+  if (!value) {
+    return "";
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 function getInitials(value: string) {
@@ -134,38 +210,7 @@ function getInitials(value: string) {
     .join("") || "U";
 }
 
-// CUSTOMER PRESENTATION CONTRACT START
-export interface CustomerSecurityPresentationModel {
- passwordForm:PasswordChangeRequest;setPasswordForm:Dispatch<SetStateAction<PasswordChangeRequest>>;changingPassword:boolean;handlePasswordChange:(event:FormEvent<HTMLFormElement>)=>Promise<void>;
- mfaEnabled:boolean;totpMfaEnabled:boolean;emailMfaEnabled:boolean;required:boolean;mfaSecret:string;mfaUri:string;mfaCode:string;resetEnrollmentDraft:()=>void;setMfaCode:(v:string)=>void;mfaRecoveryCodes:string[];mfaBusy:boolean;startMfaEnrollment:()=>Promise<void>;confirmMfaEnrollment:()=>Promise<void>;
- mfaRemovalOpened:boolean;setMfaRemovalOpened:(v:boolean)=>void;mfaRemovalPassword:string;setMfaRemovalPassword:(v:string)=>void;mfaRemovalCode:string;setMfaRemovalCode:(v:string)=>void;mfaRemovalRecoveryCode:string;setMfaRemovalRecoveryCode:(v:string)=>void;mfaRemovalAcknowledged:boolean;setMfaRemovalAcknowledged:(v:boolean)=>void;mfaRemovalBusy:boolean;closeMfaRemoval:()=>void;removeMfa:()=>Promise<void>;refresh:()=>void;
-}
-export interface CustomerAccountPresentationModel {
- section: CustomerAccountSection;
- account: CustomerAccountOverviewResponse | null;
- user: NonNullable<ReturnType<typeof useAuth>["user"]>;
- loading: boolean; error: string;
- tickets: Awaited<ReturnType<typeof customerAccountApi.getTickets>>["tickets"];
- ticketPagination: Awaited<ReturnType<typeof customerAccountApi.getTickets>>["pagination"] | null;
- bookings: Awaited<ReturnType<typeof customerAccountApi.getBookings>>["bookings"];
- bookingPagination: Awaited<ReturnType<typeof customerAccountApi.getBookings>>["pagination"] | null;
- ticketPage: number; setTicketPage: Dispatch<SetStateAction<number>>;
- bookingPage: number; setBookingPage: Dispatch<SetStateAction<number>>;
- bookingSearch: string; setBookingSearch: Dispatch<SetStateAction<string>>;
- bookingStatusFilter: "all" | BookingStatus; setBookingStatusFilter: Dispatch<SetStateAction<"all"|BookingStatus>>; bookingDateRange: [string|null,string|null]; setBookingDateRange: Dispatch<SetStateAction<[string|null,string|null]>>;
- onPreferredContactChange:(value:CustomerNotificationSettings["preferredContactMethod"])=>Promise<void>;
- profileForm: CustomerProfileUpdateRequest; setProfileForm: Dispatch<SetStateAction<CustomerProfileUpdateRequest>>;
- savingProfile: boolean; handleProfileSave: (event: FormEvent<HTMLFormElement>)=>Promise<void>;
- avatarPreviewUrl: string | null; avatarFile: File | null; uploadingAvatar: boolean; maxImageUploadKb: number | null;
- handleAvatarFileChange: (file:File|null)=>void; handleAvatarUpload: ()=>Promise<void>;
- notificationSettings: CustomerNotificationSettings; savingNotificationSettings: boolean;
- handleNotificationToggle: (key:"bookingAlerts"|"queueAlerts",checked:boolean)=>Promise<void>;
- browserPermission: NotificationPermission; browserPushSubscribed:boolean; requestingBrowserPermission:boolean;
- browserNotificationsSupported:boolean; browserNotificationsSecure:boolean; handleRequestBrowserPermission:()=>Promise<void>;
- refresh:()=>void; security: ReactNode; emailChange: ReactNode;
-}
-// CUSTOMER PRESENTATION CONTRACT END
-export default function CustomerAccountPage({renderPresentation,renderSecurityPresentation,renderEmailChangePresentation,renderLoading}: {renderLoading?:()=>ReactNode;renderPresentation?: (model:CustomerAccountPresentationModel)=>ReactNode;renderSecurityPresentation?:(model:CustomerSecurityPresentationModel)=>ReactNode;renderEmailChangePresentation?:(model:EmailChangePresentationModel)=>ReactNode} = {}) {
+export default function CustomerAccountPage() {
   const location = useLocation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -211,7 +256,7 @@ export default function CustomerAccountPage({renderPresentation,renderSecurityPr
   const [notificationSettings, setNotificationSettings] = useState<CustomerNotificationSettings>({
     bookingAlerts: true,
     queueAlerts: true,
-
+    campaignAlerts: true,
     preferredContactMethod: "in_app"
   });
   const [savingNotificationSettings, setSavingNotificationSettings] = useState(false);
@@ -220,7 +265,9 @@ export default function CustomerAccountPage({renderPresentation,renderSecurityPr
   const [bookingSearch, setBookingSearch] = useState("");
   const [bookingStatusFilter, setBookingStatusFilter] = useState<"all" | BookingStatus>("all");
   const [bookingDateRange, setBookingDateRange] = useState<[string | null, string | null]>([null, null]);
-
+  const [groupFundedSearch, setGroupFundedSearch] = useState("");
+  const [groupFundedStatusFilter, setGroupFundedStatusFilter] = useState<"all" | GroupFundedCampaignSummary["campaignStatus"]>("all");
+  const [groupFundedDateRange, setGroupFundedDateRange] = useState<[string | null, string | null]>([null, null]);
   const browserNotificationsSupported = isBrowserPushSupported();
   const browserNotificationsSecure = typeof window !== "undefined" ? window.isSecureContext : false;
   const avatarPreviewUrl = useMemo(
@@ -238,7 +285,6 @@ export default function CustomerAccountPage({renderPresentation,renderSecurityPr
   }
 
   async function confirmMfaEnrollment() {
-    if (mfaBusy) return;
     setMfaBusy(true);
     try {
       const data = await apiRequest<{ success: boolean; recoveryCodes: string[]; message: string }>("/auth/mfa/enrollment/confirm", { method: "POST", token, body: { code: mfaCode } });
@@ -266,7 +312,6 @@ export default function CustomerAccountPage({renderPresentation,renderSecurityPr
   }
 
   async function removeMfa() {
-    if (mfaRemovalBusy) return;
     setMfaRemovalBusy(true);
     try {
       await apiRequest<{ success: boolean; message: string }, { password: string; code: string; recoveryCode: string }>("/auth/mfa/disable", {
@@ -289,19 +334,13 @@ export default function CustomerAccountPage({renderPresentation,renderSecurityPr
         refreshUser(),
         queryClient.invalidateQueries({ queryKey: ["customer-account", token] })
       ]);
-      showCustomerSuccess(
-        "Authenticator removed",
-        emailMfaEnabled
-          ? "Email OTP remains enabled as your sign-in verification method."
-          : "Your authenticator and recovery codes are no longer active."
-      );
+      showCustomerSuccess("MFA removed", "Your authenticator and recovery codes are no longer active.");
     } catch (mfaError) {
       showCustomerError(getErrorMessage(mfaError), "MFA could not be removed");
     } finally {
       setMfaRemovalBusy(false);
     }
   }
-
   const accountQuery = useQuery({
     queryKey: ["customer-account", token],
     queryFn: async () => {
@@ -350,11 +389,67 @@ export default function CustomerAccountPage({renderPresentation,renderSecurityPr
     },
     enabled: Boolean(token && activeSection === "bookings")
   });
+  const groupFundedQuery = useQuery({
+    queryKey: ["customer-account-group-funded", token],
+    queryFn: async () => {
+      if (!token) {
+        throw new Error("Missing authentication token.");
+      }
 
+      return customerAccountApi.getGroupFundedCampaigns(token);
+    },
+    enabled: Boolean(token && activeSection === "group-funded")
+  });
   const tickets = ticketQuery.data?.tickets || [];
   const ticketPagination = ticketQuery.data?.pagination || null;
   const bookings = bookingQuery.data?.bookings || [];
   const bookingPagination = bookingQuery.data?.pagination || null;
+  const groupFundedCampaigns = useMemo(
+    () => groupFundedQuery.data?.campaigns || [],
+    [groupFundedQuery.data?.campaigns]
+  );
+  const filteredGroupFundedCampaigns = useMemo(() => {
+    const search = groupFundedSearch.trim().toLowerCase();
+    const from = groupFundedDateRange[0] ? toLocalDateKey(groupFundedDateRange[0]) : "";
+    const to = groupFundedDateRange[1] ? toLocalDateKey(groupFundedDateRange[1]) : "";
+
+    return groupFundedCampaigns.filter((campaign) => {
+      if (groupFundedStatusFilter !== "all" && campaign.campaignStatus !== groupFundedStatusFilter) {
+        return false;
+      }
+
+      if (from || to) {
+        const scheduledDate = toLocalDateKey(campaign.scheduledStartAt);
+        if (from && scheduledDate < from) {
+          return false;
+        }
+        if (to && scheduledDate > to) {
+          return false;
+        }
+      }
+
+      if (!search) {
+        return true;
+      }
+
+      return [
+        campaign.campaignTitle,
+        campaign.description,
+        campaign.serviceName,
+        campaign.locationName,
+        campaign.vendorName,
+        campaign.organizerDisplayName,
+        campaign.campaignStatus
+      ]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(search));
+    });
+  }, [groupFundedCampaigns, groupFundedDateRange, groupFundedSearch, groupFundedStatusFilter]);
+  const currentAccountPath = `${location.pathname}${location.search}${location.hash}`;
+
+  function openGroupFundedCampaign(campaign: GroupFundedCampaignSummary) {
+    navigate(`/group-funded/${campaign.publicToken}`, { state: { from: currentAccountPath } });
+  }
 
   function openTicket(ticket: (typeof tickets)[number]) {
     navigate(buildJoinedQueuePathWithTicket(
@@ -367,13 +462,8 @@ export default function CustomerAccountPage({renderPresentation,renderSecurityPr
   function openBooking(booking: (typeof bookings)[number]) {
     navigate(`/account/bookings/${booking.id}`);
   }
-  // Privileged users can reach Security recovery while the broader account
-  // overview remains MFA-gated. Keep the authenticated user as the fallback
-  // so required enrollment is never presented as optional.
-  const accountUser = account?.user ?? user;
-  const totpMfaEnabled = !mfaRemoved && Boolean(accountUser?.totpMfaEnabled || mfaRecoveryCodes.length);
-  const emailMfaEnabled = Boolean(accountUser?.emailMfaEnabled);
-  const mfaEnabled = totpMfaEnabled || emailMfaEnabled;
+  const accountUser = account?.user;
+  const mfaEnabled = !mfaRemoved && Boolean(accountUser?.mfaEnabled || mfaRecoveryCodes.length);
 
   useEffect(() => {
     return () => {
@@ -396,13 +486,7 @@ export default function CustomerAccountPage({renderPresentation,renderSecurityPr
   }, [accountQuery.data]);
 
   useEffect(() => {
-    const recoveringRequiredMfa = activeSection === "security"
-      && user?.mfaRequired === true
-      && user.mfaEnabled !== true
-      && accountQuery.error instanceof ApiError
-      && accountQuery.error.status === 403
-      && accountQuery.error.message === "Set up multi-factor authentication before accessing this account.";
-    if (accountQuery.error && !recoveringRequiredMfa) {
+    if (accountQuery.error) {
       showCustomerError(getErrorMessage(accountQuery.error), "Could not load your account");
       return;
     }
@@ -417,7 +501,10 @@ export default function CustomerAccountPage({renderPresentation,renderSecurityPr
       return;
     }
 
-  }, [accountQuery.error, activeSection, bookingQuery.error, ticketQuery.error]);
+    if (groupFundedQuery.error && activeSection === "group-funded") {
+      showCustomerError(getErrorMessage(groupFundedQuery.error), "Could not load group-funded campaigns");
+    }
+  }, [accountQuery.error, activeSection, bookingQuery.error, groupFundedQuery.error, ticketQuery.error]);
 
   useEffect(() => {
     if (activeSection !== "bookings") {
@@ -466,7 +553,7 @@ export default function CustomerAccountPage({renderPresentation,renderSecurityPr
   }
 
   async function handleNotificationToggle(
-    key: "bookingAlerts" | "queueAlerts",
+    key: "bookingAlerts" | "queueAlerts" | "campaignAlerts",
     checked: boolean
   ) {
     if (!token) {
@@ -504,7 +591,6 @@ export default function CustomerAccountPage({renderPresentation,renderSecurityPr
   }
 
   if (loading) {
-    if (renderLoading) return renderLoading();
     return <Card className="finazze-auth-card">Loading account...</Card>;
   }
 
@@ -944,6 +1030,185 @@ export default function CustomerAccountPage({renderPresentation,renderSecurityPr
     </Stack>
   );
 
+  const renderGroupFunded = () => (
+    <Stack gap="lg">
+      <div className="customer-section-header">
+        <Text className="finazze-section-label">Campaigns</Text>
+        <Title order={1}>Organizer and contributor campaigns</Title>
+        <Text c="dimmed">Manage campaigns you organize and contributions you support.</Text>
+      </div>
+      <Card className="finazze-auth-card customer-account-card" p="xl">
+        <Stack gap="md">
+        {groupFundedQuery.isFetching ? <Text c="dimmed" size="sm">Loading group-funded campaigns...</Text> : null}
+        <Group align="flex-end" gap="sm">
+          <TextInput
+            label="Search"
+            onChange={(event) => setGroupFundedSearch(event.target.value)}
+            placeholder="Title, vendor, service"
+            value={groupFundedSearch}
+          />
+          <Select
+            data={[
+              { label: "All statuses", value: "all" },
+              { label: "Funding", value: "funding" },
+              { label: "Fully funded", value: "funded" },
+              { label: "Vendor review", value: "vendor_review" },
+              { label: "Replacement proposed", value: "replacement_proposed" },
+              { label: "Confirmed", value: "confirmed" },
+              { label: "Canceled", value: "organizer_canceled" },
+              { label: "Funding failed", value: "funding_failed" },
+              { label: "Vendor rejected", value: "vendor_rejected" }
+            ]}
+            label="Status"
+            onChange={(value) =>
+              setGroupFundedStatusFilter((value || "all") as "all" | GroupFundedCampaignSummary["campaignStatus"])
+            }
+            value={groupFundedStatusFilter}
+          />
+          <DatePickerInput
+            clearable
+            label="Booking date"
+            onChange={(value) => setGroupFundedDateRange(value)}
+            placeholder="Select date range"
+            type="range"
+            value={groupFundedDateRange}
+          />
+          {groupFundedDateRange[0] || groupFundedDateRange[1] || groupFundedSearch || groupFundedStatusFilter !== "all" ? (
+            <Button
+              className="neura-secondary-button"
+              onClick={() => {
+                setGroupFundedSearch("");
+                setGroupFundedStatusFilter("all");
+                setGroupFundedDateRange([null, null]);
+              }}
+            >
+              Clear filters
+            </Button>
+          ) : null}
+        </Group>
+        <Table.ScrollContainer minWidth={860}>
+          <Table className="neura-customer-table" verticalSpacing="sm">
+            <Table.Thead>
+              <Table.Tr>
+                <Table.Th>Campaign</Table.Th>
+                <Table.Th>Schedule</Table.Th>
+                <Table.Th>Funding</Table.Th>
+                <Table.Th>Status</Table.Th>
+                <Table.Th />
+              </Table.Tr>
+            </Table.Thead>
+            <Table.Tbody>
+              {filteredGroupFundedCampaigns.length ? (
+                filteredGroupFundedCampaigns.map((campaign) => (
+                  <Table.Tr
+                    className="neura-customer-table-row"
+                    key={campaign.id}
+                    onClick={() => openGroupFundedCampaign(campaign)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        openGroupFundedCampaign(campaign);
+                      }
+                    }}
+                    role="button"
+                    style={{ cursor: "pointer" }}
+                    tabIndex={0}
+                  >
+                    <Table.Td>
+                      <Stack gap={2}>
+                        <Text fw={700}>{campaign.campaignTitle || campaign.serviceName}</Text>
+                        <Text c="dimmed" size="sm">
+                          {campaign.vendorName ? `${campaign.vendorName} · ` : ""}
+                          {campaign.serviceName} · {campaign.locationName}
+                        </Text>
+                      </Stack>
+                    </Table.Td>
+                    <Table.Td>
+                      <Text>{formatBookingScheduleDate(campaign.scheduledStartAt)}</Text>
+                      <Text c="dimmed" size="sm">
+                        {formatBookingScheduleTimeRange(campaign.scheduledStartAt, campaign.scheduledEndAt)}
+                      </Text>
+                    </Table.Td>
+                    <Table.Td>
+                      <Text>{campaign.paidParticipantCount}/{campaign.requiredContributors} verified</Text>
+                      <Text c="dimmed" size="sm">
+                        PHP {(campaign.requiredContributionAmountCents / 100).toLocaleString()} each
+                      </Text>
+                      {campaign.contribution?.contributionStatus === "rejected" ? (
+                        <Text c="red" size="sm">
+                          Your contribution was not counted.
+                        </Text>
+                      ) : campaign.contribution?.contributionStatus === "refund_pending" ? (
+                        <Text c="orange" size="sm">
+                          Your contribution cannot be accepted. Refund pending.
+                        </Text>
+                      ) : null}
+                    </Table.Td>
+                    <Table.Td>
+                      <Stack gap={4}>
+                        <Badge color={getGroupFundedBadgeColor(campaign.campaignStatus)} variant="light" w="fit-content">
+                          {campaign.campaignStatus.replace(/_/g, " ")}
+                        </Badge>
+                        {campaign.contribution ? (
+                          <Badge
+                            color={getGroupFundedContributionBadgeColor(campaign.contribution.contributionStatus)}
+                            variant="light"
+                            w="fit-content"
+                          >
+                            {getGroupFundedContributionLabel(campaign.contribution.contributionStatus)}
+                          </Badge>
+                        ) : null}
+                        {campaign.contribution?.contributionStatus === "rejected" && campaign.contribution.rejectionReason ? (
+                          <Text c="dimmed" size="xs">
+                            {campaign.contribution.rejectionReason}
+                          </Text>
+                        ) : null}
+                        {campaign.contribution?.contributionStatus === "refund_pending" && campaign.contribution.rejectionReason ? (
+                          <Text c="orange" size="xs">
+                            {campaign.contribution.rejectionReason} · Refund pending
+                          </Text>
+                        ) : null}
+                      </Stack>
+                    </Table.Td>
+                    <Table.Td style={{ width: 1, whiteSpace: "nowrap" }}>
+                      <Tooltip label="View campaign" withArrow>
+                        <ActionIcon
+                          aria-label={`View group-funded campaign ${campaign.campaignTitle || campaign.serviceName}`}
+                          component={Link}
+                          state={{ from: currentAccountPath }}
+                          to={`/group-funded/${campaign.publicToken}`}
+                          variant="light"
+                        >
+                          <IconEye size={16} />
+                        </ActionIcon>
+                      </Tooltip>
+                    </Table.Td>
+                  </Table.Tr>
+                ))
+              ) : (
+                <Table.Tr>
+                  <Table.Td colSpan={5}>
+                    <Text c="dimmed">
+                      {groupFundedCampaigns.length
+                        ? "No group-funded campaigns match the current filters."
+                        : "Group-funded campaigns you organize or contribute to will appear here."}
+                    </Text>
+                  </Table.Td>
+                </Table.Tr>
+              )}
+            </Table.Tbody>
+          </Table>
+        </Table.ScrollContainer>
+        {groupFundedCampaigns.length ? (
+          <Text c="dimmed" size="sm">
+            Showing {filteredGroupFundedCampaigns.length} of {groupFundedCampaigns.length}
+          </Text>
+        ) : null}
+        </Stack>
+      </Card>
+    </Stack>
+  );
+
   const renderSettings = () => (
     <Stack gap="lg">
       <div className="customer-section-header">
@@ -969,7 +1234,7 @@ export default function CustomerAccountPage({renderPresentation,renderSecurityPr
             <div>
               <Text fw={700}>Profile photo</Text>
               <Text c="dimmed" size="sm">
-                Shown on your account and vendor reviews.
+                Shown beside your name when you organize or contribute to a campaign.
               </Text>
             </div>
             <Group align="flex-end" gap="sm">
@@ -1077,7 +1342,7 @@ export default function CustomerAccountPage({renderPresentation,renderSecurityPr
           <Text className="finazze-section-label">Notifications</Text>
           <Title order={1}>Browser notifications</Title>
           <Text c="dimmed">
-            Choose how GetPrio keeps you updated about bookings and queues.
+            Choose how GetPrio keeps you updated about bookings, queues, and campaigns.
           </Text>
         </div>
         <Card className="finazze-auth-card customer-account-card" p="xl">
@@ -1151,7 +1416,13 @@ export default function CustomerAccountPage({renderPresentation,renderSecurityPr
             disabled={savingNotificationSettings}
             onChange={(event) => handleNotificationToggle("queueAlerts", event.currentTarget.checked)}
           />
-
+          <Checkbox
+            checked={notificationSettings.campaignAlerts}
+            label="Campaign alerts"
+            description="Contribution reviews, deadlines, and reimbursement confirmations."
+            disabled={savingNotificationSettings}
+            onChange={(event) => handleNotificationToggle("campaignAlerts", event.currentTarget.checked)}
+          />
           <Select
             data={[{ value: "in_app", label: "In-app / push" }, { value: "email", label: "Email" }, { value: "sms", label: "SMS" }]}
             label="Preferred contact method"
@@ -1223,7 +1494,6 @@ export default function CustomerAccountPage({renderPresentation,renderSecurityPr
           <div>
             <Text className="finazze-section-label">2FA/MFA</Text>
             <Title order={2}>Multi-factor authentication</Title>
-            <Text c="dimmed" mt="xs">{accountUser?.mfaRequired ? "Set up an authenticator app or email OTP to satisfy the required sign-in verification." : "Choose an authenticator app, email OTP, or both as optional sign-in verification."}</Text>
           </div>
           <Group gap="sm">
             <Badge color={mfaEnabled ? "teal" : "gray"} variant="light">
@@ -1234,12 +1504,7 @@ export default function CustomerAccountPage({renderPresentation,renderSecurityPr
             </Badge>
           </Group>
           {mfaRecoveryCodes.length ? <Alert color="teal" title="Save these one-time recovery codes" variant="light"><Stack gap={4}>{mfaRecoveryCodes.map((code) => <Text ff="monospace" key={code}>{code}</Text>)}</Stack></Alert> : null}
-          <Divider />
-          <div>
-            <Title order={3}>Authenticator app</Title>
-            <Text c="dimmed" mt={4} size="sm">Use a time-based code from an authenticator app. Recovery codes are created during setup.</Text>
-          </div>
-          {!totpMfaEnabled && !mfaSecret ? <Button className="customer-primary-action" color="dark" loading={mfaBusy} onClick={() => void startMfaEnrollment()}>Set up authenticator</Button> : null}
+          {!mfaEnabled && !mfaSecret && !mfaRecoveryCodes.length ? <Button className="customer-primary-action" color="dark" loading={mfaBusy} onClick={() => void startMfaEnrollment()}>Set up authenticator</Button> : null}
           {mfaSecret ? (
             <Stack gap="md">
               <Stack align="center" gap="sm">
@@ -1256,23 +1521,18 @@ export default function CustomerAccountPage({renderPresentation,renderSecurityPr
                 <Text ff="monospace" mt="xs" style={{ overflowWrap: "anywhere" }}>{mfaSecret}</Text>
                 <Text component="a" href={mfaUri} mt="xs" style={{ display: "block", overflowWrap: "anywhere" }}>Open authenticator setup</Text>
               </Alert>
-              <OtpInputField label="6-digit authenticator code" value={mfaCode} onChange={setMfaCode} disabled={mfaBusy} onVerify={confirmMfaEnrollment} autoVerifyEnabled={Boolean(mfaSecret)} verificationKey={mfaSecret} />
+              <TextInput autoComplete="one-time-code" inputMode="numeric" label="6-digit authenticator code" maxLength={6} value={mfaCode} onChange={(event) => setMfaCode(event.target.value.replace(/\D/g, ""))}/>
               <Button className="customer-primary-action" color="dark" disabled={mfaCode.length !== 6} loading={mfaBusy} onClick={() => void confirmMfaEnrollment()}>Verify and enable</Button>
             </Stack>
           ) : null}
-          {totpMfaEnabled && !mfaRecoveryCodes.length ? (
+          {mfaEnabled && !mfaRecoveryCodes.length ? (
             <Stack gap="sm">
               <Alert color="teal" variant="light">Your authenticator is active. You will be asked for a security code during protected sign-ins and sensitive actions.</Alert>
-              {!accountUser?.mfaRequired ? <Button color="red" variant="light" onClick={() => setMfaRemovalOpened(true)}>Remove authenticator</Button> : null}
+              {!accountUser?.mfaRequired ? <Button color="red" variant="light" onClick={() => setMfaRemovalOpened(true)}>Remove MFA</Button> : null}
             </Stack>
           ) : null}
         </Stack>
       </Card>
-      <EmailMfaSettingsPanel
-        variant="customer"
-        onUpdated={() => queryClient.invalidateQueries({ queryKey: ["customer-account", token] })}
-      />
-      <AccountDeletionPanel accountType="customer" />
       <Modal
         className="customer-modal mfa-removal-modal"
         closeOnClickOutside={!mfaRemovalBusy}
@@ -1284,17 +1544,17 @@ export default function CustomerAccountPage({renderPresentation,renderSecurityPr
         title={(
           <div>
             <Text className="finazze-section-label">ACCOUNT SECURITY</Text>
-            <Title order={3}>Remove authenticator app</Title>
+            <Title order={3}>Remove multi-factor authentication</Title>
           </div>
         )}
       >
         <Stack className="mfa-removal-modal__shell" gap="md">
           <Alert color="red" title="Your account will be less secure" variant="light">
-            This revokes your authenticator and recovery codes. {emailMfaEnabled ? "Email OTP will remain enabled." : "Your account will no longer have MFA."} Other signed-in sessions will be closed.
+            Removing MFA revokes your authenticator and every recovery code. Other signed-in sessions will be closed.
           </Alert>
           <Stack className="mfa-removal-modal__main" gap="md">
             <PasswordInput autoComplete="current-password" label="Current password" required value={mfaRemovalPassword} onChange={(event) => setMfaRemovalPassword(event.target.value)} />
-            <OtpInputField label="Current authenticator code" value={mfaRemovalCode} onChange={setMfaRemovalCode} disabled={mfaRemovalBusy} onVerify={removeMfa} autoVerifyEnabled={Boolean(mfaRemovalPassword) && mfaRemovalAcknowledged && !mfaRemovalRecoveryCode} description="Use this or an unused recovery code below." />
+            <TextInput autoComplete="one-time-code" description="Use this or an unused recovery code below." inputMode="numeric" label="Current authenticator code" maxLength={6} value={mfaRemovalCode} onChange={(event) => setMfaRemovalCode(event.target.value.replace(/\D/g, ""))}/>
             <TextInput autoComplete="one-time-code" description="Use this only if your authenticator is unavailable." label="Recovery code" value={mfaRemovalRecoveryCode} onChange={(event) => setMfaRemovalRecoveryCode(event.target.value)} />
             <Checkbox checked={mfaRemovalAcknowledged} label="I understand that removing MFA reduces my account security." onChange={(event) => setMfaRemovalAcknowledged(event.target.checked)} />
           </Stack>
@@ -1306,7 +1566,7 @@ export default function CustomerAccountPage({renderPresentation,renderSecurityPr
               loading={mfaRemovalBusy}
               onClick={() => void removeMfa()}
             >
-              Remove authenticator
+              Remove MFA
             </Button>
           </Group>
         </Stack>
@@ -1320,7 +1580,8 @@ export default function CustomerAccountPage({renderPresentation,renderSecurityPr
         return renderTickets();
       case "bookings":
         return renderBookings();
-
+      case "group-funded":
+        return renderGroupFunded();
       case "settings":
         return renderSettings();
       case "notifications":
@@ -1331,10 +1592,6 @@ export default function CustomerAccountPage({renderPresentation,renderSecurityPr
         return renderSettings();
     }
   };
-
-  // CUSTOMER PRESENTATION INJECTION START
-  if(renderPresentation) return renderPresentation({section:location.pathname.endsWith("/notification-settings")?"notifications":activeSection, account, user, loading:accountQuery.isLoading || (activeSection === "tickets" && ticketQuery.isLoading) || (activeSection === "bookings" && bookingQuery.isLoading),error: accountQuery.error || ticketQuery.error || bookingQuery.error ? getErrorMessage(accountQuery.error || ticketQuery.error || bookingQuery.error) : "",tickets,ticketPagination,bookings,bookingPagination,ticketPage,setTicketPage,bookingPage,setBookingPage,bookingSearch,setBookingSearch,bookingStatusFilter,setBookingStatusFilter,bookingDateRange,setBookingDateRange,onPreferredContactChange:async value=>{if(!token)return;const next={...notificationSettings,preferredContactMethod:value};setNotificationSettings(next);setSavingNotificationSettings(true);try{setNotificationSettings((await customerAccountApi.updateNotificationSettings(token,next)).notificationSettings);}finally{setSavingNotificationSettings(false);}},profileForm,setProfileForm,savingProfile,handleProfileSave,avatarPreviewUrl,avatarFile,uploadingAvatar,maxImageUploadKb,handleAvatarFileChange,handleAvatarUpload,notificationSettings,savingNotificationSettings,handleNotificationToggle,browserPermission,browserPushSubscribed,requestingBrowserPermission,browserNotificationsSupported,browserNotificationsSecure,handleRequestBrowserPermission,refresh:()=>{void accountQuery.refetch();void ticketQuery.refetch();void bookingQuery.refetch();},security:renderSecurityPresentation?renderSecurityPresentation({passwordForm,setPasswordForm,changingPassword,handlePasswordChange,mfaEnabled,totpMfaEnabled,emailMfaEnabled,required:Boolean(accountUser?.mfaRequired),mfaSecret,mfaUri,mfaCode,resetEnrollmentDraft:()=>{if(changingPassword||mfaBusy||mfaRemovalBusy)return;setMfaSecret("");setMfaUri("");setMfaCode("");},setMfaCode,mfaRecoveryCodes,mfaBusy,startMfaEnrollment,confirmMfaEnrollment,mfaRemovalOpened,setMfaRemovalOpened,mfaRemovalPassword,setMfaRemovalPassword,mfaRemovalCode,setMfaRemovalCode,mfaRemovalRecoveryCode,setMfaRemovalRecoveryCode,mfaRemovalAcknowledged,setMfaRemovalAcknowledged,mfaRemovalBusy,closeMfaRemoval,removeMfa,refresh:()=>{void accountQuery.refetch();}}):renderSecurity(),emailChange:<EmailChangePanel renderPresentation={renderEmailChangePresentation} currentEmail={accountUser?.email || user.email || ""} token={token || ""} onCompleted={async()=>{await refreshUser();await queryClient.invalidateQueries({queryKey:["customer-account",token]});}}/>});
-  // CUSTOMER PRESENTATION INJECTION END
 
   return (
     <CustomerAccountLayout activeSection={activeSection}>

@@ -15,9 +15,7 @@ export function getPlanHighlights(plan: SubscriptionPlan): string[] {
   count(e.counters, "counter");
   count(e.staffSeats, "staff seat");
   count(plan.allowances?.queueTickets ?? e.monthlyTickets, "Queue Ticket", "Queue Tickets", "/mo");
-  if (plan.features?.queue ?? e.queueSystemAccess) highlights.push("Simple queue and service setup");
-  if (plan.features?.resourceQueue ?? e.resourceQueueAccess) highlights.push("Resource queue");
-  if (plan.features?.workflowQueue ?? e.workflowQueueAccess) highlights.push("Workflow queue");
+  count(plan.allowances?.queueEmailJourneys ?? e.monthlyQueueEmailJourneys ?? e.monthlyTransactionalEmails, "Queue Email Journey", "Queue Email Journeys", "/mo");
   if (plan.features?.booking ?? e.serviceBookingAccess) {
     count(plan.allowances?.serviceBookings ?? e.monthlyServiceBookings, "service booking", "service bookings", "/mo");
   }
@@ -28,6 +26,7 @@ export function getPlanHighlights(plan: SubscriptionPlan): string[] {
       ? "Branded public queue pages" : "GetPrio-branded public queue page");
   }
   if (plan.features?.discovery ?? e.marketplaceDiscovery) highlights.push("Marketplace discovery");
+  if (plan.features?.campaigns ?? e.groupFundedCampaignAccess) highlights.push("Group-funded campaigns");
   if (e.analytics) highlights.push("Analytics");
   else if (e.basicDashboard) highlights.push("Basic queue dashboard");
   if (e.csvExport || e.pdfExport) highlights.push(`${[e.csvExport && "CSV", e.pdfExport && "PDF"].filter(Boolean).join(" and ")} export`);

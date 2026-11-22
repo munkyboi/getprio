@@ -27,12 +27,9 @@ export function getBookings(
   page: number,
   search: string,
   status: string,
-  dateRange: [string | null, string | null],
-  hideNonActive = false
+  dateRange: [string | null, string | null]
 ) {
-  const statusQuery = status !== "all"
-    ? `&status=${encodeURIComponent(status)}`
-    : hideNonActive ? "&hideNonActive=true" : "";
+  const statusQuery = status !== "all" ? `&status=${encodeURIComponent(status)}` : "";
   const [dateFrom, dateTo] = dateRange;
   const dateQuery = [
     dateFrom ? `scheduledDateFrom=${encodeURIComponent(dateFrom)}` : "",
@@ -148,14 +145,14 @@ export function updateBookingStatus(
 ) {
   return apiRequest<VendorBookingResponse, UpdateVendorBookingStatusRequest>(
     `/vendor/tenant/${tenantSlug}/bookings/${bookingId}/status`,
-    { method: "PATCH", token, body: { status, requestKey:crypto.randomUUID() } }
+    { method: "PATCH", token, body: { status } }
   );
 }
 
 export function rescheduleBooking(token: string, tenantSlug: string, bookingId: string, scheduledStartAt: string) {
   return apiRequest<VendorBookingResponse, RescheduleVendorBookingRequest>(
     `/vendor/tenant/${tenantSlug}/bookings/${bookingId}/reschedule`,
-    { method: "PATCH", token, body: { scheduledStartAt, requestKey:crypto.randomUUID() } }
+    { method: "PATCH", token, body: { scheduledStartAt } }
   );
 }
 
@@ -209,5 +206,17 @@ export function rejectBookingPayment(
   return apiRequest<VendorBookingResponse, RejectVendorBookingPaymentRequest>(
     `/vendor/tenant/${tenantSlug}/bookings/${bookingId}/reject-payment`,
     { method: "PATCH", token, body }
+  );
+}
+
+export function rateOrganizer(
+  token: string,
+  tenantSlug: string,
+  bookingId: string,
+  body: { stars: number; reasonCategory?: string; privateNote?: string }
+) {
+  return apiRequest<{ rating: { id: string } }, typeof body>(
+    `/vendor/tenant/${tenantSlug}/bookings/${bookingId}/organizer-rating`,
+    { method: "POST", token, body }
   );
 }

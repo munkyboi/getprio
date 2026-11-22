@@ -1,14 +1,13 @@
-import { type FormEvent, type ReactNode, type Dispatch, type SetStateAction, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import {  Alert, Badge, Button, Card, Container, FileInput, Group, Image, Modal, Paper, ScrollArea, SimpleGrid,  Stack, Text, Textarea, TextInput, ThemeIcon, Title } from "@mantine/core";
+import { type FormEvent, useCallback, useEffect, useState } from "react";
+import { Accordion, Alert, Badge, Button, Card, Container, FileInput, Group, Image, Modal, Paper, ScrollArea, SimpleGrid, Spoiler, Stack, Text, Textarea, TextInput, ThemeIcon, Title } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
-import { IconAlertCircle, IconArrowLeft, IconBuildingBank, IconBuildingStore, IconCalendar, IconCircleCheck, IconExternalLink, IconEye, IconReceipt, IconStar, IconTicket, IconUpload,  IconX } from "@tabler/icons-react";
-import { Link, Navigate,  useParams } from "react-router-dom";
+import { IconAlertCircle, IconArrowLeft, IconBuildingBank, IconBuildingStore, IconCalendar, IconCircleCheck, IconExternalLink, IconEye, IconReceipt, IconStar, IconTicket, IconUpload, IconUsersGroup, IconX } from "@tabler/icons-react";
+import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
 import type {
   BookingPaymentProofAccessResponse,
   BookingStatus,
   CancelCustomerBookingResponse,
   CustomerBookingDetailResponse,
-  CustomerBookingSummary,
   CustomerBookingResponse,
   PublicBoardThemeSettings,
   PublicVendorProfile,
@@ -19,7 +18,8 @@ import { API_BASE_URL, ApiError, apiRequest } from "../api/client";
 import { customerAccountApi } from "../api/customerAccount";
 import ResourceErrorState from "../components/ResourceErrorState";
 import FiveStarRatingInput from "../components/FiveStarRatingInput";
-
+import CampaignCreateForm from "../components/CampaignCreateForm";
+import RichCampaignDescription from "../components/RichCampaignDescription";
 import { useAuth } from "../context/AuthContext";
 import { buildJoinedQueuePathWithTicket } from "../queuePaths";
 import {
@@ -87,6 +87,30 @@ function formatPaymentAmount(amountCents: number, currency: string) {
   }).format(amountCents / 100);
 }
 
+function getContributionBadgeColor(status: string): "gray" | "red" | "yellow" | "orange" | "teal" | "blue" {
+  switch (status) {
+    case "verified":
+      return "teal";
+    case "submitted":
+    case "pending_proof":
+      return "yellow";
+    case "rejected":
+      return "red";
+    case "refund_pending":
+      return "orange";
+    case "refunded":
+      return "blue";
+    case "policy_review_required":
+      return "orange";
+    default:
+      return "gray";
+  }
+}
+
+function formatCampaignStatusLabel(status: string) {
+  return status.replace(/_/g, " ");
+}
+
 function formatDurationLabel(startValue: string | Date, endValue: string | Date) {
   const start = toTimestamp(startValue);
   const end = toTimestamp(endValue);
@@ -135,58 +159,10 @@ function formatCheckInCountdown(milliseconds: number) {
   return `${seconds}s`;
 }
 
-// CUSTOMER PRESENTATION CONTRACT START
-export function mergeOwnedBookingSummary(current: CustomerBookingDetailResponse["booking"] | null, next: CustomerBookingSummary): CustomerBookingDetailResponse["booking"] | null {
-  if (!current || current.id !== next.id || current.tenantId !== next.tenantId) return current;
-  return { ...current, ...next, customerName: current.customerName, customerEmail: current.customerEmail, customerPhone: current.customerPhone };
-}
-
-export interface CustomerBookingDetailPresentationModel {
- booking: CustomerBookingDetailResponse["booking"]; vendorProfile: PublicVendorProfile|null; vendorTheme: PublicBoardThemeSettings|null;
- error:string; busy:boolean; proofBusy:boolean; arrivalBusy:boolean; proofViewBusy:boolean;
- cancellationAllowed:boolean; proofSubmissionAllowed:boolean; isGroupFundedBooking:boolean;
- linkedQueuePath:string; checkInActionLabel:string; customerArrivalAvailable:boolean;
- totalBookingHoursLabel:string; bookingTotalFeeDisplay:string;
- services:Array<{serviceName:string;serviceSlug:string;bookingQuantity:number;scheduledStartAt:string|Date;scheduledEndAt:string|Date;priceAmountCents:number;currency:string;imageUrl:string}>;
- reason:string; setReason:Dispatch<SetStateAction<string>>; cancelModalOpen:boolean;setCancelModalOpen:Dispatch<SetStateAction<boolean>>;handleCancel:(event?:FormEvent<HTMLFormElement>)=>Promise<void>;
- paymentReference:string;setPaymentReference:Dispatch<SetStateAction<string>>; paymentProofFile:File|null;setPaymentProofFile:Dispatch<SetStateAction<File|null>>;handleSubmitPaymentProof:()=>Promise<void>;
- proofModalOpen:boolean;setProofModalOpen:Dispatch<SetStateAction<boolean>>;proofAccessUrl:string;handleViewPaymentProof:()=>Promise<void>;
- markArrival:()=>Promise<void>;refresh:()=>void;
- ratingStars:number;setRatingStars:Dispatch<SetStateAction<number>>;ratingComment:string;setRatingComment:Dispatch<SetStateAction<string>>;ratingSubmitted:boolean;submitVendorRating:()=>Promise<void>;
-}
-// CUSTOMER PRESENTATION CONTRACT END
-export function createBookingScopeGate() {
-  let active = false;
-  let generation = 0;
-  let epoch = 0;
-  return {
-    mount() { active = true; },
-    unmount() { active = false; generation += 1; epoch += 1; },
-    capture() { return epoch; },
-    sameScope(value: number) { return active && value === epoch; },
-    invalidate() { generation += 1; },
-    begin() { return ++generation; },
-    current(request?: number) { return active && (request === undefined || request === generation); }
-  };
-}
-export function bookingDetailScopeKey(bookingId: string, token: string, userId: string | null, loading: boolean): string {
-  return JSON.stringify([bookingId, token, userId, loading]);
-}
-type CustomerBookingDetailPageProps = {renderUnavailable?:(model:{error:string;status:number|null;backTo:string;onRetry:()=>void})=>ReactNode;renderPresentation?:(model:CustomerBookingDetailPresentationModel)=>ReactNode;renderLoading?:()=>ReactNode};
-export default function CustomerBookingDetailPage(props: CustomerBookingDetailPageProps = {}) {
+export default function CustomerBookingDetailPage() {
   const { bookingId = "" } = useParams<{ bookingId: string }>();
-  const { token, user, loading } = useAuth();
-  // A new observed identity or route gets a fresh component before it can render.
-  const scope = bookingDetailScopeKey(bookingId, token, user?.id || null, loading);
-  return <OwnedBookingDetail key={scope} {...props} />;
-}
-function OwnedBookingDetail({renderPresentation,renderUnavailable,renderLoading}: CustomerBookingDetailPageProps) {
-  const { bookingId = "" } = useParams<{ bookingId: string }>();
-
+  const navigate = useNavigate();
   const { token, user, loading: authLoading } = useAuth();
-  const gate = useRef(createBookingScopeGate()).current;
-  useLayoutEffect(() => { gate.mount(); return () => gate.unmount(); }, [gate]);
-  const isCurrent = (scope: number) => gate.sameScope(scope);
   const [booking, setBooking] = useState<CustomerBookingDetailResponse["booking"] | null>(null);
   const [reason, setReason] = useState("");
   const [paymentReference, setPaymentReference] = useState("");
@@ -195,7 +171,6 @@ function OwnedBookingDetail({renderPresentation,renderUnavailable,renderLoading}
   const [responseStatus, setResponseStatus] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [proofBusy, setProofBusy] = useState(false);
-  const [arrivalBusy, setArrivalBusy] = useState(false);
   const [proofViewBusy, setProofViewBusy] = useState(false);
   const [proofModalOpen, setProofModalOpen] = useState(false);
   const [proofAccessUrl, setProofAccessUrl] = useState("");
@@ -208,51 +183,27 @@ function OwnedBookingDetail({renderPresentation,renderUnavailable,renderLoading}
   const [ratingStars, setRatingStars] = useState(0);
   const [ratingComment, setRatingComment] = useState("");
   const [ratingSubmitted, setRatingSubmitted] = useState(false);
-
-  async function markArrival() {
-    if (!booking || !token || arrivalBusy) return;
-    const actionScope = gate.capture();
-    setArrivalBusy(true);
-    try {
-      const data = await apiRequest<CustomerBookingResponse>(`/account/bookings/${booking.id}/arrival`, { method: "POST", token });
-      if (!isCurrent(actionScope)) return;
-      if (data.booking.id !== booking.id || data.booking.tenantId !== booking.tenantId) throw new Error("Booking response does not match this page.");
-      gate.invalidate();
-      setBooking(current => mergeOwnedBookingSummary(current, data.booking));
-      notifications.show({ title: "Arrival recorded", message: "Your queue ticket is ready. The vendor can call it at or after your booked time.", color: "teal" });
-    } catch (arrivalError) {
-      if (!isCurrent(actionScope)) return;
-      showCustomerError(getErrorMessage(arrivalError), "Could not record arrival");
-      await loadBooking();
-    } finally {
-      if (isCurrent(actionScope)) setArrivalBusy(false);
-    }
-  }
+  const [campaignCreateModalOpen, setCampaignCreateModalOpen] = useState(false);
 
   const loadBooking = useCallback(async (options: { showLoading?: boolean } = {}) => {
     if (!token || !bookingId) {
       return;
     }
 
-    const generation = gate.begin();
     if (options.showLoading) {
       setLoading(true);
     }
 
     try {
       const data = await apiRequest<CustomerBookingDetailResponse>(`/account/bookings/${bookingId}`, { token });
-      if (!gate.current(generation)) return;
-      if (String(data.booking.id) !== bookingId) throw new Error("Booking does not match this page.");
       setBooking(data.booking);
       setError("");
       setResponseStatus(null);
     } catch (loadError) {
-      if (!gate.current(generation)) return;
-      if (loadError instanceof ApiError && [401, 403, 404].includes(loadError.status)) setBooking(null);
       setResponseStatus(loadError instanceof ApiError ? loadError.status : null);
       setError(getErrorMessage(loadError));
     } finally {
-      if (gate.current(generation)) {
+      if (options.showLoading) {
         setLoading(false);
       }
     }
@@ -260,21 +211,32 @@ function OwnedBookingDetail({renderPresentation,renderUnavailable,renderLoading}
 
   async function submitVendorRating() {
     if (!token || !booking || !ratingStars) return;
-    const actionScope = gate.capture();
     setBusy(true);
     try {
       await apiRequest(`/account/bookings/${booking.id}/rating`, { method: "POST", token, body: { stars: ratingStars, comment: ratingComment } });
-      if (!isCurrent(actionScope)) return;
       setRatingSubmitted(true);
       notifications.show({ color: "teal", title: "Rating submitted", message: "Thank you for rating this vendor." });
-    } catch (ratingError) { if (isCurrent(actionScope)) showCustomerError(getErrorMessage(ratingError), "Could not submit rating"); }
-    finally { if (isCurrent(actionScope)) setBusy(false); }
+    } catch (ratingError) { showCustomerError(getErrorMessage(ratingError), "Could not submit rating"); }
+    finally { setBusy(false); }
   }
 
   useEffect(() => {
-    if (!token || !bookingId) return undefined;
-    void loadBooking({ showLoading: true });
-    return () => { gate.invalidate(); };
+    let active = true;
+
+    if (!token || !bookingId) {
+      return undefined;
+    }
+
+    setLoading(true);
+    loadBooking({ showLoading: false }).finally(() => {
+      if (active) {
+        setLoading(false);
+      }
+    });
+
+    return () => {
+      active = false;
+    };
   }, [bookingId, loadBooking, token]);
 
   useEffect(() => {
@@ -317,24 +279,21 @@ function OwnedBookingDetail({renderPresentation,renderUnavailable,renderLoading}
     }
 
     const controller = new AbortController();
-    const scope = gate.capture();
-    let active = true;
     apiRequest<PublicVendorProfileResponse>(`/public/vendors/${booking.tenantSlug}`, { signal: controller.signal })
       .then((data) => {
-        if (!active || !gate.sameScope(scope)) return;
         setVendorTheme(resolveVendorProfileMedia(data.vendor.publicBoardTheme?.theme, data.vendor.businessProfileTheme?.theme));
         setVendorProfile(data.vendor);
       })
       .catch((themeError) => {
-        if (active && gate.sameScope(scope) && !controller.signal.aborted) {
+        if (!controller.signal.aborted) {
           setVendorTheme(null);
           setVendorProfile(null);
           console.error(themeError);
         }
       });
 
-    return () => { active = false; controller.abort(); };
-  }, [booking?.tenantSlug, gate]);
+    return () => controller.abort();
+  }, [booking?.tenantSlug]);
 
   useEffect(() => {
     const intervalId = window.setInterval(() => setCurrentTime(Date.now()), 1000);
@@ -342,7 +301,6 @@ function OwnedBookingDetail({renderPresentation,renderUnavailable,renderLoading}
   }, []);
 
   if (authLoading || loading) {
-    if (renderLoading) return renderLoading();
     return <Card className="finazze-auth-card">Loading booking...</Card>;
   }
 
@@ -356,7 +314,6 @@ function OwnedBookingDetail({renderPresentation,renderUnavailable,renderLoading}
       return;
     }
 
-    const actionScope = gate.capture();
     setBusy(true);
     setError("");
     try {
@@ -368,10 +325,7 @@ function OwnedBookingDetail({renderPresentation,renderUnavailable,renderLoading}
           body: { reason }
         }
       );
-      if (!isCurrent(actionScope)) return;
-      if (data.booking.id !== booking.id || data.booking.tenantId !== booking.tenantId) throw new Error("Booking response does not match this page.");
-      gate.invalidate();
-      setBooking(current => mergeOwnedBookingSummary(current, data.booking));
+      setBooking(data.booking);
       setReason("");
       setCancelModalOpen(false);
       notifications.show({
@@ -380,10 +334,9 @@ function OwnedBookingDetail({renderPresentation,renderUnavailable,renderLoading}
         message: `${data.booking.reference} was cancelled.`
       });
     } catch (cancelError) {
-      if (!isCurrent(actionScope)) return;
       showCustomerError(getErrorMessage(cancelError), "Could not cancel booking");
     } finally {
-      if (isCurrent(actionScope)) setBusy(false);
+      setBusy(false);
     }
   }
 
@@ -403,12 +356,10 @@ function OwnedBookingDetail({renderPresentation,renderUnavailable,renderLoading}
       return;
     }
 
-    const actionScope = gate.capture();
     setProofBusy(true);
     setError("");
     try {
       const uploadData = await customerAccountApi.uploadBookingPaymentProof(token, booking.id, paymentProofFile);
-      if (!isCurrent(actionScope)) return;
 
       const payload: SubmitBookingPaymentProofRequest = {
         paymentReference: trimmedReference,
@@ -425,10 +376,7 @@ function OwnedBookingDetail({renderPresentation,renderUnavailable,renderLoading}
           body: payload
         }
       );
-      if (!isCurrent(actionScope)) return;
-      if (data.booking.id !== booking.id || data.booking.tenantId !== booking.tenantId) throw new Error("Booking response does not match this page.");
-      gate.invalidate();
-      setBooking(current => mergeOwnedBookingSummary(current, data.booking));
+      setBooking(data.booking);
       setPaymentReference("");
       setPaymentProofFile(null);
       notifications.show({
@@ -437,10 +385,9 @@ function OwnedBookingDetail({renderPresentation,renderUnavailable,renderLoading}
         message: `${data.booking.reference} is waiting for vendor verification.`
       });
     } catch (proofError) {
-      if (!isCurrent(actionScope)) return;
       showCustomerError(getErrorMessage(proofError), "Could not submit payment proof");
     } finally {
-      if (isCurrent(actionScope)) setProofBusy(false);
+      setProofBusy(false);
     }
   }
 
@@ -449,7 +396,6 @@ function OwnedBookingDetail({renderPresentation,renderUnavailable,renderLoading}
       return;
     }
 
-    const actionScope = gate.capture();
     setProofViewBusy(true);
     setError("");
     try {
@@ -457,19 +403,16 @@ function OwnedBookingDetail({renderPresentation,renderUnavailable,renderLoading}
         `/account/bookings/${booking.id}/payment-proof`,
         { token }
       );
-      if (!isCurrent(actionScope)) return;
       setProofAccessUrl(data.access.url);
       setProofModalOpen(true);
     } catch (viewError) {
-      if (!isCurrent(actionScope)) return;
       showCustomerError(getErrorMessage(viewError), "Could not open payment proof");
     } finally {
-      if (isCurrent(actionScope)) setProofViewBusy(false);
+      setProofViewBusy(false);
     }
   }
 
   if (!booking) {
-    if (renderUnavailable) return renderUnavailable({error, status:responseStatus, backTo:"/account/bookings", onRetry:()=>void loadBooking({showLoading:true})});
     return (
       <ResourceErrorState
         backLabel="Back to booking list"
@@ -484,7 +427,8 @@ function OwnedBookingDetail({renderPresentation,renderUnavailable,renderLoading}
 
   const groupFundedCampaign = booking.groupFundedCampaign;
   const isGroupFundedBooking = booking.bookingPaymentSource === "group_funded" || Boolean(booking.groupFundedBookingId || groupFundedCampaign);
-
+  const campaignTitle = groupFundedCampaign?.campaignTitle || "Group-funded campaign";
+  const campaignPath = groupFundedCampaign?.publicToken ? `/group-funded/${groupFundedCampaign.publicToken}` : "";
   const cancellationAllowed = canCancel(booking.status, booking.checkedInAt, booking.linkedTicket);
   const proofSubmissionAllowed = canSubmitPaymentProof(
     booking.status,
@@ -510,7 +454,12 @@ function OwnedBookingDetail({renderPresentation,renderUnavailable,renderLoading}
     : "";
   const fundingAdjustmentCents = Math.max(0, Number(groupFundedCampaign?.roundingAdjustmentCents || 0));
   const fundingTargetAmountCents = Number(groupFundedCampaign?.targetAmountCents || 0) + fundingAdjustmentCents;
-
+  const campaignProgress = fundingTargetAmountCents
+    ? Math.min(100, Math.round(((groupFundedCampaign?.fundedAmountCents || 0) / fundingTargetAmountCents) * 100))
+    : 0;
+  const campaignContributions = (groupFundedCampaign?.contributions || []).filter(
+    (contribution) => contribution.contributionStatus === "verified"
+  );
   const bookingBundleItems = groupFundedCampaign?.bundleItems?.length
     ? groupFundedCampaign.bundleItems
     : booking.bundleItems?.length
@@ -536,38 +485,21 @@ function OwnedBookingDetail({renderPresentation,renderUnavailable,renderLoading}
   const bookingEndTimestamp = Math.max(...bookingServiceItems.map((item) => toTimestamp(item.scheduledEndAt)).filter(Number.isFinite));
   const bookingStart = Number.isFinite(bookingStartTimestamp) ? new Date(bookingStartTimestamp) : booking.scheduledStartAt;
   const bookingEnd = Number.isFinite(bookingEndTimestamp) ? new Date(bookingEndTimestamp) : booking.scheduledEndAt;
-  // Match the server arrival window even if bundle display schedules differ after rescheduling.
-  const arrivalStartTimestamp = toTimestamp(booking.scheduledStartAt);
-  const checkInWindowStartsAt = Number.isFinite(arrivalStartTimestamp) ? arrivalStartTimestamp - (15 * 60 * 1000) : Number.NaN;
-  const checkInWindowEndsAt = Number.isFinite(arrivalStartTimestamp) ? arrivalStartTimestamp + (15 * 60 * 1000) : Number.NaN;
+  const checkInWindowStartsAt = Number.isFinite(bookingStartTimestamp) ? bookingStartTimestamp - (15 * 60 * 1000) : Number.NaN;
+  const checkInWindowEndsAt = Number.isFinite(bookingStartTimestamp) ? bookingStartTimestamp + (15 * 60 * 1000) : Number.NaN;
   const isBeforeCheckInWindow = Number.isFinite(checkInWindowStartsAt) && currentTime < checkInWindowStartsAt;
   const isInsideCheckInWindow = Number.isFinite(checkInWindowStartsAt) && currentTime >= checkInWindowStartsAt && currentTime <= checkInWindowEndsAt;
-  const checkInAvailable = Boolean(booking.linkedTicket);
-  const customerArrivalPaymentBlocked = booking.serviceManualPaymentRequired && booking.paymentStatus !== "paid" && !booking.paymentVerifiedAt;
-  const customerArrivalAvailable = booking.customerSelfCheckInEnabled === true &&
-    ["confirmed", "rescheduled"].includes(booking.status) && !hasExpired && !booking.checkedInAt &&
-    !booking.linkedTicket && isInsideCheckInWindow && !customerArrivalPaymentBlocked;
-  let checkInActionLabel = "Ask the vendor about check-in";
-  if (booking.linkedTicket) {
-    checkInActionLabel = "Open live queue status";
-  } else if (!["confirmed", "rescheduled"].includes(booking.status) || hasExpired) {
-    checkInActionLabel = "Check-in unavailable";
-  } else if (isBeforeCheckInWindow) {
-    checkInActionLabel = `Check-in available in ${formatCheckInCountdown(checkInWindowStartsAt - currentTime)}`;
-  } else if (isInsideCheckInWindow) {
-    checkInActionLabel = customerArrivalAvailable
-      ? "I’ve arrived"
-      : booking.customerSelfCheckInEnabled && customerArrivalPaymentBlocked
-        ? "Waiting for payment verification"
-        : "Waiting for vendor check-in";
-  } else if (Number.isFinite(checkInWindowEndsAt) && currentTime > checkInWindowEndsAt) {
-    checkInActionLabel = "Ask the vendor to reschedule";
-  }
+  const checkInAvailable = Boolean(booking.linkedTicket) && isInsideCheckInWindow;
+  const checkInActionLabel = isBeforeCheckInWindow
+    ? `Check-in available in ${formatCheckInCountdown(checkInWindowStartsAt - currentTime)}`
+    : isInsideCheckInWindow
+      ? "Check-in"
+      : "Check-in unavailable";
   const totalBookingHoursLabel = formatDurationLabel(bookingStart, bookingEnd);
   const bookingTotalFeeCents = groupFundedCampaign
     ? fundingTargetAmountCents
     : bookingServiceItems.reduce((total, item) => total + Number(item.priceAmountCents || 0), 0);
-  const bookingTotalFeeDisplay = booking.resourceSelection?"Amount confirmed by vendor":formatPaymentAmount(
+  const bookingTotalFeeDisplay = formatPaymentAmount(
     bookingTotalFeeCents,
     groupFundedCampaign?.currency || booking.serviceCurrency
   );
@@ -578,22 +510,12 @@ function OwnedBookingDetail({renderPresentation,renderUnavailable,renderLoading}
       {checkInActionLabel}
     </Button>
   ) : (
-    <Button
-      className={customerArrivalAvailable ? "vendor-theme-button booking-detail-primary-action" : "booking-detail-primary-action"}
-      disabled={!customerArrivalAvailable || busy || proofBusy}
-      loading={arrivalBusy}
-      leftSection={<IconTicket size={18} />}
-      size="lg"
-      variant="filled"
-      onClick={() => void markArrival()}
-    >
+    <Button className="booking-detail-primary-action" disabled leftSection={<IconTicket size={18} />} size="lg" variant="filled">
       {checkInActionLabel}
     </Button>
   );
   const themeStyle = buildVendorThemeStyle(vendorTheme);
   const themedMediaStyle = buildVendorThemeMediaStyle(vendorTheme);
-
-  if(renderPresentation)return renderPresentation({booking,vendorProfile,vendorTheme,error,busy,proofBusy,arrivalBusy,proofViewBusy,cancellationAllowed,proofSubmissionAllowed,isGroupFundedBooking,linkedQueuePath,checkInActionLabel,customerArrivalAvailable,totalBookingHoursLabel,bookingTotalFeeDisplay,services:bookingServiceItemsWithImages,reason,setReason,cancelModalOpen,setCancelModalOpen,handleCancel,paymentReference,setPaymentReference,paymentProofFile,setPaymentProofFile,handleSubmitPaymentProof,proofModalOpen,setProofModalOpen,proofAccessUrl,handleViewPaymentProof,markArrival,refresh:()=>void loadBooking(),ratingStars,setRatingStars,ratingComment,setRatingComment,ratingSubmitted,submitVendorRating});
 
   return (
     <Stack className="vendor-profile-page" gap="xl" style={themeStyle}>
@@ -607,6 +529,22 @@ function OwnedBookingDetail({renderPresentation,renderUnavailable,renderLoading}
               {booking.expirationReason || "This pending booking expired before vendor confirmation or payment evidence submission."}
             </Alert>
           ) : null}
+
+        {booking.organizerCampaignOptIn && booking.status === "confirmed" && booking.paymentStatus === "paid" ? (
+          <Paper aria-labelledby="booking-campaign-notice-title" className="booking-campaign-notice" mb="md" p={{ base: "md", sm: "lg" }} role="status">
+            <div className="booking-campaign-notice__layout">
+              <ThemeIcon className="booking-campaign-notice__icon" radius="xl" size={44}>
+                <IconUsersGroup aria-hidden="true" size={22}/>
+              </ThemeIcon>
+              <Stack gap={4}>
+                <Text className="booking-campaign-notice__eyebrow" size="xs">BOOKING CONFIRMED</Text>
+                <Title className="booking-campaign-notice__title" id="booking-campaign-notice-title" order={2}>{booking.organizerCampaign ? "Your campaign is ready to manage" : "Ready to start your group-funded campaign"}</Title>
+                <Text className="booking-campaign-notice__message" size="sm">{booking.organizerCampaign ? "Review contributions, campaign progress, and organizer actions from your Campaign Control Center." : "Your booking is paid and vendor-confirmed. Create a campaign when you are ready to collect contributions independently."}</Text>
+              </Stack>
+              {booking.organizerCampaign ? <Button className="booking-campaign-notice__action" component={Link} size="md" to={`/account/campaigns/${booking.organizerCampaign.id}/manage`}>Manage campaign</Button> : <Button className="booking-campaign-notice__action" onClick={() => setCampaignCreateModalOpen(true)} size="md">Create campaign</Button>}
+            </div>
+          </Paper>
+        ) : null}
 
         {["completed", "reviewed"].includes(booking.status) && !ratingSubmitted ? (
           <Card mb="md" p="lg">
@@ -638,7 +576,6 @@ function OwnedBookingDetail({renderPresentation,renderUnavailable,renderLoading}
 
               <Paper className="booking-detail-services-card" p="md">
                 <Stack gap="sm">
-                  {booking.resourceSelection?<Stack gap="xs">{booking.resourceSelection.warning?<Alert color="yellow">{booking.resourceSelection.warning}</Alert>:null}{booking.resourceSelection.services.map((service,index)=><div key={index}><Text fw={600}>{service.name}</Text>{service.resources.map((resource,i)=><Text key={i} size="sm">{resource.name} · {resource.quantity} × {resource.durationMinutes} minutes{resource.extras.map(extra=>` · ${extra.name}: ${extra.quantity} × ${extra.durationMinutes} minutes`).join('')}</Text>)}</div>)}</Stack>:null}
                   <Text className="finazze-section-label">{bookingServiceModeLabel}</Text>
                   {bookingServiceItemsWithImages.map((item, index) => (
                     <Paper className="group-funded-bundle-item" key={`${item.serviceName}-${index}`} p="sm">
@@ -660,7 +597,7 @@ function OwnedBookingDetail({renderPresentation,renderUnavailable,renderLoading}
                             <Badge variant="light">x{item.bookingQuantity}</Badge>
                           </Group>
                           <Text c="dimmed" size="sm">
-                            {formatBookingScheduleTimeRange(item.scheduledStartAt, item.scheduledEndAt)} · {booking.resourceSelection?"Amount confirmed by vendor":formatPaymentAmount(item.priceAmountCents, item.currency)}
+                            {formatBookingScheduleTimeRange(item.scheduledStartAt, item.scheduledEndAt)} · {formatPaymentAmount(item.priceAmountCents, item.currency)}
                           </Text>
                         </Stack>
                       </Group>
@@ -671,9 +608,7 @@ function OwnedBookingDetail({renderPresentation,renderUnavailable,renderLoading}
 
               {booking.status === "confirmed" || booking.status === "rescheduled" ? (
                 <Alert className="booking-detail-checkin-notice" color="blue" icon={<IconAlertCircle size={18} />} variant="light">
-                  {booking.customerSelfCheckInEnabled
-                    ? "When you are at the branch, tap I’ve arrived during the check-in window to get your queue ticket. Your booked time is the earliest the vendor can call it."
-                    : "Arrive near your scheduled time and ask staff to check you in. Your booked time is the earliest the vendor can call your queue ticket."}
+                  Arrive near your scheduled time. A queue ticket appears here only after vendor check-in.
                 </Alert>
               ) : null}
 
@@ -716,7 +651,17 @@ function OwnedBookingDetail({renderPresentation,renderUnavailable,renderLoading}
                     <Badge color={getBookingBadgeColor(hasExpired ? "canceled" : booking.status)} size="lg" variant="light">
                       {bookingTicketStatus.toUpperCase()}
                     </Badge>
-
+                    {campaignPath ? (
+                      <Badge
+                        className="booking-detail-campaign-chip"
+                        color="gray"
+                        size="lg"
+                        title={`CAMPAIGN: ${campaignTitle}`}
+                        variant="light"
+                      >
+                        CAMPAIGN: {campaignTitle}
+                      </Badge>
+                    ) : null}
                   </Group>
                 </Stack>
                 <SimpleGrid cols={{ base: 1, sm: 3 }} mt="lg" spacing="sm">
@@ -738,7 +683,18 @@ function OwnedBookingDetail({renderPresentation,renderUnavailable,renderLoading}
                 </SimpleGrid>
                 <Stack className="booking-detail-visual-action" gap="sm">
                   {primaryCheckInAction}
-
+                  {campaignPath ? (
+                    <Button
+                      className="vendor-theme-button booking-detail-campaign-action"
+                      component={Link}
+                      leftSection={<IconExternalLink size={18} />}
+                      size="lg"
+                      to={campaignPath}
+                      variant="filled"
+                    >
+                      View campaign
+                    </Button>
+                  ) : null}
                   <Button
                     className="booking-detail-cancel-action"
                     color="red"
@@ -758,6 +714,108 @@ function OwnedBookingDetail({renderPresentation,renderUnavailable,renderLoading}
 
         <Card className="finazze-auth-card customer-account-card booking-detail-section-card" mt="xl" p="xl">
           <Stack gap="md">
+
+          {groupFundedCampaign ? (
+            <Paper className="customer-booking-campaign-card" withBorder radius="lg" p="lg">
+              <Stack gap="md">
+                <Group justify="space-between" align="flex-start">
+                  <Stack gap={4}>
+                    <Text className="finazze-section-label">Group-funded campaign</Text>
+                    <Title order={3}>{groupFundedCampaign.campaignTitle || booking.serviceName}</Title>
+                    <Text c="dimmed" size="sm">
+                      Organized by {groupFundedCampaign.organizerDisplayName || "the campaign organizer"}
+                    </Text>
+                  </Stack>
+                  <Button
+                    component={Link}
+                    rightSection={<IconExternalLink size={16} />}
+                    to={`/group-funded/${groupFundedCampaign.publicToken}`}
+                    variant="light"
+                  >
+                    View campaign
+                  </Button>
+                </Group>
+
+                {groupFundedCampaign.description ? (
+                  <Spoiler hideLabel="Show less" maxHeight={72} showLabel="Show more">
+                    <RichCampaignDescription
+                      className="rich-campaign-description"
+                      content={groupFundedCampaign.description}
+                    />
+                  </Spoiler>
+                ) : null}
+
+                <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="md">
+                  <Paper className="customer-booking-campaign-stat" radius="md" p="md">
+                    <Text c="dimmed" size="sm">Campaign status</Text>
+                    <Badge color="blue" mt={6} variant="light">
+                      {formatCampaignStatusLabel(groupFundedCampaign.campaignStatus)}
+                    </Badge>
+                    <Text c="dimmed" mt="xs" size="sm">
+                      Confirmed {groupFundedCampaign.confirmedAt ? formatDateTime(groupFundedCampaign.confirmedAt) : "by vendor"}
+                    </Text>
+                  </Paper>
+                  <Paper className="customer-booking-campaign-stat" radius="md" p="md">
+                    <Text c="dimmed" size="sm">Funding</Text>
+                    <Text fw={800}>
+                      {formatPaymentAmount(groupFundedCampaign.fundedAmountCents, groupFundedCampaign.currency)} /{" "}
+                      {formatPaymentAmount(fundingTargetAmountCents, groupFundedCampaign.currency)}
+                    </Text>
+                    <Text c="dimmed" size="sm">{campaignProgress}% funded</Text>
+                  </Paper>
+                  <Paper className="customer-booking-campaign-stat" radius="md" p="md">
+                    <Text c="dimmed" size="sm">Contributors</Text>
+                    <Text fw={800}>
+                      {groupFundedCampaign.paidParticipantCount} of {groupFundedCampaign.requiredContributors}
+                    </Text>
+                    <Text c="dimmed" size="sm">
+                      {formatPaymentAmount(groupFundedCampaign.requiredContributionAmountCents, groupFundedCampaign.currency)} each
+                    </Text>
+                  </Paper>
+                </SimpleGrid>
+                {campaignContributions.length ? (
+                  <Accordion className="customer-booking-contributors" variant="contained">
+                    <Accordion.Item value="contributors">
+                      <Accordion.Control>
+                        <Group justify="space-between" pr="sm">
+                          <Text fw={800}>Contributors</Text>
+                          <Badge color="teal" variant="light">
+                            {campaignContributions.length} verified
+                          </Badge>
+                        </Group>
+                      </Accordion.Control>
+                      <Accordion.Panel>
+                        <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="sm">
+                          {campaignContributions.map((contribution) => (
+                            <Paper className="customer-booking-campaign-stat" key={contribution.id} radius="md" p="md">
+                              <Stack gap={4}>
+                                <Group justify="space-between" gap="sm" wrap="nowrap">
+                                  <Text fw={800}>{contribution.contributorDisplayName || "Contributor"}</Text>
+                                  <Badge color={getContributionBadgeColor(contribution.contributionStatus)} variant="light">
+                                    {contribution.contributionStatus.replace(/_/g, " ")}
+                                  </Badge>
+                                </Group>
+                                <Text c="dimmed" size="sm">
+                                  {formatPaymentAmount(contribution.amountCents, contribution.currency)}
+                                </Text>
+                                <Text c="dimmed" size="xs">
+                                  {contribution.verifiedAt
+                                    ? `Verified ${formatDateTime(contribution.verifiedAt)}`
+                                    : contribution.submittedAt
+                                      ? `Submitted ${formatDateTime(contribution.submittedAt)}`
+                                      : "Contribution recorded"}
+                                </Text>
+                              </Stack>
+                            </Paper>
+                          ))}
+                        </SimpleGrid>
+                      </Accordion.Panel>
+                    </Accordion.Item>
+                  </Accordion>
+                ) : null}
+              </Stack>
+            </Paper>
+          ) : null}
 
           {!isGroupFundedBooking ? <div className="customer-booking-payment-section">
             <Stack gap="md">
@@ -867,7 +925,7 @@ function OwnedBookingDetail({renderPresentation,renderUnavailable,renderLoading}
                         <Text c="dimmed" size="sm">{manualPaymentDestination.accountIdentifierDisplay}</Text>
                       ) : null}
                       <Text fw={700} mt="xs">
-                        {manualPaymentDestination.amountCents === null ? 'Amount confirmed by the vendor. Please confirm the amount before paying.' : `Total payable: ${formatPaymentAmount(manualPaymentDestination.amountCents, manualPaymentDestination.currency)}`}
+                        Total payable: {formatPaymentAmount(manualPaymentDestination.amountCents, manualPaymentDestination.currency)}
                       </Text>
                       <Text c="dimmed" size="sm">
                         {manualPaymentDestination.unitPriceDisplay} x {booking.bookingQuantity}
@@ -914,6 +972,32 @@ function OwnedBookingDetail({renderPresentation,renderUnavailable,renderLoading}
         </Stack>
         </Card>
       ) : null}
+
+      <Modal
+        centered
+        className="customer-modal campaign-create-modal"
+        onClose={() => setCampaignCreateModalOpen(false)}
+        opened={campaignCreateModalOpen}
+        size="lg"
+        title={
+          <Stack className="getprio-modal-title" gap={2}>
+            <Text className="getprio-modal-eyebrow">GROUP FUNDING</Text>
+            <Text className="getprio-modal-heading">Create campaign</Text>
+          </Stack>
+        }
+        transitionProps={{ transition: "slide-up", duration: 240, timingFunction: "ease-out" }}
+      >
+        <CampaignCreateForm
+          booking={booking}
+          modal
+          onCancel={() => setCampaignCreateModalOpen(false)}
+          onCreated={(campaign) => {
+            setCampaignCreateModalOpen(false);
+            navigate(`/account/campaigns/${campaign.id}/manage`);
+          }}
+          token={token}
+        />
+      </Modal>
 
       <Modal
         centered

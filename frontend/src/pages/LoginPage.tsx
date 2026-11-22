@@ -1,17 +1,9 @@
-import type { ReactNode } from "react";
-import type { UseFormReturn } from "react-hook-form";
-/* Control characters are intentionally rejected in return paths. */
-/* eslint-disable no-control-regex */
-import { AuthAppLinks } from "../surfaces/AuthAppLinks";
-import { currentSurface, safeSurfaceNext } from "../surfaces/surfaceConfig";
-import { isVendorLoginContext, vendorPasswordResetRequest } from "../vendor/authContext";
 import { useEffect, useState, type FormEvent } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
-import { LoginPresentation, Alert, Anchor, Button, Paper, PasswordInput, Stack, Text, TextInput, Title } from "../vendor/LoginPresentation";
+import { Alert, Anchor, Button, Paper, PasswordInput, Stack, Text, TextInput, Title } from "@mantine/core";
 import { Navigate, Link, useNavigate, useSearchParams } from "react-router-dom";
-import { OtpInputField } from "../components/OtpInputField";
 import SocialAuthButtons from "../components/SocialAuthButtons";
 import { useAuth } from "../context/AuthContext";
 import { getErrorMessage } from "../utils/errors";
@@ -22,45 +14,6 @@ function getSafeRedirectPath(value: string | null): string | null {
   }
 
   return value;
-}
-
-export function resolveVendorNextPath(value: string | null): string {
-  const candidate = getSafeRedirectPath(value);
-  if (!candidate || /[\\\u0000-\u001f\u007f]/.test(candidate)) return "/dashboard";
-
-  try {
-    const url = new URL(candidate, "https://vendor-return.invalid");
-    if (url.origin !== "https://vendor-return.invalid" || !isVendorLoginContext(url.pathname)) {
-      return "/dashboard";
-    }
-
-    let decodedPath = url.pathname;
-    for (let pass = 0; pass < 3; pass += 1) {
-      const next = decodeURIComponent(decodedPath);
-      if (next === decodedPath) break;
-      decodedPath = next;
-    }
-    if (
-      /[\\\u0000-\u001f\u007f]/.test(decodedPath) ||
-      decodedPath.includes("//") ||
-      /(?:^|\/)\.\.?(?:\/|$)/.test(decodedPath) ||
-      !isVendorLoginContext(decodedPath)
-    ) {
-      return "/dashboard";
-    }
-    return `${url.pathname}${url.search}${url.hash}`;
-  } catch {
-    return "/dashboard";
-  }
-}
-
-export function getAuthRegistrationLinks(vendorLogin: boolean): Array<{ label: string; to: string }> {
-  return vendorLogin
-    ? [{ label: "Create a vendor workspace", to: "/register/vendor" }]
-    : [
-        { label: "Create a vendor workspace", to: "/register/vendor" },
-        { label: "register as a customer", to: "/register/customer" },
-      ];
 }
 
 const signInSchema = z.object({
@@ -81,42 +34,19 @@ type SignInValues = z.infer<typeof signInSchema>;
 type ResetRequestValues = z.infer<typeof resetRequestSchema>;
 type ResetConfirmValues = z.infer<typeof resetConfirmSchema>;
 
-export interface CustomerLoginPresentationModel {
-  resetToken: string; showResetRequest: boolean; vendorResetRequest: boolean; vendorLogin: boolean; nextPath: string | null;
-  error: string; resetRequestMessage: string; resetConfirmMessage: string; passwordChanged: boolean; passwordResetSuccess: boolean;
-  mfaChallengeToken: string; mfaLoginChallengeToken: string; mfaMethods: Array<"totp" | "recovery" | "email">;
-  emailMfaActive: boolean; emailMfaDeliveryTarget: string; emailMfaSent: boolean; emailMfaSending: boolean; mfaSubmitting: boolean;
-  mfaCode: string; mfaRecoveryCode: string;
-  signInForm: UseFormReturn<SignInValues>; resetRequestForm: UseFormReturn<ResetRequestValues>; resetConfirmForm: UseFormReturn<ResetConfirmValues>;
-  handleSignIn: (e?: FormEvent<HTMLFormElement>) => Promise<void>; handlePasswordResetRequest: (e?: FormEvent<HTMLFormElement>) => Promise<void>; handlePasswordResetConfirm: (e?: FormEvent<HTMLFormElement>) => Promise<void>;
-  handleMfaVerification: (e?: FormEvent<HTMLFormElement>) => Promise<void>; sendEmailOtp: (token?: string) => Promise<void>; returnToSignIn: () => void;
-  setMfaCode: (v: string) => void; setMfaRecoveryCode: (v: string) => void; setError: (v: string) => void; setResetConfirmMessage: (v: string) => void; setResetRequestMessage: (v: string) => void;
-  setShowResetRequest: (v: boolean | ((v:boolean)=>boolean)) => void; setEmailMfaActive: (v:boolean)=>void; setMfaChallengeToken:(v:string)=>void;
-  setSearchParams: ReturnType<typeof useSearchParams>[1];
-}
-export default function LoginPage({ renderPresentation, renderLoading }: { renderPresentation?: (model: CustomerLoginPresentationModel) => ReactNode; renderLoading?: () => ReactNode } = {}) {
+export default function LoginPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { login, loading, oauthLoading, requestPasswordReset, confirmPasswordReset, verifyMfaChallenge, sendEmailMfaCode, user } = useAuth();
+  const { login, loading, requestPasswordReset, confirmPasswordReset, verifyMfaChallenge, user } = useAuth();
   const resetToken = searchParams.get("resetToken") || "";
   const passwordChanged = searchParams.get("passwordChanged") === "1";
   const passwordResetSuccess = searchParams.get("reset") === "success";
-  const isVendorSurface = import.meta.env.VITE_APP_SURFACE === "vendor";
-  const requestedNextPath = getSafeRedirectPath(searchParams.get("next"));
-  const nextPath = isVendorSurface ? resolveVendorNextPath(requestedNextPath) : currentSurface === "customer" ? safeSurfaceNext(requestedNextPath, "customer") : requestedNextPath;
-  const vendorLogin = isVendorSurface || (currentSurface !== "customer" && isVendorLoginContext(nextPath));
-  const mfaEnrollmentPath = nextPath ? `/dashboard/account?next=${encodeURIComponent(nextPath)}` : "/dashboard/account";
+  const nextPath = getSafeRedirectPath(searchParams.get("next"));
   const [showResetRequest, setShowResetRequest] = useState(false);
   const [error, setError] = useState("");
   const [resetRequestMessage, setResetRequestMessage] = useState("");
   const [resetConfirmMessage, setResetConfirmMessage] = useState("");
   const [mfaChallengeToken, setMfaChallengeToken] = useState("");
-  const [mfaLoginChallengeToken, setMfaLoginChallengeToken] = useState("");
-  const [mfaMethods, setMfaMethods] = useState<Array<"totp" | "recovery" | "email">>([]);
-  const [emailMfaActive, setEmailMfaActive] = useState(false);
-  const [emailMfaDeliveryTarget, setEmailMfaDeliveryTarget] = useState("");
-  const [emailMfaSent, setEmailMfaSent] = useState(false);
-  const [emailMfaSending, setEmailMfaSending] = useState(false);
   const [mfaCode, setMfaCode] = useState("");
   const [mfaRecoveryCode, setMfaRecoveryCode] = useState("");
   const [mfaSubmitting, setMfaSubmitting] = useState(false);
@@ -135,58 +65,21 @@ export default function LoginPage({ renderPresentation, renderLoading }: { rende
   });
 
   useEffect(() => {
-    if (user && currentSurface === "customer") {
-      navigate(nextPath || "/account/dashboard", { replace: true });
-    } else if (user?.tenants?.length) {
-      navigate(user.mfaRequired && !user.mfaEnabled ? mfaEnrollmentPath : nextPath || "/dashboard", { replace: true });
+    if (user?.tenants?.length) {
+      navigate(user.mfaRequired && !user.mfaEnabled ? "/dashboard/account" : nextPath || "/dashboard", { replace: true });
     }
-  }, [navigate, nextPath, mfaEnrollmentPath, user]);
+  }, [navigate, nextPath, user]);
 
   useEffect(() => {
     resetConfirmForm.setValue("token", resetToken);
   }, [resetToken, resetConfirmForm]);
 
-  async function sendEmailOtp(challengeToken = mfaLoginChallengeToken) {
-    if (!challengeToken || emailMfaSending) return;
-    setError("");
-    setEmailMfaActive(true);
-    setEmailMfaSending(true);
-    try {
-      const result = await sendEmailMfaCode({ challengeToken });
-      setMfaChallengeToken(result.token);
-      setEmailMfaDeliveryTarget(result.deliveryTarget);
-      setEmailMfaSent(true);
-      setMfaCode("");
-      setMfaRecoveryCode("");
-    } catch (sendError) {
-      setEmailMfaSent(false);
-      setError(getErrorMessage(sendError));
-    } finally {
-      setEmailMfaSending(false);
-    }
-  }
-
-  function returnToSignIn() {
-    setMfaChallengeToken("");
-    setMfaLoginChallengeToken("");
-    setMfaMethods([]);
-    setEmailMfaActive(false);
-    setEmailMfaDeliveryTarget("");
-    setEmailMfaSent(false);
-    setMfaCode("");
-    setMfaRecoveryCode("");
-    setError("");
-  }
-
-  const vendorResetRequest = vendorLogin && showResetRequest && !mfaChallengeToken;
-
   if (loading) {
-    if (renderLoading) return renderLoading();
-    return <LoginPresentation vendor={vendorLogin} busy={false}><Paper className="finazze-auth-card" p="xl">Loading session...</Paper><AuthAppLinks surface={vendorLogin ? "vendor" : "customer"} /></LoginPresentation>;
+    return <Paper className="finazze-auth-card" p="xl">Loading session...</Paper>;
   }
 
   if (user && !user.tenants?.length) {
-    return <Navigate to={vendorLogin ? "/register/vendor" : nextPath || "/"} replace />;
+    return <Navigate to={nextPath || "/"} replace />;
   }
 
   const handleSignIn = signInForm.handleSubmit(async (values) => {
@@ -195,19 +88,11 @@ export default function LoginPage({ renderPresentation, renderLoading }: { rende
       const result = await login(values);
       if ("mfaRequired" in result) {
         setMfaChallengeToken(result.challengeToken);
-        setMfaLoginChallengeToken(result.challengeToken);
-        setMfaMethods(result.methods);
-        setEmailMfaActive(false);
-        setEmailMfaDeliveryTarget("");
-        setEmailMfaSent(false);
-        if (result.methods.includes("email") && !result.methods.includes("totp")) {
-          void sendEmailOtp(result.challengeToken);
-        }
         return;
       }
       navigate(
-        currentSurface !== "customer" && result.user.mfaRequired && !result.user.mfaEnabled
-          ? mfaEnrollmentPath
+        result.user.mfaRequired && !result.user.mfaEnabled
+          ? "/dashboard/account"
           : nextPath || (result.user.tenants.length ? "/dashboard" : "/"),
         { replace: true }
       );
@@ -216,20 +101,18 @@ export default function LoginPage({ renderPresentation, renderLoading }: { rende
     }
   });
 
-  async function handleMfaVerification(event?: FormEvent<HTMLFormElement>) {
-    event?.preventDefault();
-    if (mfaSubmitting) return;
+  async function handleMfaVerification(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
     setError("");
     setMfaSubmitting(true);
     try {
       const result = await verifyMfaChallenge({
         challengeToken: mfaChallengeToken,
-        ...(mfaRecoveryCode.trim() && !emailMfaActive ? { recoveryCode: mfaRecoveryCode } : { code: mfaCode }),
-        ...(emailMfaActive ? { method: "email" as const } : {})
+        ...(mfaRecoveryCode.trim() ? { recoveryCode: mfaRecoveryCode } : { code: mfaCode })
       });
       navigate(
-        currentSurface !== "customer" && result.user.mfaRequired && !result.user.mfaEnabled
-          ? mfaEnrollmentPath
+        result.user.mfaRequired && !result.user.mfaEnabled
+          ? "/dashboard/account"
           : nextPath || (result.user.tenants.length ? "/dashboard" : "/"),
         { replace: true }
       );
@@ -244,7 +127,7 @@ export default function LoginPage({ renderPresentation, renderLoading }: { rende
     setError("");
     setResetRequestMessage("");
     try {
-      const result = await requestPasswordReset({ ...vendorPasswordResetRequest(values.email, nextPath), ...(currentSurface ? { surface: currentSurface } : {}) });
+      const result = await requestPasswordReset(values);
       setResetRequestMessage(result.message);
     } catch (submitError) {
       setError(getErrorMessage(submitError));
@@ -258,26 +141,23 @@ export default function LoginPage({ renderPresentation, renderLoading }: { rende
       const result = await confirmPasswordReset(values);
       setResetConfirmMessage(result.message);
       signInForm.setValue("password", "");
-      setSearchParams(vendorLogin && nextPath ? { reset: "success", next: nextPath } : { reset: "success" });
+      setSearchParams({ reset: "success" });
       resetConfirmForm.reset({ token: "", newPassword: "" });
     } catch (submitError) {
       setError(getErrorMessage(submitError));
     }
   });
 
-  if (renderPresentation) return renderPresentation({ resetToken, showResetRequest, vendorResetRequest, vendorLogin, nextPath, error, resetRequestMessage, resetConfirmMessage, passwordChanged, passwordResetSuccess, mfaChallengeToken, mfaLoginChallengeToken, mfaMethods, emailMfaActive, emailMfaDeliveryTarget, emailMfaSent, emailMfaSending, mfaSubmitting, mfaCode, mfaRecoveryCode, signInForm, resetRequestForm, resetConfirmForm, handleSignIn, handlePasswordResetRequest, handlePasswordResetConfirm, handleMfaVerification, sendEmailOtp, returnToSignIn, setMfaCode, setMfaRecoveryCode, setError, setResetConfirmMessage, setResetRequestMessage, setShowResetRequest, setEmailMfaActive, setMfaChallengeToken, setSearchParams });
-
   return (
-    <LoginPresentation vendor={vendorLogin} busy={signInForm.formState.isSubmitting || resetRequestForm.formState.isSubmitting || resetConfirmForm.formState.isSubmitting || mfaSubmitting || emailMfaSending || oauthLoading}>
     <Paper className="finazze-auth-card" p={{ base: "xl", md: 44 }}>
       <Stack gap="lg">
         <div>
-          <Text className="finazze-section-label">{resetToken || vendorResetRequest ? "Reset password" : vendorLogin && mfaChallengeToken ? "Verification" : "Sign in"}</Text>
-          <Title order={1}>{resetToken ? "Set a new password." : vendorResetRequest ? "Get a reset link." : vendorLogin && mfaChallengeToken ? "Verify your sign-in." : vendorLogin ? "Sign in to your workspace" : "Access your workspace."}</Title>
+          <Text className="finazze-section-label">{resetToken ? "Reset password" : "Sign in"}</Text>
+          <Title order={1}>{resetToken ? "Set a new password." : "Access your workspace."}</Title>
           <Text c="dimmed" mt="sm">
             {resetToken
               ? "Choose a new password for your account, then sign back in with the updated credentials."
-              : vendorResetRequest ? "Enter your account email to request password reset instructions." : vendorLogin && mfaChallengeToken ? "Choose an available method to confirm your sign-in." : vendorLogin ? "Sign in to manage your business." : "Continue to your vendor dashboard or customer account with your secure Prio session."}
+              : "Continue to your vendor dashboard or customer account with your secure Prio session."}
           </Text>
         </div>
         {resetToken ? (
@@ -285,7 +165,6 @@ export default function LoginPage({ renderPresentation, renderLoading }: { rende
             <Stack gap="md">
               <PasswordInput
                 label="New password"
-                autoComplete="new-password"
                 required
                 error={resetConfirmForm.formState.errors.newPassword?.message}
                 {...resetConfirmForm.register("newPassword")}
@@ -300,8 +179,7 @@ export default function LoginPage({ renderPresentation, renderLoading }: { rende
                 size="sm"
                 type="button"
                 onClick={() => {
-                  setSearchParams(vendorLogin && nextPath ? { next: nextPath } : {});
-                  if (vendorLogin) resetConfirmForm.reset({token:"",newPassword:""});
+                  setSearchParams({});
                   setError("");
                   setResetConfirmMessage("");
                 }}
@@ -315,62 +193,30 @@ export default function LoginPage({ renderPresentation, renderLoading }: { rende
             {mfaChallengeToken ? (
               <form onSubmit={handleMfaVerification}>
                 <Stack gap="md">
-                  <Alert color="blue">
-                    {emailMfaActive
-                      ? `Enter the six-digit code sent to ${emailMfaDeliveryTarget || "your verified email address"}. It expires in 10 minutes.`
-                      : "For your security, confirm the code from your authenticator app. You can use one saved recovery code if your authenticator is unavailable."}
-                  </Alert>
-                  <OtpInputField
-                    vendor={vendorLogin}
-                    key={emailMfaActive ? "email-code" : "authenticator-code"}
+                  <Alert color="blue">For your security, confirm the code from your authenticator app. You can use one saved recovery code if your authenticator is unavailable.</Alert>
+                  <TextInput
+                    autoComplete="one-time-code"
                     autoFocus
-                    label={emailMfaActive ? "Email code" : "Authenticator code"}
+                    inputMode="numeric"
+                    label="Authenticator code"
                     value={mfaCode}
-                    onChange={(value) => { setMfaCode(value); setMfaRecoveryCode(""); }}
-                    onVerify={() => handleMfaVerification()}
-                    verificationKey={`${mfaChallengeToken}:${emailMfaActive}`}
-                    disabled={mfaSubmitting || emailMfaSending}
+                    onChange={(event) => { setMfaCode(event.currentTarget.value); setMfaRecoveryCode(""); }}
                   />
-                  {!emailMfaActive && mfaMethods.includes("recovery") ? (
-                    <TextInput
-                      label="Recovery code (optional)"
-                      value={mfaRecoveryCode}
-                      onChange={(event) => { setMfaRecoveryCode(event.currentTarget.value); setMfaCode(""); }}
-                    />
-                  ) : null}
+                  <TextInput
+                    label="Recovery code (optional)"
+                    value={mfaRecoveryCode}
+                    onChange={(event) => { setMfaRecoveryCode(event.currentTarget.value); setMfaCode(""); }}
+                  />
                   {error ? <Alert color="red">{error}</Alert> : null}
                   <Button className="auth-primary-action" color="dark" loading={mfaSubmitting} size="lg" type="submit">
                     Confirm and sign in
                   </Button>
-                  {mfaMethods.includes("totp") && mfaMethods.includes("email") && !emailMfaActive ? (
-                    <Anchor component="button" disabled={emailMfaSending} type="button" onClick={() => void sendEmailOtp()}>
-                      {emailMfaSending ? "Sending email OTP..." : "Send email OTP instead"}
-                    </Anchor>
-                  ) : null}
-                  {emailMfaActive ? (
-                    <>
-                      <Anchor component="button" disabled={emailMfaSending} type="button" onClick={() => void sendEmailOtp()}>
-                        {emailMfaSending ? "Sending email OTP..." : emailMfaSent ? "Resend email OTP" : "Send email OTP"}
-                      </Anchor>
-                      {mfaMethods.includes("totp") ? (
-                        <Anchor component="button" type="button" onClick={() => {
-                          setEmailMfaActive(false);
-                          setMfaChallengeToken(mfaLoginChallengeToken);
-                          setMfaCode("");
-                          setMfaRecoveryCode("");
-                          setError("");
-                        }}>
-                          Use authenticator app instead
-                        </Anchor>
-                      ) : null}
-                    </>
-                  ) : null}
-                  <Anchor component="button" type="button" onClick={returnToSignIn}>
+                  <Anchor component="button" type="button" onClick={() => { setMfaChallengeToken(""); setError(""); }}>
                     Return to sign in
                   </Anchor>
                 </Stack>
               </form>
-            ) : !vendorResetRequest ? <form onSubmit={handleSignIn}>
+            ) : <form onSubmit={handleSignIn}>
               <Stack gap="md">
                 <TextInput
                   label="Email or username"
@@ -381,7 +227,6 @@ export default function LoginPage({ renderPresentation, renderLoading }: { rende
                 />
                 <PasswordInput
                   label="Password"
-                  autoComplete="current-password"
                   required
                   error={signInForm.formState.errors.password?.message}
                   {...signInForm.register("password")}
@@ -407,11 +252,10 @@ export default function LoginPage({ renderPresentation, renderLoading }: { rende
                   Sign in
                 </Button>
               </Stack>
-            </form> : null}
+            </form>}
             {showResetRequest ? (
               <form onSubmit={handlePasswordResetRequest}>
                 <Stack gap="md">
-                  {vendorResetRequest && error ? <Alert color="red">{error}</Alert> : null}
                   <TextInput
                     label="Reset email"
                     required
@@ -423,24 +267,18 @@ export default function LoginPage({ renderPresentation, renderLoading }: { rende
                   <Button className="auth-primary-action" color="gray" loading={resetRequestForm.formState.isSubmitting} size="lg" type="submit" variant="light">
                     Send reset instructions
                   </Button>
-                  {vendorLogin ? <Anchor component="button" type="button" onClick={()=>{setShowResetRequest(false);setError("");setResetRequestMessage("");}}>Back to sign in</Anchor> : null}
                 </Stack>
               </form>
             ) : null}
-            {!vendorLogin || (!vendorResetRequest && !mfaChallengeToken) ? <SocialAuthButtons vendor={vendorLogin} disabled={vendorLogin && (signInForm.formState.isSubmitting || mfaSubmitting || emailMfaSending)} iconOnly intent="login" returnPath={nextPath || undefined} /> : null}
+            <SocialAuthButtons iconOnly intent="login" />
           </>
         )}
         <Text c="dimmed" size="sm">
-          {vendorLogin ? "Need a workspace? " : "New here? "}
-          {(currentSurface === "customer" ? [{ label: "Create a customer account", to: "/register" }] : getAuthRegistrationLinks(vendorLogin)).map((link, index) => (
-            <span key={link.to}>
-              {index > 0 ? " or " : null}
-              <Anchor component={Link} to={link.to}>{link.label}</Anchor>
-            </span>
-          ))}.
+          New here?{" "}
+          <Anchor component={Link} to="/register/vendor">Create a vendor workspace</Anchor> or{" "}
+          <Anchor component={Link} to="/register/customer">register as a customer</Anchor>.
         </Text>
       </Stack>
     </Paper>
-    <AuthAppLinks surface={vendorLogin ? "vendor" : "customer"} /></LoginPresentation>
   );
 }

@@ -1,50 +1,32 @@
-import type { ReactNode } from "react";
-import { currentSurface, safeSurfaceNext } from "../surfaces/surfaceConfig";
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Button, Loader } from "@mantine/core";
-import { Alert, LoginPresentation, Paper, Stack, Text, Title } from "../vendor/LoginPresentation";
-import { OperationButton } from "../vendor/OperationsUi";
-import { isVendorLoginContext, vendorSignInRetryPath } from "../vendor/authContext";
-import { Link, useLocation, useNavigate } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { Alert, Button, Loader, Paper, Stack, Text, Title } from "@mantine/core";
+import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 
-export interface OAuthCallbackPresentationModel { error: string; busy: boolean; onRetry: () => void; }
-export default function OAuthCallbackPage({ renderPresentation }: { renderPresentation?: (model: OAuthCallbackPresentationModel) => ReactNode } = {}) {
+export default function OAuthCallbackPage() {
   const navigate = useNavigate();
   const { refreshUser } = useAuth();
-  // Auth context recreates refreshUser after session updates; that must not restart a handoff.
-  const refreshUserRef = useRef(refreshUser);
-  useEffect(() => { refreshUserRef.current = refreshUser; }, [refreshUser]);
   const [error, setError] = useState("");
-  const { hash } = useLocation();
-  const callbackParams = useMemo(() => new URLSearchParams(hash.replace(/^#/, "")), [hash]);
-  const next = currentSurface === "vendor" || currentSurface === "customer" ? safeSurfaceNext(callbackParams.get("next"), currentSurface, true) : callbackParams.get("next") || "/";
-  const vendor = isVendorLoginContext(next);
 
   useEffect(() => {
-    let current = true;
-    setError("");
-    const callbackError = callbackParams.get("error");
+    const params = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+    const next = params.get("next") || "/";
+    const callbackError = params.get("error");
 
     if (callbackError) {
       setError(callbackError);
       return;
     }
 
-    refreshUserRef.current()
+    refreshUser()
       .then((nextUser) => {
-        if (!current) return;
         if (!nextUser) throw new Error("Missing secure sign-in session.");
         navigate(next, { replace: true });
       })
-      .catch((cause) => { if (current) setError(cause instanceof Error ? cause.message : "Unable to finish sign-in."); });
-    return () => { current = false; };
-  }, [callbackParams, next, navigate]);
-
-  if (renderPresentation) return renderPresentation({ error, busy: !error, onRetry: () => vendor ? navigate(vendorSignInRetryPath(next)) : navigate("/login") });
+      .catch((cause) => setError(cause instanceof Error ? cause.message : "Unable to finish sign-in."));
+  }, [navigate, refreshUser]);
 
   return (
-    <LoginPresentation vendor={vendor} busy={!error}>
     <Paper className="finazze-auth-card" p={{ base: "xl", md: 44 }}>
       <Stack gap="lg" align={error ? "stretch" : "center"}>
         <Text className="finazze-section-label">Social sign-in</Text>
@@ -56,13 +38,13 @@ export default function OAuthCallbackPage({ renderPresentation }: { renderPresen
               You can head back to the sign-in screen and try a different provider or use your
               password instead.
             </Text>
-            {vendor ? <OperationButton onClick={() => navigate(vendorSignInRetryPath(next))}>Return to sign in</OperationButton> : <Button color="dark" component={Link} to="/login">
+            <Button color="dark" component={Link} to="/login">
               Return to sign in
-            </Button>}
+            </Button>
           </>
         ) : (
           <>
-            {vendor ? <p className="ops-muted" role="status" aria-busy="true">Finishing sign-in…</p> : <Loader color="dark" />}
+            <Loader color="dark" />
             <Text c="dimmed" ta="center">
               We are finishing the secure handoff and loading your Prio session.
             </Text>
@@ -70,6 +52,5 @@ export default function OAuthCallbackPage({ renderPresentation }: { renderPresen
         )}
       </Stack>
     </Paper>
-    </LoginPresentation>
   );
 }
