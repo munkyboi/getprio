@@ -1,3 +1,5 @@
+import { publicAuthPathAllowed } from "../../../shared/publicAuthPolicy";
+
 const API_BASE_URL = import.meta.env?.VITE_API_URL || "http://localhost:5001/api";
 const CSRF_STORAGE_KEY = "prio_csrf";
 
@@ -122,6 +124,17 @@ export async function apiRequest<TResponse, TBody = unknown>(
   }
 
   return data as TResponse;
+}
+
+/** Restrict credentialed public-site requests to the explicit universal-auth allowlist. */
+export async function publicAuthRequest<TResponse, TBody = unknown>(
+  path: string,
+  options: ApiRequestOptions<TBody> = {}
+): Promise<TResponse> {
+  if (!publicAuthPathAllowed(path, options.method) || import.meta.env?.VITE_PUBLIC_UNIVERSAL_AUTH !== "1") {
+    throw new ApiError("This authentication action is unavailable.", 403);
+  }
+  return apiRequest<TResponse, TBody>(path, { ...options, skipAuthRefresh: true });
 }
 
 export async function apiUpload<TResponse>(
