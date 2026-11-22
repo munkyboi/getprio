@@ -54,6 +54,14 @@ export class ApiError extends Error {
   }
 }
 
+export function retryAfterDeadline(value: string | null | undefined, now = Date.now()): number | undefined {
+  if (!value) return undefined;
+  const seconds = Number(value);
+  if (Number.isFinite(seconds) && seconds >= 0) return now + seconds * 1000;
+  const date = Date.parse(value);
+  return Number.isFinite(date) ? date : undefined;
+}
+
 export interface ApiRequestOptions<TBody = unknown> {
   method?: string;
   body?: TBody;
@@ -124,7 +132,10 @@ export async function apiRequest<TResponse, TBody = unknown>(
     if (response.status === 401 && authFailureHandler && skipAuthRefresh) {
       authFailureHandler();
     }
-    throw new ApiError(data.message || "Request failed.", response.status, data);
+    throw new ApiError(data.message || "Request failed.", response.status, {
+      ...data,
+      retryAt: data.retryAt ?? retryAfterDeadline(response.headers.get("Retry-After"))
+    });
   }
 
   return data as TResponse;
