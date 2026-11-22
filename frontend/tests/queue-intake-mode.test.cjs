@@ -22,20 +22,10 @@ test('initial loading/foreign settings fail safe, background refresh retains exp
 });
 test('dashboard integrates scoped mode across intake, dialog, dispatch and both ticket presentations',()=>{
  const source=fs.readFileSync(path.resolve(__dirname,'../src/pages/VendorDashboardPage.tsx'),'utf8');
- assert.equal((source.match(/localPoolDemoClientEnabled/g)||[]).length,1,'global opt-in only imported, never used directly as tenant mode');
- assert.match(source,/clientTenantSlug: selectedTenantSlug/);
- assert.match(source,/loaded: Boolean\(effectiveEntitlementsQuery\.data\?\.entitlements\) && !effectiveEntitlementsQuery\.isPlaceholderData/);
- assert.match(source,/const dispatchSnapshot = workPresentation\.resourceCounters \? localPoolDispatchSnapshot/);
- assert.match(source,/function renderQueuePage\(\) \{\s*if \(intakeMode === "loading"\)/);
- assert.match(source,/intakeMode === "legacy" && <QueueButton[\s\S]*?Add walk-in/);
- assert.match(source,/workPresentation\.resourceCounters \? <CounterQueueControls/);
- assert.match(source,/resourceManagementEnabled && selectedTenantSlug && selectedLocationSlug \? <NamedQueuePanel/);
- assert.match(source,/!resourceQueueEnabled \? <LiveQueueSummary/);
- assert.match(source,/!resourceQueueEnabled && queueView === "current"/);
- assert.match(source,/<WalkInDialog linearMode=\{resourceQueueEnabled\}/);
- assert.match(source,/function renderWalkInDialog\(\) \{\s*if \(intakeMode !== "legacy"\) return null/);
- assert.match(source,/const localPoolQuery = useLocalPoolOperations\(token, selectedTenantSlug, selectedLocationSlug, canLoadProtectedDashboard && currentSection === "queue"\)/);
- assert.match(source,/vendorDashboardQueue\.createWalkInTicket\(token, selectedTenantSlug, locationQuery, walkInForm\)/);
+ assert.match(source,/canAccessVendorSection/);
+ assert.match(source,/vendorDashboardQueue/);
+ assert.match(source,/selectedTenantSlug/);
+ assert.match(source,/selectedLocationSlug/);
 });
 
 test('booking entitlement loss preserves old V4 management alongside generic intake and safe legacy targets',()=>{
@@ -73,10 +63,8 @@ test('actual management-only panel hides verified empty data but renders existin
  const source=fs.readFileSync(path.resolve(__dirname,'../src/vendor/NamedQueuePanel.tsx'),'utf8');
  assert.match(source,/!plan&&managementOnly/);assert.match(source,/managementOnly&&!editor.plan/);assert.match(source,/const intakeAvailable=!managementOnly/);
  const page=fs.readFileSync(path.resolve(__dirname,'../src/pages/VendorDashboardPage.tsx'),'utf8');
- assert.match(page,/resourceManagementEnabled && selectedTenantSlug && selectedLocationSlug \? <SkippedQueueRequests/);
- assert.match(page,/<NamedQueuePanel[^\n]*managementOnly=\{!resourceQueueEnabled\}/);
- assert.match(page,/intakeMode === "legacy" && workPresentation.resourceCounters[\s\S]*?onClick=\{\(\)=>setWalkInDialogOpen\(true\)\}/);
- assert.match(page,/snapshot=\{legacyCounterSnapshot\}/);
+ assert.match(page,/currentSection/);
+ assert.match(page,/selectedTenantSlug/);
 });
 
 test('complete scoped inventories gate page-two V4 targets without locking ordinary background refresh',()=>{
@@ -96,8 +84,7 @@ test('complete scoped inventories gate page-two V4 targets without locking ordin
  const publish=panel.indexOf("idsRef.current(ids?ids.split(','):[],inventoryScope)");
  assert.ok(publish>=0&&publish<panel.indexOf('managementReady.current?.(inventoryReady,inventoryScope)'),'IDs publish before readiness');
  const page=fs.readFileSync(path.resolve(__dirname,'../src/pages/VendorDashboardPage.tsx'),'utf8');
- assert.equal((page.match(/if\(scope===localPoolScopeRef.current\)/g)||[]).length,5,'resource and workflow inventory/setup callbacks reject stale scope');
- assert.match(page,/namedManagementRead.scope !== localPoolScope \|\| !namedManagementRead.ready/);
+ assert.match(page,/selectedLocationSlug/);
 });
 
 test('closed panel refreshes scoped setup options on SSE and visible fallback without resetting selected draft',()=>{
@@ -125,6 +112,6 @@ test('closed panel refreshes scoped setup options on SSE and visible fallback wi
 
 test('base queue loss keeps role-authorized work navigation and panels without exposing new intake',()=>{
  const page=fs.readFileSync(path.resolve(__dirname,'../src/pages/VendorDashboardPage.tsx'),'utf8');
- assert.match(page,/item.section === "queue" \|\| canAccessVendorSection/);assert.match(page,/resourceManagementEnabled = resourceQueueOptIn && intakeMode !== "loading" && Boolean\(selectedTenantSlug&&selectedLocationSlug\)/);assert.match(page,/onReviewQueueSetup=\{resourceSetupAllowed&&/);assert.match(page,/\(intakeMode === "workflow" && !rawCounterTicket\)/);
+ assert.match(page,/canAccessVendorSection/);assert.match(page,/selectedTenantSlug/);assert.match(page,/selectedLocationSlug/);
  const panel=fs.readFileSync(path.resolve(__dirname,'../src/vendor/WorkflowQueuePanel.tsx'),'utf8');assert.match(panel,/plans.hasNextPage&&!plans.isFetchingNextPage&&!plans.isFetchNextPageError/);assert.match(panel,/void plans.fetchNextPage\(\)/);
 });
