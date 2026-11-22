@@ -97,6 +97,7 @@ function getRouteHandlers(router, method, routePath) {
 test("oauth start route redirects to the provider authorization URL", () => {
   let capturedProvider = "";
   let capturedState = "";
+  let capturedOptions;
   let capturedPayload;
   const authRoutes = requireWithMocks("../src/routes/authRoutes.js", {
     "../config/db": {},
@@ -119,9 +120,10 @@ test("oauth start route redirects to the provider authorization URL", () => {
       handleSuccessfulPasswordLogin: async () => ({})
     },
     "../services/oauthService": {
-      buildAuthorizationUrl: (provider, state) => {
+      buildAuthorizationUrl: (provider, state, options) => {
         capturedProvider = provider;
         capturedState = state;
+        capturedOptions = options;
         return `https://oauth.example/${provider}?state=${encodeURIComponent(state)}`;
       },
       buildClientCallbackUrl: () => "",
@@ -155,6 +157,13 @@ test("oauth start route redirects to the provider authorization URL", () => {
   assert.equal(capturedPayload.next, next);
   handler({params: {provider: "facebook"}, query: {intent: "login", next: "https://attacker.example"}}, createMockRes());
   assert.equal(capturedPayload.next, null);
+
+  const appleResponse = createMockRes();
+  handler({params: {provider: "apple"}, query: {intent: "login", surface: "customer", next: "/account/dashboard"}}, appleResponse);
+  assert.equal(capturedProvider, "apple");
+  assert.match(capturedOptions.nonce, /^[A-Za-z0-9_-]{32}$/u);
+  assert.equal(capturedPayload.surface, "customer");
+  assert.equal(capturedPayload.next, "/account/dashboard");
 });
 
 test("oauth callback route completes login and redirects with tokens", async () => {
@@ -213,6 +222,7 @@ test("oauth callback route completes login and redirects with tokens", async () 
     },
     "../services/oauthService": {
       buildAuthorizationUrl: () => "",
+      buildServerCallbackUrl: (provider) => `https://api.example/api/auth/oauth/${provider}/callback`,
       buildClientCallbackUrl: (payload) => {
         receivedCallbackArgs = payload;
         return "https://app.example/oauth/callback";
@@ -258,7 +268,8 @@ test("oauth callback route completes login and redirects with tokens", async () 
   assert.deepEqual(receivedProfile, {
     provider: "google",
     code: "auth-code",
-    requestBody: {}
+    requestBody: {},
+    redirectUri: "https://api.example/api/auth/oauth/google/callback"
   });
   assert.deepEqual(receivedCallbackArgs, { next: "/" });
   assert.equal(res.redirectUrl, "https://app.example/oauth/callback");

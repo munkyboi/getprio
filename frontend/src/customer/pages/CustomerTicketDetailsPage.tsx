@@ -66,7 +66,7 @@ function TicketView({ model: m }: { model: JoinedQueuePresentationModel }) {
         else statusAnchor.current?.focus();
       });
     }
-  }, [qr, qrTicket, t?.id, t?.status, t?.customerConfirmedAt]);
+  }, [qr, qrTicket, t, t?.id, t?.status, t?.customerConfirmedAt]);
   const theme =
     s?.businessProfileTheme?.theme || s?.publicBoardTheme?.theme || null;
   const completed = t?.status === "served" || t?.serviceOutcome === "completed";

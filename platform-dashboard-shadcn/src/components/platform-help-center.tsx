@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import type { ColumnDef } from "@tanstack/react-table"
 import { Archive, ArrowLeft, BookOpenText, CircleHelp, FileText, History, LoaderCircle, Plus, RotateCcw, Save, Send, ShieldCheck } from "lucide-react"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -83,7 +83,7 @@ export function PlatformHelpCenterManager({ page, onNavigate }: ManagerProps) {
   const [revisions, setRevisions] = useState<Revision[]>([])
   const [publishedRevision, setPublishedRevision] = useState<number | null>(null)
   const [draftRevision, setDraftRevision] = useState<number | null>(null)
-  const [editing, setEditing] = useState<Selection | null>(null)
+  const [editingSelection, setEditing] = useState<Selection | null>(null)
   const [pendingArchive, setPendingArchive] = useState<Selection | null>(null)
   const [reason, setReason] = useState("")
   const [busy, setBusy] = useState(false)
@@ -107,10 +107,9 @@ export function PlatformHelpCenterManager({ page, onNavigate }: ManagerProps) {
     }
   }
 
+  // oxlint-disable-next-line react/set-state-in-effect -- hydrate the admin projection once on mount.
   useEffect(() => { void load() }, [])
-  useEffect(() => {
-    if (editing && selectionKind(page) !== editing.kind) setEditing(null)
-  }, [editing, page])
+  const editing = editingSelection && selectionKind(page) === editingSelection.kind ? editingSelection : null
 
   const selectedItem = useMemo(() => content ? getHelpItem(content, editing) : null, [content, editing])
   const activeTopicIds = useMemo(() => new Set(content?.topics.filter((item) => !item.archived).map((item) => item.id) || []), [content])
@@ -251,7 +250,7 @@ export function PlatformHelpCenterManager({ page, onNavigate }: ManagerProps) {
     </Card>
   )
 
-  const guideTopicName = (guide: PlatformHelpCenterArticle) => content?.topics.find((topic) => topic.id === guide.topic)?.title || "Unassigned topic"
+  const guideTopicName = useCallback((guide: PlatformHelpCenterArticle) => content?.topics.find((topic) => topic.id === guide.topic)?.title || "Unassigned topic", [content])
   const topicColumns = useMemo<ColumnDef<PlatformHelpCenterTopic>[]>(() => [
     { accessorKey: "title", header: "Topic", cell: ({ row }) => <div><p className="font-medium">{row.original.title || "Untitled topic"}</p><p className="text-xs text-muted-foreground">{row.original.description || "No description yet"}</p></div> },
     { accessorKey: "id", header: "URL key", cell: ({ row }) => <span className="font-mono text-xs">{row.original.id}</span> },
@@ -263,7 +262,7 @@ export function PlatformHelpCenterManager({ page, onNavigate }: ManagerProps) {
     { id: "topic", accessorFn: guideTopicName, header: "Topic", cell: ({ row }) => guideTopicName(row.original) },
     { id: "review", accessorFn: (row) => itemReviewed(row) ? "Current" : "Needs review", header: "Review", cell: ({ row }) => <Badge variant={itemReviewed(row.original) ? "success" : "warning"}>{itemReviewed(row.original) ? "Current" : "Needs review"}</Badge> },
     { id: "status", accessorFn: (row) => !row.archived && activeTopicIds.has(row.topic) ? "Active" : "Archived", header: "Status", cell: ({ row }) => <Badge variant={!row.original.archived && activeTopicIds.has(row.original.topic) ? "success" : "secondary"}>{!row.original.archived && activeTopicIds.has(row.original.topic) ? "Active" : row.original.archived ? "Archived" : "Hidden with topic"}</Badge> },
-  ], [activeTopicIds, content])
+  ], [activeTopicIds, guideTopicName])
   const faqColumns = useMemo<ColumnDef<PlatformHelpCenterFaq>[]>(() => [
     { accessorKey: "question", header: "Question", cell: ({ row }) => <div><p className="font-medium">{row.original.question || "Untitled FAQ"}</p><p className="max-w-xl truncate text-xs text-muted-foreground">{row.original.answer || "No answer yet"}</p></div> },
     { id: "relatedGuide", accessorFn: (row) => content?.articles.find((article) => article.id === row.relatedArticleId)?.title || "—", header: "Related guide" },

@@ -39,4 +39,5 @@ function Toggle({
   )
 }
 
+// oxlint-disable-next-line react/only-export-components -- shadcn variant helper is intentionally exported with the component.
 export { Toggle, toggleVariants }

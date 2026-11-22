@@ -119,7 +119,11 @@ test("oauth service builds provider-specific authorization URLs", () => {
       appBaseUrl: "https://app.example.com",
       oauthCallbackPath: "/oauth/callback",
       oauthStateTtlMinutes: 10,
-      jwtSecret: "test-secret"
+      jwtSecret: "test-secret",
+      appleClientId: "com.getprio.web",
+      appleTeamId: "apple-team",
+      appleKeyId: "apple-key",
+      applePrivateKey: "-----BEGIN PRIVATE KEY-----\nnot-a-real-key\n-----END PRIVATE KEY-----"
     }
   });
 
@@ -152,6 +156,54 @@ test("oauth service builds provider-specific authorization URLs", () => {
   );
   assert.equal(facebookUrl.searchParams.get("response_type"), "code");
   assert.equal(facebookUrl.searchParams.get("state"), facebookState);
+
+  const appleState = oauthService.createOAuthState({ provider: "apple", intent: "login", surface: "customer" });
+  const appleUrl = new URL(oauthService.buildAuthorizationUrl("apple", appleState, { nonce: "apple-nonce" }));
+  assert.equal(appleUrl.origin, "https://appleid.apple.com");
+  assert.equal(appleUrl.pathname, "/auth/authorize");
+  assert.equal(appleUrl.searchParams.get("client_id"), "com.getprio.web");
+  assert.equal(appleUrl.searchParams.get("redirect_uri"), "https://api.example.com/api/auth/oauth/apple/callback");
+  assert.equal(appleUrl.searchParams.get("response_mode"), "form_post");
+  assert.equal(appleUrl.searchParams.get("nonce"), "apple-nonce");
+});
+
+test("oauth callbacks use the API origin exactly once and normalize provider verification claims", async () => {
+  const oauthService = requireWithMocks("../src/services/oauthService.js", {
+    "../config/env": {
+      googleClientId: "google-client",
+      googleClientSecret: "google-secret",
+      facebookAppId: "facebook-app",
+      facebookAppSecret: "facebook-secret",
+      serverUrl: "https://api.example.com/api",
+      appBaseUrl: "https://app.example.com",
+      oauthCallbackPath: "/oauth/callback",
+      oauthStateTtlMinutes: 10,
+      jwtSecret: "test-secret",
+      appleClientId: "",
+      appleTeamId: "",
+      appleKeyId: "",
+      applePrivateKey: ""
+    }
+  });
+
+  const state = oauthService.createOAuthState({ provider: "google", intent: "login" });
+  const url = new URL(oauthService.buildAuthorizationUrl("google", state));
+  assert.equal(url.searchParams.get("redirect_uri"), "https://api.example.com/api/auth/oauth/google/callback");
+
+  const originalFetch = global.fetch;
+  global.fetch = async (url) => {
+    if (url === "https://oauth2.googleapis.com/token") {
+      return { ok: true, text: async () => JSON.stringify({ access_token: "token" }) };
+    }
+    assert.equal(url, "https://openidconnect.googleapis.com/v1/userinfo");
+    return { ok: true, text: async () => JSON.stringify({ sub: "google-user", email: "user@example.com", email_verified: "false" }) };
+  };
+  try {
+    const profile = await oauthService.exchangeCodeForProfile({ provider: "google", code: "code" });
+    assert.equal(profile.emailVerified, false);
+  } finally {
+    global.fetch = originalFetch;
+  }
 });
 
 test("oauth code exchange preserves the callback URI used by mobile authorization", async () => {
@@ -272,11 +324,13 @@ test("oauth service verifies Apple identity and exchanges the authorization code
     }
   });
   const originalFetch = global.fetch;
-  global.fetch = async (url) => {
+  let nativeTokenRequest;
+  global.fetch = async (url, options) => {
     if (url === "https://appleid.apple.com/auth/keys") {
       return { ok: true, text: async () => JSON.stringify({ keys: [{ ...rsaKey.publicKey.export({ format: "jwk" }), kid: keyId, alg: "RS256", use: "sig" }] }) };
     }
     assert.equal(url, "https://appleid.apple.com/auth/token");
+    nativeTokenRequest = options;
     return { ok: true, text: async () => JSON.stringify({ id_token: identityToken }) };
   };
   try {
@@ -294,6 +348,7 @@ test("oauth service verifies Apple identity and exchanges the authorization code
       emailVerified: true,
       name: "Apple Customer"
     });
+    assert.equal(new URLSearchParams(nativeTokenRequest.body).has("redirect_uri"), false);
   } finally {
     global.fetch = originalFetch;
   }

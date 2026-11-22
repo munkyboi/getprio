@@ -43,7 +43,13 @@ function getProviderLabel(provider) {
 }
 
 function getServerOrigin() {
-  return String(env.serverUrl || "").replace(/\/$/, "");
+  // SERVER_URL is the API origin. Accept a mistakenly suffixed /api value
+  // without producing the invalid /api/api/auth callback used by providers.
+  return String(env.serverUrl || "").replace(/\/$/, "").replace(/\/api$/, "");
+}
+
+function providerEmailVerified(value) {
+  return value === true || value === "true";
 }
 
 function getAppOrigin() {
@@ -121,9 +127,17 @@ function buildAuthorizationUrl(provider, state, options = {}) {
       return url.toString();
     }
     case "apple": {
-      const error = new Error("Apple sign-in is available through the native mobile app.");
-      error.statusCode = 400;
-      throw error;
+      const url = new URL("https://appleid.apple.com/auth/authorize");
+      url.search = new URLSearchParams({
+        client_id: env.appleClientId,
+        redirect_uri: redirectUri,
+        response_type: "code",
+        response_mode: "form_post",
+        scope: "name email",
+        state,
+        ...(options.nonce ? { nonce: options.nonce } : {})
+      }).toString();
+      return url.toString();
     }
     default:
       ensureSupportedProvider(provider);
@@ -209,7 +223,7 @@ async function exchangeGoogleCode(code, redirectUri) {
     provider: "google",
     providerUserId: String(userInfo.sub),
     email: userInfo.email || "",
-    emailVerified: Boolean(userInfo.email_verified),
+    emailVerified: providerEmailVerified(userInfo.email_verified),
     name: userInfo.name || buildFallbackName("google", userInfo.email)
   };
 }
@@ -237,7 +251,9 @@ async function exchangeFacebookCode(code, redirectUri) {
     provider: "facebook",
     providerUserId: String(userInfo.id),
     email: userInfo.email || "",
-    emailVerified: Boolean(userInfo.email),
+    // Facebook does not return an email-verification claim. An email address
+    // alone must not be treated as provider-verified.
+    emailVerified: false,
     name: userInfo.name || buildFallbackName("facebook", userInfo.email)
   };
 }
@@ -309,16 +325,18 @@ function verifyAppleIdentityTokenWithKey(identityToken, nonce, jwk) {
   return payload;
 }
 
-async function exchangeAppleAuthorizationCode(authorizationCode) {
+async function exchangeAppleAuthorizationCode(authorizationCode, redirectUri) {
+  const body = {
+    client_id: env.appleClientId,
+    client_secret: buildAppleClientSecret(),
+    code: authorizationCode,
+    grant_type: "authorization_code"
+  };
+  if (redirectUri) body.redirect_uri = redirectUri;
   return fetchJson("https://appleid.apple.com/auth/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      client_id: env.appleClientId,
-      client_secret: buildAppleClientSecret(),
-      code: authorizationCode,
-      grant_type: "authorization_code"
-    })
+    body: new URLSearchParams(body)
   });
 }
 
@@ -347,7 +365,7 @@ async function exchangeAppleCredential({ identityToken, authorizationCode, nonce
   };
 }
 
-async function exchangeCodeForProfile({ provider, code, redirectUri }) {
+async function exchangeCodeForProfile({ provider, code, redirectUri, nonce }) {
   ensureConfiguredProvider(provider);
 
   if (!code) {
@@ -361,8 +379,18 @@ async function exchangeCodeForProfile({ provider, code, redirectUri }) {
       return exchangeGoogleCode(code, redirectUri);
     case "facebook":
       return exchangeFacebookCode(code, redirectUri);
-    case "apple":
-      throw new Error("Apple sign-in uses the native credential exchange.");
+    case "apple": {
+      const exchanged = await exchangeAppleAuthorizationCode(code, redirectUri);
+      if (!exchanged.id_token) throw Object.assign(new Error("Apple sign-in returned no identity token."), { statusCode: 401 });
+      const identity = await verifyAppleIdentityToken(exchanged.id_token, nonce);
+      return {
+        provider: "apple",
+        providerUserId: String(identity.sub),
+        email: identity.email || "",
+        emailVerified: identity.email_verified === true || identity.email_verified === "true",
+        name: ""
+      };
+    }
     default:
       ensureSupportedProvider(provider);
       return null;
@@ -373,6 +401,7 @@ module.exports = {
   OAUTH_PROVIDERS,
   buildAuthorizationUrl,
   buildClientCallbackUrl,
+  buildServerCallbackUrl,
   buildProviderAvailability,
   createOAuthState,
   exchangeCodeForProfile,

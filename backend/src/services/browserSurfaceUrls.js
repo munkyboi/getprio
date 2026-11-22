@@ -63,10 +63,21 @@ function publicMarketingRequestAllowed(path, method, requestedMethod) {
 function createBrowserCorsMiddleware(env, cors) {
   const allowed = browserAllowedOrigins(env);
   const marketing = env.marketingUrl ? origin(env.marketingUrl) : "";
-  const normal = cors({ origin(value, callback) { const normalized = String(value || "").replace(/\/$/, ""); if (!value || allowed.has(normalized)) callback(null, true); else callback(Object.assign(new Error("Origin not allowed by CORS."), { statusCode: 403 })); }, credentials: true, exposedHeaders: ["Retry-After", "RateLimit-Limit", "RateLimit-Remaining", "RateLimit-Reset"] });
+  const normal = cors({ origin(value, callback) {
+    const normalized = String(value || "").replace(/\/$/, "");
+    if (!value || allowed.has(normalized)) callback(null, true);
+    else callback(Object.assign(new Error("Origin not allowed by CORS."), { statusCode: 403 }));
+  }, credentials: true, exposedHeaders: ["Retry-After", "RateLimit-Limit", "RateLimit-Remaining", "RateLimit-Reset"] });
+  const appleCallbackCors = cors({ origin(value, callback) {
+    callback(null, String(value || "").replace(/\/$/, "") === "https://appleid.apple.com");
+  }, credentials: true, methods: ["POST", "OPTIONS"], allowedHeaders: ["Content-Type"] });
   const marketingOrigins = marketing ? surfaceOriginSet(env, "marketing") : new Set();
   const publicCors = marketing ? cors({ origin(value, callback) { callback(null, marketingOrigins.has(value) ? value : false); }, credentials: false, methods: ["GET", "POST", "OPTIONS"], allowedHeaders: ["Content-Type", "Idempotency-Key"] }) : null;
   return (req, res, next) => {
+    const requestPath = String(req.originalUrl || req.url || "").split("?")[0];
+    if (/\/api\/auth\/oauth\/apple\/callback$/u.test(requestPath) && String(req.headers?.origin || "").replace(/\/$/, "") === "https://appleid.apple.com") {
+      return appleCallbackCors(req, res, next);
+    }
     if (marketing && !allowed.has(marketing) && marketingOrigins.has(String(req.headers?.origin || "").replace(/\/$/, ""))) {
       if (!publicMarketingRequestAllowed(req.originalUrl || req.url, req.method, req.headers?.["access-control-request-method"])) return next(Object.assign(new Error("Marketing origin cannot access private API routes."), { statusCode: 403 }));
       return publicCors(req, res, next);

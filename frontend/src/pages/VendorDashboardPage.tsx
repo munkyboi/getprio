@@ -1027,7 +1027,7 @@ function VendorDashboardContent() {
   const [namedInventory,setNamedInventory]=useState<{scope:string;ids:string[]}>({scope:"",ids:[]});
   const [workflowInventory,setWorkflowInventory]=useState<{scope:string;ids:string[]}>({scope:"",ids:[]});
   const [workflowManagementRead,setWorkflowManagementRead]=useState({scope:"",ready:false});
-  const namedTicketIds=[...new Set([...scopedResourceIds(`${selectedTenantSlug}:${selectedLocationSlug}`,namedInventory),...scopedResourceIds(`${selectedTenantSlug}:${selectedLocationSlug}`,workflowInventory)])];
+  const namedTicketIds=useMemo(()=>[...new Set([...scopedResourceIds(`${selectedTenantSlug}:${selectedLocationSlug}`,namedInventory),...scopedResourceIds(`${selectedTenantSlug}:${selectedLocationSlug}`,workflowInventory)])],[selectedTenantSlug,selectedLocationSlug,namedInventory,workflowInventory]);
   const [namedManagementRead,setNamedManagementRead]=useState({scope:"",ready:false});
   const v2TicketIds=namedTicketIds;
   const [queueAlertIds, setQueueAlertIds] = useState<string[]>([]);
@@ -1261,13 +1261,14 @@ function VendorDashboardContent() {
     enabled:Boolean(token&&selectedTenantSlug&&selectedLocationSlug&&!requiresMfaEnrollment),
   });
   const queueTypeConfiguration = !queueTypeQuery.isPlaceholderData && queueTypeQuery.data && queueTypeQuery.data.scope.tenantSlug === selectedTenantSlug && queueTypeQuery.data.scope.locationSlug === selectedLocationSlug ? queueTypeQuery.data : null;
+  const refetchQueueType = queueTypeQuery.refetch;
   useEffect(()=>{
     if(!token||!selectedTenantSlug||!selectedLocationSlug)return;
-    const refresh=()=>{if(document.visibilityState==='visible')void queueTypeQuery.refetch();};
+    const refresh=()=>{if(document.visibilityState==='visible')void refetchQueueType();};
     const interval=window.setInterval(refresh,15000);
     window.addEventListener('queue-plans-updated',refresh);window.addEventListener('focus',refresh);window.addEventListener('online',refresh);
     return()=>{window.clearInterval(interval);window.removeEventListener('queue-plans-updated',refresh);window.removeEventListener('focus',refresh);window.removeEventListener('online',refresh);};
-  },[token,selectedTenantSlug,selectedLocationSlug,queueTypeQuery.refetch]);
+  },[token,selectedTenantSlug,selectedLocationSlug,refetchQueueType]);
   const [queueTypeBusy,setQueueTypeBusy]=useState(false);
   const [queueSetupRead,setQueueSetupRead] = useState<{scope:string;ready:boolean}>({scope:"",ready:false});
   const intakeMode = queueIntakeMode({
@@ -3171,7 +3172,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       })
     });
     setServiceDialogOpen(true);
-  },[location.search,selectedTenantSlug,navigate,locationServicesQuery.data,locationServicesQuery.isError,servicesQuery.isError,dashboardBootstrapQuery.data,dashboardBootstrapQuery.isError,locations,selectedLocationSlug]);
+  },[location.search,selectedTenantSlug,navigate,locationServicesQuery.data,locationServicesQuery.isError,servicesQuery.isError,dashboardBootstrapQuery.data,dashboardBootstrapQuery.isError,selectedLocationSlug]);
 
   useEffect(()=>{
     if (!routeServiceSlug) { if(serviceEditorScopeRef.current)setServiceDialogOpen(false);serviceEditorScopeRef.current="";return; }

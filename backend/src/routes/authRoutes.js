@@ -17,6 +17,7 @@ const authService = require("../services/authService");
 const {
   buildAuthorizationUrl,
   buildClientCallbackUrl,
+  buildServerCallbackUrl,
   buildProviderAvailability,
   createOAuthState,
   exchangeCodeForProfile,
@@ -518,8 +519,14 @@ router.get("/oauth/:provider/start", (req, res) => {
     ensureSupportedProvider(provider);
     ensureValidIntent(intent);
 
-    const state = createOAuthState({ provider, intent, surface, next: surface ? safeReturnPath(req.query.next, surface) : intent === "login" ? queueBoardReturnPath(req.query.next) : null });
-    res.redirect(buildAuthorizationUrl(provider, state));
+    const nonce = provider === "apple" ? require("node:crypto").randomBytes(24).toString("base64url") : undefined;
+    const next = surface
+      ? safeReturnPath(req.query.next, surface)
+      : intent === "login"
+        ? queueBoardReturnPath(req.query.next)
+        : null;
+    const state = createOAuthState({ provider, intent, surface, ...(nonce ? { nonce } : {}), next });
+    res.redirect(buildAuthorizationUrl(provider, state, nonce ? { nonce } : undefined));
   } catch (error) {
     redirectOauthError(res, error.message || "Unable to start social sign-in.", surface);
   }
@@ -551,7 +558,9 @@ router.all("/oauth/:provider/callback", async (req, res) => {
     const profile = await exchangeCodeForProfile({
       provider,
       code,
-      requestBody: req.body
+      requestBody: req.body,
+      redirectUri: buildServerCallbackUrl(provider),
+      ...(oauthState.nonce ? { nonce: oauthState.nonce } : {})
     });
 
     const { user, created } = await findOrCreateOauthUser(profile);

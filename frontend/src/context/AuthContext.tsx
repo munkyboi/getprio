@@ -109,6 +109,9 @@ export function AuthProvider({ children, publicOnly = false }: { children: React
     try { channel = new BroadcastChannel(AUTH_SYNC_CHANNEL); channelRef.current = channel; channel.onmessage = (event) => syncFromPeer(event.data); } catch { /* unsupported */ }
     window.addEventListener("storage", onStorage);
     return () => { active = false; window.removeEventListener("storage", onStorage); channel?.close(); channelRef.current = null; };
+  // These session helpers intentionally use the current provider state without
+  // recreating the cross-tab listeners on every render.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [publicOnly]);
 
   useEffect(() => {
@@ -126,6 +129,7 @@ export function AuthProvider({ children, publicOnly = false }: { children: React
       .finally(() => {
         setOauthLoading(false);
       });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [publicOnly]);
 
   useEffect(() => {
@@ -152,6 +156,7 @@ export function AuthProvider({ children, publicOnly = false }: { children: React
     };
     loadSession();
     return () => { disposed = true; if (retryTimer !== undefined) window.clearTimeout(retryTimer); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [publicOnly]);
 
   useEffect(() => {
@@ -204,6 +209,7 @@ export function AuthProvider({ children, publicOnly = false }: { children: React
         onAuthFailure: null
       });
     };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refreshToken]);
 
   const value: AuthContextValue = {
