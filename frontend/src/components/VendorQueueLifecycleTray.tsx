@@ -64,7 +64,7 @@ export default function VendorQueueLifecycleTray({
   const queueDay = snapshot?.queueDay;
   const deadline = queueDay?.currentClosesAt ? new Date(queueDay.currentClosesAt).getTime() : null;
   useEffect(() => {
-    const serverNow = queueDay?.serverNow ? new Date(queueDay.serverNow).getTime() : NaN;
+    const serverNow = queueDay?.serverNow ? new Date(queueDay.serverNow).getTime() : Number.NaN;
     setServerOffset(Number.isFinite(serverNow) ? serverNow - Date.now() : 0);
   }, [queueDay?.serverNow]);
   const remaining = deadline == null ? 0 : deadline - (now + serverOffset);
@@ -112,16 +112,16 @@ export default function VendorQueueLifecycleTray({
   if (!showTray) return null;
 
   const deadlineLabel = formatDeadline(queueDay?.currentClosesAt, queueDay?.timezone);
-  const trayTitle = reconciliationError
-    ? "Queue status needs attention"
-    : isReconciling
-      ? "Queue is closing"
-      : `Auto-close in ${formatRemaining(remaining)}`;
-  const trayMessage = reconciliationError
-    ? "Automatic reconciliation could not confirm a trustworthy queue state. Queue actions are locked."
-    : isReconciling
-      ? "Ticket outcomes are being reconciled. This is a short-lived operation, not a draining state."
-      : `${locationName} closes at ${deadlineLabel}. Every unresolved ticket will receive an outcome.`;
+  let trayTitle = `Auto-close in ${formatRemaining(remaining)}`;
+  let trayMessage = `${locationName} closes at ${deadlineLabel}. Every unresolved ticket will receive an outcome.`;
+  if (isReconciling) {
+    trayTitle = "Queue is closing";
+    trayMessage = "Ticket outcomes are being reconciled. This is a short-lived operation, not a draining state.";
+  }
+  if (reconciliationError) {
+    trayTitle = "Queue status needs attention";
+    trayMessage = "Automatic reconciliation could not confirm a trustworthy queue state. Queue actions are locked.";
+  }
 
   async function confirmAction() {
     const succeeded = confirmation === "extend" ? await onExtend() : await onCloseNow();

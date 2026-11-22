@@ -24,9 +24,9 @@ export default function CampaignPreviewPage() {
   const [reportModalOpen, setReportModalOpen] = useState(false);
   const [reportDetails, setReportDetails] = useState("");
   const [serviceImagePreview, setServiceImagePreview] = useState<{ name: string; imageUrl: string } | null>(null);
-  useEffect(() => { apiRequest<{ campaign: PublicOrganizerCampaign }>(`/public/campaigns/${encodeURIComponent(publicToken)}`).then((data) => setCampaign(data.campaign)).catch((next) => setError(getErrorMessage(next))); }, [publicToken]);
+  useEffect(() => { apiRequest<{ campaign: PublicOrganizerCampaign }>(`/public/campaigns/${encodeURIComponent(publicToken)}`).then((data) => setCampaign(data.campaign)).catch((error_) => setError(getErrorMessage(error_))); }, [publicToken]);
   if (loading) return null;
-  async function join() { if (!campaign) return; if (!user || !token) { navigate(`/login?returnTo=${encodeURIComponent(`/campaign/${publicToken}`)}`); return; } setBusy(true); try { await apiRequest(`/account/campaigns/${campaign.id}/join`, { method: "POST", token, body: { website: "" } }); navigate(`/account/campaigns/${campaign.id}/manage`); } catch (next) { setError(getErrorMessage(next)); } finally { setBusy(false); } }
+  async function join() { if (!campaign) return; if (!user || !token) { navigate(`/login?returnTo=${encodeURIComponent(`/campaign/${publicToken}`)}`); return; } setBusy(true); try { await apiRequest(`/account/campaigns/${campaign.id}/join`, { method: "POST", token, body: { website: "" } }); navigate(`/account/campaigns/${campaign.id}/manage`); } catch (error_) { setError(getErrorMessage(error_)); } finally { setBusy(false); } }
   function report() {
     if (!campaign) return;
     if (!user || !token) {
