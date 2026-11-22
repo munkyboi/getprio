@@ -1284,7 +1284,7 @@ export default function VendorProfilePage() {
                                           </Stack>
                                         </Stack>
                                         <Badge className="vendor-group-funded-card-status" color="teal" variant="filled">
-                                          {campaign.campaignStatus.replace(/_/g, " ")}
+                                          {campaign.campaignStatus.replaceAll("_", " ")}
                                         </Badge>
                                       </Group>
                                       <div className="vendor-group-funded-card-funding">

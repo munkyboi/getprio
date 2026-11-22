@@ -7,7 +7,7 @@ type Capacity = { planSlug: string | null; lifecycleState: string; resources: Re
 type Pack = { code: string; name: string; ticketUnits: number; journeyUnits: number; priceDisplay: string };
 const labels: Record<string, string> = { queueTickets: "Queue Tickets", queueEmailJourneys: "Queue Email Journeys", serviceBookings: "Service Bookings" };
 
-export default function VendorCapacityPanel({ tenantSlug, token }: { tenantSlug: string; token: string }) {
+export default function VendorCapacityPanel({ tenantSlug, token }: Readonly<{ tenantSlug: string; token: string }>) {
   const [capacity, setCapacity] = useState<Capacity | null>(null);
   const [commercial, setCommercial] = useState(false);
   const [packs, setPacks] = useState<Pack[]>([]);

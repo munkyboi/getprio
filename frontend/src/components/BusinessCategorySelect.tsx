@@ -4,9 +4,9 @@ import { Button, Select, Stack } from "@mantine/core";
 import { apiRequest } from "../api/client";
 
 type Category = { id: string; name: string };
-export function BusinessCategorySelect({ value, currentLabel, onChange, disabled, error, required = false }: {
+export function BusinessCategorySelect({ value, currentLabel, onChange, disabled, error, required = false }: Readonly<{
   value: string | null; currentLabel?: string; onChange: (id: string, name: string) => void; disabled?: boolean; error?: string; required?: boolean;
-}) {
+}>) {
   const [items, setItems] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");

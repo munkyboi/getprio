@@ -272,7 +272,8 @@ function VendorDashboardRoute() {
 }
 
 function getVendorBookingTabRoute(pathname: string) {
-  const match = pathname.match(/^\/vendors\/([^/]+)(?:\/(group-funded))?$/);
+  const routePattern = /^\/vendors\/([^/]+)(?:\/(group-funded))?$/;
+  const match = routePattern.exec(pathname);
   if (!match) {
     return null;
   }

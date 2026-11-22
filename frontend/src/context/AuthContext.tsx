@@ -28,7 +28,7 @@ const EMPTY_OAUTH_PROVIDERS: OAuthProviderAvailability = {
   apple: false
 };
 
-export function AuthProvider({ children }: { children: ReactNode }) {
+export function AuthProvider({ children }: Readonly<{ children: ReactNode }>) {
   const [token, setToken] = useState("");
   const [refreshToken, setRefreshToken] = useState("");
   const [user, setUser] = useState<UserSummary | null>(null);

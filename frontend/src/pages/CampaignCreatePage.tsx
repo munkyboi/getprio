@@ -10,7 +10,7 @@ import { getErrorMessage } from "../utils/errors";
 export default function CampaignCreatePage() {
   const { bookingId = "" } = useParams(); const navigate = useNavigate(); const { token, user, loading } = useAuth();
   const [booking, setBooking] = useState<CustomerBookingDetailResponse["booking"] | null>(null); const [error, setError] = useState("");
-  useEffect(() => { if (token) apiRequest<CustomerBookingDetailResponse>(`/account/bookings/${bookingId}`, { token }).then((data) => setBooking(data.booking)).catch((next) => setError(getErrorMessage(next))); }, [bookingId, token]);
+  useEffect(() => { if (token) apiRequest<CustomerBookingDetailResponse>(`/account/bookings/${bookingId}`, { token }).then((data) => setBooking(data.booking)).catch((error_) => setError(getErrorMessage(error_))); }, [bookingId, token]);
   if (loading) return null; if (!user || !token) return <Navigate replace to="/login" />;
   return <Card className="finazze-auth-card customer-account-card" p="xl">{error ? <Alert color="red">{error}</Alert> : booking ? <CampaignCreateForm booking={booking} onCreated={(campaign) => navigate(`/account/campaigns/${campaign.id}/manage`)} token={token}/> : null}</Card>;
 }

@@ -361,9 +361,9 @@ export default function CampaignControlCenterPage() {
     finally { setBusy(false); }
   }
 
-  async function unpublish() { if (!campaign) return; setBusy(true); try { await customerAccountApi.unpublishCampaign(token, campaign.id); await load(); } catch (next) { setError(getErrorMessage(next)); } finally { setBusy(false); } }
+  async function unpublish() { if (!campaign) return; setBusy(true); try { await customerAccountApi.unpublishCampaign(token, campaign.id); await load(); } catch (error_) { setError(getErrorMessage(error_)); } finally { setBusy(false); } }
   function cancel() { if (!campaign) return; setError(""); setCancelReason(""); setCancelReasonModalOpen(true); }
-  async function submitCancellation() { const reason = cancelReason.trim(); if (!campaign || !reason) return; setBusy(true); try { await apiRequest(`/account/campaigns/${campaign.id}/cancel`, { method: "PATCH", token, body: { reason } }); setCancelReasonModalOpen(false); setCancelReason(""); await load(); } catch (next) { setError(getErrorMessage(next)); } finally { setBusy(false); } }
+  async function submitCancellation() { const reason = cancelReason.trim(); if (!campaign || !reason) return; setBusy(true); try { await apiRequest(`/account/campaigns/${campaign.id}/cancel`, { method: "PATCH", token, body: { reason } }); setCancelReasonModalOpen(false); setCancelReason(""); await load(); } catch (error_) { setError(getErrorMessage(error_)); } finally { setBusy(false); } }
   async function leaveCampaign() {
     if (!campaign || ownContribution?.status !== "pending_proof") return;
     setBusy(true);

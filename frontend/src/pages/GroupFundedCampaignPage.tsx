@@ -1178,7 +1178,7 @@ export default function GroupFundedCampaignPage() {
               ) : null}
               {campaign.refunds?.length ? (
                 <Alert color="yellow" variant="light">
-                  Refund state: {campaign.refunds.map((refund) => refund.refundStatus.replace(/_/g, " ")).join(", ")}
+                  Refund state: {campaign.refunds.map((refund) => refund.refundStatus.replaceAll("_", " ")).join(", ")}
                 </Alert>
               ) : null}
             </Stack>
