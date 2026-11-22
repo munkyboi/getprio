@@ -809,6 +809,7 @@ export default function GroupFundedCampaignPage() {
     );
   }
 
+  function renderCampaignContent(campaign: NonNullable<GroupFundedCampaignResponse["campaign"]>) {
   const locationState = location.state as { from?: unknown } | null;
   const backLink = getSafeBackPath(locationState?.from) || (user ? "/account/group-funded" : "/vendors");
   const campaignPath = `${location.pathname}${location.search}${location.hash}`;
@@ -895,9 +896,9 @@ export default function GroupFundedCampaignPage() {
     </Card>
   ) : null;
 
-  return (
-    <Stack className="vendor-profile-page" gap="xl" style={themeStyle}>
-      <Container size="xl" w="100%">
+
+    function renderHeroAndMeta() {
+      return <>
         <Button className="ticket-page-back-button" component={Link} leftSection={<IconArrowLeft size={18} />} mb="md" to={backLink} variant="subtle" w="fit-content">
           Back
         </Button>
@@ -1100,7 +1101,11 @@ export default function GroupFundedCampaignPage() {
           </SimpleGrid>
         </Paper>
 
-      <Card className="finazze-auth-card customer-account-card" mt="xl" p="xl">
+</>;
+    }
+
+    function renderSummaryAndPayment() {
+      return <>      <Card className="finazze-auth-card customer-account-card" mt="xl" p="xl">
         <Stack gap="md">
           <div>
             <Text className="finazze-section-label">Campaign summary</Text>
@@ -1194,7 +1199,11 @@ export default function GroupFundedCampaignPage() {
         </Stack>
       </Card>
 
-      {isOrganizer && !hasApprovedBooking && (canEditCampaign || canCancel || isCampaignFullyFunded) ? (
+</>;
+    }
+
+    function renderOrganizerControls() {
+      return <>      {isOrganizer && !hasApprovedBooking && (canEditCampaign || canCancel || isCampaignFullyFunded) ? (
         <Card className="finazze-auth-card customer-account-card" mt="xl" p="xl">
           <Stack gap="md">
             <div>
@@ -1226,7 +1235,11 @@ export default function GroupFundedCampaignPage() {
           </Stack>
         </Card>
       ) : null}
-      </Container>
+</>;
+    }
+
+    function renderCampaignModals() {
+      return <>
 
       <Modal
         centered
@@ -1402,6 +1415,20 @@ export default function GroupFundedCampaignPage() {
       >
         {imagePreview ? <div className="service-image-preview-shell"><img alt={imagePreview.name} src={imagePreview.imageUrl} /></div> : null}
       </Modal>
-    </Stack>
-  );
+</>;
+    }
+
+    return (
+      <Stack className="vendor-profile-page" gap="xl" style={themeStyle}>
+        <Container size="xl" w="100%">
+          {renderHeroAndMeta()}
+          {renderSummaryAndPayment()}
+          {renderOrganizerControls()}
+        </Container>
+        {renderCampaignModals()}
+      </Stack>
+    );
+  }
+
+  return renderCampaignContent(campaign);
 }
