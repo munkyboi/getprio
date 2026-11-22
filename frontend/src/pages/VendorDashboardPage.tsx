@@ -5030,16 +5030,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                             <Checkbox
                               name={`hours.${index}.isClosed`}
                               checked={hour.isClosed}
-                              onChange={(event) =>
-                                setLocationForm((current) => ({
-                                  ...current,
-                                  hours: current.hours.map((item, itemIndex) =>
-                                    itemIndex === index
-                                      ? { ...item, isClosed: event.target.checked }
-                                      : item
-                                  )
-                                }))
-                              }
+                              onChange={(event) => updateLocationHour(index, { isClosed: event.target.checked })}
                             />
                           </Table.Td>
                           <Table.Td>
@@ -5048,16 +5039,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                               disabled={hour.isClosed}
                               type="time"
                               value={hour.opensAt}
-                              onChange={(event) =>
-                                setLocationForm((current) => ({
-                                  ...current,
-                                  hours: current.hours.map((item, itemIndex) =>
-                                    itemIndex === index
-                                      ? { ...item, opensAt: event.target.value }
-                                      : item
-                                  )
-                                }))
-                              }
+                              onChange={(event) => updateLocationHour(index, { opensAt: event.target.value })}
                             />
                           </Table.Td>
                           <Table.Td>
@@ -5066,16 +5048,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                               disabled={hour.isClosed}
                               type="time"
                               value={hour.closesAt}
-                              onChange={(event) =>
-                                setLocationForm((current) => ({
-                                  ...current,
-                                  hours: current.hours.map((item, itemIndex) =>
-                                    itemIndex === index
-                                      ? { ...item, closesAt: event.target.value }
-                                      : item
-                                  )
-                                }))
-                              }
+                              onChange={(event) => updateLocationHour(index, { closesAt: event.target.value })}
                             />
                         </Table.Td>
                         <Table.Td>
