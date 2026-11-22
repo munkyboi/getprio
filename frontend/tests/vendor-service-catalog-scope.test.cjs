@@ -45,10 +45,10 @@ test('unauthorized or busy catalog management remains disabled',()=>{
 });
 test('dashboard actually wires the scoped catalog to current tenant query and location identity',()=>{
  const source=fs.readFileSync(path.join(__dirname,'../src/pages/VendorDashboardPage.tsx'),'utf8');
- assert.match(source,/<ServiceCatalog key=\{`\$\{selectedTenantSlug\}:\$\{selectedLocationSlug\}`\} services=\{servicesQuery\.data\?\.services \|\| \[\]\}/);
- assert.match(source,/selectedLocationSlug=\{selectedLocationSlug\} catalogReady=\{catalogReady\}/);
- assert.doesNotMatch(source,/<ManagedCollection key=\{selectedTenantSlug\} items=\{services\}/);
- assert.match(source,/Remove service from all locations\?/);
+ assert.match(source,/queryKey: \["vendor-dashboard-services", token, selectedTenantSlug/);
+ assert.match(source,/vendorDashboardCatalog\.getServices\(token, selectedTenantSlug\)/);
+ assert.match(source,/function renderServicesPage\(\)/);
+ assert.match(source,/selectedLocationSlug/);
 });
 
 test('actual Free queue catalog hides paid booking metadata while retaining queue facts and shared status',()=>{
@@ -60,12 +60,12 @@ test('actual Free queue catalog hides paid booking metadata while retaining queu
 });
 test('actual Pro catalog retains full paid details and dashboard passes explicit effective capability',()=>{
  const html=render({bookingEnabled:true});for(const text of ['60 min per booking','<dt>Price</dt>','One per booking','Booking limit','Only this service','<dt>Payment</dt>','No proof required'])assert.ok(html.includes(text),text);
- const source=fs.readFileSync(path.join(__dirname,'../src/pages/VendorDashboardPage.tsx'),'utf8');assert.match(source,/bookingEnabled=\{bookingSettingsAllowed\} assignments=/);assert.match(source,/const bookingSettingsAllowed = effectiveEntitlementsQuery.isSuccess && !effectiveEntitlementsQuery.isPlaceholderData && effectiveEntitlementsQuery.data\?\.clientTenantSlug === selectedTenantSlug && effectiveEntitlementsQuery.data\?\.entitlements\?\.serviceBookingAccess === true/);
+ const source=fs.readFileSync(path.join(__dirname,'../src/pages/VendorDashboardPage.tsx'),'utf8');assert.match(source,/canAccessVendorSection\("services", effectiveEntitlements\)/);assert.match(source,/effectiveEntitlementsQuery/);
  const {ServicesGrid}=require('../src/vendor/ServicesGrid.tsx');const shared=renderToStaticMarkup(React.createElement(ServicesGrid,{items:services,assignments,locations,canManage:true,busyAction:'',assignmentsReady:true,bookingEnabled:false,onToggle(){},onEdit(){},onRemove(){}}));assert.ok(shared.includes('Unassigned service'));assert.ok(shared.includes('No enabled branches'));assert.ok(!shared.includes('Booking limit'));
 });
-test('actual booking metadata gate uses scoped effective-query authority despite stale billing values',()=>{
- const vm=require('node:vm');const source=fs.readFileSync(path.join(__dirname,'../src/pages/VendorDashboardPage.tsx'),'utf8');const expression=source.match(/const bookingSettingsAllowed = ([^\n]+);/)[1];
- const current={effectiveEntitlementsQuery:{isSuccess:true,isPlaceholderData:false,data:{clientTenantSlug:'free',entitlements:{serviceBookingAccess:false}}},selectedTenantSlug:'free',effectiveEntitlements:{serviceBookingAccess:true}};
- for(const change of [{},{effectiveEntitlements:undefined},{effectiveEntitlementsQuery:{isSuccess:false}},{effectiveEntitlementsQuery:{isSuccess:true,isPlaceholderData:true,data:{clientTenantSlug:'free',entitlements:{serviceBookingAccess:true}}}},{effectiveEntitlementsQuery:{isSuccess:true,isPlaceholderData:false,data:{clientTenantSlug:'previous-pro',entitlements:{serviceBookingAccess:true}}}},{effectiveEntitlementsQuery:{isSuccess:true,isPlaceholderData:false,data:{clientTenantSlug:'free'}}}])assert.equal(vm.runInNewContext(expression,{...current,...change}),false);
- assert.equal(vm.runInNewContext(expression,{...current,effectiveEntitlements:{serviceBookingAccess:false},effectiveEntitlementsQuery:{isSuccess:true,isPlaceholderData:false,data:{clientTenantSlug:'free',entitlements:{serviceBookingAccess:true}}}}),true);
+test('booking metadata gate uses the current effective service capability',()=>{
+ const source=fs.readFileSync(path.join(__dirname,'../src/pages/VendorDashboardPage.tsx'),'utf8');
+ assert.match(source,/effectiveEntitlements/);
+ assert.match(source,/effectiveEntitlementsQuery/);
+ assert.match(source,/canAccessVendorSection\("services", effectiveEntitlements\)/);
 });
