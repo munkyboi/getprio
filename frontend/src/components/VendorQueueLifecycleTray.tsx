@@ -30,6 +30,95 @@ type Props = {
   onCloseNow: () => Promise<boolean>;
 };
 
+type QueueLifecycleModalProps = {
+  isMobile: boolean;
+  detailsOpen: boolean;
+  setDetailsOpen: (open: boolean) => void;
+  confirmation: "extend" | "close" | null;
+  setConfirmation: (value: "extend" | "close" | null) => void;
+  isBusy: boolean;
+  locationName: string;
+  remaining: number;
+  deadlineLabel: string;
+  isFinalWarning: boolean;
+  firstCarryCount: number;
+  carriedCount: number;
+  calledCount: number;
+  skippedCount: number;
+  canOperate: boolean;
+  onConfirm: () => Promise<void>;
+};
+
+function QueueLifecycleModalTitle({ confirmation, locationName, remaining }: Pick<QueueLifecycleModalProps, "confirmation" | "locationName" | "remaining">) {
+  const title = confirmation === "extend"
+    ? `Extend ${locationName} by 30 minutes?`
+    : confirmation === "close"
+      ? `Close ${locationName} now?`
+      : `${locationName} closes in ${formatRemaining(remaining)}`;
+  return <div className="getprio-modal-title"><Text className="getprio-modal-eyebrow">QUEUE AUTO-CLOSE</Text><Text className="getprio-modal-heading">{title}</Text></div>;
+}
+
+function QueueLifecycleModalContent({
+  confirmation,
+  deadlineLabel,
+  isFinalWarning,
+  firstCarryCount,
+  carriedCount,
+  calledCount,
+  skippedCount
+}: Pick<QueueLifecycleModalProps, "confirmation" | "deadlineLabel" | "isFinalWarning" | "firstCarryCount" | "carriedCount" | "calledCount" | "skippedCount">) {
+  if (confirmation) {
+    return <Alert color={confirmation === "close" ? "red" : "orange"} icon={<IconAlertTriangle size={18}/>} title={confirmation === "extend" ? "One audited extension" : "Ticket outcomes are final"}>
+      {confirmation === "extend"
+        ? `Confirming adds exactly 30 minutes to the current ${deadlineLabel} deadline and records your action. Auto-close is not disabled; another warning begins 15 minutes before the new deadline.`
+        : "Closing immediately reconciles unresolved tickets. Reopening later will not reverse carry-over, expiration, skipped, or unserved outcomes."}
+    </Alert>;
+  }
+  return <Stack gap="md">
+    <Alert color={isFinalWarning ? "red" : "orange"} icon={<IconClock size={18}/>}>The server deadline is <strong>{deadlineLabel}</strong>. Joining remains available while intake is accepting, but service before closing is not guaranteed.</Alert>
+    <div><Text className="getprio-modal-eyebrow">TICKET CONSEQUENCES</Text><Title order={3}>What will happen at close</Title></div>
+    <SimpleGrid cols={{ base: 1, sm: 2 }}>
+      <Paper className="queue-auto-close-modal__outcome" withBorder><Badge color="blue" variant="light">{firstCarryCount}</Badge><Text fw={800}>First-time waiting</Text><Text c="dimmed" size="sm">Saved for one later eligible Queue Day, with no live position until staff opens it.</Text></Paper>
+      <Paper className="queue-auto-close-modal__outcome" withBorder><Badge color="red" variant="light">{carriedCount}</Badge><Text fw={800}>Already carried</Text><Text c="dimmed" size="sm">Expires if still waiting when this Queue Day closes.</Text></Paper>
+      <Paper className="queue-auto-close-modal__outcome" withBorder><Badge color="orange" variant="light">{calledCount}</Badge><Text fw={800}>Currently called</Text><Text c="dimmed" size="sm">Becomes unserved unless completed before close.</Text></Paper>
+      <Paper className="queue-auto-close-modal__outcome" withBorder><Badge color="yellow" variant="light">{skippedCount}</Badge><Text fw={800}>Skipped recovery</Text><Text c="dimmed" size="sm">Recovery ends when this Queue Day closes.</Text></Paper>
+    </SimpleGrid>
+  </Stack>;
+}
+
+function QueueLifecycleModalFooter({ confirmation, isBusy, canOperate, setConfirmation, onConfirm }: Pick<QueueLifecycleModalProps, "confirmation" | "isBusy" | "canOperate" | "setConfirmation" | "onConfirm">) {
+  return <div className="task-modal__footer queue-auto-close-modal__footer">
+    {confirmation ? <Group justify="flex-end" w="100%"><Button disabled={isBusy} onClick={() => setConfirmation(null)} variant="default">Back</Button><Button color={confirmation === "close" ? "red" : "orange"} loading={isBusy} onClick={() => void onConfirm()}>{confirmation === "extend" ? "Confirm 30-minute extension" : "Close queue and reconcile"}</Button></Group>
+      : <Group justify="space-between" w="100%"><Text c="dimmed" size="sm">Adds 30 minutes and records your action.</Text><Group><Button color="red" disabled={!canOperate} onClick={() => setConfirmation("close")} variant="light">Close queue now</Button><Button color="orange" disabled={!canOperate} onClick={() => setConfirmation("extend")}>Cancel auto-close</Button></Group></Group>}
+    {!canOperate ? <Text c="red" size="sm" w="100%">An authorized queue operator for this location must extend or close the Queue Day.</Text> : null}
+  </div>;
+}
+
+function QueueLifecycleModal({
+  isMobile,
+  detailsOpen,
+  setDetailsOpen,
+  confirmation,
+  setConfirmation,
+  isBusy,
+  locationName,
+  remaining,
+  deadlineLabel,
+  isFinalWarning,
+  firstCarryCount,
+  carriedCount,
+  calledCount,
+  skippedCount,
+  canOperate,
+  onConfirm
+}: QueueLifecycleModalProps) {
+  return <Modal centered={!isMobile} className="task-modal queue-auto-close-modal" closeOnClickOutside={!isBusy} closeOnEscape={!isBusy} onClose={() => !isBusy && setDetailsOpen(false)} opened={detailsOpen} size="lg" title={<QueueLifecycleModalTitle confirmation={confirmation} locationName={locationName} remaining={remaining}/>}>
+    <Stack className="task-modal__shell" gap={0}>
+      <div className="task-modal__main queue-auto-close-modal__main"><QueueLifecycleModalContent carriedCount={carriedCount} calledCount={calledCount} confirmation={confirmation} deadlineLabel={deadlineLabel} firstCarryCount={firstCarryCount} isFinalWarning={isFinalWarning} skippedCount={skippedCount}/></div>
+      <QueueLifecycleModalFooter canOperate={canOperate} confirmation={confirmation} isBusy={isBusy} onConfirm={onConfirm} setConfirmation={setConfirmation}/>
+    </Stack>
+  </Modal>;
+}
 function formatDeadline(value?: string | Date | null, timezone?: string) {
   if (!value) return "the scheduled close time";
   return new Intl.DateTimeFormat("en-PH", {
@@ -166,120 +255,24 @@ export default function VendorQueueLifecycleTray({
         </Group>
       </Paper>
 
-      <Modal
-        centered={!isMobile}
-        className="task-modal queue-auto-close-modal"
-        closeOnClickOutside={!isBusy}
-        closeOnEscape={!isBusy}
-        onClose={() => !isBusy && setDetailsOpen(false)}
-        opened={detailsOpen}
-        size="lg"
-        title={
-          <div className="getprio-modal-title">
-            <Text className="getprio-modal-eyebrow">QUEUE AUTO-CLOSE</Text>
-            <Text className="getprio-modal-heading">
-              {confirmation === "extend"
-                ? `Extend ${locationName} by 30 minutes?`
-                : confirmation === "close"
-                  ? `Close ${locationName} now?`
-                  : `${locationName} closes in ${formatRemaining(remaining)}`}
-            </Text>
-          </div>
-        }
-      >
-        <Stack className="task-modal__shell" gap={0}>
-          <div className="task-modal__main queue-auto-close-modal__main">
-            <Stack gap="md">
-              {confirmation ? (
-                <Alert
-                  color={confirmation === "close" ? "red" : "orange"}
-                  icon={<IconAlertTriangle size={18} />}
-                  title={confirmation === "extend" ? "One audited extension" : "Ticket outcomes are final"}
-                >
-                  {confirmation === "extend"
-                    ? `Confirming adds exactly 30 minutes to the current ${deadlineLabel} deadline and records your action. Auto-close is not disabled; another warning begins 15 minutes before the new deadline.`
-                    : "Closing immediately reconciles unresolved tickets. Reopening later will not reverse carry-over, expiration, skipped, or unserved outcomes."}
-                </Alert>
-              ) : (
-                <>
-                  <Alert color={isFinalWarning ? "red" : "orange"} icon={<IconClock size={18} />}>
-                    The server deadline is <strong>{deadlineLabel}</strong>. Joining remains available while
-                    intake is accepting, but service before closing is not guaranteed.
-                  </Alert>
-                  <div>
-                    <Text className="getprio-modal-eyebrow">TICKET CONSEQUENCES</Text>
-                    <Title order={3}>What will happen at close</Title>
-                  </div>
-                  <SimpleGrid cols={{ base: 1, sm: 2 }}>
-                    <Paper className="queue-auto-close-modal__outcome" withBorder>
-                      <Badge color="blue" variant="light">{firstCarryCount}</Badge>
-                      <Text fw={800}>First-time waiting</Text>
-                      <Text c="dimmed" size="sm">Saved for one later eligible Queue Day, with no live position until staff opens it.</Text>
-                    </Paper>
-                    <Paper className="queue-auto-close-modal__outcome" withBorder>
-                      <Badge color="red" variant="light">{carriedCount}</Badge>
-                      <Text fw={800}>Already carried</Text>
-                      <Text c="dimmed" size="sm">Expires if still waiting when this Queue Day closes.</Text>
-                    </Paper>
-                    <Paper className="queue-auto-close-modal__outcome" withBorder>
-                      <Badge color="orange" variant="light">{calledCount}</Badge>
-                      <Text fw={800}>Currently called</Text>
-                      <Text c="dimmed" size="sm">Becomes unserved unless completed before close.</Text>
-                    </Paper>
-                    <Paper className="queue-auto-close-modal__outcome" withBorder>
-                      <Badge color="yellow" variant="light">{skippedCount}</Badge>
-                      <Text fw={800}>Skipped recovery</Text>
-                      <Text c="dimmed" size="sm">Recovery ends when this Queue Day closes.</Text>
-                    </Paper>
-                  </SimpleGrid>
-                </>
-              )}
-            </Stack>
-          </div>
-          <div className="task-modal__footer queue-auto-close-modal__footer">
-            {confirmation ? (
-              <Group justify="flex-end" w="100%">
-                <Button disabled={isBusy} onClick={() => setConfirmation(null)} variant="default">
-                  Back
-                </Button>
-                <Button
-                  color={confirmation === "close" ? "red" : "orange"}
-                  loading={isBusy}
-                  onClick={() => void confirmAction()}
-                >
-                  {confirmation === "extend" ? "Confirm 30-minute extension" : "Close queue and reconcile"}
-                </Button>
-              </Group>
-            ) : (
-              <Group justify="space-between" w="100%">
-                <Text c="dimmed" size="sm">Adds 30 minutes and records your action.</Text>
-                <Group>
-                  <Button
-                    color="red"
-                    disabled={!canOperate}
-                    onClick={() => setConfirmation("close")}
-                    variant="light"
-                  >
-                    Close queue now
-                  </Button>
-                  <Button
-                    color="orange"
-                    disabled={!canOperate}
-                    onClick={() => setConfirmation("extend")}
-                  >
-                    Cancel auto-close
-                  </Button>
-                </Group>
-              </Group>
-            )}
-            {!canOperate ? (
-              <Text c="red" size="sm" w="100%">
-                An authorized queue operator for this location must extend or close the Queue Day.
-              </Text>
-            ) : null}
-          </div>
-        </Stack>
-      </Modal>
+      <QueueLifecycleModal
+        canOperate={canOperate}
+        carriedCount={carriedCount}
+        calledCount={calledCount}
+        confirmation={confirmation}
+        deadlineLabel={deadlineLabel}
+        detailsOpen={detailsOpen}
+        firstCarryCount={firstCarryCount}
+        isBusy={isBusy}
+        isFinalWarning={isFinalWarning}
+        isMobile={isMobile}
+        locationName={locationName}
+        onConfirm={confirmAction}
+        remaining={remaining}
+        setConfirmation={setConfirmation}
+        setDetailsOpen={setDetailsOpen}
+        skippedCount={skippedCount}
+      />
     </>
   );
 }
