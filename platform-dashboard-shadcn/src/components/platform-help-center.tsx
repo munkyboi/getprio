@@ -83,7 +83,7 @@ export function PlatformHelpCenterManager({ page, onNavigate }: ManagerProps) {
   const [revisions, setRevisions] = useState<Revision[]>([])
   const [publishedRevision, setPublishedRevision] = useState<number | null>(null)
   const [draftRevision, setDraftRevision] = useState<number | null>(null)
-  const [editing, setEditing] = useState<Selection | null>(null)
+  const [editingSelection, setEditing] = useState<Selection | null>(null)
   const [pendingArchive, setPendingArchive] = useState<Selection | null>(null)
   const [reason, setReason] = useState("")
   const [busy, setBusy] = useState(false)
@@ -109,10 +109,7 @@ export function PlatformHelpCenterManager({ page, onNavigate }: ManagerProps) {
 
   // oxlint-disable-next-line react/set-state-in-effect -- hydrate the admin projection once on mount.
   useEffect(() => { void load() }, [])
-  // oxlint-disable-next-line react/set-state-in-effect -- clear an invalid editor selection when its page changes.
-  useEffect(() => {
-    if (editing && selectionKind(page) !== editing.kind) setEditing(null)
-  }, [editing, page])
+  const editing = editingSelection && selectionKind(page) === editingSelection.kind ? editingSelection : null
 
   const selectedItem = useMemo(() => content ? getHelpItem(content, editing) : null, [content, editing])
   const activeTopicIds = useMemo(() => new Set(content?.topics.filter((item) => !item.archived).map((item) => item.id) || []), [content])
