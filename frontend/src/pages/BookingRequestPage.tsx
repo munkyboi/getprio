@@ -296,7 +296,7 @@ export default function BookingRequestPage({ renderPresentation, renderResourceS
     events.onmessage=refresh;
     const timer=window.setInterval(refresh,15000);
     return()=>{controller.abort();events.close();window.clearInterval(timer);};
-  },[token,vendor?.slug,selectedLocationSlug,bookingId,catalogRetry]);
+  },[token,vendor,selectedLocationSlug,bookingId,catalogRetry]);
   const changeResourceSelections=(next:BookingServiceSelectionV4[])=>{
     setResourceSelections(next);setExecutionMode('parallel');setBookingQuantity(1);
     const slugs=next.map(root=>resourceCatalog?.services.find(service=>service.id===root.serviceId)?.slug||'').filter(Boolean);
@@ -588,7 +588,7 @@ export default function BookingRequestPage({ renderPresentation, renderResourceS
       });
 
     return () => controller.abort();
-  }, [booking, bookingId, bookingDate, executionMode, getBundleItemQuantity, quantityForRequest, selectedBundleServices, selectedLocationSlug, selectedServiceSlug, vendor,resourceMode,resourceSelections,resourceRefresh,token]);
+  }, [booking, bookingId, bookingDate, executionMode, getBundleItemQuantity, quantityForRequest, selectedBundleServices, selectedLocationSlug, selectedServiceSlug, vendor, resourceMode, resourcePayload, resourceSelections, resourceRefresh, token]);
 
   const loadSubmittedBooking = useCallback(async () => {
     if (!token || !booking) {

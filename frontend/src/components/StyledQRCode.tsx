@@ -12,7 +12,8 @@ export default function StyledQRCode({ "aria-label": ariaLabel, className, size 
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (!containerRef.current) {
+    const container = containerRef.current;
+    if (!container) {
       return;
     }
 
@@ -37,16 +38,16 @@ export default function StyledQRCode({ "aria-label": ariaLabel, className, size 
       }
     });
 
-    containerRef.current.replaceChildren();
-    qrCode.append(containerRef.current);
-    const canvas = containerRef.current.querySelector("canvas");
+    container.replaceChildren();
+    qrCode.append(container);
+    const canvas = container.querySelector("canvas");
     if (canvas) {
       canvas.style.display = "block";
       canvas.style.height = `${size}px`;
       canvas.style.width = `${size}px`;
     }
     return () => {
-      containerRef.current?.replaceChildren();
+      container.replaceChildren();
     };
   }, [size, value]);
 

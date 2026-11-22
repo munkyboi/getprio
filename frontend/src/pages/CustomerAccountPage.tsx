@@ -417,7 +417,7 @@ export default function CustomerAccountPage({renderPresentation,renderSecurityPr
       return;
     }
 
-  }, [accountQuery.error, activeSection, bookingQuery.error, ticketQuery.error]);
+  }, [accountQuery.error, activeSection, bookingQuery.error, ticketQuery.error, user]);
 
   useEffect(() => {
     if (activeSection !== "bookings") {

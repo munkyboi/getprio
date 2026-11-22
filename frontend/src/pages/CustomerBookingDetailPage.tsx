@@ -256,7 +256,7 @@ function OwnedBookingDetail({renderPresentation,renderUnavailable,renderLoading}
         setLoading(false);
       }
     }
-  }, [bookingId, token]);
+  }, [bookingId, gate, token]);
 
   async function submitVendorRating() {
     if (!token || !booking || !ratingStars) return;
