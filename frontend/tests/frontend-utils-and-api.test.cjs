@@ -741,7 +741,7 @@ test("apiRequest handles auth refresh and errors", async () => {
     async () => mockResponse(401, { message: "unauthorized" }),
     async () => {
       await assert.rejects(() => apiRequest("/private", { skipAuthRefresh: true }), (error) => {
-        assert.equal(error instanceof ApiError, true);
+        assert.equal(error?.name, "ApiError");
         assert.equal(error.status, 401);
         return true;
       });

@@ -134,7 +134,9 @@ export async function apiRequest<TResponse, TBody = unknown>(
     }
     throw new ApiError(data.message || "Request failed.", response.status, {
       ...data,
-      retryAt: data.retryAt ?? retryAfterDeadline(response.headers.get("Retry-After"))
+      retryAt: data.retryAt ?? retryAfterDeadline(
+        typeof response.headers?.get === "function" ? response.headers.get("Retry-After") : undefined
+      )
     });
   }
 
