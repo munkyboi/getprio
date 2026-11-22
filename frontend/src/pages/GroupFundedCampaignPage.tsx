@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { Dispatch, SetStateAction } from "react";
 import {
   Alert,
   Badge,
@@ -163,6 +164,62 @@ function getSafeBackPath(value: unknown) {
   return value;
 }
 
+type GroupFundedCampaignLoaderContext = {
+  publicToken: string;
+  token: string | null;
+  setError: Dispatch<SetStateAction<string>>;
+  setLoading: Dispatch<SetStateAction<boolean>>;
+  setResponseStatus: Dispatch<SetStateAction<number | null>>;
+  updateCampaign: (nextCampaign: GroupFundedCampaignResponse["campaign"]) => void;
+};
+
+async function loadGroupFundedCampaign(
+  context: GroupFundedCampaignLoaderContext,
+  options: { silent?: boolean } = {}
+) {
+  const { publicToken, token, setError, setLoading, setResponseStatus, updateCampaign } = context;
+  if (!publicToken) {
+    setError("Campaign not found.");
+    setLoading(false);
+    return;
+  }
+  if (!options.silent) {
+    setLoading(true);
+  }
+  setError("");
+  setResponseStatus(null);
+  try {
+    if (token) {
+      const data = await customerAccountApi.getGroupFundedCampaignSelf(token, publicToken);
+      updateCampaign(data.campaign);
+      return;
+    }
+    const data = await apiRequest<GroupFundedCampaignResponse>(
+      `/public/group-funded-campaigns/${encodeURIComponent(publicToken)}`
+    );
+    updateCampaign(data.campaign);
+  } catch (loadError) {
+    if (!token) {
+      setResponseStatus(loadError instanceof ApiError ? loadError.status : null);
+      setError(getErrorMessage(loadError));
+      return;
+    }
+    try {
+      const data = await apiRequest<GroupFundedCampaignResponse>(
+        `/public/group-funded-campaigns/${encodeURIComponent(publicToken)}`
+      );
+      updateCampaign(data.campaign);
+    } catch (fallbackError) {
+      setResponseStatus(fallbackError instanceof ApiError ? fallbackError.status : null);
+      setError(getErrorMessage(fallbackError));
+    }
+  } finally {
+    if (!options.silent) {
+      setLoading(false);
+    }
+  }
+}
+
 type RawBundleItem = GroupFundedBundleItemSummary & {
   _id?: string | null;
   serviceNameSnapshot?: string;
@@ -240,49 +297,13 @@ export default function GroupFundedCampaignPage() {
     });
   }, []);
 
-  const loadCampaign = useCallback(async (options: { silent?: boolean } = {}) => {
-    if (!publicToken) {
-      setError("Campaign not found.");
-      setLoading(false);
-      return;
-    }
-
-    if (!options.silent) {
-      setLoading(true);
-    }
-    setError("");
-    setResponseStatus(null);
-    try {
-      if (token) {
-        const data = await customerAccountApi.getGroupFundedCampaignSelf(token, publicToken);
-        updateCampaign(data.campaign);
-      } else {
-        const data = await apiRequest<GroupFundedCampaignResponse>(
-          `/public/group-funded-campaigns/${encodeURIComponent(publicToken)}`
-        );
-        updateCampaign(data.campaign);
-      }
-    } catch (loadError) {
-      if (token) {
-        try {
-          const data = await apiRequest<GroupFundedCampaignResponse>(
-            `/public/group-funded-campaigns/${encodeURIComponent(publicToken)}`
-          );
-          updateCampaign(data.campaign);
-        } catch (fallbackError) {
-          setResponseStatus(fallbackError instanceof ApiError ? fallbackError.status : null);
-          setError(getErrorMessage(fallbackError));
-        }
-      } else {
-        setResponseStatus(loadError instanceof ApiError ? loadError.status : null);
-        setError(getErrorMessage(loadError));
-      }
-    } finally {
-      if (!options.silent) {
-        setLoading(false);
-      }
-    }
-  }, [publicToken, token, updateCampaign]);
+  const loadCampaign = useCallback(
+    (options: { silent?: boolean } = {}) => loadGroupFundedCampaign(
+      { publicToken, token, setError, setLoading, setResponseStatus, updateCampaign },
+      options
+    ),
+    [publicToken, token, updateCampaign]
+  );
 
   useEffect(() => {
     void loadCampaign();
