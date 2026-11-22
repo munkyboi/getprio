@@ -63,6 +63,17 @@ test('legacy shared marketing/client origin retains its existing authenticated C
  const {createBrowserCorsMiddleware}=require('../src/services/browserSurfaceUrls');const configs=[];const cors=options=>{configs.push(options);return(req,res,next)=>next();};
  const middleware=createBrowserCorsMiddleware({...config,marketingUrl:config.clientUrl},cors);let next=false;middleware({method:'GET',url:'/api/auth/me',headers:{origin:config.clientUrl}},{},()=>next=true);assert.equal(next,true);assert.equal(configs[0].credentials,true);
 });
+test('Apple form-post callback accepts only Apple origin on the callback route', async()=>{
+ const express=require('express'),cors=require('cors');const {createBrowserCorsMiddleware}=require('../src/services/browserSurfaceUrls');
+ const app=express();app.use(createBrowserCorsMiddleware(config,cors));app.post('/api/auth/oauth/apple/callback',(req,res)=>res.sendStatus(204));app.use((error,req,res,next)=>res.status(error.statusCode||500).json({message:error.message}));
+ const server=await new Promise(resolve=>{const s=app.listen(0,'127.0.0.1',()=>resolve(s));});const base=`http://127.0.0.1:${server.address().port}`;
+ try {
+  const apple=await fetch(base+'/api/auth/oauth/apple/callback',{method:'POST',headers:{Origin:'https://appleid.apple.com'}});
+  assert.equal(apple.status,204);assert.equal(apple.headers.get('access-control-allow-origin'),'https://appleid.apple.com');
+  const rejected=await fetch(base+'/api/auth/oauth/apple/callback',{method:'POST',headers:{Origin:'https://evil.example'}});
+  assert.equal(rejected.status,403);
+ } finally { await new Promise(resolve=>server.close(resolve)); }
+});
 test('local Vendor pairing and Marketing aliases remain scoped to their own configured port',()=>{
  const {surfaceOriginSet}=require('../src/services/browserSurfaceUrls');const vendor=surfaceOriginSet(config,'vendor');assert.ok(vendor.has('http://localhost:5192'));assert.ok(!vendor.has(config.customerAppUrl));assert.ok(!vendor.has('http://evil.example:5192'));
  const marketing=surfaceOriginSet(config,'marketing');assert.ok(marketing.has('http://localhost:5190'));assert.ok(!marketing.has('http://localhost:5191'));
