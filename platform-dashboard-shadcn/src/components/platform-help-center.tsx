@@ -107,9 +107,9 @@ export function PlatformHelpCenterManager({ page, onNavigate }: ManagerProps) {
     }
   }
 
-  // oxlint-disable-next-line react-hooks/set-state-in-effect -- hydrate the admin projection once on mount.
+  // oxlint-disable-next-line react/set-state-in-effect -- hydrate the admin projection once on mount.
   useEffect(() => { void load() }, [])
-  // oxlint-disable-next-line react-hooks/set-state-in-effect -- clear an invalid editor selection when its page changes.
+  // oxlint-disable-next-line react/set-state-in-effect -- clear an invalid editor selection when its page changes.
   useEffect(() => {
     if (editing && selectionKind(page) !== editing.kind) setEditing(null)
   }, [editing, page])

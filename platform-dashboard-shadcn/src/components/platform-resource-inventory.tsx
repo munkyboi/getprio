@@ -325,7 +325,7 @@ export function PlatformResourceInventory({
   );
   useEffect(() => {
     generation.current++;
-    // oxlint-disable-next-line react-hooks/set-state-in-effect -- reset the scoped report when the selected scope changes.
+    // oxlint-disable-next-line react/set-state-in-effect -- reset the scoped report when the selected scope changes.
     setReport(null);
     setScopes([]);
     setSelected("");
