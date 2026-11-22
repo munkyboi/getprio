@@ -1281,7 +1281,7 @@ export default function VendorDashboardPage() {
     description: string;
     confirmLabel: string;
     confirmColor?: "red" | "orange" | "blue" | "dark";
-    onConfirm: () => void | Promise<void>;
+    onConfirm: () => void | Promise<unknown>;
   }>(null);
   const [error, setError] = useState("");
   const [busyAction, setBusyAction] = useState("");
@@ -8061,7 +8061,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                                     description: "Are you sure you want to cancel this booking?",
                                     confirmLabel: "Cancel booking",
                                     confirmColor: "red",
-                                    onConfirm: () => void handleUpdateBookingStatus(booking, "canceled")
+                                    onConfirm: handleUpdateBookingStatus.bind(null, booking, "canceled")
                                   })
                                 }
                               >
@@ -8097,7 +8097,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                                     description: "Are you sure you want to cancel this booking?",
                                     confirmLabel: "Cancel booking",
                                     confirmColor: "red",
-                                    onConfirm: () => void handleUpdateBookingStatus(booking, "canceled")
+                                    onConfirm: handleUpdateBookingStatus.bind(null, booking, "canceled")
                                   })
                                 }
                               >
@@ -8133,7 +8133,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                                     description: "Are you sure you want to cancel this booking?",
                                     confirmLabel: "Cancel booking",
                                     confirmColor: "red",
-                                    onConfirm: () => void handleUpdateBookingStatus(booking, "canceled")
+                                    onConfirm: handleUpdateBookingStatus.bind(null, booking, "canceled")
                                   })
                                 }
                               >
@@ -8166,7 +8166,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                                     description: "Are you sure you want to cancel this booking?",
                                     confirmLabel: "Cancel booking",
                                     confirmColor: "red",
-                                    onConfirm: () => void handleUpdateBookingStatus(booking, "canceled")
+                                    onConfirm: handleUpdateBookingStatus.bind(null, booking, "canceled")
                                   })
                                 }
                               >
@@ -8195,7 +8195,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                                     description: "Are you sure you want to cancel this booking?",
                                     confirmLabel: "Cancel booking",
                                     confirmColor: "red",
-                                    onConfirm: () => void handleUpdateBookingStatus(booking, "canceled")
+                                    onConfirm: handleUpdateBookingStatus.bind(null, booking, "canceled")
                                   })
                                 }
                               >
