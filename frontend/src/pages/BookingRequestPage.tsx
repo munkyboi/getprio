@@ -278,7 +278,8 @@ export default function BookingRequestPage({ renderPresentation, renderResourceS
   const [catalogError,setCatalogError]=useState("");
   const [resourceRequestKey]=useState(()=>crypto.randomUUID());
   const resourceMode=resourceCatalog?.enabled===true&&resourceBooking&&Boolean(resourceCatalog.resourceServiceIds?.length);
-  const resourcePayload=useMemo(()=>resourceMode?{selectionContractVersion:4 as const,catalogVersion:resourceCatalog!.catalogVersion,serviceSelections:resourceSelections,requestKey:resourceRequestKey}:{} ,[resourceMode,resourceCatalog?.catalogVersion,resourceSelections,resourceRequestKey]);
+  const resourceCatalogVersion=resourceCatalog?.catalogVersion;
+  const resourcePayload=useMemo(()=>resourceMode?{selectionContractVersion:4 as const,catalogVersion:resourceCatalogVersion!,serviceSelections:resourceSelections,requestKey:resourceRequestKey}:{} ,[resourceMode,resourceCatalogVersion,resourceSelections,resourceRequestKey]);
   const [slotsLoading, setSlotsLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [proofSubmitting, setProofSubmitting] = useState(false);

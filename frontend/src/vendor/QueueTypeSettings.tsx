@@ -8,7 +8,7 @@ export function QueueTypeSettings({configuration,canEdit,busy,onSave}:{configura
  const [selected,setSelected]=useState<QueueType>('simple');
  const [confirmed,setConfirmed]=useState(false);
  const [error,setError]=useState('');
- useEffect(()=>{setSelected(configuration?.type||'simple');setConfirmed(false);setError('');},[configuration?.scope.tenantSlug,configuration?.scope.locationSlug,configuration?.revision]);
+ useEffect(()=>{setSelected(configuration?.type||'simple');setConfirmed(false);setError('');},[configuration?.type,configuration?.scope.tenantSlug,configuration?.scope.locationSlug,configuration?.revision]);
  if(!configuration)return <p role="status">Loading this location’s queue type…</p>;
  return <section aria-labelledby="queue-type-heading" className="queue-settings-panel queue-type-settings">
   <div className="queue-settings-heading"><h2 id="queue-type-heading">Queue type</h2><p>{configuration.notice}</p></div>

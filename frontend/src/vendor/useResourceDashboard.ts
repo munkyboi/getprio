@@ -33,6 +33,7 @@ export function useResourceDashboard(token: string | null, scope: DashboardScope
     refetchIntervalInBackground: false,
     refetchInterval: query => query.state.error instanceof ApiError && [401,403,404,429].includes(query.state.error.status) ? false : 15000,
   });
+  const refetchResourceDashboard = query.refetch;
   // No placeholderData: a business/location change must never carry another scope's last-good observation.
   const accessDenied = query.error instanceof ApiError && [401,403].includes(query.error.status);
   useEffect(() => {
@@ -41,9 +42,9 @@ export function useResourceDashboard(token: string | null, scope: DashboardScope
       url: `${API_BASE_URL}/vendor/tenant/${encodeURIComponent(scope.tenantSlug)}/queue/stream?location=${encodeURIComponent(scope.locationSlug)}`,
       locationId: scope.locationId,
       onState: state => setStream({scope: scopeKey, session: token, state}),
-      onRefresh: () => { void query.refetch(); },
+      onRefresh: () => { void refetchResourceDashboard(); },
     });
-  }, [enabled, accessDenied, token, scopeKey, scope.tenantSlug, scope.locationSlug, scope.locationId, query.refetch]);
+  }, [enabled, accessDenied, token, scopeKey, scope.tenantSlug, scope.locationSlug, scope.locationId, refetchResourceDashboard]);
   const disconnected = enabled && stream.scope === scopeKey && stream.session === token && stream.state === "disconnected";
   return {query, enabled, offline, disconnected, accessDenied, stale: Boolean(query.data && (offline || disconnected || query.isError || now - Date.parse(query.data.asOf) > 45000))};
 }

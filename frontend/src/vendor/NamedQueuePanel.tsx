@@ -85,7 +85,7 @@ export function NamedQueuePanel({token,tenant,location,counterSlug,staffMode=fal
    document.removeEventListener('visibilitychange',onRefresh);
    window.removeEventListener('queue-plans-updated',onRefresh);
   };
- },[active,active.refetch,skipped.refetch,token,tenant,location]);
+ },[active,active.refetch,skipped,skipped.refetch,token,tenant,location]);
  // Keep setup readiness and any open form current; invalidation never resets draft state.
  useEffect(()=>{
    const refreshCatalog=()=>{
@@ -163,7 +163,7 @@ export function NamedQueuePanel({token,tenant,location,counterSlug,staffMode=fal
   managementReady.current?.(inventoryReady,inventoryScope);
  },[ids,inventoryScope,inventoryReady]);
  useEffect(()=>{busyRef.current(busy||uncertain);},[busy,uncertain]);
- useEffect(()=>()=>{busyRef.current(false);idsRef.current([],inventoryScope);},[]);
+ useEffect(()=>()=>{busyRef.current(false);idsRef.current([],inventoryScope);},[inventoryScope]);
  useEffect(()=>{if(!uncertain)return;const warn=(event:BeforeUnloadEvent)=>{event.preventDefault();event.returnValue='';};window.addEventListener('beforeunload',warn);return()=>window.removeEventListener('beforeunload',warn);},[uncertain]);
  const intakeSequence=useRef(newRequestSequence);
  const intakeAvailable=!managementOnly&&Boolean(v4Options.data?.capabilities.publication)&&!busy&&!uncertain&&!commandLocked&&!editor&&!outcome&&!protection&&!completion;
