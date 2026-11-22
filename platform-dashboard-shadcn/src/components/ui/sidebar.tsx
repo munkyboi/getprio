@@ -691,6 +691,7 @@ function SidebarMenuSubButton({
   })
 }
 
+// oxlint-disable-next-line react/only-export-components -- shadcn hook and component exports are intentionally colocated.
 export {
   Sidebar,
   SidebarContent,

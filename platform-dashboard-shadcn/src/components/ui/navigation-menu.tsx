@@ -154,6 +154,7 @@ function NavigationMenuIndicator({
   )
 }
 
+// oxlint-disable-next-line react/only-export-components -- shadcn variant helper is intentionally exported with the component.
 export {
   NavigationMenu,
   NavigationMenuContent,
