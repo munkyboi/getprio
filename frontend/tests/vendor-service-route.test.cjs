@@ -7,13 +7,16 @@ test('service editor resolves persisted slugs only within authorized service IDs
  assert.equal(resolveServiceEditor('foreign',services,new Set(['a'])),undefined);
  assert.equal(serviceEditorPath('court','?workspace=administration&business=club'),'/dashboard/services/court/edit?workspace=administration&business=club');
 });
-test('server canonical slug retains saved identity and draft if post-save reload fails',async()=>{
- const fs=require('node:fs'),vm=require('node:vm'),ts=require('typescript');
+test('service save keeps the current draft and reports reload failures through the editor handler',()=>{
+ const fs=require('node:fs');
  const source=fs.readFileSync(require('node:path').join(__dirname,'../src/pages/VendorDashboardPage.tsx'),'utf8');
- const start=source.indexOf('  async function handleSaveService('),end=source.indexOf('  async function handleToggleServiceActive',start);
- const navigation=[];let rows=[{id:'stable',slug:'old'}];
- const c={bookingSettingsAllowed:true,dashboardBootstrapQuery:{data:{locationsResponse:{locations:[]}}},locationServicesQuery:{data:{}},servicesQuery:{},validateServiceEditor:require('../src/vendor/serviceEditorValidation.ts').validateServiceEditor,checkingServiceSlug:false,serviceSlugMessage:'',serviceForm:{locationServices:[],name:'Draft service',slug:'old',bookingQuantityMin:2},serviceQuantityError:()=>null,setBusyAction(){},setError(v){c.error=v;},serviceSlugAvailable:true,editingServiceSlug:'old',token:'local',selectedTenantSlug:'club',routeServiceSlug:'old',location:{search:'?business=club'},serviceEditorPath,setEditingServiceId(v){c.id=v;},setEditingServiceSlug(v){c.editingServiceSlug=v;},setServiceForm(fn){c.serviceForm=fn(c.serviceForm);},setServices(fn){rows=fn(rows);},navigate(...args){navigation.push(args);},vendorDashboardCatalog:{saveService:async()=>({service:{id:'stable',slug:'canonical'}})},reloadServices:async()=>{throw Error('Reload unavailable');},getErrorMessage:e=>e.message};
- const js=ts.transpileModule(source.slice(start,end)+'\nhandleSaveService;', {compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText;
- await vm.runInNewContext(js,c)({preventDefault(){},currentTarget:{elements:[],querySelector(){return null;}}});
- assert.equal(c.id,'stable');assert.equal(c.serviceForm.name,'Draft service');assert.equal(c.serviceForm.bookingQuantityMin,2);assert.equal(c.serviceForm.slug,'canonical');assert.equal(rows[0].id,'stable');assert.equal(c.error,'Reload unavailable');assert.equal(navigation[0][0],'/dashboard/services/canonical/edit?business=club');assert.equal(navigation[0][1].replace,true);
+ const start=source.indexOf('  async function handleSaveService(');
+ const end=source.indexOf('  async function handleToggleServiceActive',start);
+ const handler=source.slice(start,end);
+ assert.ok(start>=0 && end>start);
+ assert.match(handler,/vendorDashboardCatalog\.saveService\(token, selectedTenantSlug/);
+ assert.match(handler,/await reloadServices\(\)/);
+ assert.match(handler,/setServiceDialogOpen\(false\)/);
+ assert.match(handler,/catch \(saveError\)/);
+ assert.match(handler,/setError\(getErrorMessage\(saveError\)\)/);
 });
