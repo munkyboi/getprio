@@ -1,5 +1,5 @@
 import { VendorRatingsPanel } from "../components/VendorRatingsPanel";
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Alert,
@@ -1117,6 +1117,23 @@ function DashboardEmptyState({
   );
 }
 
+function updateServiceLocationEntries(
+  entries: ServiceLocationFormEntry[] | undefined,
+  locations: Array<{ slug: string }>,
+  locationSlug: string,
+  updater: (entry: ServiceLocationFormEntry) => ServiceLocationFormEntry
+) {
+  return (entries || locations.map((item) => buildDefaultServiceLocationEntry(item.slug))).map((entry) =>
+    entry.locationSlug === locationSlug
+      ? updater({
+          ...buildDefaultServiceLocationEntry(locationSlug),
+          ...entry,
+          groupFunded: normalizeGroupFundedSettings(entry.groupFunded)
+        })
+      : entry
+  );
+}
+
 export default function VendorDashboardPage() {
   const { token, user, loading, logout, refreshUser, changePassword } = useAuth();
   const { section } = useParams<{ section: string }>();
@@ -1147,6 +1164,15 @@ export default function VendorDashboardPage() {
   const [editingLocationSlug, setEditingLocationSlug] = useState("");
   const [editingLocationId, setEditingLocationId] = useState("");
   const [locationForm, setLocationForm] = useState(emptyLocationForm);
+  const updateLocationHour = useCallback(
+    (index: number, changes: Partial<(typeof emptyLocationForm.hours)[number]>) => {
+      setLocationForm((current) => ({
+        ...current,
+        hours: current.hours.map((item, itemIndex) => itemIndex === index ? { ...item, ...changes } : item)
+      }));
+    },
+    []
+  );
   const [locationSlugManuallyEdited, setLocationSlugManuallyEdited] = useState(false);
   const [locationSlugMessage, setLocationSlugMessage] = useState("");
   const [locationSlugAvailable, setLocationSlugAvailable] = useState(false);
@@ -1157,6 +1183,15 @@ export default function VendorDashboardPage() {
   const [editingServiceSlug, setEditingServiceSlug] = useState("");
   const [editingServiceId, setEditingServiceId] = useState("");
   const [serviceForm, setServiceForm] = useState<SaveVendorServiceRequest>(emptyServiceForm);
+  const updateServiceLocationEntry = useCallback(
+    (locationSlug: string, updater: (entry: ServiceLocationFormEntry) => ServiceLocationFormEntry) => {
+      setServiceForm((current) => ({
+        ...current,
+        locationServices: updateServiceLocationEntries(current.locationServices, locations, locationSlug, updater)
+      }));
+    },
+    [locations]
+  );
   const [serviceSlugManuallyEdited, setServiceSlugManuallyEdited] = useState(false);
   const [serviceSlugMessage, setServiceSlugMessage] = useState("");
   const [serviceSlugAvailable, setServiceSlugAvailable] = useState(false);
@@ -1246,7 +1281,7 @@ export default function VendorDashboardPage() {
     description: string;
     confirmLabel: string;
     confirmColor?: "red" | "orange" | "blue" | "dark";
-    onConfirm: () => Promise<void>;
+    onConfirm: () => void | Promise<void>;
   }>(null);
   const [error, setError] = useState("");
   const [busyAction, setBusyAction] = useState("");
@@ -4930,16 +4965,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                             checked={hour.isClosed}
                             label="Closed"
                             description="Hide opening and closing times for this day."
-                            onChange={(event) =>
-                              setLocationForm((current) => ({
-                                ...current,
-                                hours: current.hours.map((item, itemIndex) =>
-                                  itemIndex === index
-                                    ? { ...item, isClosed: event.target.checked }
-                                    : item
-                                )
-                              }))
-                            }
+                            onChange={(event) => updateLocationHour(index, { isClosed: event.target.checked })}
                           />
                         </Group>
                         {!hour.isClosed ? (
@@ -4949,32 +4975,14 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                               label="Opens"
                               type="time"
                               value={hour.opensAt}
-                              onChange={(event) =>
-                                setLocationForm((current) => ({
-                                  ...current,
-                                  hours: current.hours.map((item, itemIndex) =>
-                                    itemIndex === index
-                                      ? { ...item, opensAt: event.target.value }
-                                      : item
-                                  )
-                                }))
-                              }
+                              onChange={(event) => updateLocationHour(index, { opensAt: event.target.value })}
                             />
                             <TextInput
                               name={`hours.${index}.closesAt`}
                               label="Closes"
                               type="time"
                               value={hour.closesAt}
-                              onChange={(event) =>
-                                setLocationForm((current) => ({
-                                  ...current,
-                                  hours: current.hours.map((item, itemIndex) =>
-                                    itemIndex === index
-                                      ? { ...item, closesAt: event.target.value }
-                                      : item
-                                  )
-                                }))
-                              }
+                              onChange={(event) => updateLocationHour(index, { closesAt: event.target.value })}
                             />
                           </SimpleGrid>
                         ) : null}
@@ -6939,22 +6947,6 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       const nextEntry = serviceForm.locationServices?.find((entry) => entry.locationSlug === location.slug);
                       const groupFunded = normalizeGroupFundedSettings(nextEntry?.groupFunded);
                       const branchEnabled = nextEntry?.isActive !== false;
-                      const updateLocationEntry = (updater: (entry: ServiceLocationFormEntry) => ServiceLocationFormEntry) => {
-                        setServiceForm((current) => ({
-                          ...current,
-                          locationServices: (
-                            current.locationServices || locations.map((item) => buildDefaultServiceLocationEntry(item.slug))
-                          ).map((entry) =>
-                            entry.locationSlug === location.slug
-                              ? updater({
-                                  ...buildDefaultServiceLocationEntry(location.slug),
-                                  ...entry,
-                                  groupFunded: normalizeGroupFundedSettings(entry.groupFunded)
-                                })
-                              : entry
-                          )
-                        }));
-                      };
                       return (
                         <Card key={location.slug} withBorder radius="md" p="sm" className="service-dialog__panel">
                           <Stack gap="xs">
@@ -6968,7 +6960,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                               max={100}
                               value={nextEntry?.capacity || 1}
                               onChange={(value) =>
-                                updateLocationEntry((entry) => ({
+                                updateServiceLocationEntry(location.slug, (entry) => ({
                                   ...entry,
                                   capacity: Number(value) || 1
                                 }))
@@ -6978,7 +6970,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                               checked={branchEnabled}
                               label="Available at this branch"
                               onChange={(event) =>
-                                updateLocationEntry((entry) => ({
+                                updateServiceLocationEntry(location.slug, (entry) => ({
                                   ...entry,
                                   isActive: event.currentTarget.checked
                                 }))
@@ -7003,7 +6995,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                                   checked={groupFunded.enabled}
                                   disabled={!branchEnabled}
                                   onChange={(event) =>
-                                    updateLocationEntry((entry) => ({
+                                    updateServiceLocationEntry(location.slug, (entry) => ({
                                       ...entry,
                                       groupFunded: {
                                         ...normalizeGroupFundedSettings(entry.groupFunded),
@@ -7025,7 +7017,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                                       max={100}
                                       value={groupFunded.minRequiredContributors || 2}
                                       onChange={(value) =>
-                                        updateLocationEntry((entry) => ({
+                                        updateServiceLocationEntry(location.slug, (entry) => ({
                                           ...entry,
                                           groupFunded: updateGroupFundedContributorBounds(
                                             entry.groupFunded,
@@ -7045,7 +7037,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                                       max={100}
                                       value={groupFunded.maxRequiredContributors || 12}
                                       onChange={(value) =>
-                                        updateLocationEntry((entry) => ({
+                                        updateServiceLocationEntry(location.slug, (entry) => ({
                                           ...entry,
                                           groupFunded: updateGroupFundedContributorBounds(
                                             entry.groupFunded,
@@ -7075,7 +7067,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                                           max={720}
                                           value={groupFunded.minDeadlineHours || 24}
                                           onChange={(value) =>
-                                            updateLocationEntry((entry) => ({
+                                            updateServiceLocationEntry(location.slug, (entry) => ({
                                               ...entry,
                                               groupFunded: {
                                                 ...normalizeGroupFundedSettings(entry.groupFunded),
@@ -7093,7 +7085,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                                           max={90}
                                           value={groupFunded.maxDeadlineDays || 14}
                                           onChange={(value) =>
-                                            updateLocationEntry((entry) => ({
+                                            updateServiceLocationEntry(location.slug, (entry) => ({
                                               ...entry,
                                               groupFunded: {
                                                 ...normalizeGroupFundedSettings(entry.groupFunded),
@@ -7110,7 +7102,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                                     label="Allow public campaigns on vendor profile"
                                     description="Private-link campaigns remain available when group-funded booking is enabled."
                                     onChange={(event) =>
-                                      updateLocationEntry((entry) => ({
+                                      updateServiceLocationEntry(location.slug, (entry) => ({
                                         ...entry,
                                         groupFunded: {
                                           ...normalizeGroupFundedSettings(entry.groupFunded),
@@ -8096,9 +8088,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                                     description: "Are you sure you want to cancel this booking?",
                                     confirmLabel: "Cancel booking",
                                     confirmColor: "red",
-                                    onConfirm: async () => {
-                                      await handleUpdateBookingStatus(booking, "canceled");
-                                    }
+                                    onConfirm: () => void handleUpdateBookingStatus(booking, "canceled")
                                   })
                                 }
                               >
@@ -8134,9 +8124,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                                     description: "Are you sure you want to cancel this booking?",
                                     confirmLabel: "Cancel booking",
                                     confirmColor: "red",
-                                    onConfirm: async () => {
-                                      await handleUpdateBookingStatus(booking, "canceled");
-                                    }
+                                    onConfirm: () => void handleUpdateBookingStatus(booking, "canceled")
                                   })
                                 }
                               >
@@ -8172,9 +8160,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                                     description: "Are you sure you want to cancel this booking?",
                                     confirmLabel: "Cancel booking",
                                     confirmColor: "red",
-                                    onConfirm: async () => {
-                                      await handleUpdateBookingStatus(booking, "canceled");
-                                    }
+                                    onConfirm: () => void handleUpdateBookingStatus(booking, "canceled")
                                   })
                                 }
                               >
@@ -8207,9 +8193,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                                     description: "Are you sure you want to cancel this booking?",
                                     confirmLabel: "Cancel booking",
                                     confirmColor: "red",
-                                    onConfirm: async () => {
-                                      await handleUpdateBookingStatus(booking, "canceled");
-                                    }
+                                    onConfirm: () => void handleUpdateBookingStatus(booking, "canceled")
                                   })
                                 }
                               >
@@ -8238,9 +8222,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                                     description: "Are you sure you want to cancel this booking?",
                                     confirmLabel: "Cancel booking",
                                     confirmColor: "red",
-                                    onConfirm: async () => {
-                                      await handleUpdateBookingStatus(booking, "canceled");
-                                    }
+                                    onConfirm: () => void handleUpdateBookingStatus(booking, "canceled")
                                   })
                                 }
                               >
