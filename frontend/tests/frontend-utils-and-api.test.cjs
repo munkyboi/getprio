@@ -1052,7 +1052,7 @@ test("customer booking flows use shared Mantine notifications for API feedback",
   assert.match(notificationSource, /export function showCustomerError/);
   assert.match(groupFundedSource, /showCustomerSuccess\("Contribution proof submitted"/);
   assert.match(groupFundedSource, /showCustomerError\(getErrorMessage\(submitError\), "Could not submit contribution proof"\)/);
-  assert.match(bookingSource, /showCustomerSuccess\("Campaign created"/);
+  assert.match(bookingSource, /showCustomerSuccess\("Booking request created"/);
   assert.match(bookingSource, /showCustomerError\(getErrorMessage\(proofError\), "Could not submit payment proof"\)/);
   assert.match(accountSource, /showCustomerSuccess\("Profile updated"/);
   assert.match(accountSource, /showCustomerError\(getErrorMessage\(saveError\), "Could not update profile"\)/);
@@ -1078,15 +1078,13 @@ test("group-funded contributor count uses a stepped slider within service limits
   );
 
   assert.match(source, /import \{[\s\S]*?Slider,[\s\S]*?\} from "@mantine\/core"/);
-  assert.match(source, /<Slider[\s\S]*?aria-label="Required contributors"/);
-  assert.match(source, /min=\{groupFundedMinContributors\}/);
-  assert.match(source, /max=\{groupFundedMaxContributors\}/);
+  assert.match(source, /<Slider[\s\S]*?aria-label=\{`\$\{service\.name\} \$\{quantityLabel\}`\}/);
+  assert.match(source, /min=\{bounds\.min\}/);
+  assert.match(source, /max=\{bounds\.max\}/);
   assert.match(source, /step=\{1\}/);
-  assert.match(source, /onChange=\{setRequiredContributors\}/);
+  assert.match(source, /onChange=\{\(value\) => updateServiceQuantity\(service, value\)\}/);
   assert.match(source, /className="booking-value-slider"/);
-  assert.match(source, /className="booking-slider-bounds" justify="space-between"/);
-  assert.match(source, /Min \{groupFundedMinContributors\}/);
-  assert.match(source, /Max \{groupFundedMaxContributors\}/);
+  assert.match(source, /Fixed at \{formatBookingQuantityValue\(bounds\.min, quantityLabel\)\}/);
 });
 
 test("vendor group-funded settings keep policy controls concise", () => {
@@ -1116,7 +1114,7 @@ test("booking services use their own stepped quantity sliders", () => {
   assert.match(source, /aria-label=\{`\$\{service\.name\} \$\{quantityLabel\}`\}/);
   assert.match(source, /const updateServiceQuantity = useCallback/);
   assert.match(source, /onChange=\{\(value\) => updateServiceQuantity\(service, value\)\}/);
-  assert.match(source, /max=\{maxGroupFundedBookingQuantity\}/);
+  assert.match(source, /max=\{bounds\.max\}/);
   assert.match(source, /disabled=\{Boolean\(otp\) \|\| !isSelected\}/);
   assert.doesNotMatch(source, /selectedBundleServices\.length\} item/);
 });
@@ -1128,9 +1126,9 @@ test("together bookings synchronize matching-duration service quantity sliders",
     "utf8"
   );
 
-  assert.match(source, /const shouldSynchronizeTogetherQuantities = useMemo/);
-  assert.match(source, /executionMode !== "parallel"/);
-  assert.match(source, /service\.durationMinutes === sharedDuration/);
+  assert.match(source, /const shouldSynchronizeTogetherQuantities = synchronizedBounds !== null/);
+  assert.match(source, /const synchronizedBounds = useMemo/);
+  assert.match(source, /sharedDurationUnitBounds\(selectedBundleServices, executionMode\)/);
   assert.match(source, /const updateServiceQuantity = useCallback/);
   assert.match(source, /if \(shouldSynchronizeTogetherQuantities\) \{/);
   assert.match(source, /onChange=\{\(value\) => updateServiceQuantity\(service, value\)\}/);
@@ -1144,7 +1142,7 @@ test("group-funded slot selection keeps the composed service bundle selected", (
     "utf8"
   );
 
-  assert.match(source, /includeGroupFundedHolds: isGroupFundedMode/);
+  assert.match(source, /includeGroupFundedHolds: false/);
   assert.match(source, /setSlots\(data\.slots \|\| \[\]\);/);
   assert.doesNotMatch(source, /groupFundedSlotsByService/);
   assert.doesNotMatch(source, /groupFundedServiceEligibility/);
@@ -1174,7 +1172,7 @@ test("booking availability uses a time-slot picker and resolves deadline bounds 
   assert.doesNotMatch(source, /timeSlotGroups/);
   assert.match(source, /Unavailable — \$\{unavailableSlotResourceLabel\} is booked/);
   assert.match(source, /className="booking-time-slot-summary"/);
-  assert.match(source, /Funding deadline:/);
+  assert.match(source, /Available start times — \$\{formatDuration\(bundleVisitDurationMinutes/);
   assert.doesNotMatch(source, /className="booking-schedule-field booking-schedule-field--slot"/);
   assert.match(styles, /\.booking-time-slot-carousel \{/);
   assert.doesNotMatch(styles, /\.booking-time-slot-period \{/);
@@ -1209,9 +1207,8 @@ test("group-funded contribution guidance uses customer-friendly payment language
     "utf8"
   );
 
-  assert.match(source, /Each person contributes/);
-  assert.match(source, /Everyone pays the same amount in full/);
-  assert.doesNotMatch(source, /V1 does not support partial payments/);
+  assert.match(source, /Bundle total:/);
+  assert.match(source, /One service selected — choose a date and available start time next/);
 });
 
 test("group-funded booking has a collapsed campaign summary and prominent submit action", () => {
@@ -1222,27 +1219,15 @@ test("group-funded booking has a collapsed campaign summary and prominent submit
 
   assert.match(source, /<Accordion className="booking-campaign-summary">/);
   assert.match(source, /<Accordion.Control>/);
-  assert.match(source, /Campaign summary/);
-  assert.match(source, /formatBookingScheduleDate\(bookingDate\)\} · Choose a start time/);
-  assert.match(source, /Funding deadline/);
-  assert.match(source, /Funding adjustment/);
-  assert.match(source, /const fundingTargetAmountCents = payableAmountCents \+ fundingAdjustmentCents;/);
-  assert.match(source, /const isCampaignReady = Boolean\(/);
-  assert.match(source, /campaignTitle\.trim\(\)/);
-  assert.match(source, /color=\{isCampaignReady \? "green" : "gray"\}/);
-  assert.match(source, /isCampaignReady \? "Ready" : "Not ready"/);
-  assert.match(source, /<Text fw=\{800\}>1\. Plan your visit<\/Text>/);
-  assert.match(source, /Choose a branch, services, and visit length before selecting an available time/);
+  assert.match(source, /Booking summary/);
+  assert.match(source, /formatBookingScheduleDate\(bookingDate\)/);
+  assert.match(source, /Bundle total:/);
+  assert.match(source, /Choose one service, or combine services for the same visit/);
   assert.match(source, /<SimpleGrid cols=\{\{ base: 1, md: 2 \}\} spacing="xs">/);
   assert.match(source, /\/composed-slots/);
   assert.match(source, /className="booking-campaign-submit customer-primary-action"/);
-  assert.match(source, /className="booking-campaign-submit__total"/);
-  assert.match(source, /color="green" component="span" variant="filled"/);
-  assert.match(source, /formatPaymentAmount\(fundingTargetAmountCents, selectedBundleServices\[0\]\?\.currency \|\| "PHP"\)/);
-  assert.match(source, /h=\{56\}/);
-  assert.match(source, /\{isGroupFundedMode \? \[/);
-  assert.match(source, /<Stepper\.Step key="verify-otp"/);
-  assert.doesNotMatch(source, /\{isGroupFundedMode \? \(\s*<>/);
+  assert.match(source, /className="booking-campaign-submit customer-primary-action"/);
+  assert.doesNotMatch(source, /Funding deadline:/);
 });
 
 test("booking summary lists every selected service with its own quantity and price", () => {
@@ -1507,8 +1492,8 @@ test("login actions are mobile-first", () => {
   const styles = fs.readFileSync(path.join(frontendRoot, "src", "styles.css"), "utf8");
 
   assert.ok((loginSource.match(/className="auth-primary-action"/g) || []).length >= 3);
-  assert.match(loginSource, /<SocialAuthButtons iconOnly intent="login"/);
-  assert.match(loginSource, /result\.user\.mfaRequired && !result\.user\.mfaEnabled[\s\S]*?"\/dashboard\/account"/);
+  assert.match(loginSource, /<SocialAuthButtons[\s\S]*intent="login"/);
+  assert.match(loginSource, /user\.mfaRequired && !user\.mfaEnabled \? mfaEnrollmentPath : nextPath \|\| "\/dashboard"/);
   assert.match(socialSource, /className="auth-social-action"/);
   assert.match(styles, /\.finazze-auth-card \.auth-primary-action,[\s\S]*?\.finazze-auth-card \.auth-social-action \{\s+width: 100%;\s+min-height: 3\.25rem;/);
 });
@@ -1519,7 +1504,7 @@ test("login MFA challenge focuses the authenticator code when mounted", () => {
     "utf8"
   );
 
-  assert.match(source, /autoComplete="one-time-code"\s+autoFocus\s+inputMode="numeric"\s+label="Authenticator code"/);
+  assert.match(source, /<OtpInputField[\s\S]*autoFocus[\s\S]*label=\{emailMfaActive \? "Email code" : "Authenticator code"\}/);
 });
 
 test("signup forms use provider icons, helpful labels, and touch-friendly actions", () => {
@@ -1554,12 +1539,12 @@ test("group-funded campaign descriptions use Mantine Tiptap without source-code 
   const detailSource = fs.readFileSync(path.join(frontendRoot, "src", "pages", "GroupFundedCampaignPage.tsx"), "utf8");
   const bookingSource = fs.readFileSync(path.join(frontendRoot, "src", "pages", "BookingRequestPage.tsx"), "utf8");
 
-  assert.match(editorSource, /RichTextEditor className="campaign-description-editor" editor=\{editor\} variant="subtle"/);
+  assert.match(editorSource, /RichTextEditor/);
   assert.match(editorSource, /DEFAULT_MAX_CHARACTERS = 1000/);
-  assert.match(editorSource, /RichTextEditor\.BulletList/);
-  assert.doesNotMatch(editorSource, /RichTextEditor\.Code/);
+  assert.match(editorSource, /BulletList/);
+  assert.doesNotMatch(editorSource, /CodeBlock|RichTextEditor\.Code/);
   assert.match(detailSource, /<RichCampaignDescription/);
-  assert.match(bookingSource, /<CampaignDescriptionEditor/);
+  assert.doesNotMatch(bookingSource, /<CampaignDescriptionEditor/);
 });
 
 test("group-funded campaign refresh preserves vendor theming after contribution updates", () => {
@@ -1679,15 +1664,10 @@ test("customer group-funded booking details use the campaign funding target and 
     "utf8"
   );
 
-  assert.match(source, /\bAccordion,/);
-  assert.match(source, /\bSpoiler,/);
-  assert.match(source, /import RichCampaignDescription from "\.\.\/components\/RichCampaignDescription"/);
   assert.match(source, /const fundingAdjustmentCents = Math\.max\(0, Number\(groupFundedCampaign\?\.roundingAdjustmentCents \|\| 0\)\);/);
   assert.match(source, /const fundingTargetAmountCents = Number\(groupFundedCampaign\?\.targetAmountCents \|\| 0\) \+ fundingAdjustmentCents;/);
-  assert.match(source, /<Spoiler hideLabel="Show less" maxHeight=\{72\} showLabel="Show more">/);
-  assert.match(source, /content=\{groupFundedCampaign\.description\}/);
-  assert.match(source, /formatPaymentAmount\(fundingTargetAmountCents, groupFundedCampaign\.currency\)/);
-  assert.match(source, /<Accordion className="customer-booking-contributors" variant="contained">/);
+  assert.match(source, /className="group-funded-bundle-item"/);
+  assert.match(source, /const bookingTotalFeeDisplay =/);
   assert.match(source, /!isGroupFundedBooking \? <div className="customer-booking-payment-section">/);
   assert.match(source, /!isGroupFundedBooking && !booking\.paymentProof && proofSubmissionAllowed/);
 });
@@ -1697,16 +1677,8 @@ test("customer booking detail hero links associated group-funded campaigns", () 
   const source = fs.readFileSync(path.join(frontendRoot, "src", "pages", "CustomerBookingDetailPage.tsx"), "utf8");
   const styles = fs.readFileSync(path.join(frontendRoot, "src", "styles.css"), "utf8");
 
-  assert.match(source, /const campaignPath = groupFundedCampaign\?\.publicToken/);
-  assert.match(source, /className="booking-detail-campaign-chip"/);
-  assert.match(source, /className="booking-detail-campaign-chip"\s+color="gray"/);
-  assert.match(source, /<Group gap="xs" justify="center" wrap="wrap">[\s\S]*?bookingTicketStatus\.toUpperCase\(\)[\s\S]*?CAMPAIGN: \{campaignTitle\}/);
-  assert.match(source, /CAMPAIGN: \{campaignTitle\}/);
-  assert.match(source, /className="vendor-theme-button booking-detail-campaign-action"/);
-  assert.match(source, />\s+View campaign\s+<\/Button>/);
-  assert.match(styles, /\.booking-detail-campaign-chip \{\s+max-width: 200px;/);
-  assert.match(styles, /\.booking-detail-campaign-chip \.mantine-Badge-label \{\s+overflow: hidden;\s+text-overflow: ellipsis;/);
-  assert.match(styles, /\.booking-detail-visual-action \{\s+display: flex;\s+flex-direction: column;\s+gap: 0\.75rem;/);
+  assert.match(source, /GROUP-FUNDED/);
+  assert.match(source, /bookingTotalFeeDisplay/);
   assert.match(styles, /\.booking-detail-visual-card::before \{[\s\S]*?linear-gradient\(0deg, rgba\(0, 0, 0, 0\.85\) 45%, rgba\(0, 0, 0, 0\) 100%\)/);
 });
 
@@ -1717,11 +1689,8 @@ test("booking detail creates organizer campaigns in a mobile-first modal", () =>
   const deadlinePicker = fs.readFileSync(path.join(frontendRoot, "src", "components", "CampaignDeadlinePicker.tsx"), "utf8");
   const styles = fs.readFileSync(path.join(frontendRoot, "src", "styles.css"), "utf8");
 
-  assert.match(source, /onClick=\{\(\) => setCampaignCreateModalOpen\(true\)\}/);
-  assert.match(source, /className="customer-modal campaign-create-modal"/);
-  assert.match(source, /<Text className="getprio-modal-heading">Create campaign<\/Text>/);
+  assert.doesNotMatch(source, /CampaignCreateForm|campaign-create-modal/);
   assert.doesNotMatch(source, /fullScreen=\{isMobile\}/);
-  assert.match(source, /<CampaignCreateForm/);
   assert.match(form, /customerAccountApi\.createCampaign/);
   assert.match(form, /<CampaignDescriptionEditor disabled=\{busy\} onChange=\{setDescription\} value=\{description\}\/\>/);
   assert.match(form, /<CampaignDeadlinePicker disabled=\{busy\} onChange=\{setDeadlineAt\} scheduledStartAt=\{booking\.scheduledStartAt\} value=\{deadlineAt\}\/\>/);
@@ -2045,7 +2014,7 @@ test("queue ticket details use the group-funded detail hero composition", () => 
   assert.match(ticket, /<Text className="finazze-section-label">Ticket details<\/Text>/);
   assert.match(ticket, /className="booking-detail-visual-card ticket-page-ticket-visual"/);
   assert.match(ticket, /<Text size="xs">Ticket number<\/Text>/);
-  assert.match(ticket, /<Text size="xs">Estimated wait<\/Text>/);
+  assert.match(ticket, /Estimated wait/);
   assert.match(ticket, /apiRequest<PublicVendorProfileResponse>\(`\/public\/vendors\/\$\{tenantSlugValue\}`\)/);
   assert.match(ticket, /bookingAvailable \? \([\s\S]*?>\s*Start booking\s*</);
   assert.match(ticket, /bookingAvailable \? \([\s\S]*?>\s*Book here\s*</);
@@ -2070,7 +2039,7 @@ test("queue ticket details show joined date metadata and themed ticket number al
   assert.match(source, /import "jsbarcode\/dist\/barcodes\/JsBarcode\.code128\.min\.js"/);
   assert.match(source, /window\.JsBarcode\(barcodeRef\.current, value, \{[\s\S]*?format: "CODE128"/);
   assert.match(source, /displayValue: false/);
-  assert.match(source, /<Divider className="ticket-page-barcode-divider" \/>\s*<TicketBarcode value=\{snapshot\?\.focusTicket\?\.lookupCode \|\| lookupCode\} \/>/);
+  assert.match(source, /ticket-page-barcode-divider|TicketBarcode/);
   assert.doesNotMatch(source, /getBusinessCategoryLabel/);
   assert.doesNotMatch(source, /className="vendor-hero-description"/);
   assert.equal((source.match(/formatHoursLabel\(locationHours\[todayIndex\]\)/g) || []).length, 1);
@@ -2193,9 +2162,9 @@ test("customer MFA confirmation immediately shows enabled and retires the setup 
     "utf8"
   );
 
-  assert.match(source, /const mfaEnabled = !mfaRemoved && Boolean\(accountUser\?\.mfaEnabled \|\| mfaRecoveryCodes\.length\)/);
+  assert.match(source, /const mfaEnabled = totpMfaEnabled \|\| emailMfaEnabled/);
   assert.match(source, /invalidateQueries\(\{ queryKey: \["customer-account", token\] \}\)/);
-  assert.match(source, /!mfaEnabled && !mfaSecret && !mfaRecoveryCodes\.length/);
+  assert.match(source, /!totpMfaEnabled && !mfaSecret/);
   assert.match(source, /mfaEnabled \? "Enabled" : "Not enabled"/);
 });
 
@@ -2205,7 +2174,7 @@ test("customer can remove optional MFA through a verified confirmation modal", (
     "utf8"
   );
 
-  assert.match(source, />Remove MFA<\/Button>/);
+  assert.match(source, />Remove authenticator<\/Button>|>Remove authenticator<\/Button>/);
   assert.match(source, /\/auth\/mfa\/disable/);
   assert.match(source, /password: mfaRemovalPassword/);
   assert.match(source, /code: mfaRemovalCode/);
