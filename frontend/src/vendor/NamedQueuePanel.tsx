@@ -85,7 +85,7 @@ export function NamedQueuePanel({token,tenant,location,counterSlug,staffMode=fal
    document.removeEventListener('visibilitychange',onRefresh);
    window.removeEventListener('queue-plans-updated',onRefresh);
   };
- },[active.refetch,token,tenant,location]);
+ },[active,active.refetch,skipped.refetch,token,tenant,location]);
  // Keep setup readiness and any open form current; invalidation never resets draft state.
  useEffect(()=>{
    const refreshCatalog=()=>{
@@ -146,7 +146,7 @@ export function NamedQueuePanel({token,tenant,location,counterSlug,staffMode=fal
  useEffect(()=>{
   if(active.isPending||active.isFetchingNextPage||!active.hasNextPage)return;
   void active.fetchNextPage();
- },[active.fetchNextPage,active.hasNextPage,active.isFetchingNextPage,active.isPending]);
+ },[active,active.fetchNextPage,active.hasNextPage,active.isFetchingNextPage,active.isPending]);
  useEffect(()=>{
   const handleAmend=(event:Event)=>{
    const detail=(event as CustomEvent<{planId?:string;tenant?:string;location?:string}>).detail;
@@ -156,7 +156,7 @@ export function NamedQueuePanel({token,tenant,location,counterSlug,staffMode=fal
   window.addEventListener('queue-request-amend',handleAmend);
   return()=>window.removeEventListener('queue-request-amend',handleAmend);
  },[location,open,tenant]);
- useEffect(()=>{if(managementOnly&&!skipped.isPending&&!skipped.isFetchingNextPage&&skipped.hasNextPage)void skipped.fetchNextPage();},[managementOnly,skipped.isPending,skipped.isFetchingNextPage,skipped.hasNextPage,skipped.fetchNextPage]);
+ useEffect(()=>{if(managementOnly&&!skipped.isPending&&!skipped.isFetchingNextPage&&skipped.hasNextPage)void skipped.fetchNextPage();},[managementOnly,skipped,skipped.isPending,skipped.isFetchingNextPage,skipped.hasNextPage,skipped.fetchNextPage]);
  const ids=[...new Set([...plans.map(plan=>plan.ticketId),...(skipped.data?.pages.flatMap(page=>page.plans)||[]).filter(plan=>plan.contractVersion===3||plan.contractVersion===4).map(plan=>plan.ticketId)])].sort().join(',');
  useEffect(()=>{
   idsRef.current(ids?ids.split(','):[],inventoryScope);

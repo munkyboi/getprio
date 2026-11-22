@@ -275,7 +275,7 @@ function OwnedBookingDetail({renderPresentation,renderUnavailable,renderLoading}
     if (!token || !bookingId) return undefined;
     void loadBooking({ showLoading: true });
     return () => { gate.invalidate(); };
-  }, [bookingId, loadBooking, token]);
+  }, [bookingId, gate, loadBooking, token]);
 
   useEffect(() => {
     if (!token || !booking?.tenantSlug || !booking.locationSlug) {
