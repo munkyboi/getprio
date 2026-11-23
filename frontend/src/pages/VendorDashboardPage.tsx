@@ -1464,7 +1464,7 @@ function VendorDashboardContent() {
       return vendorDashboardBookings.getBookings(token, selectedTenantSlug, selectedLocationSlug, bookingPage, bookingSearch, bookingStatusFilter, [
         bookingDateRange[0] ? formatDateInputValue(bookingDateRange[0]) : null,
         bookingDateRange[1] ? formatDateInputValue(bookingDateRange[1]) : null
-      ], hideNonActiveBookings);
+      ]);
     },
     enabled: Boolean(
       canLoadProtectedDashboard &&
@@ -4124,8 +4124,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         token,
         selectedTenantSlug,
         locationSlug,
-        file,
-        onPrepared
+        file
       );
       if (!data.asset?.publicUrl) {
         throw new Error("Payment QR upload completed without a usable image URL.");
@@ -9365,7 +9364,6 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       }
                     />
                     <BusinessCategorySelect
-                      vendor
                       disabled={profileDisabled}
                       value={settings.businessCategoryId || null}
                       currentLabel={settings.publicProfileCategory}
@@ -9393,7 +9391,6 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     <div className="queue-stack">
                       <p className="ops-strong">Business description</p>
                       <CampaignDescriptionEditor
-                        label="Business description"
                         key={selectedTenantSlug}
                         disabled={profileDisabled || settingsBusy}
                         maxCharacters={1000}
@@ -10575,7 +10572,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     }
 
     if (currentSection === "ratings") {
-      return <VendorRatingsPanel key={selectedTenantSlug} token={token!} tenantSlug={selectedTenantSlug} onBusyChange={setRatingsBusy} />;
+      return <VendorRatingsPanel key={selectedTenantSlug} token={token!} tenantSlug={selectedTenantSlug} />;
     }
 
     if (currentSection === "account") {

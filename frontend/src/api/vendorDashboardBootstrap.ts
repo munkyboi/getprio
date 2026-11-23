@@ -35,7 +35,9 @@ export async function getBootstrap(
   const selectedLocation = visibleLocations.find((location) => location.slug === requestedLocation)
     || visibleLocations.find((location) => location.isPrimary)
     || visibleLocations[0];
-  const scopedLocationQuery = selectedLocation ? `?location=${encodeURIComponent(selectedLocation.slug)}` : "";
+  const scopedLocationQuery = selectedLocation
+    ? `?location=${encodeURIComponent(selectedLocation.slug)}`
+    : locationQuery;
   const [snapshotResponse, notificationSettingsResponse] = await Promise.all([
     apiRequest<QueueSnapshot>(`/vendor/tenant/${tenantSlug}/dashboard${scopedLocationQuery}`, { token }),
     includeNotificationSettings
