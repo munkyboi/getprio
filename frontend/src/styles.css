@@ -3272,6 +3272,15 @@ button {
   color: var(--foreground);
 }
 
+.public-theme-toggle {
+  border: 0;
+}
+
+.public-theme-toggle:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 3px;
+}
+
 .marketing-menu-trigger {
   display: none;
   font-size: 1.25rem;
