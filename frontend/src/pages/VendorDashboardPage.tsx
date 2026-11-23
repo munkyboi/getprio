@@ -1,5 +1,5 @@
 import { VendorRatingsPanel } from "../components/VendorRatingsPanel";
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Alert,
@@ -644,6 +644,32 @@ type QueueView = "current" | "overflow" | "recovery";
 type ClientSort = "latestVisitDesc" | "latestVisitAsc" | "nameAsc" | "nameDesc" | "visitsDesc" | "visitsAsc";
 type HistorySort = "updatedDesc" | "updatedAsc" | "ticketAsc" | "ticketDesc" | "customerAsc" | "customerDesc";
 type BookingStatusFilter = "all" | "pending" | "confirmed" | "rescheduled" | "canceled";
+
+type DashboardSectionRenderers = Partial<Record<DashboardSection, () => ReactNode>>;
+
+function DashboardSectionContent({
+  currentSection,
+  hasActiveSubscription,
+  onViewPlans,
+  renderers,
+  ratings
+}: {
+  currentSection: DashboardSection;
+  hasActiveSubscription: boolean;
+  onViewPlans: () => void;
+  renderers: DashboardSectionRenderers;
+  ratings: ReactNode;
+}) {
+  if (!hasActiveSubscription && currentSection !== "settings" && currentSection !== "account") {
+    return <ActivationPanel onViewPlans={onViewPlans} />;
+  }
+
+  if (currentSection === "ratings") {
+    return ratings;
+  }
+
+  return renderers[currentSection]?.() ?? renderers.settings?.() ?? null;
+}
 
 const CLIENTS_PAGE_SIZE = 10;
 const HISTORY_PAGE_SIZE = 10;
@@ -9727,54 +9753,6 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     );
   }
 
-  function renderCurrentSection() {
-    if (!hasActiveSubscription && currentSection !== "settings" && currentSection !== "account") {
-      return <ActivationPanel onViewPlans={() => openPlanDialog()} />;
-    }
-
-    if (currentSection === "queue") {
-      return renderQueuePage();
-    }
-
-    if (currentSection === "tenants") {
-      return renderTenantsPage();
-    }
-
-    if (currentSection === "services") {
-      return renderServicesPage();
-    }
-
-    if (currentSection === "bookings") {
-      return renderBookingsPage();
-    }
-
-    if (currentSection === "clients") {
-      return renderClientsPage();
-    }
-
-    if (currentSection === "staff") {
-      return renderStaffPage();
-    }
-
-    if (currentSection === "history") {
-      return renderHistoryPage();
-    }
-
-    if (currentSection === "reports") {
-      return renderReportsPage();
-    }
-
-    if (currentSection === "ratings") {
-      return <VendorRatingsPanel key={selectedTenantSlug} token={token!} tenantSlug={selectedTenantSlug} />;
-    }
-
-    if (currentSection === "account") {
-      return renderAccountPage();
-    }
-
-    return renderSettingsPage();
-  }
-
   if (loading) {
     return <Card className="neura-card">Loading dashboard...</Card>;
   }
@@ -9890,7 +9868,24 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
           snapshot={snapshot}
         /> : null}
         {error ? <Text c="red" fw={700}>{error}</Text> : null}
-        {renderCurrentSection()}
+        <DashboardSectionContent
+          currentSection={currentSection}
+          hasActiveSubscription={hasActiveSubscription}
+          onViewPlans={() => openPlanDialog()}
+          ratings={<VendorRatingsPanel key={selectedTenantSlug} token={token!} tenantSlug={selectedTenantSlug} />}
+          renderers={{
+            queue: renderQueuePage,
+            tenants: renderTenantsPage,
+            services: renderServicesPage,
+            bookings: renderBookingsPage,
+            clients: renderClientsPage,
+            staff: renderStaffPage,
+            history: renderHistoryPage,
+            reports: renderReportsPage,
+            account: renderAccountPage,
+            settings: renderSettingsPage
+          }}
+        />
       </main>
       {renderPlanDialog()}
       {renderLocationDialog()}
