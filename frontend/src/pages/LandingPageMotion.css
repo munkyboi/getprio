@@ -9,6 +9,7 @@
 .lp-hero-line { display: block; overflow: hidden; padding: 0 0 .13em; margin-bottom: -.1em; }
 .lp-hero-line > span { display: block; }
 .lp-title em, .lp-section-head em { color: #b95a20; font-weight: 400; }
+.lp-title em { text-decoration: underline; text-decoration-color: #f68128; text-decoration-thickness: .08em; text-underline-offset: .08em; }
 .lp-hero-copy { max-width: 390px; font-size: 16px; line-height: 1.75; color: #6d6459; margin: 0 0 25px; }
 .lp-hero-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 15px 25px; }
 .lp-hero-actions .mantine-Button-label { gap: 20px; }
@@ -69,6 +70,29 @@
 }
 .lp-page .prio-plan-art { height: 110px; }
 .lp-page .prio-pricing-card .mantine-Button-root { width: 100%; }
+
+html[data-public-theme="dark"] .lp-page {
+  color: #f5f8fa;
+  background: #0e1720;
+}
+html[data-public-theme="dark"] .lp-hero,
+html[data-public-theme="dark"] .lp-features,
+html[data-public-theme="dark"] .lp-pricing { background: #0e1720; }
+html[data-public-theme="dark"] .lp-hero { background: radial-gradient(ellipse at 80% 45%, #3c2b1d 0, transparent 55%), #0e1720; }
+html[data-public-theme="dark"] .lp-title em,
+html[data-public-theme="dark"] .lp-section-head em { color: #ffb477; }
+html[data-public-theme="dark"] .lp-hero-copy,
+html[data-public-theme="dark"] .lp-section-head > p:last-child,
+html[data-public-theme="dark"] .lp-feature p,
+html[data-public-theme="dark"] .lp-manifesto-bottom p { color: #cdd8de; }
+html[data-public-theme="dark"] .lp-hero-footer,
+html[data-public-theme="dark"] .lp-feature { border-color: #354654; color: #cdd8de; }
+html[data-public-theme="dark"] .lp-manifesto { background: #16212b; }
+html[data-public-theme="dark"] .lp-feature-stage { background: #202f3b; }
+html[data-public-theme="dark"] .lp-page .lp-pricing { background: #16212b; }
+html[data-public-theme="dark"] .lp-page .prio-pricing-card { background: #16212b; color: #f5f8fa; border-color: #354654; }
+html[data-public-theme="dark"] .lp-page .prio-pricing-card-featured { background: #3c2b1d; border-color: #d48c44; }
+html[data-public-theme="dark"] .lp-closing { background: #0e1720; }
 .lp-closing { color: #fff3df; background: #24251e; overflow: clip; padding: 64px 0; }
 .lp-closing .lp-eyebrow { color: #efa668; }
 .lp-closing-grid { display: grid; gap: 38px; align-items: center; }
