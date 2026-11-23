@@ -66,7 +66,7 @@ export function CustomerBookingView({
   const submitRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     if (m.otp) setVerificationOpen(true);
-  }, [m.otp?.otpId]);
+  }, [m.otp, m.otp?.otpId]);
   const locked = Boolean(m.otp) || m.submitting;
   const total = m.resourceMode
     ? "Amount confirmed by vendor"

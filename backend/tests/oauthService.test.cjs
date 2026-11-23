@@ -324,11 +324,13 @@ test("oauth service verifies Apple identity and exchanges the authorization code
     }
   });
   const originalFetch = global.fetch;
-  global.fetch = async (url) => {
+  let nativeTokenRequest;
+  global.fetch = async (url, options) => {
     if (url === "https://appleid.apple.com/auth/keys") {
       return { ok: true, text: async () => JSON.stringify({ keys: [{ ...rsaKey.publicKey.export({ format: "jwk" }), kid: keyId, alg: "RS256", use: "sig" }] }) };
     }
     assert.equal(url, "https://appleid.apple.com/auth/token");
+    nativeTokenRequest = options;
     return { ok: true, text: async () => JSON.stringify({ id_token: identityToken }) };
   };
   try {
@@ -346,6 +348,7 @@ test("oauth service verifies Apple identity and exchanges the authorization code
       emailVerified: true,
       name: "Apple Customer"
     });
+    assert.equal(new URLSearchParams(nativeTokenRequest.body).has("redirect_uri"), false);
   } finally {
     global.fetch = originalFetch;
   }

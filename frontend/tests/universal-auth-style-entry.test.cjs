@@ -1,4 +1,5 @@
 const assert = require("node:assert/strict");
+const test = require("node:test");
 const fs = require("node:fs");
 const path = require("node:path");
 
@@ -8,6 +9,7 @@ const authStyles = fs.readFileSync(path.join(root, "src/pages/universal-auth.css
 const authPage = fs.readFileSync(path.join(root, "src/pages/UniversalAuthPage.tsx"), "utf8");
 const customerFallback = fs.readFileSync(path.join(root, "src/customer/components/CustomerFallbackPresentations.tsx"), "utf8");
 
+test("universal auth keeps its complete style and provider entry contract", () => {
 assert.match(entry, /import "\.\.\/styles\.css"/u);
 assert.match(entry, /import "\.\.\/vendor\/styles\.css"/u);
 assert.match(entry, /import "\.\.\/pages\/universal-auth\.css"/u);
@@ -16,5 +18,4 @@ assert.match(authStyles, /\[data-slot=input\]/u);
 assert.match(authStyles, /\[data-slot=tabs-trigger\]/u);
 assert.match(authPage, /provider === "apple"/u);
 assert.match(customerFallback, /oauthProviders\.apple \?/u);
-
-console.log("universal auth style entry passed");
+});

@@ -45,6 +45,7 @@ export function PlatformDataTable<TData>({ columns, data, emptyMessage, tableCla
     enableSorting: false,
     cell: ({ row }) => rowActions(row.original),
   }] : columns
+  // oxlint-disable-next-line react-hooks/incompatible-library -- TanStack Table owns this hook's mutable table instance.
   const table = useReactTable({
     data,
     columns: resolvedColumns,

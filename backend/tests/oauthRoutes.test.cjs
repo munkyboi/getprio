@@ -222,6 +222,7 @@ test("oauth callback route completes login and redirects with tokens", async () 
     },
     "../services/oauthService": {
       buildAuthorizationUrl: () => "",
+      buildServerCallbackUrl: (provider) => `https://api.example/api/auth/oauth/${provider}/callback`,
       buildClientCallbackUrl: (payload) => {
         receivedCallbackArgs = payload;
         return "https://app.example/oauth/callback";
@@ -267,7 +268,8 @@ test("oauth callback route completes login and redirects with tokens", async () 
   assert.deepEqual(receivedProfile, {
     provider: "google",
     code: "auth-code",
-    requestBody: {}
+    requestBody: {},
+    redirectUri: "https://api.example/api/auth/oauth/google/callback"
   });
   assert.deepEqual(receivedCallbackArgs, { next: "/" });
   assert.equal(res.redirectUrl, "https://app.example/oauth/callback");

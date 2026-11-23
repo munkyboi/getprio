@@ -77,4 +77,5 @@ function TabsContent({ className, ...props }: TabsPrimitive.Panel.Props) {
   )
 }
 
+// oxlint-disable-next-line react/only-export-components -- shadcn variant helper is intentionally exported with the component.
 export { Tabs, TabsList, TabsTrigger, TabsContent, tabsListVariants }

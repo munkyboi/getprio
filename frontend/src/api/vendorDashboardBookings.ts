@@ -10,7 +10,6 @@ import type {
   VendorCheckInBookingResponse,
 } from "@shared";
 import { apiRequest } from "./client";
-
 export function getBookings(
   token: string,
   tenantSlug: string,
@@ -118,17 +117,5 @@ export function rejectBookingPayment(
   return apiRequest<VendorBookingResponse, RejectVendorBookingPaymentRequest>(
     `/vendor/tenant/${tenantSlug}/bookings/${bookingId}/reject-payment`,
     { method: "PATCH", token, body }
-  );
-}
-
-export function rateOrganizer(
-  token: string,
-  tenantSlug: string,
-  bookingId: string,
-  body: { stars: number; reasonCategory?: string; privateNote?: string }
-) {
-  return apiRequest<{ rating: { id: string } }, typeof body>(
-    `/vendor/tenant/${tenantSlug}/bookings/${bookingId}/organizer-rating`,
-    { method: "POST", token, body }
   );
 }

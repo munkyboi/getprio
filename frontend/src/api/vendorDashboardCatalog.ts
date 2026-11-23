@@ -44,13 +44,20 @@ export function getCounters(token: string, tenantSlug: string, locationSlug: str
   );
 }
 
-export function saveService(token: string, tenantSlug: string, slug: string | null, body: SaveVendorServiceRequest) {
-  const path = slug ? `/vendor/tenant/${tenantSlug}/services/${slug}` : `/vendor/tenant/${tenantSlug}/services`;
+export function saveService(token: string, tenantSlug: string, slug: string | null, body: SaveVendorServiceRequest, queueOnly = false) {
+  const basePath = queueOnly ? `/vendor/tenant/${tenantSlug}/queue/services` : `/vendor/tenant/${tenantSlug}/services`;
+  const path = slug ? `${basePath}/${slug}` : basePath;
   const method = slug ? "PATCH" : "POST";
-  return apiRequest<VendorServiceResponse, SaveVendorServiceRequest>(path, { method, token, body });
+  const requestBody = queueOnly
+    ? { name: body.name, slug: body.slug, description: body.description, durationMinutes: body.durationMinutes, isActive: body.isActive, sortOrder: body.sortOrder, locationServices: body.locationServices }
+    : body;
+  return apiRequest<VendorServiceResponse, typeof requestBody>(path, { method, token, body: requestBody });
 }
 
-export function deactivateService(token: string, tenantSlug: string, slug: string) {
+export function deactivateService(token: string, tenantSlug: string, slug: string, queueOnly = false) {
+  if (queueOnly) {
+    return apiRequest<VendorServiceResponse, { isActive: boolean }>(`/vendor/tenant/${tenantSlug}/queue/services/${slug}`, { method: "PATCH", token, body: { isActive: false } });
+  }
   return apiRequest<VendorServiceResponse>(`/vendor/tenant/${tenantSlug}/services/${slug}`, {
     method: "DELETE",
     token

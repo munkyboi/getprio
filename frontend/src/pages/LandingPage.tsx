@@ -1,3 +1,4 @@
+import { appUrl } from "../surfaces/surfaceConfig";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import {
   Alert,
@@ -33,7 +34,7 @@ import {
   IconQrcode,
 } from "@tabler/icons-react";
 import { notifications } from "@mantine/notifications";
-import { Link, useLocation } from "react-router-dom";
+import { useLocation } from "react-router-dom";
 import type { BillingOverviewResponse, EnterpriseInquiryRequest, EnterpriseInquiryResponse, SubscriptionPlan } from "@shared";
 import PhilippineMobileInput from "../components/PhilippineMobileInput";
 import { apiRequest } from "../api/client";
@@ -265,7 +266,7 @@ export default function LandingPage() {
             </h1>
             <p className="lp-hero-copy">Life happens beyond the line. Join a queue, follow your place, and get a heads-up when it’s your turn.</p>
             <div className="lp-hero-actions">
-              <Button className="customer-primary-action" component={Link} to="/vendors" color="dark" size="lg" radius="xl">Find your next stop <IconArrowUpRight size={22} stroke={1.5} aria-hidden="true" /></Button>
+              <Button className="customer-primary-action" component="a" href={appUrl("customer", "/vendors")} color="dark" size="lg" radius="xl">Find your next stop <IconArrowUpRight size={22} stroke={1.5} aria-hidden="true" /></Button>
               <a className="lp-text-link" href="#workflow">See how it works <IconArrowDown size={14} aria-hidden="true" /></a>
             </div>
             <div className="lp-app-links">
@@ -299,9 +300,9 @@ export default function LandingPage() {
             <ConnectedScreensParallax />
             <div className="lp-stage-foot"><span>THE PUBLIC BOARD</span><span>YOUR PHONE</span><span>YOUR TEAM</span></div>
           </div>
-          <div className="lp-feature-list">{services.map((service) => {
+          <div className="lp-feature-list">{services.map((service, index) => {
             const Icon = service.icon;
-            return <article className="lp-feature" key={service.title}><Icon size={26} stroke={1.5} /><h3>{service.title}</h3><p>{service.text}</p></article>;
+            return <article className="lp-feature" key={service.title}><span className="lp-feature-number">0{index + 1}</span><div className="lp-feature-heading"><Icon size={26} stroke={1.5} /><h3>{service.title}</h3></div><p>{service.text}</p></article>;
           })}</div>
         </div>
       </section>
@@ -312,6 +313,7 @@ export default function LandingPage() {
         <Container size="xl">
           <Stack gap="xl">
             <div className="prio-centered-copy" data-reveal>
+              <Text className="prio-label">04 / ROOM TO GROW</Text>
               <Title className="prio-section-title" order={2}>
                 A calmer day. At every scale.
               </Title>
@@ -358,9 +360,9 @@ export default function LandingPage() {
                     ) : (
                       <Button
                         color={plan.slug === "pro" ? "orange" : "dark"}
-                        component={Link}
+                        component="a"
                         mt="auto"
-                        to="/register/vendor"
+                        href={appUrl("vendor", "/register")}
                         variant={plan.slug === "pro" ? "filled" : "outline"}
                       >
                         {plan.slug === "free" ? "Start free" : "Choose plan"}
@@ -379,14 +381,17 @@ export default function LandingPage() {
           <div className="lp-closing-copy">
             <h2 id="closing-title"><span data-closing-reveal>Good service.</span><br /><em data-closing-reveal>More breathing room.</em></h2>
             <p data-closing-reveal>Give your customers their time back.<br />Give your team a clearer way to serve.</p>
-            <div className="lp-closing-actions">
-              <Button data-closing-reveal component={Link} to="/register/vendor" color="orange" size="xl" radius="xl" rightSection={<IconArrowUpRight size={22} stroke={1.5} aria-hidden="true" />}>Create your workspace</Button>
-              <a data-closing-reveal href="/vendors" className="lp-text-link">Explore vendors <IconArrowRight size={16} aria-hidden="true" /></a>
+            <div className="lp-closing-actions" data-closing-reveal>
+              <Button component="a" href={appUrl("vendor", "/register")} color="orange" size="xl" radius="xl" rightSection={<IconArrowUpRight size={22} stroke={1.5} aria-hidden="true" />}>Create your workspace</Button>
+              <a href={appUrl("customer", "/vendors")} className="lp-text-link">Explore vendors <IconArrowRight size={16} aria-hidden="true" /></a>
             </div>
+            <div className="lp-closing-footnote" data-closing-reveal>From the first scan to the final smile.</div>
           </div>
           <div className="lp-closing-scene">
             <img className="lp-closing-logo" src="/logo.svg" alt="" aria-hidden="true" />
+            <div className="lp-closing-scene-label"><span className="lp-dot" />LESS WAITING. MORE POSSIBILITY.</div>
             <img className="lp-closing-art" src="/illustrations/generated/cta-queue-scene-transparent.png" alt="Customers enjoying a calm service queue" loading="lazy" />
+            <div className="lp-closing-scene-footer"><span>YOUR PLACE IS KEPT.</span><span>YOUR DAY IS YOURS. <IconArrowUpRight size={12} aria-hidden="true" /></span></div>
           </div>
         </div>
       </section>
