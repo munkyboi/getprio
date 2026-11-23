@@ -68,7 +68,7 @@ test('separate real route registries own their auth aliases and never mount othe
 });
 test('marketing auth provider skips both session and OAuth discovery bootstrap effects',()=>{
  const source=fs.readFileSync(path.resolve(__dirname,'../src/context/AuthContext.tsx'),'utf8');const ast=ts.createSourceFile('AuthContext.tsx',source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TSX);const callbacks=[];
- function visit(node){if(ts.isCallExpression(node)&&node.expression.getText(ast)==='useEffect'&&node.arguments[0]){const callback=node.arguments[0];if(callback.getText(ast).includes('/auth/me')||callback.getText(ast).includes('/auth/oauth/providers'))callbacks.push(callback);}ts.forEachChild(node,visit);}visit(ast);assert.equal(callbacks.length,2);
+ function visit(node){if(ts.isCallExpression(node)&&node.expression.getText(ast)==='useEffect'&&node.arguments[0]){const callback=node.arguments[0];if(callback.getText(ast).includes('/auth/me')||callback.getText(ast).includes('/auth/oauth/providers'))callbacks.push(callback);}ts.forEachChild(node,visit);}visit(ast);assert.equal(callbacks.length,3);
  for(const callback of callbacks){const ctx={exports:{},publicOnly:true,EMPTY_OAUTH_PROVIDERS:{google:false,facebook:false,apple:false},apiRequest:()=>Promise.resolve({}),sessionRequest:()=>Promise.resolve({}),localStorage:{removeItem(){}},setOauthProviders(){},setOauthLoading(){},setUser(){},setToken(){},setRefreshToken(){},setSessionExpiresAt(){},setLoading(){}};vm.createContext(ctx);vm.runInContext(ts.transpileModule('exports.run='+callback.getText(ast),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,ctx);ctx.exports.run();}
 });
 

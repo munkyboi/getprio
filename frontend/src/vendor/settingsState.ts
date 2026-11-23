@@ -1,9 +1,10 @@
 import type { QueueSnapshot, UpdateTenantSettingsRequest } from "@shared";
 
-export function queueSettingsPayload(settings: UpdateTenantSettingsRequest) {
+export function queueSettingsPayload(settings: UpdateTenantSettingsRequest): Pick<
+  UpdateTenantSettingsRequest,
+  "queuePrefix" | "averageServiceMinutes" | "notificationThreshold" | "autoPauseEnabled" | "autoPauseThreshold" | "autoResumeEnabled" | "autoResumeVacancyPercent"
+> {
   return {
-    name: settings.name,
-    publicProfileCategory: settings.publicProfileCategory,
     queuePrefix: settings.queuePrefix,
     averageServiceMinutes: settings.averageServiceMinutes,
     notificationThreshold: settings.notificationThreshold,
