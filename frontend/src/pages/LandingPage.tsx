@@ -20,6 +20,7 @@ import {
 import {
   IconArrowDown,
   IconArrowRight,
+  IconArrowUp,
   IconArrowUpRight,
   IconAsterisk,
   IconBellRinging,
@@ -104,6 +105,10 @@ export default function LandingPage() {
   const [pricingExpanded, setPricingExpanded] = useState(false);
   const [pricingError, setPricingError] = useState("");
   const landingRoot = useRef<HTMLDivElement>(null);
+  const heroHeading = useRef<HTMLHeadingElement>(null);
+  const manifestoSection = useRef<HTMLElement>(null);
+  const scrollTopButton = useRef<HTMLButtonElement>(null);
+  const [showScrollTop, setShowScrollTop] = useState(false);
   useLandingMotion(landingRoot, pricingPlans.length);
   usePricingMagnet(landingRoot, pricingPlans.length);
   const enterpriseTurnstileContainerRef = useRef<HTMLDivElement | null>(null);
@@ -127,6 +132,39 @@ export default function LandingPage() {
     const section = document.querySelector(location.hash);
     section?.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth", block: "start" });
   }, [location.hash]);
+
+  useEffect(function observeScrollTopThreshold() {
+    const section = manifestoSection.current;
+    const landing = landingRoot.current;
+    if (!section || !landing) return;
+
+    const updateVisibility = () => {
+      const reachedSection = window.scrollY > 0 && section.getBoundingClientRect().top < window.innerHeight;
+      if (!reachedSection && scrollTopButton.current && document.activeElement === scrollTopButton.current) {
+        heroHeading.current?.focus({ preventScroll: true });
+      }
+      setShowScrollTop(reachedSection);
+    };
+
+    const resizeObserver = new ResizeObserver(updateVisibility);
+    resizeObserver.observe(landing);
+    window.addEventListener("scroll", updateVisibility, { passive: true });
+    window.addEventListener("resize", updateVisibility);
+    updateVisibility();
+    return () => {
+      resizeObserver.disconnect();
+      window.removeEventListener("scroll", updateVisibility);
+      window.removeEventListener("resize", updateVisibility);
+    };
+  }, []);
+
+  function handleScrollToTop() {
+    heroHeading.current?.focus({ preventScroll: true });
+    window.scrollTo({
+      top: 0,
+      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth"
+    });
+  }
 
   useEffect(() => {
     if (!enterpriseDialogOpen) {
@@ -259,7 +297,7 @@ export default function LandingPage() {
       <section className="lp-hero" id="product">
         <div className="lp-container lp-hero-grid">
           <div className="lp-hero-content">
-            <h1 className="lp-title">
+            <h1 className="lp-title" ref={heroHeading} tabIndex={-1}>
               <span className="lp-hero-line"><span>Your day.</span></span>
               <span className="lp-hero-line"><span>Your pace.</span></span>
               <span className="lp-hero-line"><span><em>Your priority.</em></span></span>
@@ -284,12 +322,24 @@ export default function LandingPage() {
         <div className="lp-hero-footer lp-container"><span>FOR EVERYDAY PLACES. AND EVERYONE IN THEM.</span><a href="#solutions">EXPLORE GETPRIO <IconArrowDown size={14} aria-hidden="true" /></a></div>
       </section>
 
-      <section className="lp-manifesto" aria-labelledby="lp-manifesto-title">
+      <section className="lp-manifesto" aria-labelledby="lp-manifesto-title" ref={manifestoSection}>
         <div className="lp-container">
           <h2 id="lp-manifesto-title">{'A coffee. A conversation. A moment to yourself.'.split(' ').map((word, i) => <span className="lp-manifesto-word" key={i}>{word} </span>)}<em>{'There’s more to your day than waiting.'.split(' ').map((word, i) => <span className="lp-manifesto-word" key={i}>{word} </span>)}</em></h2>
           <div className="lp-manifesto-bottom"><IconAsterisk className="lp-asterisk" size={65} stroke={1} aria-hidden="true" /><p data-reveal>We give people a clearer wait.<br />And service teams a calmer way to work.</p></div>
         </div>
       </section>
+
+      {showScrollTop && (
+        <button
+          className="lp-scroll-top"
+          type="button"
+          aria-label="Scroll to top"
+          ref={scrollTopButton}
+          onClick={handleScrollToTop}
+        >
+          <IconArrowUp size={22} aria-hidden="true" />
+        </button>
+      )}
 
       <section className="lp-features" id="solutions">
         <div className="lp-container">

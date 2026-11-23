@@ -1,5 +1,30 @@
 @import url("/fonts/aleo/aleo.css");
 .lp-page { color: #25241f; background: #f7f4ec; min-width: 0; }
+.lp-scroll-top {
+  position: fixed;
+  inset-inline-end: calc(16px + env(safe-area-inset-right, 0px));
+  inset-block-end: calc(16px + env(safe-area-inset-bottom, 0px));
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  padding: 0;
+  border: 1px solid var(--border, #dce0e3);
+  border-radius: 50%;
+  color: var(--foreground, #25241f);
+  background: var(--card, #fff);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 18%);
+  cursor: pointer;
+}
+.lp-scroll-top:hover { background: var(--secondary, #f0ede8); }
+.lp-scroll-top:focus-visible {
+  outline: 2px solid var(--link, #3159bd);
+  outline-offset: 3px;
+}
+.public-marketing-shell:has(.lp-page) .site-footer {
+  padding-block-end: calc(80px + env(safe-area-inset-bottom, 0px));
+}
 .lp-container { width: min(1288px, calc(100% - 40px)); margin: 0 auto; }
 .lp-eyebrow { font-size: 10px; font-weight: 700; letter-spacing: .18em; margin: 0 0 24px; color: #92562d; }
 .lp-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #f68128; margin-right: 9px; }
