@@ -1024,10 +1024,7 @@ function updateServiceLocationEntries(
   );
 }
 
-// NOSONAR: this route-level controller intentionally coordinates the dashboard's
-// independent data/loading/error branches; behavior-preserving extraction is tracked
-// separately to avoid altering active dashboard flows.
-export default function VendorDashboardPage() {
+export default function VendorDashboardPage() { // NOSONAR: route-level controller coordinates independent dashboard data branches.
   const { token, user, loading, logout, refreshUser, changePassword } = useAuth();
   const { section } = useParams<{ section: string }>();
   const location = useLocation();
@@ -4205,7 +4202,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     disabled={busyAction === `checkout:${plan.slug}`}
                     mt="auto"
                     onClick={() => {
-                      if (plan.slug !== "free") handleStartCheckout(plan.slug);
+                      if (plan.slug !== "free") void handleStartCheckout(plan.slug);
                     }}
                   >
                     {busyAction === `checkout:${plan.slug}` ? "Opening..." : "Choose plan via QRPh"}
