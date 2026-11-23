@@ -149,6 +149,19 @@ function useQueueSnapshot({
   }, [locationSlug, lookupCode, setError, setSnapshot, tenantSlug]);
 }
 
+function getPublicQueuePresentation(snapshot: QueueSnapshot | null, tenantSlug: string, locationSlug?: string) {
+  const vendorIsInactive = snapshot ? !snapshot.tenant.isActive : false;
+  const locationIsClosed = snapshot?.location ? !snapshot.location.openStatus.isOpen : false;
+  const joinUrl = snapshot?.location?.joinUrl || snapshot?.tenant?.joinUrl || buildJoinUrl(window.location.origin, tenantSlug, locationSlug);
+  return {
+    joinUrl,
+    vendorIsInactive,
+    locationIsClosed,
+    canJoinQueue: isQueueAcceptingJoins(snapshot) && !vendorIsInactive && !locationIsClosed,
+    visibleTickets: (snapshot?.nextUp || []).slice(0, 19)
+  };
+}
+
 export default function PublicQueuePage({ initialSnapshot }: { initialSnapshot?: QueueSnapshot } = {}) {
   const { tenantSlug, locationSlug } = useParams<{ tenantSlug: string; locationSlug?: string }>();
   const navigate = useNavigate();
@@ -161,13 +174,8 @@ export default function PublicQueuePage({ initialSnapshot }: { initialSnapshot?:
   const paymentId = searchParams.get("payment");
   const paymentStatus = searchParams.get("payment_status");
   const tenantSlugValue = tenantSlug || "";
-  const joinUrl =
-    snapshot?.location?.joinUrl ||
-    snapshot?.tenant?.joinUrl ||
-    buildJoinUrl(window.location.origin, tenantSlugValue, locationSlug);
+  const { joinUrl, canJoinQueue, visibleTickets } = getPublicQueuePresentation(snapshot, tenantSlugValue, locationSlug);
   const joinQrUrl = `${joinUrl}?source=qr`;
-  const vendorIsInactive = snapshot ? !snapshot.tenant.isActive : false;
-  const locationIsClosed = snapshot?.location ? !snapshot.location.openStatus.isOpen : false;
   const theme = resolveVendorProfileMedia(
     snapshot?.publicBoardTheme.theme,
     snapshot?.businessProfileTheme?.theme
@@ -179,12 +187,7 @@ export default function PublicQueuePage({ initialSnapshot }: { initialSnapshot?:
   const locationState = getLocationStatusSummary(snapshot);
   const clockLabel = formatClock(clockNow, snapshot?.location?.timezone);
   const calendarDate = formatCalendarDate(clockNow, snapshot?.location?.timezone);
-  const canJoinQueue =
-    isQueueAcceptingJoins(snapshot) &&
-    !vendorIsInactive &&
-    !locationIsClosed;
   const averageServiceMinutes = snapshot?.tenant.averageServiceMinutes || 5;
-  const visibleTickets = (snapshot?.nextUp || []).slice(0, 19);
   const topTickets = visibleTickets.slice(0, 3);
   const gridTickets = visibleTickets.slice(3, 19);
   const pageStyle = useMemo(

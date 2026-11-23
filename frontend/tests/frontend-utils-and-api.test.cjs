@@ -2016,12 +2016,12 @@ test("campaign control center gives a joined contributor a slot and private proo
 
   assert.match(source, /Your slot is reserved/);
   assert.match(source, /Slot #\{ownContribution\.slotNumber/);
-  assert.match(source, /ownContribution\.paymentProof/);
+  assert.match(source, /(ownContribution|contribution)\.paymentProof/);
   assert.match(source, /View payment proof/);
   assert.match(source, /className="customer-modal payment-proof-modal"/);
   assert.match(source, /scrollbars="y"/);
   assert.match(source, /!isOrganizer && ownContribution/);
-  assert.match(source, /ownContribution\.status === "pending_proof"/);
+  assert.match(source, /(ownContribution|contribution)\.status === "pending_proof"/);
   assert.match(source, />Leave campaign</);
   assert.match(source, /title="Leave campaign"/);
   assert.match(api, /\/account\/campaigns\/\$\{encodeURIComponent\(campaignId\)\}\/contributions\/self/);

@@ -219,20 +219,29 @@ type CampaignParticipationContext = {
 };
 
 function renderParticipationSection(context: CampaignParticipationContext) {
-  const { isOrganizer, ownContribution, participation, busy, viewEvidence, reservationRemainingSeconds, retryAvailable, setLeaveModalOpen, retryReservation } = context;
+  const { isOrganizer, ownContribution, participation } = context;
   return <>    {!isOrganizer && ownContribution && participation ? <Card className={`campaign-participation-card campaign-participation-card--${participation.flavor}`} p="lg"><Stack gap="md">
       <Group align="flex-start" className="campaign-participation-header" justify="space-between" wrap="nowrap">
         <Group align="flex-start" gap="sm" wrap="nowrap"><participation.icon aria-hidden="true" className="campaign-participation-icon" size={28}/><Stack gap={2}><Text className="finazze-section-label">YOUR CAMPAIGN SLOT</Text><Title order={3}>{participation.title}</Title><Text c="dimmed" size="sm">{participation.description}</Text></Stack></Group>
         <Badge className="campaign-participation-slot" color={participation.badgeColor} size="lg" variant="filled">Slot #{ownContribution.slotNumber || "—"}</Badge>
       </Group>
-      <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="sm">
-        <Paper p="md" radius="md" withBorder><Stack gap={5}><Text className="finazze-section-label">CONTRIBUTION</Text><Text fw={800}>{money(ownContribution.amountCents, ownContribution.currency)}</Text><Badge color={contributionStatus(ownContribution.status).color} variant="light" w="fit-content">{contributionStatus(ownContribution.status).label}</Badge></Stack></Paper>
-        <Paper p="md" radius="md" withBorder><Stack gap={5}><Text className="finazze-section-label">PAYMENT PROOF</Text>{ownContribution.paymentProof ? <><Text fw={700} style={{ overflowWrap: "anywhere" }}>{ownContribution.paymentProof.fileName}</Text><Text c="dimmed" size="sm">{formatBytes(ownContribution.paymentProof.sizeBytes)}{ownContribution.submittedAt ? ` · ${new Date(ownContribution.submittedAt).toLocaleString()}` : ""}</Text>{ownContribution.paymentReference ? <Text c="dimmed" size="sm">Reference: {ownContribution.paymentReference}</Text> : null}<Button disabled={busy} leftSection={<IconEye size={16}/>} onClick={() => viewEvidence(ownContribution.id)} variant="light">View payment proof</Button></> : <Text c="dimmed" size="sm">No payment proof submitted yet.</Text>}{reservationRemainingSeconds !== null ? <Text c={reservationRemainingSeconds ? "orange" : "red"} fw={700} size="sm">Proof due in {Math.floor(reservationRemainingSeconds / 60)}:{String(reservationRemainingSeconds % 60).padStart(2, "0")}</Text> : null}</Stack></Paper>
-      </SimpleGrid>
-      {ownContribution.status === "pending_proof" ? <Group justify="flex-end"><Button color="red" disabled={busy} onClick={() => setLeaveModalOpen(true)} variant="light">Leave campaign</Button></Group> : null}
-      {["expired", "withdrawn"].includes(ownContribution.status) ? <Group justify="flex-end"><Button disabled={busy || !retryAvailable || ownContribution.reservationAttemptCount >= 2} loading={busy} onClick={retryReservation} variant="light">{retryAvailable ? "Retry reservation" : `Retry after ${new Date(ownContribution.retryAvailableAt!).toLocaleTimeString()}`}</Button></Group> : null}
+      <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="sm"><ContributionSummary contribution={ownContribution}/><PaymentProofSummary contribution={ownContribution} busy={context.busy} onView={context.viewEvidence} reservationRemainingSeconds={context.reservationRemainingSeconds}/></SimpleGrid>
+      <ParticipationActions contribution={ownContribution} busy={context.busy} retryAvailable={context.retryAvailable} onLeave={() => context.setLeaveModalOpen(true)} onRetry={context.retryReservation}/>
     </Stack></Card> : null}
 </>;
+}
+
+function ContributionSummary({ contribution }: { contribution: NonNullable<CampaignParticipationContext["ownContribution"]> }) {
+  const status = contributionStatus(contribution.status);
+  return <Paper p="md" radius="md" withBorder><Stack gap={5}><Text className="finazze-section-label">CONTRIBUTION</Text><Text fw={800}>{money(contribution.amountCents, contribution.currency)}</Text><Badge color={status.color} variant="light" w="fit-content">{status.label}</Badge></Stack></Paper>;
+}
+
+function PaymentProofSummary({ contribution, busy, onView, reservationRemainingSeconds }: { contribution: NonNullable<CampaignParticipationContext["ownContribution"]>; busy: boolean; onView: (id: string, kind?: "contribution" | "reimbursement") => void; reservationRemainingSeconds: number | null }) {
+  return <Paper p="md" radius="md" withBorder><Stack gap={5}><Text className="finazze-section-label">PAYMENT PROOF</Text>{contribution.paymentProof ? <><Text fw={700} style={{ overflowWrap: "anywhere" }}>{contribution.paymentProof.fileName}</Text><Text c="dimmed" size="sm">{formatBytes(contribution.paymentProof.sizeBytes)}{contribution.submittedAt ? ` · ${new Date(contribution.submittedAt).toLocaleString()}` : ""}</Text>{contribution.paymentReference ? <Text c="dimmed" size="sm">Reference: {contribution.paymentReference}</Text> : null}<Button disabled={busy} leftSection={<IconEye size={16}/>} onClick={() => onView(contribution.id)} variant="light">View payment proof</Button></> : <Text c="dimmed" size="sm">No payment proof submitted yet.</Text>}{reservationRemainingSeconds !== null ? <Text c={reservationRemainingSeconds ? "orange" : "red"} fw={700} size="sm">Proof due in {Math.floor(reservationRemainingSeconds / 60)}:{String(reservationRemainingSeconds % 60).padStart(2, "0")}</Text> : null}</Stack></Paper>;
+}
+
+function ParticipationActions({ contribution, busy, retryAvailable, onLeave, onRetry }: { contribution: NonNullable<CampaignParticipationContext["ownContribution"]>; busy: boolean; retryAvailable: boolean; onLeave: () => void; onRetry: () => void }) {
+  return <>{contribution.status === "pending_proof" ? <Group justify="flex-end"><Button color="red" disabled={busy} onClick={onLeave} variant="light">Leave campaign</Button></Group> : null}{["expired", "withdrawn"].includes(contribution.status) ? <Group justify="flex-end"><Button disabled={busy || !retryAvailable || contribution.reservationAttemptCount >= 2} loading={busy} onClick={onRetry} variant="light">{retryAvailable ? "Retry reservation" : `Retry after ${new Date(contribution.retryAvailableAt!).toLocaleTimeString()}`}</Button></Group> : null}</>;
 }
 
 function DraftCampaignEditor({ campaign, token, onSaved }: { campaign: OrganizerCampaign; token: string; onSaved: () => void }) {
