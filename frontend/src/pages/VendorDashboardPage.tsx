@@ -975,7 +975,6 @@ function VendorDashboardContent() {
   });
   const [accountProfileBusy, setAccountProfileBusy] = useState(false);
   const [accountPanelBusy, setAccountPanelBusy] = useState(false);
-  const [ratingsBusy, setRatingsBusy] = useState(false);
   const [accountPanelDraft, setAccountPanelDraft] = useState(false);
   const [accountTaskRevision, setAccountTaskRevision] = useState(0);
   const [mfaEnabled, setMfaEnabled] = useState(Boolean(user?.mfaEnabled));
@@ -4103,7 +4102,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     }
   }
 
-  async function uploadLocationPaymentQr(file: File | null, onPrepared?: (blob: Blob) => void) {
+  async function uploadLocationPaymentQr(file: File | null) {
     if (!file || !token) {
       return false;
     }
@@ -4819,7 +4818,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   </div>
                 ) : (
                   <div className="ops-stack">
-                    <PaymentQrImageField url={locationForm.paymentQrImageUrl} file={paymentQrUploadFile} disabled={busyAction === "payment-qr-upload"} onFile={setPaymentQrUploadFile} onUpload={(file,onPrepared)=>uploadLocationPaymentQr(file,onPrepared)} />
+                    <PaymentQrImageField url={locationForm.paymentQrImageUrl} file={paymentQrUploadFile} disabled={busyAction === "payment-qr-upload"} onFile={setPaymentQrUploadFile} onUpload={(file)=>uploadLocationPaymentQr(file)} />
                   </div>
                 )}
               </div>
