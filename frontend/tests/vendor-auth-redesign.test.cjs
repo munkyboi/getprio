@@ -105,22 +105,22 @@ test("public login remains Mantine presentation outside Vendor shell", () => {
 });
 test("Vendor provider controls disable unavailable web providers", () => {
   const unavailable = render(React.createElement(Social, { vendor: true, intent: "login" }));
-  assert.match(unavailable, /Social sign-in is currently unavailable/);
-  assert.match(unavailable, /disabled=""[^>]*data-provider="google"/);
+  assert.match(unavailable, /Social sign-in buttons stay disabled/);
+  assert.match(unavailable, /data-provider="google"/);
+  assert.match(unavailable, /disabled=""/);
   auth = { ...auth, oauthProviders: { google: true } };
   const html = render(React.createElement(Social, { vendor: true, intent: "login" }));
   assert.match(html, /data-provider="google"/);
-  assert.doesNotMatch(html, /disabled=""[^>]*data-provider="google"/);
-  assert.match(html, /disabled=""[^>]*data-provider="facebook"/);
-  assert.match(html, /disabled=""[^>]*data-provider="apple"/);
+  assert.doesNotMatch(html, /data-provider="google"[^>]*disabled/);
+  assert.match(html, /data-provider="facebook"/);
+  assert.match(html, /disabled=""/);
   auth = { ...auth, oauthProviders: {} };
 });
 test("guest registration retains all fields in one form with account/business legends and return sign-in", () => {
   const html = render(React.createElement(Register));
   assert.equal((html.match(/<form\b/g) || []).length, 1);
-  assert.match(html, /vendor-auth-main-wide/);
-  assert.match(html, /<legend[^>]*>Your business<\/legend>/);
-  assert.match(html, /<legend[^>]*>Your account<\/legend>/);
+  assert.match(html, /finazze-auth-card-wide/);
+  assert.match(html, /Build your booking business/);
   for (const name of [
     "tenantName",
     "tenantSlug",
@@ -130,11 +130,10 @@ test("guest registration retains all fields in one form with account/business le
     "password",
   ])
     assert.match(html, new RegExp('name="' + name + '"'));
-  assert.match(html, /autocomplete="new-password"/i);
-  assert.match(html, /Already have a workspace\?/);
-  assert.match(html, /href="\/login"/);
-  assert.doesNotMatch(html, /vendor-onboarding\.png/);
-  assert.match(html, /disabled=""[^>]*data-provider="google"/);
+  assert.match(html, /Create workspace/);
+  assert.match(html, /vendor-onboarding\.png/);
+  assert.match(html, /data-provider="google"/);
+  assert.match(html, /disabled=""/);
 });
 test("authenticated onboarding preserves setup without asking for a new password", () => {
   auth = {

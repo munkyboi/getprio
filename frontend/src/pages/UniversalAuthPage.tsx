@@ -94,7 +94,7 @@ export default function UniversalAuthPage() {
   async function sendEmail() {
     setBusy(true); setError("");
     try {
-      const data = await auth.sendEmailMfaCode({ challengeToken: originalChallenge });
+      const data = await publicAuthRequest<{ token: string; deliveryTarget: string }, { challengeToken: string }>("/auth/mfa/email/send", { method: "POST", body: { challengeToken: originalChallenge } });
       setChallenge(data.token); setEmailMethod(true); setRecoveryMethod(false); setMessage(`Enter the code sent to ${data.deliveryTarget}.`);
     } catch (failure) { setError(getErrorMessage(failure)); } finally { setBusy(false); }
   }

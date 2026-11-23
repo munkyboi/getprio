@@ -163,7 +163,7 @@ export function getQueueStateSummary(snapshot: QueueSnapshot | null): QueueStatu
   return makeSummary("teal", "Open", "This queue is accepting joins.");
 }
 
-export function getTicketStateSummary(status?: TicketStatus | null, statusReason?: string | null): QueueStatusSummary {
+export function getTicketStateSummary(status?: TicketStatus | null): QueueStatusSummary {
   switch (status) {
     case "waiting":
       return makeSummary("teal", "Joined", "Your ticket is active and waiting in line.");
@@ -182,13 +182,10 @@ export function getTicketStateSummary(status?: TicketStatus | null, statusReason
         "Your ticket is retained, but it has no live position until the next eligible Queue Day is opened by staff."
       );
     case "unserved":
-      if (statusReason === "service_interrupted") {
-        return makeSummary("orange", "Service interrupted", "Staff recorded that service ended without completion. Contact the vendor about the appropriate next step.");
-      }
       return makeSummary(
         "orange",
         "Unserved",
-        "Service was not completed for this ticket. This outcome is final; contact the vendor about the appropriate next step."
+        "The queue closed after your ticket was called. This outcome is final; contact the vendor about the appropriate next step."
       );
     case "expired":
       return makeSummary(
@@ -203,8 +200,7 @@ export function getTicketStateSummary(status?: TicketStatus | null, statusReason
 
 export function getCustomerTicketStateSummary(
   status?: TicketStatus | null,
-  customerConfirmedAt?: string | Date | null,
-  statusReason?: string | null
+  customerConfirmedAt?: string | Date | null
 ): QueueStatusSummary {
   if (status === "called" && customerConfirmedAt) {
     return makeSummary(
@@ -214,7 +210,7 @@ export function getCustomerTicketStateSummary(
     );
   }
 
-  return getTicketStateSummary(status, statusReason);
+  return getTicketStateSummary(status);
 }
 
 export function getLocationStatusSummary(snapshot: QueueSnapshot | null): QueueStatusSummary {

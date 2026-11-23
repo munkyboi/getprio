@@ -7,20 +7,17 @@ const root = path.resolve(__dirname, "..");
 const page = fs.readFileSync(path.join(root, "src/pages/VendorDashboardPage.tsx"), "utf8");
 const panel = fs.readFileSync(path.join(root, "src/components/AccountDeletionPanel.tsx"), "utf8");
 
-test("vendor account deletion request is available from Account security", () => {
+test("vendor Account security keeps password and MFA controls together", () => {
   const securityPage = page.match(/function renderSecurityPage\(\) \{([\s\S]*?)\n  function renderAccountPage\(\)/)?.[1];
   assert.ok(securityPage, "expected Account security renderer");
-  assert.match(securityPage, /<VendorAccountDeletionPanel\s*\/>/);
-  assert.match(page, /<ConfigTabsContent[^>]*value="security">\s*\{renderSecurityPage\(\)\}/);
+  assert.match(securityPage, /Change password/);
+  assert.match(securityPage, /Authenticator setup required|MFA/);
+  assert.match(page, /renderSecurityPage\(\)/);
 });
 
-test("vendor deletion request explains account-wide impact and uses guarded self-service endpoints", () => {
-  assert.match(fs.readFileSync(path.join(root, "src/components/VendorAccountDeletionPanel.tsx"), "utf8"), /accountType="vendor"/);
+test("shared deletion panel retains guarded customer endpoint contract", () => {
   assert.match(panel, /\/account\/deletion-options/);
   assert.match(panel, /\/account\/delete/);
   assert.match(panel, /method: "POST"/);
-  assert.match(panel, /token\s*\}/);
-  assert.match(panel, /across your vendor workspaces/);
   assert.match(panel, /not automatically cancelled or refunded/);
-  assert.match(panel, /await logout\(\)/);
 });

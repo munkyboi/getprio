@@ -1,10 +1,10 @@
-import type { TenantPeriodUsageResponse } from "@shared/tenantPeriodUsage";
 import type { BillingOverviewResponse, QueueSnapshot, StoreLocationsResponse, TenantNotificationSettings } from "@shared";
+import type { TenantPeriodUsageResponse } from "@shared/tenantPeriodUsage";
 import { apiRequest } from "./client";
 
 export interface VendorCapacityResource {
   limit: number;
-  used: number | null;
+  used: number;
   creditRemaining: number;
   resetAt: string | null;
 }
@@ -26,20 +26,38 @@ export async function getBootstrap(
   locationQuery: string,
   includeNotificationSettings = true
 ) {
+  // Load visible locations first. This is required for staff: an assigned
+  // non-primary location must be selected before the dashboard request, or
+  // the initial primary-location request can be rejected with 403.
   const locationsResponse = await apiRequest<StoreLocationsResponse>(`/vendor/tenant/${tenantSlug}/locations`, { token });
-  const requestedSlug = new URLSearchParams(locationQuery.replace(/^\?/, "")).get("location");
-  const selectedLocation = locationsResponse.locations.find((location) => location.slug === requestedSlug)
-    || locationsResponse.locations.find((location) => location.isPrimary)
-    || locationsResponse.locations[0];
-  if (!selectedLocation) throw new Error("No assigned location is available. Ask your vendor administrator to assign a location.");
-  const scopedQuery = `?location=${encodeURIComponent(selectedLocation.slug)}`;
+  const visibleLocations = locationsResponse.locations || [];
+  const requestedLocation = new URLSearchParams(locationQuery.replace(/^\?/, "")).get("location");
+  const selectedLocation = visibleLocations.find((location) => location.slug === requestedLocation)
+    || visibleLocations.find((location) => location.isPrimary)
+    || visibleLocations[0];
+  const scopedLocationQuery = selectedLocation
+    ? `?location=${encodeURIComponent(selectedLocation.slug)}`
+    : locationQuery;
   const [snapshotResponse, notificationSettingsResponse] = await Promise.all([
-    apiRequest<QueueSnapshot>(`/vendor/tenant/${tenantSlug}/dashboard${scopedQuery}`, { token }),
+    apiRequest<QueueSnapshot>(`/vendor/tenant/${tenantSlug}/dashboard${scopedLocationQuery}`, { token }),
     includeNotificationSettings
-      ? apiRequest<{ notificationSettings: TenantNotificationSettings }>(`/vendor/tenant/${tenantSlug}/notification-settings`, { token })
-      : Promise.resolve({ notificationSettings: { queueJoin: true, bookingIntake: true, paymentProofReview: true, bookingStatusChanges: true } })
+      ? apiRequest<{ notificationSettings: TenantNotificationSettings }>(`/vendor/tenant/${tenantSlug}/notification-settings`, {
+          token
+        })
+      : Promise.resolve<{ notificationSettings: TenantNotificationSettings }>({
+          notificationSettings: {
+            queueJoin: true,
+            bookingIntake: true,
+            paymentProofReview: true,
+            bookingStatusChanges: true
+          }
+        })
   ]);
-  return { locationsResponse, snapshotResponse, notificationSettings: notificationSettingsResponse.notificationSettings };
+  return {
+    locationsResponse,
+    snapshotResponse,
+    notificationSettings: notificationSettingsResponse.notificationSettings
+  };
 }
 
 export function getBillingOverview(token: string, tenantSlug: string) {
@@ -77,9 +95,7 @@ export async function getCapacityExperience(
 }
 
 export async function getPeriodUsage(token: string, tenantSlug: string) {
-  const response = await apiRequest<TenantPeriodUsageResponse>(
-    `/billing/tenant/${tenantSlug}/usage`, { token }
-  );
+  const response = await apiRequest<TenantPeriodUsageResponse>(`/billing/tenant/${tenantSlug}/usage`, { token });
   if (response.tenant?.slug !== tenantSlug) throw new Error("Usage response does not match the selected business.");
   return response;
 }

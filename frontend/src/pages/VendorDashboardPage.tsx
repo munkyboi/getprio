@@ -1,118 +1,47 @@
-import {WorkflowQueuePanel} from "../vendor/WorkflowQueuePanel";
-import {QueueTypeSettings} from "../vendor/QueueTypeSettings";
-import {getQueueType,saveQueueType} from "../api/queueTypes";
-import { appUrl } from "../surfaces/surfaceConfig";
-import {apiRequest} from "../api/client";
-import { ResourceReadStatus } from '../vendor/ResourceReadStatus';
-import { clearQueueReview, initialQueueLocation } from '../vendor/queueReviewRoute';
-import { SkippedQueueRequests } from "../vendor/SkippedQueueRequests";
-import { CounterQueueControls } from "../vendor/CounterQueueControls";
-import { QueueServicePolicyEditor } from '../vendor/QueueServicePolicyEditor';
-import { NamedQueuePanel } from "../vendor/NamedQueuePanel";
-import { ButtonGroup, ButtonGroupSeparator } from "../vendor/components/ui/button-group";
-import { DateExceptionsGrid } from "../vendor/DateExceptionsGrid";
-import { WeeklyAvailabilityGrid } from "../vendor/WeeklyAvailabilityGrid";
-import { serviceEditorPath, resolveServiceEditor } from "../vendor/serviceEditorRoute";
-import { ServiceCatalog } from "../vendor/ServiceCatalog";
-import { CountersGrid } from "../vendor/CountersGrid";
-import { IconArrowLeft } from "@tabler/icons-react";
-import { locationEditorPath, resolveLocationEditor } from "../vendor/locationEditorRoute";
-import { validateLocationEditor } from "../vendor/locationEditorValidation";
-import { useLocationPageBackGuard } from "../vendor/useLocationPageBackGuard";
-import { TaskPage } from "../vendor/TaskPage";
-import { LocationsGrid } from "../vendor/LocationsGrid";
-import { linearQueueRecovery } from "../vendor/linearQueueErrors";
-import { PaymentQrImageField } from "../vendor/PaymentQrImageField";
-import { QueueDetailsEditor } from "../vendor/QueueDetailsEditor";
-import { localPoolReadState, scopedLocalPoolData, localPoolDispatchSnapshot, hasExecutableLocalPlan, missingServicePlanGuidance } from "../vendor/localPoolState";
-import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from "../vendor/components/ui/accordion";
-import { ResourceDashboard } from "../vendor/ResourceDashboard";
-import { queueIntakeMode, queueWorkPresentation, legacyQueueWork, scopedResourceIds } from "../vendor/queueIntakeMode";
-import { useLocalPoolOperations, localPoolDemoClientEnabled as resourceQueueOptIn } from "../vendor/useLocalPoolOperations";
-import { ManagedCollection } from "../vendor/ManagedCollection";
-import { draftUnloadHandler } from "../vendor/draftUnloadGuard";
-import { ActivationPanel, WorkspaceLoading, WorkspaceUnavailable } from "../vendor/WorkspaceAccessState";
-import { VendorAuthLayout } from "../vendor/VendorAuthLayout";
-import { OperationalAlerts } from "../vendor/OperationalAlerts";
-import { servedTicketIntervals } from "../vendor/reportState";
-import { AccountPresentation, discardAccountTask } from "../vendor/AccountPresentation";
-import { Card as AccountCard, Stack as AccountStack, Group as AccountGroup, SimpleGrid as AccountGrid, Text as AccountText, Title as AccountTitle, Alert as AccountAlert, Badge as AccountBadge, Button as AccountButton, TextInput as AccountInput, PasswordInput as AccountPassword } from "../vendor/AccountFields";
-import { queueSettingsPayload, tenantSettingsFromSnapshot } from "../vendor/settingsState";
-import { StaffManagement } from "../vendor/StaffManagement";
-import { CounterStaffAssignments } from "../vendor/CounterStaffAssignments";
-import { ServiceEditorTabs } from "../vendor/ServiceEditorTabs";
-import { validateServiceEditor } from "../vendor/serviceEditorValidation";
-import { serviceQuantityError, dateExceptionPayload } from "../vendor/serviceConfigurationState";
-import { FieldGroup, FieldSet, FieldLegend } from "../vendor/components/ui/field";
-import { ConfigurationScope, ConfigurationNumber, ConfigurationTextarea, ConfigurationInput, ConfigurationPhone, ConfigurationCheck, ConfigurationSelect, ConfigurationFile, ConfigurationSection } from "../vendor/ConfigurationUi";
-import { Tabs as ConfigTabs, TabsList as ConfigTabsList, TabsTrigger as ConfigTabsTrigger, TabsContent as ConfigTabsContent } from "../vendor/components/ui/tabs";
-import { availableRescheduleSelection, boundedPage } from "../vendor/operationsState";
-import {
-  OperationScope,
-  OperationPanel,
-  OperationMetric,
-  OperationInput,
-  OperationTextarea,
-  OperationSelect,
-  OperationDate,
-  OperationButton,
-  OperationAction,
-  OperationAlert,
-  OperationEmpty,
-  OperationPagination,
-  OperationQueryState,
-} from "../vendor/OperationsUi";
-import { Separator as QueueSeparator } from "../vendor/components/ui/separator";
-import { DateRangePicker } from "../vendor/components/ui/date-range-picker";
-import { Input as QueueInput } from "../vendor/components/ui/input";
-import { TaskDialog, QueueConfirmation } from "../vendor/TaskDialog";
-import { WalkInDialog } from "../vendor/WalkInDialog";
-import { QueueRecoveryTable } from "../vendor/QueueRecoveryTable";
-import { QueueCounterPicker, QueueViewPicker, QueueCopyField, QueueEmptyState, LiveQueueIntake, LiveQueueSummary, CounterTickets } from "../vendor/LiveQueueWidgets";
-import { Button as QueueButton, buttonVariants as queueButtonVariants } from "../vendor/components/ui/button";
-import { Badge as QueueBadge } from "../vendor/components/ui/badge";
-import { Card as QueueCard, CardHeader as QueueCardHeader, CardTitle as QueueCardTitle,
-  CardDescription as QueueCardDescription, CardContent as QueueCardContent } from "../vendor/components/ui/card";
-import { Alert as QueueAlert, AlertTitle as QueueAlertTitle, AlertDescription as QueueAlertDescription } from "../vendor/components/ui/alert";
-import { Table as QueueTable, TableHeader as QueueTableHeader, TableBody as QueueTableBody, TableRow as QueueTableRow, TableHead as QueueTableHead, TableCell as QueueTableCell } from "../vendor/components/ui/table";
-import { createDirtyForms } from "../vendor/dirtyForms";
-import { VendorNavigationGuard } from "../vendor/navigationGuard";
-import { VendorWorkspaceShell } from "../vendor/VendorWorkspaceShell";
-import { sectionWorkspace, workspaceItems, workspacePath, preferenceKey, activeMemberships, rememberedTenantWorkspace, savePreference } from "../vendor/workspace";
-import { quantityInputChanges } from "../utils/durationUnits";
-import DurationUnitControls from "../components/DurationUnitControls";
-import { queueBoardReturnPath } from "../utils/queueBoardReturnPath";
-import { counterBlockMessage, selectCounterDispatch } from "../utils/counterDispatch";
-import { QueueBoardScanner, QueueBoardSettings } from "../components/QueueBoardAccess";
-import { OtpInputField } from "../components/OtpInputField";
-import { BookingTableRow } from "../components/BookingTableRow";
-import { BookingCheckInNotice } from "../components/BookingCheckInNotice";
-import { getBookingCheckInState } from "../utils/bookingCheckIn";
-import { VendorResourceConfiguration } from "../components/VendorResourceConfiguration";
 import { VendorRatingsPanel } from "../components/VendorRatingsPanel";
-import { useCallback, useContext, useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  Alert,
+  ActionIcon,
   Badge,
+  Burger,
   Button,
   Card,
   Checkbox,
   ColorInput,
+  Divider,
+  Drawer,
   FileInput,
+  Grid,
+  Image,
   Group,
   Modal,
+  MultiSelect,
   NumberInput,
+  Notification,
+  Pagination,
   Paper,
+  PasswordInput,
+  Portal,
+  ScrollArea,
   Select,
+  SegmentedControl,
   SimpleGrid,
   Slider,
   Stack,
+  Switch,
+  Table,
+  Tabs,
   Text,
   TextInput,
+  Textarea,
   ThemeIcon,
   Title,
-  Tooltip
+  Tooltip,
+  Box
 } from "@mantine/core";
+import { DatePickerInput } from "@mantine/dates";
 import {
   IconBellRinging,
   IconBuildingBank,
@@ -120,33 +49,34 @@ import {
   IconBriefcase,
   IconCalendar,
   IconCalendarCheck,
+  IconChevronRight,
   IconAlertTriangle,
   IconClipboardList,
   IconCheck,
+  IconCopy,
   IconDownload,
   IconExternalLink,
   IconHistory,
   IconHomeStats,
   IconInfoCircle,
+  IconLogout,
   IconMapPin,
   IconPhoto,
+  IconPencil,
   IconUserCircle,
   IconQrcode,
   IconSparkles,
   IconTicket,
+  IconTrash,
   IconX,
   IconClock,
   IconSettings,
-  IconMoon,
-  IconSun,
   IconUserPlus,
   IconUsersGroup
-  ,IconSearch
-  ,IconFilter
-  ,IconPlayerPause
 } from "@tabler/icons-react";
-import { VendorToastProvider, VendorToastViewport, useVendorNotifications } from "../vendor/VendorToasts";
-import { getDay } from "date-fns";
+import { notifications } from "@mantine/notifications";
+import { useMediaQuery } from "@mantine/hooks";
+import { differenceInMinutes, getDay } from "date-fns";
 import { Navigate, NavLink, useLocation, useNavigate, useParams } from "react-router-dom";
 import type {
   BillingOverviewResponse,
@@ -163,6 +93,7 @@ import type {
   AddVendorStaffRequest,
   HistoryExportRange,
   SubscriptionPlanSlug,
+  UserSummary,
   TicketMutationResponse,
   UpdateTenantSettingsRequest,
   SaveVendorAvailabilityBlockRequest,
@@ -179,20 +110,15 @@ import type {
   UpdateVendorBookingStatusRequest,
   PaginationMetadata,
   PasswordChangeRequest,
-  GroupFundedLocationServiceSettings,
-
-  } from "@shared";
+} from "@shared";
 import { DEFAULT_TIMEZONE, getTimeZoneOptions } from "../../../shared/timezones";
 import { BusinessCategorySelect } from "../components/BusinessCategorySelect";
-import { VendorAccountDeletionPanel } from "../components/VendorAccountDeletionPanel";
-import { EmailMfaSettingsPanel } from "../components/EmailMfaSettingsPanel";
-import { API_BASE_URL, ApiError } from "../api/client";
-
+import { API_BASE_URL } from "../api/client";
+import PhilippineMobileInput from "../components/PhilippineMobileInput";
 import CampaignDescriptionEditor from "../components/CampaignDescriptionEditor";
 import RichCampaignDescription from "../components/RichCampaignDescription";
 import StyledQRCode, { getStyledQRCodeCanvas } from "../components/StyledQRCode";
-
-import VendorQueueLifecycleTray from "../vendor/QueueLifecycleTray";
+import VendorQueueLifecycleTray from "../components/VendorQueueLifecycleTray";
 import VendorCapacityPanel from "../components/VendorCapacityPanel";
 import TicketScannerModal from "../components/TicketScannerModal";
 import * as vendorDashboardBookings from "../api/vendorDashboardBookings";
@@ -208,12 +134,10 @@ import EmailChangePanel from "../components/EmailChangePanel";
 import PhoneChangePanel from "../components/PhoneChangePanel";
 import {
   getAllowedHistoryExportRanges,
-  getPeriodTicketMetric,
-  shouldLoadPeriodUsage,
   shouldEnableVendorDashboardBootstrap
 } from "../lib/vendorDashboardBootstrap";
 import { canAccessVendorSection } from "../lib/vendorDashboardNavigation";
-import { buildJoinUrl } from "../queuePaths";
+import { buildJoinUrl, buildMonitorUrl } from "../queuePaths";
 import {
   formatDateInputValue,
   formatDateTime,
@@ -233,13 +157,45 @@ import {
 } from "../utils/queueStatus";
 import type { LocalQueueDayUpdate, QueueDaySyncState } from "../utils/queueStatus";
 import { getQueueCustomerFullNameLabel } from "../utils/queueNames";
-import { getPlanHighlights, getPlanPriceDisplay } from "../utils/subscriptionPlans";
+import { getPlanPriceDisplay } from "../utils/subscriptionPlans";
 import { checkServiceSlugAvailability } from "../api/vendorDashboardCatalog";
 import { checkCounterSlugAvailability } from "../api/vendorDashboardOperations";
 
-const dashboardSections = new Set(["overview", "queue", "locations", "tenants", "services", "bookings", "staff", "clients", "history", "reports", "ratings", "settings", "account"]);
-const RECORDED_INTERVAL_TICKET_LIMIT = 30;
+const dashboardSections = new Set(["queue", "tenants", "services", "bookings", "staff", "clients", "history", "reports", "ratings", "settings", "account"]);
+const SERVICE_TREND_USER_LIMIT = 30;
 const timeZoneOptions = getTimeZoneOptions();
+
+function IconActionButton({
+  label,
+  color = "gray",
+  onClick,
+  children,
+  disabled = false
+}: {
+  label: string;
+  color?: string;
+  onClick: () => void;
+  children: React.ReactNode;
+  disabled?: boolean;
+}) {
+  return (
+    <Tooltip label={label} withArrow>
+      <ActionIcon aria-label={label} color={color} disabled={disabled} onClick={onClick} variant="light">
+        {children}
+      </ActionIcon>
+    </Tooltip>
+  );
+}
+
+function ModalHelpIcon({ label }: { label: string }) {
+  return (
+    <Tooltip label={label} withArrow multiline w={260}>
+      <ActionIcon aria-label={label} color="gray" size="sm" variant="subtle">
+        <IconInfoCircle size={14} />
+      </ActionIcon>
+    </Tooltip>
+  );
+}
 
 function QueueQrUnavailable() {
   return (
@@ -417,8 +373,6 @@ const emptyLocationForm = {
   paymentAccountIdentifierDisplay: "",
   paymentQrImageUrl: "",
   paymentQrActive: false,
-  customerSelfCheckInEnabled: false,
-  serviceTimingEnabled: false,
   isPrimary: false,
   isActive: true,
   hours: defaultHours
@@ -432,8 +386,6 @@ const emptyServiceForm: SaveVendorServiceRequest = {
   imageUrl: "",
   allowBookingQuantity: false,
   bookingQuantityLabel: "Units",
-  bookingQuantityMin: 1,
-  bookingQuantityMax: 24,
   manualPaymentRequired: false,
   bookingCapacityScope: "service",
   priceAmountCents: 0,
@@ -443,51 +395,16 @@ const emptyServiceForm: SaveVendorServiceRequest = {
   locationServices: []
 };
 
-const defaultGroupFundedSettings: GroupFundedLocationServiceSettings = {
-  enabled: false,
-  minRequiredContributors: 2,
-  maxRequiredContributors: 12,
-  defaultRequiredContributors: 4,
-  minContributionAmountCents: null,
-  maxContributionAmountCents: null,
-  minDeadlineHours: 24,
-  maxDeadlineDays: 14,
-  allowPublicCampaigns: false
-};
+type ServiceLocationFormEntry = NonNullable<SaveVendorServiceRequest["locationServices"]>[number];
 
-function normalizeGroupFundedSettings(
-  settings?: Partial<GroupFundedLocationServiceSettings> | null
-): GroupFundedLocationServiceSettings {
-  const minRequiredContributors =
-    settings?.minRequiredContributors ??
-    defaultGroupFundedSettings.minRequiredContributors ??
-    2;
-  const maxRequiredContributors = Math.max(
-    minRequiredContributors,
-    settings?.maxRequiredContributors ??
-      defaultGroupFundedSettings.maxRequiredContributors ??
-      12
-  );
-  const defaultRequiredContributors = Math.min(
-    maxRequiredContributors,
-    Math.max(
-      minRequiredContributors,
-      defaultGroupFundedSettings.defaultRequiredContributors ?? 4
-    )
-  );
-
+function buildDefaultServiceLocationEntry(locationSlug: string): ServiceLocationFormEntry {
   return {
-    enabled: settings?.enabled === true,
-    minRequiredContributors,
-    maxRequiredContributors,
-    defaultRequiredContributors,
-    minContributionAmountCents: null,
-    maxContributionAmountCents: null,
-    minDeadlineHours:
-      settings?.minDeadlineHours ?? defaultGroupFundedSettings.minDeadlineHours,
-    maxDeadlineDays:
-      settings?.maxDeadlineDays ?? defaultGroupFundedSettings.maxDeadlineDays,
-    allowPublicCampaigns: settings?.allowPublicCampaigns === true
+    locationSlug,
+    capacity: 1,
+    isActive: true,
+    sortOrder: 0,
+    priceAmountCents: null,
+    priceDisplay: null,
   };
 }
 
@@ -718,18 +635,104 @@ const presetBackgroundImageUrls = new Set(
     .filter(Boolean)
 );
 
-type DashboardSection = "overview" | "queue" | "tenants" | "services" | "bookings" | "group-funded" | "staff" | "clients" | "history" | "reports" | "ratings" | "settings" | "account";
+type DashboardSection = "queue" | "tenants" | "services" | "bookings" | "staff" | "clients" | "history" | "reports" | "ratings" | "settings" | "account";
 type AccountTab = "subscription" | "billing" | "profile" | "security";
-type SettingsTab = "contact" | "queue" | "notifications" | "board";
+type SettingsTab = "contact" | "queue" | "notifications";
 type QueueView = "current" | "overflow" | "recovery";
 type ClientSort = "latestVisitDesc" | "latestVisitAsc" | "nameAsc" | "nameDesc" | "visitsDesc" | "visitsAsc";
 type HistorySort = "updatedDesc" | "updatedAsc" | "ticketAsc" | "ticketDesc" | "customerAsc" | "customerDesc";
-const bookingStatusFilters = ["all", "pending", "confirmed", "rescheduled", "completed", "canceled", "expired", "missed"] as const;
-type BookingStatusFilter = typeof bookingStatusFilters[number];
-const bookingStatusFilterOptions = bookingStatusFilters.map((value) => ({
-  value,
-  label: value === "all" ? "All Statuses" : value.charAt(0).toUpperCase() + value.slice(1)
-}));
+type BookingStatusFilter = "all" | "pending" | "confirmed" | "rescheduled" | "canceled";
+
+type DashboardSectionRenderers = Partial<Record<DashboardSection, () => ReactNode>>;
+type DashboardSectionResolution =
+  | { kind: "activation" }
+  | { kind: "ratings" }
+  | { kind: "render"; section: DashboardSection };
+
+type VendorDashboardAccess =
+  | { kind: "loading" }
+  | { kind: "invalid-section" }
+  | { kind: "mfa" }
+  | { kind: "ratings-loading" }
+  | { kind: "ratings-denied" }
+  | { kind: "entitlement-denied" }
+  | { kind: "role-denied" }
+  | { kind: "login" }
+  | { kind: "no-tenant" }
+  | { kind: "ready" };
+
+function resolveVendorDashboardAccess({
+  loading,
+  invalidSection,
+  requiresMfaEnrollment,
+  currentSection,
+  canAccessSection,
+  entitlementsPending,
+  selectedTenantRole,
+  staffAllowed,
+  adminAllowed,
+  user
+}: {
+  loading: boolean;
+  invalidSection: boolean;
+  requiresMfaEnrollment: boolean;
+  currentSection: DashboardSection;
+  canAccessSection: boolean;
+  entitlementsPending: boolean;
+  selectedTenantRole: string;
+  staffAllowed: boolean;
+  adminAllowed: boolean;
+  user: UserSummary | null;
+}): VendorDashboardAccess {
+  if (loading) return { kind: "loading" };
+  if (invalidSection) return { kind: "invalid-section" };
+  if (requiresMfaEnrollment && currentSection !== "account") return { kind: "mfa" };
+  if (currentSection === "ratings" && entitlementsPending) return { kind: "ratings-loading" };
+  if (!canAccessSection) return { kind: currentSection === "ratings" ? "ratings-denied" : "entitlement-denied" };
+  if ((selectedTenantRole === "staff" && !staffAllowed) || (selectedTenantRole === "admin" && !adminAllowed)) return { kind: "role-denied" };
+  if (!user) return { kind: "login" };
+  if (!user.tenants?.length) return { kind: "no-tenant" };
+  return { kind: "ready" };
+}
+
+function resolveDashboardSection({
+  currentSection,
+  hasActiveSubscription
+}: {
+  currentSection: DashboardSection;
+  hasActiveSubscription: boolean;
+}): DashboardSectionResolution {
+  if (!hasActiveSubscription && currentSection !== "settings" && currentSection !== "account") {
+    return { kind: "activation" };
+  }
+  if (currentSection === "ratings") {
+    return { kind: "ratings" };
+  }
+  return { kind: "render", section: currentSection };
+}
+
+function DashboardSectionContent({
+  currentSection,
+  hasActiveSubscription,
+  onViewPlans,
+  renderers,
+  ratings
+}: {
+  currentSection: DashboardSection;
+  hasActiveSubscription: boolean;
+  onViewPlans: () => void;
+  renderers: DashboardSectionRenderers;
+  ratings: ReactNode;
+}) {
+  const resolution = resolveDashboardSection({ currentSection, hasActiveSubscription });
+  if (resolution.kind === "activation") {
+    return <ActivationPanel onViewPlans={onViewPlans} />;
+  }
+  if (resolution.kind === "ratings") {
+    return ratings;
+  }
+  return renderers[resolution.section]?.() ?? renderers.settings?.() ?? null;
+}
 
 const CLIENTS_PAGE_SIZE = 10;
 const HISTORY_PAGE_SIZE = 10;
@@ -745,8 +748,7 @@ type VendorHistoryResponse = {
 };
 
 const navItems = [
-  { section: "overview", label: "Dashboard", icon: IconChartBar },
-  { section: "queue", label: "Live queue", icon: IconClipboardList },
+  { section: "queue", label: "Queue", icon: IconClipboardList },
   { section: "tenants", label: "Locations", icon: IconHomeStats },
   { section: "services", label: "Services", icon: IconBriefcase },
   { section: "bookings", label: "Bookings", icon: IconCalendarCheck },
@@ -759,10 +761,9 @@ const navItems = [
   { section: "account", label: "Account", icon: IconUserCircle }
 ] as const;
 const dashboardSectionDescriptions: Partial<Record<DashboardSection, string>> = {
-  overview: "Observe requests and resource capacity for the selected business and location.",
   queue: "Run the live queue, manage intake, and move customers through service.",
   tenants: "Configure locations, counters, and the public entry points for each branch.",
-  services: "Manage your service catalog, location offerings and queue setup.",
+  services: "Manage bookable services, durations, pricing, and public availability state.",
   bookings: "Review incoming service requests and manage confirmation, rescheduling, or cancellation.",
   staff: "Manage workspace access, roles, and operating status for your team.",
   clients: "Review recent customer activity and returning queue visitors.",
@@ -772,7 +773,6 @@ const dashboardSectionDescriptions: Partial<Record<DashboardSection, string>> = 
   account: "Manage your vendor account profile, security, subscription, and billing access."
 };
 const adminAllowedSections = new Set<DashboardSection>([
-  "overview",
   "queue",
   "tenants",
   "services",
@@ -785,7 +785,7 @@ const adminAllowedSections = new Set<DashboardSection>([
   "settings",
   "account"
 ]);
-const staffAllowedSections = new Set<DashboardSection>(["overview", "queue", "bookings", "clients", "history", "account"]);
+const staffAllowedSections = new Set<DashboardSection>(["queue", "bookings", "clients", "history", "account"]);
 
 function getHistoryTimestamp(value: string | Date): number {
   return toTimestamp(value);
@@ -841,19 +841,89 @@ function isCheckedInBookingTicket(ticket: {
   return ticket.servicePriorityBand === "checked_in_booking" || Boolean(ticket.linkedBookingReference);
 }
 
-function GroupFundedBookingIndicator({ booking }: { booking: VendorBookingSummary }) {
-  if (!booking.groupFundedBookingId && booking.bookingPaymentSource !== "group_funded") {
-    return null;
-  }
+function getMinutesFromNow(value: string | Date): number {
+  return differenceInMinutes(new Date(), new Date(value));
+}
 
-  const campaignId = booking.groupFundedBookingId || booking.groupFundedCampaign?.id;
-  const campaignTitle = booking.groupFundedCampaign?.campaignTitle || "Group-funded campaign";
+function getBookingCheckInState(booking: VendorBookingSummary) {
+  const minutesFromStart = getMinutesFromNow(booking.scheduledStartAt);
+  return {
+    isTooEarly: minutesFromStart < -15,
+    isLate: minutesFromStart > 15,
+    isEligibleStatus: ["confirmed", "rescheduled"].includes(booking.status),
+    minutesFromStart
+  };
+}
+
+function QueueIntakeGauge({
+  waitingCount,
+  threshold,
+  resumeWaitingCount,
+  autoResumeEnabled,
+  stateLabel,
+  state
+}: {
+  waitingCount: number;
+  threshold: number;
+  resumeWaitingCount: number | null;
+  autoResumeEnabled: boolean;
+  stateLabel: string;
+  state: "open" | "near_limit" | "paused";
+}) {
+  const ratio = Math.max(0, Math.min(waitingCount / threshold, 1));
+  const color = state === "paused" ? "#e03131" : state === "near_limit" ? "#f08c00" : "#12b886";
+  const radius = 46;
+  const stroke = 12;
+  const circumference = Math.PI * radius;
+  const offset = circumference * (1 - ratio);
+  const remaining = Math.max(threshold - waitingCount, 0);
+
   return (
-    <Tooltip label={campaignTitle} withArrow>
-      <QueueBadge variant="info">
-        Group-funded{campaignId ? ` · Campaign #${campaignId}` : ""}
-      </QueueBadge>
-    </Tooltip>
+    <Paper withBorder radius="md" p="md">
+      <Stack gap={8} align="center">
+        <Text className="neura-label">Queue intake</Text>
+        <svg aria-hidden="true" height="96" viewBox="0 0 140 90" width="140">
+          <path
+            d="M 24 70 A 46 46 0 0 1 116 70"
+            fill="none"
+            stroke="#ebe4da"
+            strokeLinecap="round"
+            strokeWidth={stroke}
+          />
+          <path
+            d="M 24 70 A 46 46 0 0 1 116 70"
+            fill="none"
+            pathLength={circumference}
+            stroke={color}
+            strokeDasharray={circumference}
+            strokeDashoffset={offset}
+            strokeLinecap="round"
+            strokeWidth={stroke}
+          />
+          <text fill="#24160f" fontSize="18" fontWeight="700" textAnchor="middle" x="70" y="56">
+            {waitingCount}/{threshold}
+          </text>
+          <text fill="#6f6259" fontSize="10" textAnchor="middle" x="70" y="68">
+            {stateLabel}
+          </text>
+          <text fill="#8a7b70" fontSize="9" textAnchor="start" x="18" y="84">
+            0
+          </text>
+          <text fill="#8a7b70" fontSize="9" textAnchor="end" x="122" y="84">
+            {threshold}
+          </text>
+        </svg>
+        <Text c="dimmed" size="sm" ta="center">
+          {state === "paused"
+            ? autoResumeEnabled && resumeWaitingCount !== null
+              ? `Queue will reopen automatically at ${resumeWaitingCount} waiting tickets or below.`
+              : "Queue intake is paused until a staff member resumes it."
+            : remaining === 0
+              ? "Threshold reached."
+              : `${remaining} slot${remaining === 1 ? "" : "s"} before auto-pause.`}
+        </Text>
+      </Stack>
+    </Paper>
   );
 }
 
@@ -872,46 +942,100 @@ function mergeTheme(theme?: Partial<PublicBoardThemeSettings>): PublicBoardTheme
   };
 }
 
-export default function VendorDashboardPage() {
-  return <VendorToastProvider><VendorDashboardContent /></VendorToastProvider>;
+function MetricCard({
+  label,
+  value,
+  detail,
+  tone = "light"
+}: {
+  label: string;
+  value: string | number;
+  detail: string;
+  tone?: "light" | "dark";
+}) {
+  return (
+    <Card className={tone === "dark" ? "neura-card neura-card-dark" : "neura-card"} padding="lg">
+      <Stack gap={18}>
+        <Text className="neura-label">{label}</Text>
+        <Title order={2}>{value}</Title>
+        <Text className="neura-muted">{detail}</Text>
+      </Stack>
+    </Card>
+  );
 }
 
-function VendorDashboardContent() {
-  const notifications = useVendorNotifications();
-  const showSuccessNotification = useCallback((title: string, message: string) => {
-    notifications.show({color: "teal", icon: <IconCheck size={18} />, title, message});
-  }, [notifications]);
-  const showInfoNotification = useCallback((title: string, message: string) => {
-    notifications.show({color: "blue", icon: <IconInfoCircle size={18} />, title, message});
-  }, [notifications]);
+function ActivationPanel({ onViewPlans }: { onViewPlans: () => void }) {
+  return (
+    <Card className="neura-card neura-activation-card" padding="xl">
+      <SimpleGrid cols={{ base: 1, md: 2 }} spacing="xl">
+        <Stack gap="md" justify="center">
+          <Badge className="neura-soft-badge">Subscription required</Badge>
+          <Title order={2}>Choose a plan to unlock this workspace.</Title>
+          <Text c="dimmed" maw={620}>
+            Queue operations, public links, client data, history, and reports become available after
+            the selected tenant has an active plan.
+          </Text>
+          <Button className="neura-primary-button" onClick={onViewPlans} w="fit-content">
+            View plans
+          </Button>
+        </Stack>
+        <img
+          alt=""
+          className="neura-activation-art"
+          src="/illustrations/generated/vendor-onboarding.png"
+        />
+      </SimpleGrid>
+    </Card>
+  );
+}
+
+function DashboardEmptyState({
+  title,
+  text
+}: {
+  title: string;
+  text: string;
+}) {
+  return (
+    <Stack className="neura-empty-state" gap="sm">
+      <img alt="" className="neura-empty-art" src="/illustrations/generated/dashboard-empty.png" />
+      <Text fw={800}>{title}</Text>
+      <Text className="neura-muted">{text}</Text>
+    </Stack>
+  );
+}
+
+function updateServiceLocationEntries(
+  entries: ServiceLocationFormEntry[] | undefined,
+  locations: Array<{ slug: string }>,
+  locationSlug: string,
+  updater: (entry: ServiceLocationFormEntry) => ServiceLocationFormEntry
+) {
+  return (entries || locations.map((item) => buildDefaultServiceLocationEntry(item.slug))).map((entry) =>
+    entry.locationSlug === locationSlug
+      ? updater({
+          ...buildDefaultServiceLocationEntry(locationSlug),
+          ...entry,
+        })
+      : entry
+  );
+}
+
+export default function VendorDashboardPage() { // NOSONAR: route-level controller coordinates independent dashboard data branches.
   const { token, user, loading, logout, refreshUser, changePassword } = useAuth();
-  const { section, locationSlug, routeServiceSlug } = useParams<{ section: string; locationSlug: string; routeServiceSlug: string }>();
+  const { section } = useParams<{ section: string }>();
   const location = useLocation();
-  const boardApprovalReturn = queueBoardReturnPath(location.search);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const currentSection = (
-    routeServiceSlug ? "services" : locationSlug || section === "locations" ? "tenants" : section && dashboardSections.has(section) ? section : "queue"
+    section && dashboardSections.has(section) ? section : "queue"
   ) as DashboardSection;
   const invalidSection = Boolean(section && !dashboardSections.has(section));
   const [selectedTenantSlug, setSelectedTenantSlug] = useState("");
   const [selectedLocationSlug, setSelectedLocationSlug] = useState("");
-  const [editingQueueTicket, setEditingQueueTicket] = useState<{id:string;tenant:string;location:string}|null>(null);
-  const openQueueDetails = (id:string) => setEditingQueueTicket({id,tenant:selectedTenantSlug,location:selectedLocationSlug});
   const [snapshot, setSnapshot] = useState<QueueSnapshot | null>(null);
-  const [boardScannerBusy, setBoardScannerBusy] = useState(false);
   const [savingQueueQr, setSavingQueueQr] = useState(false);
   const queueQrRef = useRef<HTMLDivElement>(null);
-  const unsavedForm = useRef(createDirtyForms());
-  const accountDraftRef = useRef(false);
-  const securityUnloadRef = useRef(false);
-  const navigationGuard = useContext(VendorNavigationGuard);
-  const activeTenants = useMemo(() => activeMemberships(user?.tenants || []), [user?.tenants]);
-  useEffect(() => {
-    const warn = draftUnloadHandler(() => unsavedForm.current.hasEdits() || accountDraftRef.current || securityUnloadRef.current);
-    window.addEventListener("beforeunload", warn);
-    return () => window.removeEventListener("beforeunload", warn);
-  }, []);
   const [locations, setLocations] = useState<StoreLocationWithHours[]>([]);
   const [services, setServices] = useState<VendorServiceSummary[]>([]);
   const [availabilityBlocks, setAvailabilityBlocks] = useState<VendorAvailabilityBlockSummary[]>([]);
@@ -924,35 +1048,42 @@ function VendorDashboardContent() {
   const [activeLocationLimit, setActiveLocationLimit] = useState(1);
   const [platformDefaultTimezone, setPlatformDefaultTimezone] = useState(DEFAULT_TIMEZONE);
   const [locationDialogOpen, setLocationDialogOpen] = useState(false);
-  const [locationErrorTitle, setLocationErrorTitle] = useState("Unable to save location");
   const [editingLocationSlug, setEditingLocationSlug] = useState("");
   const [editingLocationId, setEditingLocationId] = useState("");
-  const locationEditorScopeRef = useRef("");
-  const [locationLeaveAction, setLocationLeaveAction] = useState<(() => void) | null>(null);
-  const [locationToggleErrors, setLocationToggleErrors] = useState<Record<string,string>>({});
   const [locationForm, setLocationForm] = useState(emptyLocationForm);
-  const locationLeaveDraft = useRef(emptyLocationForm);
-  const [locationEditorTab, setLocationEditorTab] = useState("general");
+  const updateLocationHour = useCallback(
+    (index: number, changes: Partial<(typeof emptyLocationForm.hours)[number]>) => {
+      setLocationForm((current) => ({
+        ...current,
+        hours: current.hours.map((item, itemIndex) => itemIndex === index ? { ...item, ...changes } : item)
+      }));
+    },
+    []
+  );
   const [locationSlugManuallyEdited, setLocationSlugManuallyEdited] = useState(false);
   const [locationSlugMessage, setLocationSlugMessage] = useState("");
   const [locationSlugAvailable, setLocationSlugAvailable] = useState(false);
   const [checkingLocationSlug, setCheckingLocationSlug] = useState(false);
+  const isMobileHoursLayout = useMediaQuery("(max-width: 48em)");
   const [paymentQrUploadFile, setPaymentQrUploadFile] = useState<File | null>(null);
-  const serviceEditorScopeRef = useRef("");
-  const serviceLeaveDraft = useRef(emptyServiceForm);
-  const [serviceLeaveAction,setServiceLeaveAction] = useState<(() => void) | null>(null);
   const [serviceDialogOpen, setServiceDialogOpen] = useState(false);
   const [editingServiceSlug, setEditingServiceSlug] = useState("");
   const [editingServiceId, setEditingServiceId] = useState("");
   const [serviceForm, setServiceForm] = useState<SaveVendorServiceRequest>(emptyServiceForm);
+  const updateServiceLocationEntry = useCallback(
+    (locationSlug: string, updater: (entry: ServiceLocationFormEntry) => ServiceLocationFormEntry) => {
+      setServiceForm((current) => ({
+        ...current,
+        locationServices: updateServiceLocationEntries(current.locationServices, locations, locationSlug, updater)
+      }));
+    },
+    [locations]
+  );
   const [serviceSlugManuallyEdited, setServiceSlugManuallyEdited] = useState(false);
   const [serviceSlugMessage, setServiceSlugMessage] = useState("");
   const [serviceSlugAvailable, setServiceSlugAvailable] = useState(false);
   const [checkingServiceSlug, setCheckingServiceSlug] = useState(false);
-  const [locationsTab, setLocationsTab] = useState("locations");
-  const [resourceConfigurationBusy, setResourceConfigurationBusy] = useState(false);
-  const [resourceConfigurationDialogOpen, setResourceConfigurationDialogOpen] = useState(false);
-  const [servicesTab, setServicesTab] = useState<"catalog" | "weekly" | "exceptions" | "queue-policy">("catalog");
+  const [servicesTab, setServicesTab] = useState<"catalog" | "weekly" | "exceptions">("catalog");
   const [availabilityBlockDialogOpen, setAvailabilityBlockDialogOpen] = useState(false);
   const [editingAvailabilityBlockId, setEditingAvailabilityBlockId] = useState("");
   const [availabilityBlockForm, setAvailabilityBlockForm] = useState<SaveVendorAvailabilityBlockRequest>(emptyAvailabilityBlockForm);
@@ -961,12 +1092,6 @@ function VendorDashboardContent() {
   const [availabilityExceptionForm, setAvailabilityExceptionForm] = useState<SaveVendorAvailabilityExceptionRequest>(emptyAvailabilityExceptionForm);
   const [availabilityExceptionBlockEntireDay, setAvailabilityExceptionBlockEntireDay] = useState(false);
   const [settings, setSettings] = useState<UpdateTenantSettingsRequest>(defaultSettings);
-  const savedSettings = useRef<UpdateTenantSettingsRequest>(defaultSettings);
-  const savedProfileTheme = useRef<PublicBoardThemeSettings>(defaultPublicBoardTheme);
-  const [profileThemeLoading, setProfileThemeLoading] = useState(true);
-  const [profileThemeError, setProfileThemeError] = useState<unknown>(null);
-  const [profileThemeRetry, setProfileThemeRetry] = useState(0);
-  const [boardSettingsBusy, setBoardSettingsBusy] = useState(false);
   const [accountTab, setAccountTab] = useState<AccountTab>("subscription");
   const [settingsTab, setSettingsTab] = useState<SettingsTab>("contact");
   const [accountProfileForm, setAccountProfileForm] = useState({
@@ -974,10 +1099,6 @@ function VendorDashboardContent() {
     displayName: user?.displayName || ""
   });
   const [accountProfileBusy, setAccountProfileBusy] = useState(false);
-  const [accountPanelBusy, setAccountPanelBusy] = useState(false);
-  const [ratingsBusy, setRatingsBusy] = useState(false);
-  const [accountPanelDraft, setAccountPanelDraft] = useState(false);
-  const [accountTaskRevision, setAccountTaskRevision] = useState(0);
   const [mfaEnabled, setMfaEnabled] = useState(Boolean(user?.mfaEnabled));
   const [mfaSecret, setMfaSecret] = useState("");
   const [mfaEnrollmentUri, setMfaEnrollmentUri] = useState("");
@@ -994,8 +1115,6 @@ function VendorDashboardContent() {
   const [removalCode, setRemovalCode] = useState("");
   const [removalRecoveryCode, setRemovalRecoveryCode] = useState("");
   const [removalAcknowledged, setRemovalAcknowledged] = useState(false);
-  accountDraftRef.current = accountPanelDraft || Boolean(replacementPassword || replacementCode || removalPassword || removalCode || removalRecoveryCode || removalAcknowledged);
-  securityUnloadRef.current = Boolean(mfaSecret || mfaCode || mfaRecoveryCodes.length);
   const [vendorNotificationSettings, setVendorNotificationSettings] = useState<TenantNotificationSettings>(defaultNotificationSettings);
   const [browserPermission, setBrowserPermission] = useState<NotificationPermission>(
     typeof window !== "undefined" && typeof window.Notification !== "undefined"
@@ -1009,11 +1128,6 @@ function VendorDashboardContent() {
   const browserNotificationsSecure = typeof window !== "undefined" ? window.isSecureContext : false;
   const [walkInForm, setWalkInForm] = useState<CreateWalkInTicketRequest>(emptyWalkIn);
   const [walkInDialogOpen, setWalkInDialogOpen] = useState(false);
-  const [serviceRequestSequence, setServiceRequestSequence] = useState(0);
-  const [serviceRequestAvailable, setServiceRequestAvailable] = useState(false);
-  useEffect(() => {
-    setWalkInForm((current) => ({ ...current, serviceId: "" }));
-  }, [selectedTenantSlug, selectedLocationSlug]);
   const [billing, setBilling] = useState<BillingOverviewResponse | null>(null);
   const [history, setHistory] = useState<VendorHistoryResponse | null>(null);
   const [clients, setClients] = useState<VendorClientsResponse | null>(null);
@@ -1024,48 +1138,24 @@ function VendorDashboardContent() {
   const [bookingAlertBookings, setBookingAlertBookings] = useState<VendorBookingSummary[]>([]);
   const dismissedBookingAlertIdsRef = useRef<Set<string>>(new Set());
   const knownQueueTicketIdsRef = useRef<Set<string> | null>(null);
-  const [namedInventory,setNamedInventory]=useState<{scope:string;ids:string[]}>({scope:"",ids:[]});
-  const [workflowInventory,setWorkflowInventory]=useState<{scope:string;ids:string[]}>({scope:"",ids:[]});
-  const [workflowManagementRead,setWorkflowManagementRead]=useState({scope:"",ready:false});
-  const namedTicketIds=useMemo(()=>[...new Set([...scopedResourceIds(`${selectedTenantSlug}:${selectedLocationSlug}`,namedInventory),...scopedResourceIds(`${selectedTenantSlug}:${selectedLocationSlug}`,workflowInventory)])],[selectedTenantSlug,selectedLocationSlug,namedInventory,workflowInventory]);
-  const [namedManagementRead,setNamedManagementRead]=useState({scope:"",ready:false});
-  const v2TicketIds=namedTicketIds;
   const [queueAlertIds, setQueueAlertIds] = useState<string[]>([]);
   const dismissedQueueAlertIdsRef = useRef<Set<string>>(new Set());
   const previousQueueDayRef = useRef<QueueDaySyncState | null>(null);
   const localQueueDayUpdateRef = useRef<LocalQueueDayUpdate | null>(null);
   const [bookingDetailModalId, setBookingDetailModalId] = useState<string | null>(null);
   const [bookingDetailOpen, setBookingDetailOpen] = useState(false);
-  const [bookingDetailRetry, setBookingDetailRetry] = useState(0);
-  const [bookingCheckInNow, setBookingCheckInNow] = useState(Date.now);
-  useEffect(() => {
-    if (currentSection !== "bookings" && !bookingDetailOpen) return;
-    setBookingCheckInNow(Date.now());
-    const timer = window.setInterval(() => setBookingCheckInNow(Date.now()), 1000);
-    return () => window.clearInterval(timer);
-  }, [currentSection, bookingDetailOpen]);
   const [bookingDetailLoading, setBookingDetailLoading] = useState(false);
   const [bookingDetailBooking, setBookingDetailBooking] = useState<VendorBookingSummary | null>(null);
   const [bookingDetailError, setBookingDetailError] = useState("");
   const [paymentRejectionReason, setPaymentRejectionReason] = useState("");
-  function openBookingDetail(bookingId: string) {
-    setError("");
-    setPaymentRejectionReason("");
-    setBookingDetailModalId(bookingId);
-    setBookingDetailOpen(true);
-  }
-
-
   const [confirmAction, setConfirmAction] = useState<null | {
     title: string;
     description: string;
     confirmLabel: string;
     confirmColor?: "red" | "orange" | "blue" | "dark";
-    onConfirm: () => Promise<void>;
+    onConfirm: () => void | Promise<unknown>;
   }>(null);
   const [error, setError] = useState("");
-  const [startPlanErrorScope, setStartPlanErrorScope] = useState<string | null>(null);
-  const [linearCommandError, setLinearCommandError] = useState<{scope:string;message:string} | null>(null);
   const [busyAction, setBusyAction] = useState("");
   const [planDialogOpen, setPlanDialogOpen] = useState(false);
   const [paidPlanDialogOnly, setPaidPlanDialogOnly] = useState(false);
@@ -1073,15 +1163,11 @@ function VendorDashboardContent() {
   const [themeLocation, setThemeLocation] = useState<StoreLocationWithHours | null>(null);
   const [themeForm, setThemeForm] = useState<PublicBoardThemeSettings>(defaultPublicBoardTheme);
   const [businessProfileTheme, setBusinessProfileTheme] = useState<PublicBoardThemeSettings>(defaultPublicBoardTheme);
-  const [profilePreviewMode, setProfilePreviewMode] = useState<"light" | "dark">("light");
-  const [profileBackgroundFile, setProfileBackgroundFile] = useState<File | null>(null);
-  const [profileLogoFile, setProfileLogoFile] = useState<File | null>(null);
   const [applyThemeToAllLocations, setApplyThemeToAllLocations] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [billingInterval, setBillingInterval] = useState<"monthly" | "annual">("monthly");
   const [billingPaymentMode, setBillingPaymentMode] = useState<"manual" | "automatic">("manual");
   const [selectedCounterSlug, setSelectedCounterSlug] = useState("");
-  const [scannerTarget, setScannerTarget] = useState<{ ticketId: string; counterSlug: string | null; tenantSlug: string; locationQuery: string; ticketNumber: string } | null>(null);
-
   const [counterDialogOpen, setCounterDialogOpen] = useState(false);
   const [editingCounterSlug, setEditingCounterSlug] = useState("");
   const [editingCounterId, setEditingCounterId] = useState("");
@@ -1113,7 +1199,6 @@ function VendorDashboardContent() {
   const [historyPage, setHistoryPage] = useState(1);
   const [bookingSearch, setBookingSearch] = useState("");
   const [bookingStatusFilter, setBookingStatusFilter] = useState<BookingStatusFilter>("all");
-  const [hideNonActiveBookings, setHideNonActiveBookings] = useState(false);
   const [bookingDateRange, setBookingDateRange] = useState<[Date | null, Date | null]>([null, null]);
   const [bookingPage, setBookingPage] = useState(1);
   const [bookingPagination, setBookingPagination] = useState<PaginationMetadata | null>(null);
@@ -1121,14 +1206,11 @@ function VendorDashboardContent() {
   const [rescheduleDialogOpen, setRescheduleDialogOpen] = useState(false);
   const [reschedulingBooking, setReschedulingBooking] = useState<VendorBookingSummary | null>(null);
   const [rescheduleStartAt, setRescheduleStartAt] = useState("");
-  const rescheduleFormRef = useRef<HTMLFormElement>(null);
   const [rescheduleDate, setRescheduleDate] = useState("");
   const [rescheduleSlots, setRescheduleSlots] = useState<BookingSlotSummary[]>([]);
   const [rescheduleSlotsLoading, setRescheduleSlotsLoading] = useState(false);
   const [rescheduleSlotsError, setRescheduleSlotsError] = useState("");
   const [rescheduleBlockModalOpen, setRescheduleBlockModalOpen] = useState(false);
-
-  const [groupFundedProofError] = useState("");
   const selectedLocation =
     locations.find((locationItem) => locationItem.slug === selectedLocationSlug) ||
     snapshot?.location ||
@@ -1137,19 +1219,13 @@ function VendorDashboardContent() {
     locations.find((locationItem) => locationItem.slug === availabilityBlockForm.locationSlug) ||
     selectedLocation;
   const selectedTenantRole =
-    activeTenants.find((tenant) => tenant.slug === selectedTenantSlug)?.role || null;
+    user?.tenants.find((tenant) => tenant.slug === selectedTenantSlug)?.role || null;
   const hasActiveSubscription =
     selectedTenantRole === "staff" || billing?.subscription?.status === "active";
   const isOwner = selectedTenantRole === "owner";
   const isAdmin = selectedTenantRole === "admin";
   const requiresMfaEnrollment = Boolean(user?.mfaRequired && !user.mfaEnabled);
   const canLoadProtectedDashboard = !requiresMfaEnrollment;
-  const localPoolQuery = useLocalPoolOperations(token, selectedTenantSlug, selectedLocationSlug, canLoadProtectedDashboard && currentSection === "queue");
-  const localPoolData = !localPoolQuery.isError ? scopedLocalPoolData(snapshot, localPoolQuery.data, selectedTenantSlug, selectedLocationSlug) : null;
-  const localPoolScope = `${selectedTenantSlug}:${selectedLocationSlug}`;
-  const localPoolScopeRef = useRef(localPoolScope);
-  localPoolScopeRef.current = localPoolScope;
-
   const canOperateQueueDay = Boolean(selectedTenantRole);
   const canReopenQueueDay = isOwner || isAdmin;
   const canManageContactSettings = isOwner;
@@ -1163,8 +1239,7 @@ function VendorDashboardContent() {
   const dashboardErrorMessage = [
     error,
     bookingDetailError,
-    rescheduleSlotsError,
-    groupFundedProofError
+    rescheduleSlotsError
   ].find(Boolean) || "";
 
   useEffect(() => {
@@ -1191,7 +1266,7 @@ function VendorDashboardContent() {
       message: dashboardErrorMessage,
       autoClose: 7000
     });
-  }, [dashboardErrorMessage, notifications]);
+  }, [dashboardErrorMessage]);
 
   const dashboardBootstrapQuery = useQuery({
     queryKey: ["vendor-dashboard-bootstrap", token, selectedTenantSlug, selectedLocationSlug, locationQuery, selectedTenantRole],
@@ -1216,21 +1291,12 @@ function VendorDashboardContent() {
         throw new Error("Missing billing context.");
       }
 
-      return {...await vendorDashboardBootstrap.getBillingOverview(token, selectedTenantSlug), clientTenantSlug: selectedTenantSlug};
+      return vendorDashboardBootstrap.getBillingOverview(token, selectedTenantSlug);
     },
     enabled: Boolean(
       shouldEnableVendorDashboardBootstrap(token, selectedTenantSlug, requiresMfaEnrollment) &&
       (isOwner || isAdmin)
     )
-  });
-  const periodUsageQuery = useQuery({
-    queryKey: ["vendor-period-usage", user?.id, token, selectedTenantSlug, selectedTenantRole],
-    queryFn: () => vendorDashboardBootstrap.getPeriodUsage(token!, selectedTenantSlug),
-    enabled: Boolean(
-      shouldEnableVendorDashboardBootstrap(token, selectedTenantSlug, requiresMfaEnrollment) &&
-      shouldLoadPeriodUsage({ isOwner, isAdmin, section: currentSection, accountTab })
-    ),
-    refetchInterval: 30_000
   });
   const effectiveEntitlementsQuery = useQuery({
     queryKey: ["vendor-dashboard-effective-entitlements", token, selectedTenantSlug],
@@ -1239,11 +1305,22 @@ function VendorDashboardContent() {
         throw new Error("Missing entitlement context.");
       }
 
-      return {...await vendorDashboardBootstrap.getEffectiveEntitlements(token, selectedTenantSlug), clientTenantSlug: selectedTenantSlug};
+      return vendorDashboardBootstrap.getEffectiveEntitlements(token, selectedTenantSlug);
     },
     enabled: shouldEnableVendorDashboardBootstrap(token, selectedTenantSlug, requiresMfaEnrollment)
   });
-  const effectiveBilling = billingOverviewQuery.data?.clientTenantSlug === selectedTenantSlug ? billingOverviewQuery.data : null;
+  const capacityExperienceQuery = useQuery({
+    queryKey: ["vendor-dashboard-capacity-experience", token, selectedTenantSlug],
+    queryFn: async () => {
+      if (!token || !selectedTenantSlug) {
+        throw new Error("Missing capacity context.");
+      }
+
+      return vendorDashboardBootstrap.getCapacityExperience(token, selectedTenantSlug);
+    },
+    enabled: shouldEnableVendorDashboardBootstrap(token, selectedTenantSlug, requiresMfaEnrollment)
+  });
+  const effectiveBilling = billingOverviewQuery.data || null;
   const activeSubscription =
     effectiveBilling?.subscription?.status === "active" ? effectiveBilling.subscription : null;
   const currentPlan = activeSubscription
@@ -1254,41 +1331,6 @@ function VendorDashboardContent() {
     currentPlan?.entitlements ||
     effectiveEntitlementsQuery.data?.entitlements;
   const tenantPlan = effectiveEntitlementsQuery.data?.plan;
-  const bookingSettingsAllowed = effectiveEntitlementsQuery.isSuccess && !effectiveEntitlementsQuery.isPlaceholderData && effectiveEntitlementsQuery.data?.clientTenantSlug === selectedTenantSlug && effectiveEntitlementsQuery.data?.entitlements?.serviceBookingAccess === true;
-  const queueTypeQuery = useQuery({
-    queryKey:["vendor-queue-type",selectedTenantSlug,selectedLocationSlug,token],
-    queryFn:({signal})=>getQueueType(token!,selectedTenantSlug,selectedLocationSlug,signal),
-    enabled:Boolean(token&&selectedTenantSlug&&selectedLocationSlug&&!requiresMfaEnrollment),
-  });
-  const queueTypeConfiguration = !queueTypeQuery.isPlaceholderData && queueTypeQuery.data && queueTypeQuery.data.scope.tenantSlug === selectedTenantSlug && queueTypeQuery.data.scope.locationSlug === selectedLocationSlug ? queueTypeQuery.data : null;
-  const refetchQueueType = queueTypeQuery.refetch;
-  useEffect(()=>{
-    if(!token||!selectedTenantSlug||!selectedLocationSlug)return;
-    const refresh=()=>{if(document.visibilityState==='visible')void refetchQueueType();};
-    const interval=window.setInterval(refresh,15000);
-    window.addEventListener('queue-plans-updated',refresh);window.addEventListener('focus',refresh);window.addEventListener('online',refresh);
-    return()=>{window.clearInterval(interval);window.removeEventListener('queue-plans-updated',refresh);window.removeEventListener('focus',refresh);window.removeEventListener('online',refresh);};
-  },[token,selectedTenantSlug,selectedLocationSlug,refetchQueueType]);
-  const [queueTypeBusy,setQueueTypeBusy]=useState(false);
-  const [queueSetupRead,setQueueSetupRead] = useState<{scope:string;ready:boolean}>({scope:"",ready:false});
-  const intakeMode = queueIntakeMode({
-    optedIn: resourceQueueOptIn, tenantSlug: selectedTenantSlug,
-    entitlementTenantSlug: effectiveEntitlementsQuery.data?.clientTenantSlug,
-    loaded: Boolean(effectiveEntitlementsQuery.data?.entitlements) && !effectiveEntitlementsQuery.isPlaceholderData,
-    entitlements: effectiveEntitlementsQuery.data?.entitlements, plan: tenantPlan,
-    queueType:queueTypeConfiguration,
-    locationSlug:selectedLocationSlug, setup:queueSetupRead,
-  });
-  const resourceQueueEnabled = intakeMode === "resource";
-  const resourceSetupAllowed=queueTypeConfiguration?.capabilities.resource===true;
-  const resourceManagementEnabled = resourceQueueOptIn && intakeMode !== "loading" && Boolean(selectedTenantSlug&&selectedLocationSlug);
-  const rawCounterTicket = selectCounterDispatch(snapshot, selectedTenantSlug, selectedLocationSlug, selectedCounterSlug).ticket;
-  const workPresentation = queueWorkPresentation({resourceIntake:resourceQueueEnabled,managementAllowed:resourceManagementEnabled,resourceTicketIds:namedTicketIds,currentTicketId:rawCounterTicket?.id});
-  const managementReadPending = resourceManagementEnabled && !resourceQueueEnabled && (namedManagementRead.scope !== localPoolScope || !namedManagementRead.ready || workflowManagementRead.scope !== localPoolScope || !workflowManagementRead.ready);
-  const legacyCounterSnapshot = legacyQueueWork(snapshot,namedTicketIds);
-  const dispatchSnapshot = workPresentation.resourceCounters ? localPoolDispatchSnapshot(snapshot, localPoolData) : snapshot;
-  const {lane: selectedLane, ticket: selectedCalledTicket} = selectCounterDispatch(dispatchSnapshot, selectedTenantSlug, selectedLocationSlug, selectedCounterSlug);
-
   const roleVisibleNavItems = requiresMfaEnrollment
     ? navItems.filter((item) => item.section === "account")
     : isOwner
@@ -1297,15 +1339,9 @@ function VendorDashboardContent() {
         ? navItems.filter((item) => adminAllowedSections.has(item.section))
         : navItems.filter((item) => staffAllowedSections.has(item.section));
   const visibleNavItems = roleVisibleNavItems.filter((item) =>
-    item.section === "queue" || canAccessVendorSection(item.section, effectiveEntitlements, tenantPlan)
+    canAccessVendorSection(item.section, effectiveEntitlements, tenantPlan)
   );
   const defaultDashboardPath = `/dashboard/${visibleNavItems[0]?.section || "settings"}`;
-  useEffect(() => {
-    if (!user?.id || !selectedTenantSlug || !selectedTenantRole || requiresMfaEnrollment || effectiveEntitlementsQuery.isPending) return;
-    savePreference(preferenceKey(user.id, selectedTenantSlug), sectionWorkspace(currentSection,
-      new URLSearchParams(location.search).get("workspace"), isOwner || isAdmin));
-  }, [user?.id, selectedTenantSlug, selectedTenantRole, requiresMfaEnrollment, effectiveEntitlementsQuery.isPending,
-    currentSection, location.search, isOwner, isAdmin]);
   const queueLifecycleSnapshotQuery = useQuery({
     queryKey: ["vendor-dashboard-queue-lifecycle", token, selectedTenantSlug, selectedLocationSlug, locationQuery],
     queryFn: async () => {
@@ -1350,11 +1386,6 @@ function VendorDashboardContent() {
       canAccessVendorSection("services", effectiveEntitlements)
     )
   });
-  const ticketServiceOptionsQuery = useQuery({
-    queryKey: ["vendor-ticket-service-options", token, selectedTenantSlug, selectedLocationSlug],
-    queryFn: () => vendorDashboardQueue.getServiceOptions(token!, selectedTenantSlug, locationQuery),
-    enabled: Boolean(canLoadProtectedDashboard && (walkInDialogOpen || (resourceQueueEnabled && currentSection === "queue")) && token && selectedTenantSlug && selectedLocationSlug)
-  });
   const locationServicesQuery = useQuery({
     queryKey: ["vendor-dashboard-location-services", token, selectedTenantSlug, isOwner, isAdmin],
     queryFn: async () => {
@@ -1372,11 +1403,6 @@ function VendorDashboardContent() {
       canAccessVendorSection("services", effectiveEntitlements)
     )
   });
-  const bookingConfigurationQuery=useQuery({
-    queryKey:['vendor-booking-configuration',token,selectedTenantSlug],
-    queryFn:()=>apiRequest<{locations:Array<{locationSlug:string;serviceId:string;contractVersion:4;capabilityEnabled:boolean;resourceConfigured:boolean;ready:boolean;assignment:string|null;duration:{baseMinutes:number;defaultCount:number}|null;extrasCount:number;workflowSupported:boolean}>}>(`/vendor/tenant/${selectedTenantSlug}/booking-configuration`,{token}),
-    enabled:Boolean(canLoadProtectedDashboard&&token&&selectedTenantSlug&&(isOwner||isAdmin)&&bookingSettingsAllowed&&(serviceDialogOpen||routeServiceSlug)),
-  });
   const availabilityQuery = useQuery({
     queryKey: ["vendor-dashboard-availability", token, selectedTenantSlug, selectedLocationSlug, isOwner, isAdmin],
     queryFn: async () => {
@@ -1392,7 +1418,7 @@ function VendorDashboardContent() {
       selectedTenantSlug &&
       selectedLocationSlug &&
       (isOwner || isAdmin) &&
-      bookingSettingsAllowed
+      canAccessVendorSection("services", effectiveEntitlements)
     )
   });
   const countersQuery = useQuery({
@@ -1453,7 +1479,6 @@ function VendorDashboardContent() {
       bookingPage,
       bookingSearch,
       bookingStatusFilter,
-      hideNonActiveBookings,
       bookingDateRange
     ],
     queryFn: async () => {
@@ -1464,7 +1489,7 @@ function VendorDashboardContent() {
       return vendorDashboardBookings.getBookings(token, selectedTenantSlug, selectedLocationSlug, bookingPage, bookingSearch, bookingStatusFilter, [
         bookingDateRange[0] ? formatDateInputValue(bookingDateRange[0]) : null,
         bookingDateRange[1] ? formatDateInputValue(bookingDateRange[1]) : null
-      ], hideNonActiveBookings);
+      ]);
     },
     enabled: Boolean(
       canLoadProtectedDashboard &&
@@ -1477,7 +1502,6 @@ function VendorDashboardContent() {
       canAccessVendorSection("bookings", effectiveEntitlements)
     )
   });
-
   const bookingAlertsQuery = useQuery({
     queryKey: ["vendor-dashboard-booking-alerts", token, selectedTenantSlug, selectedLocationSlug],
     queryFn: async () => {
@@ -1529,16 +1553,7 @@ function VendorDashboardContent() {
     return () => {
       active = false;
     };
-  }, [bookingDetailModalId, bookingDetailOpen, bookingDetailRetry, selectedLocationSlug, selectedTenantSlug, token]);
-
-  useEffect(()=>{
-    if(!bookingDetailOpen||!bookingDetailModalId||!token||!selectedTenantSlug)return;
-    let active=true;
-    const refresh=()=>{void vendorDashboardBookings.getBookingDetail(token,selectedTenantSlug,bookingDetailModalId,selectedLocationSlug||undefined).then(response=>{if(active)setBookingDetailBooking(response.booking);}).catch(error=>{if(active)setBookingDetailError(getErrorMessage(error));});};
-    window.addEventListener('vendor-queue-snapshot-updated',refresh);
-    const timer=window.setInterval(refresh,15000);
-    return()=>{active=false;window.removeEventListener('vendor-queue-snapshot-updated',refresh);window.clearInterval(timer);};
-  },[bookingDetailOpen,bookingDetailModalId,token,selectedTenantSlug,selectedLocationSlug]);
+  }, [bookingDetailModalId, bookingDetailOpen, selectedLocationSlug, selectedTenantSlug, token]);
 
   useEffect(() => {
     if (!rescheduleDialogOpen || !reschedulingBooking || !rescheduleDate || !token || !selectedTenantSlug) {
@@ -1556,7 +1571,9 @@ function VendorDashboardContent() {
           return;
         }
         setRescheduleSlots(response.slots);
-        setRescheduleStartAt((current) => availableRescheduleSelection(response.slots, current));
+        if (!response.slots.some((slot) => String(slot.startAt) === rescheduleStartAt)) {
+          setRescheduleStartAt("");
+        }
       })
       .catch((slotsError) => {
         if (active) {
@@ -1573,19 +1590,19 @@ function VendorDashboardContent() {
     return () => {
       active = false;
     };
-  }, [rescheduleDate, rescheduleDialogOpen, reschedulingBooking, selectedTenantSlug, token]);
+  }, [rescheduleDate, rescheduleDialogOpen, rescheduleStartAt, reschedulingBooking, selectedTenantSlug, token]);
 
   useEffect(() => {
-    if (!activeTenants.some((tenant) => tenant.slug === selectedTenantSlug)) {
-      setSelectedTenantSlug(activeTenants.find(tenant=>tenant.slug===new URLSearchParams(location.search).get("business"))?.slug || activeTenants[0]?.slug || "");
+    if (!selectedTenantSlug && user?.tenants?.length) {
+      setSelectedTenantSlug(user.tenants[0].slug);
     }
-  }, [selectedTenantSlug, activeTenants, location.search]);
+  }, [selectedTenantSlug, user]);
 
   useEffect(() => {
     if (requiresMfaEnrollment) {
       setAccountTab("security");
       if (currentSection !== "account") {
-        navigate(boardApprovalReturn ? `/dashboard/account?next=${encodeURIComponent(boardApprovalReturn)}` : "/dashboard/account", { replace: true });
+        navigate("/dashboard/account", { replace: true });
       }
       return;
     }
@@ -1593,7 +1610,7 @@ function VendorDashboardContent() {
     if (selectedTenantRole === "staff" && (accountTab === "subscription" || accountTab === "billing")) {
       setAccountTab("profile");
     }
-  }, [accountTab, boardApprovalReturn, currentSection, navigate, requiresMfaEnrollment, selectedTenantRole]);
+  }, [accountTab, currentSection, navigate, requiresMfaEnrollment, selectedTenantRole]);
 
   useEffect(() => {
     if (!dashboardBootstrapQuery.data) {
@@ -1606,12 +1623,23 @@ function VendorDashboardContent() {
     setActiveLocationLimit(locationsResponse.activeLocationLimit);
     setPlatformDefaultTimezone(locationsResponse.defaultTimezone);
     if (!selectedLocationSlug || !locationsResponse.locations.some((item) => item.slug === selectedLocationSlug)) {
-      setSelectedLocationSlug(initialQueueLocation(locationsResponse.locations,window.location.search));
+      setSelectedLocationSlug(locationsResponse.locations.find((item) => item.isPrimary)?.slug || locationsResponse.locations[0]?.slug || "");
     }
     setSnapshot((current) => selectFreshestQueueSnapshot(current, snapshotResponse));
-    const incomingSettings = tenantSettingsFromSnapshot(snapshotResponse.tenant);
-    savedSettings.current = incomingSettings;
-    if (!unsavedForm.current.hasEdits()) setSettings(incomingSettings);
+    setSettings({
+      name: snapshotResponse.tenant.name || "",
+      publicProfileDisplayName: snapshotResponse.tenant.publicProfileDisplayName || "",
+      publicProfileDescription: snapshotResponse.tenant.publicProfileDescription || "",
+      publicProfileCategory: snapshotResponse.tenant.publicProfileCategory || "",
+      businessCategoryId: snapshotResponse.tenant.businessCategoryId || null,
+      queuePrefix: snapshotResponse.tenant.queuePrefix,
+      averageServiceMinutes: snapshotResponse.tenant.averageServiceMinutes,
+      notificationThreshold: snapshotResponse.tenant.notificationThreshold,
+      autoPauseEnabled: snapshotResponse.tenant.autoPauseEnabled,
+      autoPauseThreshold: snapshotResponse.tenant.autoPauseThreshold ?? 20,
+      autoResumeEnabled: snapshotResponse.tenant.autoResumeEnabled,
+      autoResumeVacancyPercent: snapshotResponse.tenant.autoResumeVacancyPercent ?? 20
+    });
     setVendorNotificationSettings(notificationSettings);
   }, [dashboardBootstrapQuery.data, selectedLocationSlug]);
 
@@ -1620,14 +1648,10 @@ function VendorDashboardContent() {
       return;
     }
 
-    let active = true;
-    setProfileThemeLoading(true); setProfileThemeError(null);
     vendorDashboardOperations.getTheme(token, selectedTenantSlug, "")
-      .then((data) => { if (active) { const theme=mergeTheme(data.theme); savedProfileTheme.current=theme; setBusinessProfileTheme(theme); } })
-      .catch((themeError) => { if (active) setProfileThemeError(themeError); })
-      .finally(()=>{if(active)setProfileThemeLoading(false);});
-    return () => { active = false; };
-  }, [canManageContactSettings, selectedTenantSlug, token, profileThemeRetry]);
+      .then((data) => setBusinessProfileTheme(mergeTheme(data.theme)))
+      .catch((themeError) => setError(getErrorMessage(themeError)));
+  }, [canManageContactSettings, selectedTenantSlug, token]);
 
   useEffect(() => {
     if (billingOverviewQuery.data) {
@@ -1696,7 +1720,7 @@ function VendorDashboardContent() {
         "Automatic reconciliation could not confirm a trustworthy state. Queue actions are locked."
       );
     }
-  }, [busyAction, snapshot?.queueDay, showInfoNotification]);
+  }, [busyAction, snapshot?.queueDay]);
 
   useEffect(() => {
     if (!staffQuery.data) {
@@ -1732,8 +1756,6 @@ function VendorDashboardContent() {
 
     setServiceCounters(countersQuery.data.counters);
     setCounterLimit(countersQuery.data.counterLimit);
-    setSelectedCounterSlug((current) => current && countersQuery.data.counters.some((counter) => counter.slug === current && counter.isActive)
-      ? current : countersQuery.data.counters.find((counter) => counter.isActive)?.slug || "");
   }, [countersQuery.data]);
 
   useEffect(() => {
@@ -1831,10 +1853,10 @@ function VendorDashboardContent() {
     key: keyof TenantNotificationSettings,
     checked: boolean
   ) {
-    if (!token || !selectedTenantSlug || savingNotificationSettings) {
+    if (!token || !selectedTenantSlug) {
       return;
     }
-    setError("");
+
     const nextSettings = {
       ...vendorNotificationSettings,
       [key]: checked
@@ -1856,6 +1878,95 @@ function VendorDashboardContent() {
       setSavingNotificationSettings(false);
     }
   }
+
+  useEffect(() => {
+    if (!canLoadProtectedDashboard || !selectedTenantSlug || !selectedLocationSlug || !token) {
+      return;
+    }
+
+    vendorDashboardCatalog.getCounters(token, selectedTenantSlug, selectedLocationSlug)
+      .then((data) => {
+        setServiceCounters(data.counters);
+        setCounterLimit(data.counterLimit);
+        setSelectedCounterSlug((current) =>
+          current && data.counters.some((counter) => counter.slug === current && counter.isActive)
+            ? current
+            : data.counters.find((counter) => counter.isActive)?.slug || ""
+        );
+      })
+      .catch(() => {
+        setServiceCounters([]);
+        setCounterLimit(0);
+      });
+  }, [canLoadProtectedDashboard, selectedLocationSlug, selectedTenantSlug, token]);
+
+  useEffect(() => {
+    if (
+      !canLoadProtectedDashboard ||
+      !selectedTenantSlug ||
+      !token ||
+      !canAccessVendorSection("staff", effectiveEntitlements)
+    ) {
+      setStaff([]);
+      setStaffSeatLimit(0);
+      return;
+    }
+
+    vendorDashboardOperations.getStaff(token, selectedTenantSlug)
+      .then((data) => {
+        setStaff(data.staff);
+        setStaffSeatLimit(data.staffSeatLimit);
+      })
+      .catch(() => {
+        setStaff([]);
+        setStaffSeatLimit(0);
+      });
+  }, [canLoadProtectedDashboard, effectiveEntitlements, selectedTenantSlug, token]);
+
+  useEffect(() => {
+    if (
+      !canLoadProtectedDashboard ||
+      !selectedTenantSlug ||
+      !token ||
+      !(isOwner || isAdmin) ||
+      !canAccessVendorSection("services", effectiveEntitlements)
+    ) {
+      setServices([]);
+      return;
+    }
+
+    vendorDashboardCatalog.getServices(token, selectedTenantSlug)
+      .then((data) => {
+        setServices(data.services);
+      })
+      .catch(() => {
+        setServices([]);
+      });
+  }, [canLoadProtectedDashboard, effectiveEntitlements, isAdmin, isOwner, selectedTenantSlug, token]);
+
+  useEffect(() => {
+    if (
+      !selectedTenantSlug ||
+      !selectedLocationSlug ||
+      !token ||
+      !(isOwner || isAdmin) ||
+      !canAccessVendorSection("services", effectiveEntitlements)
+    ) {
+      setAvailabilityBlocks([]);
+      setAvailabilityExceptions([]);
+      return;
+    }
+
+    vendorDashboardCatalog.getAvailability(token, selectedTenantSlug, selectedLocationSlug)
+      .then((data) => {
+        setAvailabilityBlocks(data.blocks);
+        setAvailabilityExceptions(data.exceptions);
+      })
+      .catch(() => {
+        setAvailabilityBlocks([]);
+        setAvailabilityExceptions([]);
+      });
+  }, [effectiveEntitlements, isAdmin, isOwner, selectedLocationSlug, selectedTenantSlug, token]);
 
   useEffect(() => {
     if (!selectedTenantSlug || !token) {
@@ -1922,7 +2033,7 @@ function VendorDashboardContent() {
     return () => {
       active = false;
     };
-  }, [location.pathname, location.search, navigate, queryClient, selectedTenantSlug, token, showInfoNotification, showSuccessNotification]);
+  }, [location.pathname, location.search, navigate, queryClient, selectedTenantSlug, token]);
 
   useEffect(() => {
     if (!selectedTenantSlug || !selectedLocationSlug || !token) {
@@ -1934,7 +2045,6 @@ function VendorDashboardContent() {
     );
     eventSource.onmessage = (event) => {
       const payload = JSON.parse(event.data) as QueueSnapshot;
-      window.dispatchEvent(new Event("vendor-queue-snapshot-updated"));
       syncQueueAlerts(payload.nextUp || [], { detectNew: true });
       void queryClient.invalidateQueries({
         queryKey: [
@@ -1961,70 +2071,13 @@ function VendorDashboardContent() {
             bookingPage,
             bookingSearch,
             bookingStatusFilter,
-            hideNonActiveBookings,
             bookingDateRange
           ]
         });
       }
-      if (
-        token &&
-        hasActiveSubscription &&
-        canOperateBookingQueue &&
-        canAccessVendorSection("group-funded", effectiveEntitlements)
-      ) {
-        void queryClient.invalidateQueries({
-          queryKey: ["vendor-dashboard-group-funded-campaigns", token, selectedTenantSlug]
-        });
-        void queryClient.invalidateQueries({
-          queryKey: ["vendor-dashboard-group-funded-detail", token, selectedTenantSlug]
-        });
-      }
     };
-    eventSource.onerror = () => {
-      // EventSource reconnects automatically after transient network/server hiccups.
-    };
-
     return () => {
       eventSource.close();
-    };
-  }, [
-    canOperateBookingQueue,
-    currentSection,
-    effectiveEntitlements,
-    bookingDateRange,
-    bookingPage,
-    bookingSearch,
-    bookingStatusFilter,
-    hideNonActiveBookings,
-    hasActiveSubscription,
-    locationQuery,
-    queryClient,
-    selectedLocationSlug,
-    selectedTenantSlug,
-    token
-  ]);
-
-  useEffect(() => {
-    if (!selectedTenantSlug || !selectedLocationSlug || !token || currentSection !== "history" || !hasActiveSubscription) {
-      return undefined;
-    }
-
-    let active = true;
-
-    vendorDashboardOperations.getHistory(token, selectedTenantSlug, selectedLocationSlug)
-      .then((data) => {
-        if (active) {
-          setHistory(data);
-        }
-      })
-      .catch((loadError) => {
-        if (active) {
-          setError(getErrorMessage(loadError));
-        }
-      });
-
-    return () => {
-      active = false;
     };
   }, [currentSection, hasActiveSubscription, selectedLocationSlug, selectedTenantSlug, token]);
 
@@ -2134,7 +2187,16 @@ function VendorDashboardContent() {
     window.sessionStorage.setItem(storageKey, JSON.stringify(payload));
   }
 
-  async function copyLocationUrl(label: "Join URL" | "QR target" | "Monitor URL" | "Queue board URL", url: string) {
+  function showSuccessNotification(title: string, message: string) {
+    notifications.show({
+      color: "teal",
+      icon: <IconCheck size={18} />,
+      message,
+      title
+    });
+  }
+
+  async function copyLocationUrl(label: "Join URL" | "QR target" | "Monitor URL", url: string) {
     try {
       if (!navigator.clipboard?.writeText) {
         throw new Error("Clipboard access is not available in this browser.");
@@ -2221,7 +2283,6 @@ function VendorDashboardContent() {
   }
 
   async function confirmMfaEnrollment() {
-    if (mfaBusy) return;
     if (!token) {
       return;
     }
@@ -2256,7 +2317,7 @@ function VendorDashboardContent() {
       setMfaSecret("");
       setMfaEnrollmentUri("");
       setMfaCode("");
-      showSuccessNotification("Setup canceled", "Your active sign-in methods were not changed.");
+      showSuccessNotification("Replacement canceled", "Your current authenticator is still active.");
     } catch (mfaError) {
       setError(getErrorMessage(mfaError));
     } finally {
@@ -2266,7 +2327,6 @@ function VendorDashboardContent() {
 
   async function handleAccountProfileSave(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const submittedForm = event.currentTarget;
     if (!token || !accountProfileForm.name.trim()) {
       return;
     }
@@ -2279,7 +2339,6 @@ function VendorDashboardContent() {
         displayName: accountProfileForm.displayName.trim()
       });
       await refreshUser();
-      unsavedForm.current.clear(submittedForm);
       showSuccessNotification("Account profile saved", "Your vendor account details were updated.");
     } catch (profileError) {
       setError(getErrorMessage(profileError));
@@ -2290,12 +2349,10 @@ function VendorDashboardContent() {
 
   async function handlePasswordChange(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const submittedForm = event.currentTarget;
     setPasswordBusy(true);
     setError("");
     try {
       await changePassword(passwordForm);
-      unsavedForm.current.clear(submittedForm);
       navigate("/login", { replace: true });
     } catch (passwordError) {
       setError(getErrorMessage(passwordError));
@@ -2305,7 +2362,6 @@ function VendorDashboardContent() {
   }
 
   async function startMfaReplacement() {
-    if (mfaBusy) return;
     if (!token) {
       return;
     }
@@ -2330,7 +2386,6 @@ function VendorDashboardContent() {
   }
 
   async function removeMfa() {
-    if (mfaBusy) return;
     if (!token) {
       return;
     }
@@ -2350,14 +2405,8 @@ function VendorDashboardContent() {
       setRemovalCode("");
       setRemovalRecoveryCode("");
       setRemovalAcknowledged(false);
-      const updatedUser = await refreshUser();
-      setMfaEnabled(Boolean(updatedUser?.mfaEnabled));
-      showSuccessNotification(
-        "Authenticator removed",
-        updatedUser?.emailMfaEnabled
-          ? "Email OTP remains enabled as your sign-in verification method."
-          : "Your authenticator and recovery codes are no longer active."
-      );
+      await refreshUser();
+      showSuccessNotification("MFA removed", "Your authenticator and recovery codes are no longer active.");
     } catch (mfaError) {
       setError(getErrorMessage(mfaError));
     } finally {
@@ -2398,6 +2447,8 @@ function VendorDashboardContent() {
     setBookingAlertIds((current) => current.filter((item) => item !== bookingId));
     persistDismissedAlerts();
   }
+
+
 
   function syncBookingAlerts(bookings: VendorBookingSummary[], options: { detectNew?: boolean } = {}) {
     const nextIds = new Set(bookings.map((booking) => booking.id));
@@ -2474,6 +2525,15 @@ function VendorDashboardContent() {
     persistDismissedAlerts();
   }
 
+  function showInfoNotification(title: string, message: string) {
+    notifications.show({
+      color: "blue",
+      icon: <IconInfoCircle size={18} />,
+      message,
+      title
+    });
+  }
+
 function isRecoveryWindowActive(value?: string | Date | null) {
   if (!value) {
     return false;
@@ -2496,26 +2556,73 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     monitorUrl:
       snapshot?.location?.monitorUrl ||
       snapshot?.tenant.monitorUrl ||
-      ""
+      buildMonitorUrl(window.location.origin, selectedTenantSlug, selectedLocationSlug)
   };
-  const periodTicketMetric = getPeriodTicketMetric(periodUsageQuery.data?.usage, periodUsageQuery.isError);
-  const ticketUsage = !dashboardBootstrapQuery.error && snapshot?.tenant.slug === selectedTenantSlug && snapshot?.location?.slug === selectedLocationSlug ? snapshot.stats.servedToday : "—";
+  const ticketLimit =
+    activeSubscription?.entitlements.monthlyTickets ||
+    currentPlan?.entitlements.monthlyTickets ||
+    0;
+  const ticketUsage = snapshot?.stats.servedToday ?? 0;
+  const configuredEmailJourneyLimit = activeSubscription?.entitlements.emailAlerts
+    ? activeSubscription.entitlements.monthlyQueueEmailJourneys ??
+      activeSubscription.entitlements.monthlyTransactionalEmails ??
+      currentPlan?.entitlements.monthlyQueueEmailJourneys ??
+      currentPlan?.entitlements.monthlyTransactionalEmails
+    : 0;
+  const emailJourneyResource =
+    capacityExperienceQuery.data?.capacity?.resources.queueEmailJourneys;
+  const emailJourneyLimit = emailJourneyResource?.limit ?? configuredEmailJourneyLimit;
+  const emailJourneyUsage = emailJourneyResource?.used ?? 0;
+  const emailJourneyDetail = capacityExperienceQuery.isPending
+    ? "Loading journey usage"
+    : capacityExperienceQuery.error
+      ? "Journey usage unavailable"
+      : capacityExperienceQuery.data?.enabled
+        ? "Journeys started this period"
+        : "Journey tracking pending rollout";
   const historyTickets = useMemo(() => history?.tickets || snapshot?.history || [], [history, snapshot]);
-  const recordedIntervals = useMemo(() => servedTicketIntervals(snapshot?.history || [], RECORDED_INTERVAL_TICKET_LIMIT), [snapshot?.history]);
-  const averageRecordedInterval = recordedIntervals.length ? Math.round(recordedIntervals.reduce((total, bar)=>total+bar.minutes,0)/recordedIntervals.length*10)/10 : 0;
-  const intervalMaximum = Math.max(...recordedIntervals.map(bar=>bar.minutes),averageRecordedInterval,1);
-  const overflowTickets = useMemo(() => (snapshot?.overflow || []).filter(ticket=>!namedTicketIds.includes(String(ticket.id))), [snapshot,namedTicketIds]);
+  const serviceTrendBars = useMemo(
+    () =>
+      historyTickets
+        .filter((ticket) => ticket.status === "served")
+        .slice(0, SERVICE_TREND_USER_LIMIT)
+        .map((ticket, index, historyItems) => {
+          const currentTime = getHistoryTimestamp(ticket.updatedAt);
+          const nextTime = historyItems[index + 1]
+            ? getHistoryTimestamp(historyItems[index + 1].updatedAt)
+            : currentTime - (snapshot?.tenant.averageServiceMinutes || 5) * 60 * 1000;
+          const minutes = Math.max(1, Math.round(Math.abs(currentTime - nextTime) / 60000));
+
+          return {
+            label: ticket.ticketNumber,
+            minutes
+          };
+        })
+        .reverse(),
+    [historyTickets, snapshot?.tenant.averageServiceMinutes]
+  );
+  const averageServiceMinutes = serviceTrendBars.length
+    ? Math.round(
+        serviceTrendBars.reduce((total, bar) => total + bar.minutes, 0) /
+          serviceTrendBars.length
+      )
+    : 0;
+  const trendMax = Math.max(
+    ...serviceTrendBars.map((bar) => bar.minutes),
+    averageServiceMinutes,
+    1
+  );
+  const overflowTickets = useMemo(() => snapshot?.overflow || [], [snapshot]);
   const currentQueueTickets = useMemo(
-    () => (snapshot?.nextUp || []).filter((ticket) => !ticket.isCarriedOver && !v2TicketIds.includes(String(ticket.id))),
-    [snapshot,v2TicketIds]
+    () => (snapshot?.nextUp || []).filter((ticket) => !ticket.isCarriedOver),
+    [snapshot]
   );
   const recoverableTickets = useMemo(
     () =>
       (snapshot?.recovery || [])
-        .filter(ticket=>!namedTicketIds.includes(String(ticket.id)))
         .sort((a, b) => getHistoryTimestamp(b.updatedAt) - getHistoryTimestamp(a.updatedAt))
         .slice(0, 10),
-    [snapshot,namedTicketIds]
+    [snapshot]
   );
   const filteredClients = useMemo(() => {
     const query = clientsSearch.trim().toLowerCase();
@@ -2555,12 +2662,11 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
 
     return items;
   }, [clients, clientsSearch, clientsSort]);
-  const clientsTotalPages = Math.max(1, Math.ceil(filteredClients.length / CLIENTS_PAGE_SIZE));
-  const clientsVisiblePage = boundedPage(clientsPage, clientsTotalPages);
   const paginatedClients = useMemo(() => {
-    const start = (clientsVisiblePage - 1) * CLIENTS_PAGE_SIZE;
+    const start = (clientsPage - 1) * CLIENTS_PAGE_SIZE;
     return filteredClients.slice(start, start + CLIENTS_PAGE_SIZE);
-  }, [clientsVisiblePage, filteredClients]);
+  }, [clientsPage, filteredClients]);
+  const clientsTotalPages = Math.max(1, Math.ceil(filteredClients.length / CLIENTS_PAGE_SIZE));
 
   const filteredHistoryTickets = useMemo(() => {
     const query = historySearch.trim().toLowerCase();
@@ -2594,12 +2700,11 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
 
     return items;
   }, [historySearch, historySort, historyTickets]);
-  const historyTotalPages = Math.max(1, Math.ceil(filteredHistoryTickets.length / HISTORY_PAGE_SIZE));
-  const historyVisiblePage = boundedPage(historyPage, historyTotalPages);
   const paginatedHistoryTickets = useMemo(() => {
-    const start = (historyVisiblePage - 1) * HISTORY_PAGE_SIZE;
+    const start = (historyPage - 1) * HISTORY_PAGE_SIZE;
     return filteredHistoryTickets.slice(start, start + HISTORY_PAGE_SIZE);
-  }, [filteredHistoryTickets, historyVisiblePage]);
+  }, [filteredHistoryTickets, historyPage]);
+  const historyTotalPages = Math.max(1, Math.ceil(filteredHistoryTickets.length / HISTORY_PAGE_SIZE));
   const filteredBookings = useMemo(() => vendorBookings, [vendorBookings]);
   const activeBookingAlerts = useMemo(
     () =>
@@ -2618,14 +2723,6 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
   const queueDayState = resolveQueueDayState(snapshot?.queueDay);
   const queueDayClosed = queueDayState !== "open";
   const queueDayPaused = Boolean(snapshot?.queueDay?.isPaused);
-  const bookingSnapshotMatchesLocation = Boolean(selectedLocationSlug && snapshot?.location?.slug === selectedLocationSlug && snapshot.tenant.slug === selectedTenantSlug);
-  const bookingCheckInBlocked = !bookingSnapshotMatchesLocation || queueDayClosed || queueDayPaused || snapshot?.queueDay?.intakeMode === "paused";
-  let bookingCheckInGuidance = "Resume queue intake before checking in customers.";
-  if (!bookingSnapshotMatchesLocation) {
-    bookingCheckInGuidance = "Loading this location's queue status. Please wait.";
-  } else if (queueDayClosed) {
-    bookingCheckInGuidance = "Open the queue before checking in customers.";
-  }
   const queueDayUnopened = queueDayState === "unopened";
   const queueDayActuallyClosed = queueDayState === "closed";
   const queueDayReconciling =
@@ -2638,14 +2735,14 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       intakeState.autoPauseThreshold &&
       intakeState.currentWaitingCount >= intakeState.autoPauseThreshold
   );
-  const [weeklyServiceOptions, exceptionServiceOptions] = useMemo(
-    () => [availabilityBlockForm.serviceSlug, availabilityExceptionForm.serviceSlug].map((selectedServiceSlug) => [
+  const serviceOptions = useMemo(
+    () => [
       { value: "", label: "All services" },
       ...services
-        .filter((service) => service.isActive || service.slug === selectedServiceSlug)
-        .map((service) => ({ value: service.slug, label: `${service.name}${service.isActive ? "" : " (Not offered for booking)"}` }))
-    ]),
-    [services, availabilityBlockForm.serviceSlug, availabilityExceptionForm.serviceSlug]
+        .filter((service) => service.isActive)
+        .map((service) => ({ value: service.slug, label: service.name }))
+    ],
+    [services]
   );
   const locationOptions = useMemo(
     () =>
@@ -2674,7 +2771,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
 
   useEffect(() => {
     setBookingPage(1);
-  }, [bookingSearch, bookingStatusFilter, hideNonActiveBookings, bookingDateRange, selectedTenantSlug, selectedLocationSlug]);
+  }, [bookingSearch, bookingStatusFilter, bookingDateRange]);
 
   async function runAction(
     actionName: string,
@@ -2682,8 +2779,6 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
   ): Promise<boolean> {
     setError("");
     setBusyAction(actionName);
-    if (actionName === "call-next" || actionName.startsWith("service-")) setLinearCommandError(null);
-    if (actionName === "service-start") setStartPlanErrorScope(null);
 
     try {
       const data = await request();
@@ -2699,48 +2794,16 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         }
         setSnapshot((current) => selectFreshestQueueSnapshot(current, nextSnapshot));
       }
-      setLinearCommandError(null);
-      setStartPlanErrorScope(null);
       return true;
     } catch (actionError) {
-      const staleResourceConfiguration =
-        actionName === "call-next" &&
-        actionError instanceof ApiError &&
-        (actionError.code === "RESOURCE_CONFIGURATION_CHANGED" ||
-          actionError.code === "STALE_REVISION");
-      if (staleResourceConfiguration) {
-        // The server correctly rejected the call against a changed resource
-        // revision. Refresh dependent catalogs and queue views so the next
-        // attempt is based on authoritative state; never retry or call
-        // another ticket implicitly.
-        await Promise.all([
-          queryClient.invalidateQueries({ queryKey: ["named-queue-options"] }),
-          queryClient.invalidateQueries({ queryKey: ["queue-options-v4"] }),
-          queryClient.invalidateQueries({ queryKey: ["named-queue-active"] }),
-          queryClient.invalidateQueries({ queryKey: ["vendor-dashboard-queue-lifecycle"] }),
-          queryClient.invalidateQueries({ queryKey: ["vendor-linear-ticket"] })
-        ]);
-        window.dispatchEvent(new Event("queue-plans-updated"));
-      }
-      if (actionName === "service-start" && actionError instanceof ApiError && actionError.code === "SERVICE_PLAN_REQUIRED") {
-        setStartPlanErrorScope(`${selectedTenantSlug}:${selectedLocationSlug}`);
-      } else {
-        const recovery = (actionName === "call-next" || actionName.startsWith("service-")) && actionError instanceof ApiError
-          ? linearQueueRecovery(actionError.code, actionError.message) : null;
-        if (recovery) setLinearCommandError({scope:`${selectedTenantSlug}:${selectedLocationSlug}`,message:recovery});
-        else setError(getErrorMessage(actionError));
-      }
+      setError(getErrorMessage(actionError));
       return false;
     } finally {
-      if (resourceQueueEnabled && currentSection === "queue") {
-        await Promise.all([localPoolQuery.refetch(),queryClient.invalidateQueries({queryKey:["vendor-linear-ticket"]})]);
-      }
       setBusyAction("");
     }
   }
 
   async function handleConfirmCalledTicket(lookupCode: string): Promise<boolean> {
-    if (!scannerTarget || scannerTarget.tenantSlug !== selectedTenantSlug || scannerTarget.locationQuery !== locationQuery) { setTicketScannerError("Queue context changed. Close the scanner and select the ticket again."); return false; }
     setTicketScannerError("");
     setBusyAction("confirm-current");
 
@@ -2748,10 +2811,10 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       const data = await vendorDashboardQueue.confirmCurrentTicket(
         token,
         selectedTenantSlug,
-        scannerTarget.locationQuery,
+        locationQuery,
         lookupCode,
-        scannerTarget.ticketId,
-        scannerTarget.counterSlug
+        snapshot?.current?.id || "",
+        selectedCounterSlug || null
       );
       const confirmedSnapshot = data.snapshot;
       if (confirmedSnapshot) {
@@ -2769,14 +2832,12 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
 
   async function handleCreateWalkIn(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const submittedForm = event.currentTarget;
     const success = await runAction("walk-in", () =>
       vendorDashboardQueue.createWalkInTicket(token, selectedTenantSlug, locationQuery, walkInForm)
     );
 
     if (success) {
       setWalkInForm(emptyWalkIn);
-      unsavedForm.current.clear(submittedForm);
       setWalkInDialogOpen(false);
       showSuccessNotification("Ticket issued", "The walk-in ticket was added to the queue.");
     }
@@ -2819,16 +2880,11 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         bookingPage,
         bookingSearch,
         bookingStatusFilter,
-        hideNonActiveBookings,
         bookingDateRange
       ]
     });
   }
 
-  async function retryDashboardContext() {
-    setError("");
-    await Promise.all([dashboardBootstrapQuery.refetch(), queueLifecycleSnapshotQuery.refetch()]);
-  }
 
   async function reloadDashboardSnapshot() {
     await queryClient.invalidateQueries({
@@ -2927,10 +2983,9 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       return;
     }
 
-    setError("");
     setReschedulingBooking(booking);
     setRescheduleDate(formatDateInputValue(booking.scheduledStartAt));
-    setRescheduleStartAt("");
+    setRescheduleStartAt(String(booking.scheduledStartAt));
     setRescheduleSlots([]);
     setRescheduleSlotsError("");
     setRescheduleDialogOpen(true);
@@ -2938,7 +2993,6 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
 
   async function handleRescheduleBooking(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const submittedForm = event.currentTarget;
     if (!reschedulingBooking || !rescheduleStartAt) {
       return;
     }
@@ -2956,9 +3010,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       setVendorBookings((current) =>
         current.map((item) => (item.id === response.booking.id ? response.booking : item))
       );
-      setBookingDetailBooking((current) => current?.id === response.booking.id ? response.booking : current);
       clearBookingAlert(response.booking.id);
-      unsavedForm.current.clear(submittedForm);
       setRescheduleDialogOpen(false);
       setReschedulingBooking(null);
       setRescheduleDate("");
@@ -2992,7 +3044,6 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       setVendorBookings((current) =>
         current.map((item) => (item.id === response.booking.id ? response.booking : item))
       );
-      setBookingDetailBooking((current) => current?.id === response.booking.id ? response.booking : current);
       clearBookingAlert(response.booking.id);
       await reloadDashboardSnapshot();
       await reloadBookings();
@@ -3017,7 +3068,6 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         current.map((item) => (item.id === response.booking.id ? response.booking : item))
       );
       clearBookingAlert(response.booking.id);
-      setBookingDetailBooking((current) => current?.id === response.booking.id ? response.booking : current);
       await reloadBookings();
       showSuccessNotification("Booking marked no-show", `${response.booking.reference} was canceled as a no-show.`);
     } catch (noShowError) {
@@ -3027,31 +3077,6 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     }
   }
 
-  function renderBookingNoShowAction(
-    booking: VendorBookingSummary,
-    includeAdmin = false,
-  ) {
-    const state = getBookingCheckInState(booking, bookingCheckInNow);
-    const canMarkNoShow =
-      canOperateBookingQueue &&
-      (!canAdminBookings || includeAdmin) &&
-      state.isEligibleStatus &&
-      state.isLate;
-    if (!canMarkNoShow || booking.checkedInAt || booking.linkedTicket) {
-      return null;
-    }
-    return (
-      <OperationButton
-        leftSection={<IconAlertTriangle size={16} />}
-        disabled={Boolean(busyAction)}
-        loading={busyAction === `booking-no-show:${booking.id}`}
-        onClick={() => void handleMarkBookingNoShow(booking)}
-        variant="destructive"
-      >
-        Mark no-show
-      </OperationButton>
-    );
-  }
 
   async function handleViewBookingPaymentProof(booking: VendorBookingSummary) {
     if (!booking.paymentProof) {
@@ -3081,7 +3106,6 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         current.map((item) => (item.id === response.booking.id ? response.booking : item))
       );
       setBookingDetailBooking(response.booking);
-      unsavedForm.current.discardId("vendor-booking-payment");
       setPaymentRejectionReason("");
       await reloadBookings();
       showSuccessNotification("Payment verified", `${response.booking.reference} can now be confirmed.`);
@@ -3108,7 +3132,6 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         current.map((item) => (item.id === response.booking.id ? response.booking : item))
       );
       setBookingDetailBooking(response.booking);
-      unsavedForm.current.discardId("vendor-booking-payment");
       setPaymentRejectionReason("");
       clearBookingAlert(response.booking.id);
       await reloadBookings();
@@ -3122,17 +3145,9 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     }
   }
 
-  const openServiceDialog = useCallback((service?: VendorServiceSummary, fromRoute = false) => {
-    if (service && !fromRoute) {
-      const params=new URLSearchParams(location.search);params.set("workspace","administration");params.set("business",selectedTenantSlug);
-      navigate(serviceEditorPath(service.slug,`?${params}`));
-      return;
-    }
-    if (!dashboardBootstrapQuery.data || dashboardBootstrapQuery.isError || !locationServicesQuery.data || locationServicesQuery.isError || servicesQuery.isError) {
-      setError("Branch service settings are still loading. Please try again once they are available.");
-      return;
-    }
-    setError("");
+
+
+  function openServiceDialog(service?: VendorServiceSummary) {
     const locationServices = (locationServicesQuery.data?.locationServices || []).filter(
       (entry) => service ? entry.serviceId === service.id : false
     );
@@ -3150,40 +3165,26 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       durationMinutes: service?.durationMinutes || 30,
       allowBookingQuantity: service?.allowBookingQuantity || false,
       bookingQuantityLabel: service?.bookingQuantityLabel || "Units",
-      bookingQuantityMin: service?.bookingQuantityMin ?? 1,
-      bookingQuantityMax: service?.bookingQuantityMax ?? 24,
       manualPaymentRequired: service?.manualPaymentRequired || false,
       bookingCapacityScope: service?.bookingCapacityScope || "service",
       priceAmountCents: service?.priceAmountCents || 0,
       priceDisplay: service?.priceDisplay || "",
       isActive: service?.isActive ?? true,
       sortOrder: service?.sortOrder || 0,
-      locationServices: dashboardBootstrapQuery.data.locationsResponse.locations.map((location) => {
+      locationServices: locations.map((location) => {
         const existing = locationServices.find((entry) => entry.locationId === location.id);
         return {
           locationSlug: location.slug,
           capacity: existing?.capacity || 1,
-          isActive: existing?.isActive ?? (!service && location.slug === selectedLocationSlug),
+          isActive: existing?.isActive ?? true,
           sortOrder: existing?.sortOrder || 0,
           priceAmountCents: existing?.priceAmountCents ?? null,
           priceDisplay: existing?.priceDisplay ?? null,
-          groupFunded: normalizeGroupFundedSettings(existing?.groupFunded)
         };
       })
     });
     setServiceDialogOpen(true);
-  },[location.search,selectedTenantSlug,navigate,locationServicesQuery.data,locationServicesQuery.isError,servicesQuery.isError,dashboardBootstrapQuery.data,dashboardBootstrapQuery.isError,selectedLocationSlug]);
-
-  useEffect(()=>{
-    if (!routeServiceSlug) { if(serviceEditorScopeRef.current)setServiceDialogOpen(false);serviceEditorScopeRef.current="";return; }
-    if (!selectedTenantSlug || !dashboardBootstrapQuery.data || dashboardBootstrapQuery.isError || !servicesQuery.data || servicesQuery.isError || !locationServicesQuery.data || locationServicesQuery.isError) return;
-    const item=resolveServiceEditor(routeServiceSlug,services,new Set(servicesQuery.data.services.map(item=>item.id)));
-    if (!item) return;
-    const scope=`${selectedTenantSlug}:${item.id}`;
-    if (routeServiceSlug!==item.slug) navigate(serviceEditorPath(item.slug,location.search),{replace:true});
-    if(serviceEditorScopeRef.current===scope)return;
-    openServiceDialog(item,true);serviceEditorScopeRef.current=scope;
-  },[routeServiceSlug,selectedTenantSlug,services,servicesQuery.data,servicesQuery.isError,locationServicesQuery.data,locationServicesQuery.isError,dashboardBootstrapQuery.data,dashboardBootstrapQuery.isError,navigate,location.search,openServiceDialog]);
+  }
 
   useEffect(() => {
     if (!serviceDialogOpen || serviceSlugManuallyEdited) {
@@ -3218,7 +3219,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
             return;
           }
           setServiceSlugAvailable(response.available && response.valid);
-          setServiceSlugMessage(response.valid ? (response.available ? "This booking link name is available." : "This booking link name is already in use.") : "Use letters or numbers for the booking link name.");
+          setServiceSlugMessage(response.message);
         })
         .catch((availabilityError) => {
           if (!isCurrent || (availabilityError instanceof DOMException && availabilityError.name === "AbortError")) {
@@ -3243,30 +3244,26 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
 
   async function handleSaveService(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const submittedForm = event.currentTarget;
-    if(!dashboardBootstrapQuery.data||dashboardBootstrapQuery.isError||!locationServicesQuery.data||locationServicesQuery.isError||servicesQuery.isError||!serviceForm.locationServices||serviceForm.locationServices.length!==dashboardBootstrapQuery.data.locationsResponse.locations.length||dashboardBootstrapQuery.data.locationsResponse.locations.some(location=>!serviceForm.locationServices?.some(assignment=>assignment.locationSlug===location.slug))){setError('Location settings are not ready. Retry loading locations before saving.');return;}
-    const validationError = validateServiceEditor(submittedForm, {
-      quantityError: bookingSettingsAllowed ? serviceQuantityError(serviceForm) : "", checkingSlug: checkingServiceSlug,
-      slugAvailable: serviceSlugAvailable, slugMessage: serviceSlugMessage,
-    });
-    if (validationError) { setError(validationError); return; }
     setBusyAction("service-save");
     setError("");
 
     try {
-      const response = await vendorDashboardCatalog.saveService(token, selectedTenantSlug, editingServiceSlug || null, serviceForm, !bookingSettingsAllowed);
-      setEditingServiceId(response.service.id);setEditingServiceSlug(response.service.slug);
-      setServiceForm(current=>({...current,slug:response.service.slug}));
-      setServices(current=>current.map(item=>item.id===response.service.id ? response.service : item));
-      if(routeServiceSlug && routeServiceSlug!==response.service.slug) navigate(serviceEditorPath(response.service.slug,location.search),{replace:true});
+      if (!serviceSlugAvailable) {
+        setError(serviceSlugMessage || "Choose an available service slug before saving.");
+        return;
+      }
+
+      if (editingServiceSlug) {
+        await vendorDashboardCatalog.saveService(token, selectedTenantSlug, editingServiceSlug, serviceForm);
+      } else {
+        await vendorDashboardCatalog.saveService(token, selectedTenantSlug, null, serviceForm);
+      }
       await reloadServices();
       await reloadBookings();
-      unsavedForm.current.clear(submittedForm);
       setServiceDialogOpen(false);
-      if(routeServiceSlug) navigate(workspacePath("services","administration",location.search));
       showSuccessNotification(
         editingServiceSlug ? "Service updated" : "Service created",
-        `${serviceForm.name} is ready for ${bookingSettingsAllowed ? "queue and booking" : "queue"} setup.`
+        `${serviceForm.name} is ready for booking setup.`
       );
     } catch (saveError) {
       setError(getErrorMessage(saveError));
@@ -3287,15 +3284,13 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         durationMinutes: service.durationMinutes,
         allowBookingQuantity: service.allowBookingQuantity,
         bookingQuantityLabel: service.bookingQuantityLabel,
-        bookingQuantityMin: service.bookingQuantityMin,
-        bookingQuantityMax: service.bookingQuantityMax,
         manualPaymentRequired: service.manualPaymentRequired,
         bookingCapacityScope: service.bookingCapacityScope,
         priceAmountCents: service.priceAmountCents,
         priceDisplay: service.priceDisplay,
         isActive,
         sortOrder: service.sortOrder
-      }, !bookingSettingsAllowed);
+      });
       setServices((current) =>
         current.map((item) => (item.id === response.service.id ? response.service : item))
       );
@@ -3316,10 +3311,10 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     setError("");
 
     try {
-      const response = await vendorDashboardCatalog.deactivateService(token, selectedTenantSlug, service.slug);
-      setServices((current) => current.map((item) => item.id === response.service.id ? response.service : item));
+      await vendorDashboardCatalog.deactivateService(token, selectedTenantSlug, service.slug);
+      setServices((current) => current.filter((item) => item.slug !== service.slug));
       await reloadBookings();
-      showSuccessNotification("Service removed", `${service.name} is disabled. Existing records are retained.`);
+      showSuccessNotification("Service deleted", `${service.name} was removed from the catalog.`);
     } catch (deleteError) {
       setError(getErrorMessage(deleteError));
     } finally {
@@ -3332,7 +3327,6 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
   }
 
   function openAvailabilityBlockDialog(block?: VendorAvailabilityBlockSummary) {
-    setError("");
     const weekday = block?.weekday ?? 1;
     const blockLocation =
       (block ? locations.find((locationItem) => locationItem.id === block.locationId) : null) ||
@@ -3355,7 +3349,6 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
 
   async function handleSaveAvailabilityBlock(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const submittedForm = event.currentTarget;
     setBusyAction("availability-block-save");
     setError("");
 
@@ -3375,7 +3368,6 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       if (targetLocationSlug !== selectedLocationSlug) {
         setSelectedLocationSlug(targetLocationSlug);
       }
-      unsavedForm.current.clear(submittedForm);
       setAvailabilityBlockDialogOpen(false);
       showSuccessNotification(
         editingAvailabilityBlockId ? "Availability updated" : "Availability added",
@@ -3469,11 +3461,9 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
   }
 
   function openAvailabilityExceptionDialog(exception?: VendorAvailabilityExceptionSummary) {
-    setError("");
     setEditingAvailabilityExceptionId(exception?.id || "");
     const blockEntireDay = Boolean(
       exception &&
-        !exception.serviceId &&
         !exception.isAvailable &&
         !exception.startsAt &&
         !exception.endsAt
@@ -3494,12 +3484,18 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
 
   async function handleSaveAvailabilityException(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const submittedForm = event.currentTarget;
     setBusyAction("availability-exception-save");
     setError("");
 
     try {
-      const body = dateExceptionPayload(availabilityExceptionForm, availabilityExceptionBlockEntireDay, selectedLocationSlug);
+      const startsAt = availabilityExceptionBlockEntireDay ? "" : availabilityExceptionForm.startsAt;
+      const endsAt = availabilityExceptionBlockEntireDay ? "" : availabilityExceptionForm.endsAt;
+      const body = {
+        ...availabilityExceptionForm,
+        startsAt,
+        endsAt,
+        locationSlug: selectedLocationSlug
+      };
       if (editingAvailabilityExceptionId) {
         await vendorDashboardCatalog.saveAvailabilityException(
           token,
@@ -3512,7 +3508,6 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       }
       await reloadAvailability();
       await reloadBookings();
-      unsavedForm.current.clear(submittedForm);
       setAvailabilityExceptionDialogOpen(false);
       showSuccessNotification(
         editingAvailabilityExceptionId ? "Exception updated" : "Exception added",
@@ -3542,7 +3537,6 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
   }
 
   function openCounterDialog(counter?: ServiceCounterSummary) {
-    setError("");
     setEditingCounterSlug(counter?.slug || "");
     setEditingCounterId(counter?.id || "");
     setCounterSlugManuallyEdited(Boolean(counter?.slug));
@@ -3622,7 +3616,6 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
 
   async function handleSaveCounter(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const submittedForm = event.currentTarget;
     setBusyAction("counter-save");
     setError("");
     try {
@@ -3639,7 +3632,6 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       );
       await reloadCounters();
       await reloadBookings();
-      unsavedForm.current.clear(submittedForm);
       setCounterDialogOpen(false);
       showSuccessNotification(
         editingCounterSlug ? "Counter updated" : "Counter created",
@@ -3661,15 +3653,11 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
 
   async function handleAddStaff(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const submittedForm = event.currentTarget;
-    if (busyAction || staffQuery.isPending || staffQuery.isError || staff.length >= staffSeatLimit) return;
-    setError("");
     setBusyAction("staff-save");
     try {
       await vendorDashboardOperations.addStaff(token, selectedTenantSlug, staffForm);
       await reloadStaff();
       await reloadBookings();
-      unsavedForm.current.clear(submittedForm);
       setStaffDialogOpen(false);
       setStaffForm({ email: "", role: "staff" });
       showSuccessNotification("Staff added", "The staff member now has access to this tenant.");
@@ -3680,94 +3668,33 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     }
   }
 
-  async function handleUpdateStaffRole(
-    member: VendorStaffSummary,
-    role: "owner" | "admin" | "staff",
-  ) {
-    setError("");
-    setBusyAction("staff-update");
-    try {
-      await vendorDashboardOperations.updateStaff(
-        token,
-        selectedTenantSlug,
-        member.id,
-        { role },
-      );
-      await reloadStaff();
-      await reloadBookings();
-      showSuccessNotification(
-        "Staff updated",
-        `${member.name}'s role was updated.`,
-      );
-    } finally {
-      setBusyAction("");
-    }
+  async function handleUpdateStaffRole(member: VendorStaffSummary, role: "owner" | "admin" | "staff") {
+    await vendorDashboardOperations.updateStaff(token, selectedTenantSlug, member.id, { role });
+    await reloadStaff();
+    await reloadBookings();
+    showSuccessNotification("Staff updated", `${member.name}'s role was updated.`);
   }
 
-  async function handleUpdateStaffStatus(
-    member: VendorStaffSummary,
-    isActive: boolean,
-  ) {
-    setError("");
-    setBusyAction("staff-update");
-    try {
-      await vendorDashboardOperations.updateStaff(
-        token,
-        selectedTenantSlug,
-        member.id,
-        { isActive },
-      );
-      await reloadStaff();
-      await reloadBookings();
-      showSuccessNotification(
-        isActive ? "Staff enabled" : "Staff disabled",
-        `${member.name} was ${isActive ? "enabled" : "disabled"} for this tenant.`,
-      );
-    } finally {
-      setBusyAction("");
-    }
+  async function handleUpdateStaffStatus(member: VendorStaffSummary, isActive: boolean) {
+    await vendorDashboardOperations.updateStaff(token, selectedTenantSlug, member.id, { isActive });
+    await reloadStaff();
+    await reloadBookings();
+    showSuccessNotification(
+      isActive ? "Staff enabled" : "Staff disabled",
+      `${member.name} was ${isActive ? "enabled" : "disabled"} for this tenant.`
+    );
   }
 
   async function handleRemoveStaff(member: VendorStaffSummary) {
-    setError("");
-    setBusyAction("staff-update");
-    try {
-      await vendorDashboardOperations.removeStaff(
-        token,
-        selectedTenantSlug,
-        member.id,
-      );
-      await reloadStaff();
-      await reloadCounters();
-      await reloadBookings();
-      showSuccessNotification(
-        "Staff removed",
-        `${member.name} no longer has tenant access.`,
-      );
-    } finally {
-      setBusyAction("");
-    }
+    await vendorDashboardOperations.removeStaff(token, selectedTenantSlug, member.id);
+    await reloadStaff();
+    await reloadCounters();
+    await reloadBookings();
+    showSuccessNotification("Staff removed", `${member.name} no longer has tenant access.`);
   }
 
   function openConfirmAction(action: NonNullable<typeof confirmAction>) {
     setConfirmAction(action);
-  }
-
-  function openWaitingTicketCancellation(ticket: QueueSnapshot["nextUp"][number]) {
-    openConfirmAction({
-      title: `Cancel ticket ${ticket.ticketNumber}?`,
-      description: ticket.linkedBookingReference
-        ? "Remove this waiting ticket from the queue. This does not cancel the linked booking or issue a refund. The ticket cannot be restored."
-        : "Remove this waiting ticket from the queue. The ticket cannot be restored; issue a new ticket if the customer returns.",
-      confirmLabel: "Cancel ticket",
-      confirmColor: "red",
-      onConfirm: async () => {
-        const success = await runAction(`cancel-ticket:${ticket.id}`, () =>
-          vendorDashboardQueue.cancelWaitingTicket(token, selectedTenantSlug, locationQuery, ticket.id)
-        );
-        if (success) showSuccessNotification("Ticket cancelled", `${ticket.ticketNumber} was removed from the waiting queue.`);
-      }
-    });
   }
 
   function closeConfirmAction() {
@@ -3775,8 +3702,6 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
   }
 
   async function handleToggleLocationActive(locationItem: StoreLocationWithHours, isActive: boolean) {
-    if (busyAction || (!isOwner && !isAdmin)) return;
-    setLocationToggleErrors(current=>({...current,[locationItem.id]:""}));
     setBusyAction(`location-status:${locationItem.slug}`);
     setError("");
     try {
@@ -3791,7 +3716,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         `${response.location.name} is now ${isActive ? "active" : "inactive"}.`
       );
     } catch (toggleError) {
-      setLocationToggleErrors(current=>({...current,[locationItem.id]:getErrorMessage(toggleError)}));
+      setError(getErrorMessage(toggleError));
     } finally {
       setBusyAction("");
     }
@@ -3851,30 +3776,22 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
 
   async function handleSaveSettings(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const submittedForm = event.currentTarget;
-    if (busyAction) return;
-    const success = await runAction("settings", () => vendorDashboardOperations.updateSettings(token, selectedTenantSlug, queueSettingsPayload(settings)));
+    const success = await runAction("settings", () => vendorDashboardOperations.updateSettings(token, selectedTenantSlug, settings));
 
     if (success) {
-      unsavedForm.current.clear(submittedForm);
-      savedSettings.current = { ...savedSettings.current, ...queueSettingsPayload(settings) };
-      showSuccessNotification("Queue settings saved", "Your queue preferences were updated.");
+      showSuccessNotification("Business profile saved", "Your business profile and queue settings were updated.");
     }
   }
 
   async function handleSaveBusinessProfile(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const submittedForm = event.currentTarget;
-    if (!canManageContactSettings || busyAction || profileThemeLoading || profileThemeError) return;
     const success = await runAction("settings", () => vendorDashboardOperations.updateSettings(token, selectedTenantSlug, settings));
     if (!success) {
       return;
     }
 
-    savedSettings.current = { ...settings };
     const themeSaved = await handleSaveBusinessProfileTheme();
     if (themeSaved) {
-      unsavedForm.current.clear(submittedForm);
       showSuccessNotification("Business profile saved", "Your business details and default images were updated.");
     }
   }
@@ -3898,32 +3815,23 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
   }
 
   async function handleHistoryExport(range: string, format: "csv" | "pdf") {
-    if (busyAction) return;
-    setBusyAction("history-export");
-    setError("");
-    try {
-      const response = await vendorDashboardExport.exportHistory(
-        token,
-        selectedTenantSlug,
-        selectedLocationSlug,
-        range,
-        format,
-      );
-      if (!response.ok) {
-        throw new Error("Unable to export history.");
-      }
-      const blob = await response.blob();
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = `${selectedTenantSlug}-${range}-history.${format}`;
-      anchor.click();
-      URL.revokeObjectURL(url);
-    } catch (exportError) {
-      setError(getErrorMessage(exportError));
-    } finally {
-      setBusyAction("");
+    const response = await vendorDashboardExport.exportHistory(
+      token,
+      selectedTenantSlug,
+      selectedLocationSlug,
+      range,
+      format
+    );
+    if (!response.ok) {
+      throw new Error("Unable to export history.");
     }
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `${selectedTenantSlug}-${range}-history.${format}`;
+    anchor.click();
+    URL.revokeObjectURL(url);
   }
 
   async function openThemeDialog(locationItem: StoreLocationWithHours) {
@@ -4046,9 +3954,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         theme: businessProfileTheme,
         applyToAllLocations: false
       });
-      const savedTheme = mergeTheme(data.theme);
-      savedProfileTheme.current = savedTheme;
-      setBusinessProfileTheme(savedTheme);
+      setBusinessProfileTheme(mergeTheme(data.theme));
       return true;
     } catch (saveError) {
       setError(getErrorMessage(saveError));
@@ -4059,7 +3965,6 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
   }
 
   async function uploadLocationImage(file: File | null) {
-    setLocationErrorTitle("Unable to save location");
     if (!file || !locationForm.slug || !token) {
       return;
     }
@@ -4103,17 +4008,16 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     }
   }
 
-  async function uploadLocationPaymentQr(file: File | null, onPrepared?: (blob: Blob) => void) {
+  async function uploadLocationPaymentQr(file: File | null) {
     if (!file || !token) {
-      return false;
+      return;
     }
 
-    setLocationErrorTitle("Unable to upload payment QR");
     const locationSlug = locationForm.slug.trim();
     if (!locationSlug) {
       setError("Location slug is required before uploading a payment QR.");
       setPaymentQrUploadFile(null);
-      return false;
+      return;
     }
 
     setError("");
@@ -4124,8 +4028,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         token,
         selectedTenantSlug,
         locationSlug,
-        file,
-        onPrepared
+        file
       );
       if (!data.asset?.publicUrl) {
         throw new Error("Payment QR upload completed without a usable image URL.");
@@ -4136,10 +4039,8 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         paymentQrImageUrl: data.asset.publicUrl
       }));
       showSuccessNotification("Payment QR uploaded", "The QR image is ready to save with this location.");
-      return true;
     } catch (uploadError) {
       setError(getErrorMessage(uploadError));
-      return false;
     } finally {
       setBusyAction("");
     }
@@ -4183,71 +4084,84 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
   }
 
   function closePlanDialog() {
-    if (busyAction) return;
     setPlanDialogOpen(false);
     setPaidPlanDialogOnly(false);
   }
 
   function renderPlanCards({ paidOnly = false } = {}) {
     if (billingOverviewQuery.isPending) {
-      return <AccountText c="dimmed">Plans are loading.</AccountText>;
+      return <Text c="dimmed">Plans are loading.</Text>;
     }
 
     if (billingOverviewQuery.error) {
       return (
-        <AccountStack gap="sm">
-          <AccountText c="red">Subscription plans could not be loaded.</AccountText>
-          <AccountButton
+        <Stack gap="sm">
+          <Text c="red">Subscription plans could not be loaded.</Text>
+          <Button
             className="neura-secondary-button"
             onClick={() => void billingOverviewQuery.refetch()}
             variant="default"
             w="fit-content"
           >
             Retry
-          </AccountButton>
-        </AccountStack>
+          </Button>
+        </Stack>
       );
     }
 
     if (!billing?.plans.length) {
-      return <AccountText c="dimmed">No subscription plans are available.</AccountText>;
+      return <Text c="dimmed">No subscription plans are available.</Text>;
     }
 
     const visiblePlans = billing.plans.filter((plan) => !paidOnly || plan.slug !== "free");
 
     return (
-      <AccountStack gap="md">
-        <ConfigurationSelect label="Billing interval" data={[{value:"monthly",label:"Monthly"},{value:"annual",label:"Annual"}]} value={billingInterval} onChange={value=>{if(value) setBillingInterval(value as "monthly" | "annual");}} />
-        <ConfigurationSelect label="Payment method" description="Automatic recurring payments are not available yet." data={[{value:"manual",label:"Manual via QRPh"},{value:"automatic",label:"Automatic recurring",disabled:true}]} value={billingPaymentMode} onChange={value=>{if(value) setBillingPaymentMode(value as "manual" | "automatic");}} />
-        <AccountAlert color="blue" variant="light" icon={<IconInfoCircle size={18} />}>
+      <Stack gap="md">
+        <SegmentedControl
+          data={[
+            { value: "monthly", label: "Monthly" },
+            { value: "annual", label: "Annual" }
+          ]}
+          value={billingInterval}
+          onChange={(value) => setBillingInterval(value as "monthly" | "annual")}
+        />
+        <SegmentedControl
+          data={[
+            { value: "manual", label: "Manual via QRPh" },
+            { value: "automatic", label: "Automatic recurring", disabled: true }
+          ]}
+          value={billingPaymentMode}
+          onChange={(value) => setBillingPaymentMode(value as "manual" | "automatic")}
+        />
+        <Alert color="blue" variant="light" icon={<IconInfoCircle size={18} />}>
           Manual QRPh payments require a new payment each month or year. Automatic recurring payments will be available after PayMongo subscription billing is enabled for this account.
-        </AccountAlert>
-        <AccountGrid
+        </Alert>
+        <SimpleGrid
           className="subscription-plan-grid"
           cols={{ base: 1, sm: Math.min(visiblePlans.length, 2), md: Math.min(visiblePlans.length, 4) }}
           spacing="md"
         >
           {visiblePlans.map((plan) => (
-            <OperationPanel key={plan.slug}>
-              <AccountStack gap="md" h="100%">
+            <Card className="neura-plan-card" key={plan.slug} padding="lg">
+              <Stack gap="md" h="100%">
                 <div>
-                  <AccountText className="neura-label">{plan.name}</AccountText>
-                  <AccountTitle order={3}>
+                  <Text className="neura-label">{plan.name}</Text>
+                  <Title order={3}>
                     {getPlanPriceDisplay(plan, billingInterval)}
-                  </AccountTitle>
-                  <AccountText c="dimmed" size="sm">{plan.bestFor}</AccountText>
+                  </Title>
+                  <Text c="dimmed" size="sm">{plan.bestFor}</Text>
                 </div>
-                <AccountStack gap={8} className="neura-feature-list">
-                  {getPlanHighlights(plan).map((item) => (
-                    <AccountText key={item} size="sm">• {item}</AccountText>
+                <Stack gap={8} className="neura-feature-list">
+                  {plan.included.map((item) => (
+                    <Text key={item} size="sm">• {item}</Text>
                   ))}
-                </AccountStack>
+                </Stack>
                 {plan.slug === "free" ? (
-                  <AccountButton disabled mt="auto" variant="default">
+                  <Button disabled mt="auto" variant="default">
                     Free queue plan
-                  </AccountButton>
+                  </Button>
                 ) : plan.checkoutEnabled ? (
-                  <AccountButton
+                  <Button
                     className={plan.slug === "pro" ? "neura-primary-button" : "neura-secondary-button"}
                     disabled={busyAction === `checkout:${plan.slug}`}
                     mt="auto"
@@ -4256,593 +4170,490 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     }}
                   >
                     {busyAction === `checkout:${plan.slug}` ? "Opening..." : "Choose plan via QRPh"}
-                  </AccountButton>
+                  </Button>
                 ) : (
-                  <AccountButton disabled mt="auto" variant="default">
+                  <Button disabled mt="auto" variant="default">
                     Custom quote
-                  </AccountButton>
+                  </Button>
                 )}
-              </AccountStack>
-            </OperationPanel>
+              </Stack>
+            </Card>
           ))}
-        </AccountGrid>
-      </AccountStack>
+        </SimpleGrid>
+      </Stack>
     );
   }
 
   function renderPlanDialog() {
-    return <TaskDialog opened={planDialogOpen} onClose={closePlanDialog} busy={Boolean(busyAction)} eyebrow="BILLING" title={paidPlanDialogOnly ? "Upgrade to a paid plan" : "Choose a subscription plan"} footer={<OperationButton variant="outline" onClick={closePlanDialog} disabled={Boolean(busyAction)}>Close plans</OperationButton>}>
-      <AccountPresentation key={accountTaskRevision} onBusyChange={setAccountPanelBusy} onDraftChange={setAccountPanelDraft}>
-        <ConfigurationScope busy={Boolean(busyAction)}>{renderPlanCards({paidOnly:paidPlanDialogOnly})}</ConfigurationScope>
-      </AccountPresentation>
-    </TaskDialog>;
+    return (
+      <Modal
+        centered
+        className="subscription-plan-modal"
+        opened={planDialogOpen}
+        onClose={closePlanDialog}
+        size="90rem"
+        title={
+          <Stack className="getprio-modal-title" gap={2}>
+            <Text className="getprio-modal-eyebrow">BILLING</Text>
+            <Text className="getprio-modal-heading">
+              {paidPlanDialogOnly ? "Upgrade to a paid plan" : "Choose a subscription plan"}
+            </Text>
+          </Stack>
+        }
+      >
+        {renderPlanCards({ paidOnly: paidPlanDialogOnly })}
+      </Modal>
+    );
   }
 
   function renderLocationDialog() {
-    const EditorSurface = locationSlug ? TaskPage : TaskDialog;
     const addInterval = (weekday: number) =>
       setLocationForm((current) => {
-        const nextInterval = {
-          weekday,
-          opensAt: "09:00",
-          closesAt: "17:00",
-          isClosed: false,
-        };
+        const nextInterval = { weekday, opensAt: "09:00", closesAt: "17:00", isClosed: false };
         const lastIntervalIndex = current.hours.reduce(
-          (lastIndex, item, itemIndex) =>
-            item.weekday === weekday ? itemIndex : lastIndex,
-          -1,
+          (lastIndex, item, itemIndex) => (item.weekday === weekday ? itemIndex : lastIndex),
+          -1
         );
-        const insertAt =
-          lastIntervalIndex >= 0 ? lastIntervalIndex + 1 : current.hours.length;
+        const insertAt = lastIntervalIndex >= 0 ? lastIntervalIndex + 1 : current.hours.length;
+
         return {
           ...current,
           hours: [
             ...current.hours.slice(0, insertAt),
             nextInterval,
-            ...current.hours.slice(insertAt),
-          ],
+            ...current.hours.slice(insertAt)
+          ]
         };
       });
     const removeInterval = (weekday: number, index: number) =>
       setLocationForm((current) => {
-        const dayCount = current.hours.filter(
-          (item) => item.weekday === weekday,
-        ).length;
+        const dayCount = current.hours.filter((item) => item.weekday === weekday).length;
         return {
           ...current,
-          hours:
-            dayCount > 1
-              ? current.hours.filter((_, itemIndex) => itemIndex !== index)
-              : current.hours.map((item, itemIndex) =>
-                  itemIndex === index
-                    ? { ...item, opensAt: "", closesAt: "", isClosed: true }
-                    : item,
-                ),
+          hours: dayCount > 1
+            ? current.hours.filter((_, itemIndex) => itemIndex !== index)
+            : current.hours.map((item, itemIndex) =>
+                itemIndex === index ? { ...item, opensAt: "", closesAt: "", isClosed: true } : item
+              )
         };
       });
-    const close = () => {
-      if (locationSlug) {
-        requestLocationLeave(() => navigate(workspacePath("tenants", "administration", location.search)));
-      } else if (canLeaveFeature()) {
-        unsavedForm.current.discardId("vendor-location-editor");
-        setLocationDialogOpen(false);
-      }
-    };
     return (
-      <EditorSurface
+      <Modal
+        className="vendor-location-modal"
+        centered
         opened={locationDialogOpen}
-        onClose={close}
-        busy={Boolean(busyAction)}
-        eyebrow="LOCATION SETTINGS"
+        onClose={() => setLocationDialogOpen(false)}
+        size="xl"
         title={
-          editingLocationSlug
-            ? `Edit ${locationForm.name || "location"}`
-            : "Add location"
+          <Stack gap={2}>
+            <Text className="service-dialog__modal-eyebrow">{editingLocationSlug ? "EDIT" : "ADD"} LOCATION</Text>
+            <Text className="service-dialog__modal-title">
+              {editingLocationSlug ? "Edit location" : "Add location"}
+            </Text>
+            <Text c="dimmed" size="sm">
+              Configure the branch profile, payment details, and hours that appear on the public queue pages.
+            </Text>
+          </Stack>
         }
-        description="Set the branch details, payment options and operating hours customers see."
-        footer={
-          <>
-            <OperationButton
-              className="ops-redundant-dismiss"
-              variant="outline"
-              onClick={close}
-            >
-              Cancel
-            </OperationButton>
-            <OperationButton
-              type="submit"
-              form="vendor-location-editor"
-              loading={busyAction === "location"}
-              disabled={Boolean(busyAction)}
-            >
-              Save location
-            </OperationButton>
-          </>
-        }
+        overlayProps={{ blur: 6, backgroundOpacity: 0.35 }}
       >
-        <ConfigurationScope
-          busy={Boolean(busyAction)}
-          onEdit={(form) => unsavedForm.current.mark(form)}
-        >
-          <form
-            id="vendor-location-editor"
-            noValidate
-            onSubmit={(event) => {
-              event.preventDefault();
-              if (!validateLocationEditor(event.currentTarget, setLocationEditorTab)) return;
-              void saveLocation();
-            }}
-            className="ops-stack"
+        <Stack className="vendor-location-modal__shell" gap={0}>
+          <ScrollArea className="vendor-location-modal__main" offsetScrollbars type="auto">
+            <Stack gap="md" pb="sm">
+          <ModalSection
+            title="Location profile"
+            description="These details identify the branch and shape how customers find it on the public queue pages."
           >
-            {error ? (
-              <OperationAlert color="red" title={locationErrorTitle}>
-                {error}
-              </OperationAlert>
-            ) : null}
-            <ConfigTabs value={locationEditorTab} onValueChange={(value) => setLocationEditorTab(String(value))}>
-              <ConfigTabsList aria-label="Location details" className="config-tabs-list location-editor-tabs">
-                <ConfigTabsTrigger value="general">General</ConfigTabsTrigger>
-                <ConfigTabsTrigger value="queue">Queue &amp; hours</ConfigTabsTrigger>
-                <ConfigTabsTrigger value="payments">Payments</ConfigTabsTrigger>
-              </ConfigTabsList>
-              <ConfigTabsContent value="general" keepMounted data-location-tab="general" className="ops-stack">
-            <ConfigurationSection
-              title="Location profile"
-              description="These details identify the branch and shape how customers find it on the public queue pages."
-            >
-              <div className="ops-grid ops-grid-2">
-                <ConfigurationFile
-                  accept="image/png,image/jpeg,image/webp"
-                  label="Branch image"
-                  placeholder={
-                    locationForm.imageUrl
-                      ? "Replace branch image"
-                      : "Upload branch image"
-                  }
-                  disabled={busyAction === "location-image-upload"}
-                  onChange={(file) => uploadLocationImage(file)}
+            <SimpleGrid cols={{ base: 1, md: 2 }}>
+              <FileInput
+                accept="image/png,image/jpeg,image/webp"
+                clearable
+                label="Branch image"
+                placeholder={locationForm.imageUrl ? "Replace branch image" : "Upload branch image"}
+                disabled={busyAction === "location-image-upload"}
+                onChange={(file) => uploadLocationImage(file)}
+              />
+                                  <TextInput
+                label="Branch image URL"
+                value={locationForm.imageUrl || ""}
+                onChange={(event) => setLocationForm((current) => ({ ...current, imageUrl: event.target.value }))}
+              />
+              {locationForm.imageUrl ? <Image alt="" h={120} radius="md" src={locationForm.imageUrl} /> : null}
+              <TextInput
+                name="locationName"
+                label="Location name"
+                required
+                description="Shown to customers and staff as the branch display name."
+                value={locationForm.name}
+                onChange={(event) => {
+                  const nextName = event.target.value;
+                  setLocationForm((current) => ({
+                    ...current,
+                    name: nextName,
+                    slug: locationSlugManuallyEdited ? current.slug : buildLocationSlug(nextName)
+                  }));
+                }}
+              />
+              <TextInput
+                name="locationSlug"
+                label={
+                  <Group gap={6} wrap="nowrap">
+                    <Text span size="sm" fw={500}>
+                      Slug
+                    </Text>
+                    <Text aria-hidden="true" c="red" component="span" size="sm">
+                      *
+                    </Text>
+                    <ModalHelpIcon label="This becomes part of the public URL for the location. Keep it short, lowercase, and URL-safe." />
+                  </Group>
+                }
+                required
+                withAsterisk={false}
+                readOnly={Boolean(editingLocationSlug)}
+                description={
+                  editingLocationSlug
+                    ? "Slug cannot be changed after the location is created."
+                    : checkingLocationSlug
+                      ? "Checking slug availability..."
+                      : locationSlugMessage
+                }
+                error={
+                  !editingLocationSlug && !locationSlugAvailable && locationForm.slug
+                    ? locationSlugMessage || "That location slug is already taken for this vendor."
+                    : undefined
+                }
+                value={locationForm.slug}
+                onChange={(event) => {
+                  setLocationSlugManuallyEdited(true);
+                  setLocationForm((current) => ({ ...current, slug: buildLocationSlug(event.target.value) }));
+                }}
+              />
+              <TextInput
+                name="addressLine1"
+                label="Address line 1"
+                description="Street address or landmark for the branch."
+                value={locationForm.addressLine1}
+                onChange={(event) =>
+                  setLocationForm((current) => ({ ...current, addressLine1: event.target.value }))
+                }
+              />
+              <TextInput
+                name="addressLine2"
+                label="Address line 2"
+                description="Optional unit, floor, or building detail."
+                value={locationForm.addressLine2}
+                onChange={(event) =>
+                  setLocationForm((current) => ({ ...current, addressLine2: event.target.value }))
+                }
+              />
+              <TextInput
+                name="city"
+                label="City"
+                value={locationForm.city}
+                onChange={(event) =>
+                  setLocationForm((current) => ({ ...current, city: event.target.value }))
+                }
+              />
+              <TextInput
+                name="province"
+                label="Province"
+                value={locationForm.province}
+                onChange={(event) =>
+                  setLocationForm((current) => ({ ...current, province: event.target.value }))
+                }
+              />
+              <TextInput
+                name="locationContactEmail"
+                label="Contact email"
+                description="Used for location-specific inquiries and notifications."
+                value={locationForm.contactEmail}
+                onChange={(event) =>
+                  setLocationForm((current) => ({ ...current, contactEmail: event.target.value }))
+                }
+              />
+              <PhilippineMobileInput
+                name="locationContactPhone"
+                label="Contact phone"
+                description="Displayed to customers when contact details are needed."
+                value={locationForm.contactPhone}
+                onChange={(nextValue) =>
+                  setLocationForm((current) => ({ ...current, contactPhone: nextValue }))
+                }
+              />
+              <Select
+                name="timezone"
+                label="Timezone"
+                description="Used for public hours and queue timing."
+                data={timeZoneOptions}
+                allowDeselect={false}
+                searchable
+                value={locationForm.timezone}
+                onChange={(value) =>
+                  value && setLocationForm((current) => ({ ...current, timezone: value }))
+                }
+              />
+            </SimpleGrid>
+          </ModalSection>
+
+          <ModalSection
+            title="Manual payment"
+            description="Optional payment details shown when this branch accepts manual payments."
+          >
+            <SimpleGrid cols={{ base: 1, md: 2 }}>
+              <Select
+                name="paymentMethodLabel"
+                label={
+                  <Group gap={6} wrap="nowrap">
+                    <Text span size="sm" fw={500}>
+                      Payment method
+                    </Text>
+                    <ModalHelpIcon label="Choose the payment destination customers will use for this branch." />
+                  </Group>
+                }
+                data={["GCash", "Maya", "Bank Transfer"]}
+                placeholder="Choose a payment method"
+                value={locationForm.paymentMethodLabel}
+                onChange={(value) => setLocationForm((current) => ({ ...current, paymentMethodLabel: value || "" }))}
+              />
+              {locationForm.paymentMethodLabel === "Bank Transfer" ? (
+                <TextInput
+                  name="paymentBankName"
+                  label="Bank name"
+                  placeholder="e.g. BPI, BDO, UnionBank"
+                  value={locationForm.paymentBankName}
+                  onChange={(event) => setLocationForm((current) => ({ ...current, paymentBankName: event.target.value }))}
                 />
-                <ConfigurationInput
-                  label="Branch image URL"
-                  value={locationForm.imageUrl || ""}
-                  onChange={(event) =>
-                    setLocationForm((current) => ({
-                      ...current,
-                      imageUrl: event.target.value,
-                    }))
-                  }
-                />
-                {locationForm.imageUrl ? (
-                  <img
-                    alt=""
-                    src={locationForm.imageUrl}
-                    className="config-image"
+              ) : null}
+              <TextInput
+                name="paymentAccountDisplayName"
+                label={locationForm.paymentMethodLabel === "Bank Transfer" ? "Account owner" : "Account display name"}
+                description={locationForm.paymentMethodLabel === "Bank Transfer" ? "Name of the bank account owner." : "Business or account holder name shown beside the QR code."}
+                placeholder={locationForm.paymentMethodLabel === "Bank Transfer" ? "Account owner name" : "Business or account name"}
+                value={locationForm.paymentAccountDisplayName}
+                onChange={(event) =>
+                  setLocationForm((current) => ({ ...current, paymentAccountDisplayName: event.target.value }))
+                }
+              />
+              <TextInput
+                name="paymentAccountIdentifierDisplay"
+                label={locationForm.paymentMethodLabel === "Bank Transfer" ? "Account number" : <Group gap={6} wrap="nowrap"><Text span size="sm" fw={500}>Masked account identifier</Text><ModalHelpIcon label="Use a partially hidden account number or suffix so customers can verify they are paying the right account without exposing the full value." /></Group>}
+                placeholder={locationForm.paymentMethodLabel === "Bank Transfer" ? "Bank account number" : "0917 *** 1234 or account suffix"}
+                value={locationForm.paymentAccountIdentifierDisplay}
+                onChange={(event) =>
+                  setLocationForm((current) => ({
+                    ...current,
+                    paymentAccountIdentifierDisplay: event.target.value
+                  }))
+                }
+              />
+              {locationForm.paymentMethodLabel === "Bank Transfer" ? (
+                <Stack align="center" gap="xs" justify="center" p="sm">
+                  <ThemeIcon color="blue" radius="xl" size={84} variant="light"><IconBuildingBank size={44} /></ThemeIcon>
+                  <Text c="dimmed" size="sm" ta="center">Customers will see your bank details instead of a QR code.</Text>
+                </Stack>
+              ) : (
+                <Stack gap="xs">
+                  <FileInput
+                    accept="image/jpeg,image/png,image/webp"
+                    clearable
+                    disabled={busyAction === "payment-qr-upload"}
+                    label="QR image"
+                    leftSection={<IconQrcode size={16} />}
+                    description="Upload the QR code image customers should scan."
+                    onChange={(file) => {
+                      setPaymentQrUploadFile(file);
+                      void uploadLocationPaymentQr(file);
+                    }}
+                    placeholder={locationForm.paymentQrImageUrl ? "Replace QR image" : "Upload QR image"}
+                    value={paymentQrUploadFile}
                   />
-                ) : null}
-                <ConfigurationInput
-                  name="locationName"
-                  label="Location name"
-                  required
-                  description="Shown to customers and staff as the branch display name."
-                  value={locationForm.name}
-                  onChange={(event) => {
-                    const nextName = event.target.value;
-                    setLocationForm((current) => ({
-                      ...current,
-                      name: nextName,
-                      slug: locationSlugManuallyEdited
-                        ? current.slug
-                        : buildLocationSlug(nextName),
-                    }));
-                  }}
-                />
-                <ConfigurationInput
-                  name="locationSlug"
-                  label="Location link name"
-                  required
-                  readOnly={Boolean(editingLocationSlug)}
-                  description={
-                    editingLocationSlug
-                      ? "This link name cannot change after the location is created."
-                      : checkingLocationSlug
-                        ? "Checking link availability…"
-                        : locationSlugMessage || "A short, lowercase name used in public location links."
-                  }
-                  error={
-                    !editingLocationSlug &&
-                    !locationSlugAvailable &&
-                    locationForm.slug
-                      ? locationSlugMessage ||
-                        "This location link name is already taken."
-                      : undefined
-                  }
-                  value={locationForm.slug}
-                  onChange={(event) => {
-                    setLocationSlugManuallyEdited(true);
-                    setLocationForm((current) => ({
-                      ...current,
-                      slug: buildLocationSlug(event.target.value),
-                    }));
-                  }}
-                />
-                <ConfigurationInput
-                  name="addressLine1"
-                  label="Address line 1"
-                  description="Street address or landmark for the branch."
-                  value={locationForm.addressLine1}
-                  onChange={(event) =>
-                    setLocationForm((current) => ({
-                      ...current,
-                      addressLine1: event.target.value,
-                    }))
-                  }
-                />
-                <ConfigurationInput
-                  name="addressLine2"
-                  label="Address line 2"
-                  description="Optional unit, floor, or building detail."
-                  value={locationForm.addressLine2}
-                  onChange={(event) =>
-                    setLocationForm((current) => ({
-                      ...current,
-                      addressLine2: event.target.value,
-                    }))
-                  }
-                />
-                <ConfigurationInput
-                  name="city"
-                  label="City"
-                  value={locationForm.city}
-                  onChange={(event) =>
-                    setLocationForm((current) => ({
-                      ...current,
-                      city: event.target.value,
-                    }))
-                  }
-                />
-                <ConfigurationInput
-                  name="province"
-                  label="Province"
-                  value={locationForm.province}
-                  onChange={(event) =>
-                    setLocationForm((current) => ({
-                      ...current,
-                      province: event.target.value,
-                    }))
-                  }
-                />
-                <ConfigurationInput
-                  name="locationContactEmail"
-                  type="email"
-                  label="Contact email"
-                  description="Used for location-specific inquiries and notifications."
-                  value={locationForm.contactEmail}
-                  onChange={(event) =>
-                    setLocationForm((current) => ({
-                      ...current,
-                      contactEmail: event.target.value,
-                    }))
-                  }
-                />
-                <ConfigurationPhone
-                  name="locationContactPhone"
-                  label="Contact phone"
-                  description="Displayed to customers when contact details are needed."
-                  value={locationForm.contactPhone}
-                  onChange={(nextValue) =>
-                    setLocationForm((current) => ({
-                      ...current,
-                      contactPhone: nextValue,
-                    }))
-                  }
-                />
-                <ConfigurationSelect
-                  name="timezone"
-                  label="Timezone"
-                  description="Used for public hours and queue timing."
-                  data={timeZoneOptions}
-                  value={locationForm.timezone}
-                  onChange={(value) =>
-                    value &&
-                    setLocationForm((current) => ({
-                      ...current,
-                      timezone: value,
-                    }))
-                  }
-                />
-              </div>
-            </ConfigurationSection>
+                  {locationForm.paymentQrImageUrl ? <Image alt="Payment QR preview" fit="contain" h={120} radius="sm" src={locationForm.paymentQrImageUrl} w={120} /> : null}
+                </Stack>
+              )}
+            </SimpleGrid>
+            <Switch
+              name="paymentQrActive"
+              checked={locationForm.paymentQrActive}
+              label="Enable manual payment for this location"
+              description="Only turn this on if customers should see these payment details for this branch."
+              onChange={(event) =>
+                setLocationForm((current) => ({ ...current, paymentQrActive: event.currentTarget.checked }))
+              }
+            />
+          </ModalSection>
 
-            <ConfigurationSection
-              title="Visibility and access"
-              description="These switches control whether the branch is active and whether it is treated as the main location."
-            >
-              <div className="ops-row">
-                <ConfigurationCheck
-                  name="isActiveLocation"
-                  checked={locationForm.isActive}
-                  label="Enable location"
-                  description="Inactive locations stay saved but are hidden from normal use."
-                  onChange={(event) =>
-                    setLocationForm((current) => ({
-                      ...current,
-                      isActive: event.currentTarget.checked,
-                    }))
-                  }
-                />
-                <ConfigurationCheck
-                  name="isPrimaryLocation"
-                  description="Used as the default location in public pages and your dashboard."
-                  checked={locationForm.isPrimary}
-                  label="Primary location"
-                  onChange={(event) =>
-                    setLocationForm((current) => ({
-                      ...current,
-                      isPrimary: event.target.checked,
-                    }))
-                  }
-                />
-              </div>
-            </ConfigurationSection>
-
-              </ConfigTabsContent>
-              <ConfigTabsContent value="queue" keepMounted data-location-tab="queue" className="ops-stack">
-            <ConfigurationSection
-              title="Booking arrival"
-              description="Choose how customers join the live queue for their scheduled booking."
-            >
-              <ConfigurationCheck
-                checked={locationForm.customerSelfCheckInEnabled}
-                label="Allow customers to mark their arrival"
-                description="Customers can tap I’ve arrived within 15 minutes of their booked start. This accepts their declaration without verifying they are on site. Staff check-in remains available. Booking tickets cannot be called before their scheduled start."
+          <ModalSection
+            title="Visibility and access"
+            description="These switches control whether the branch is active and whether it is treated as the main location."
+          >
+            <Group align="flex-start" wrap="wrap">
+              <Switch
+                name="isActiveLocation"
+                checked={locationForm.isActive}
+                label="Enable location"
+                description="Inactive locations stay saved but are hidden from normal use."
                 onChange={(event) =>
-                  setLocationForm((current) => ({
-                    ...current,
-                    customerSelfCheckInEnabled: event.currentTarget.checked,
-                  }))
+                  setLocationForm((current) => ({ ...current, isActive: event.currentTarget.checked }))
                 }
               />
-            </ConfigurationSection>
-            <ConfigurationSection
-              title="Service timing"
-              description="Record when staff actually start and finish serving a customer."
-            >
-              <ConfigurationCheck
-                checked={locationForm.serviceTimingEnabled}
-                label="Track service start and completion"
-                description="Use Call next, Start service, then Complete service. This records actual service time; it does not reserve resources or change wait estimates. Turning this off keeps unfinished records available for staff to resolve."
+              <Checkbox
+                name="isPrimaryLocation"
+                checked={locationForm.isPrimary}
+                label={
+                  <Group gap={6} wrap="nowrap">
+                    <Text span size="sm" fw={500}>
+                      Primary location
+                    </Text>
+                    <ModalHelpIcon label="The primary location is used as the default branch in public and dashboard flows when no specific location is selected." />
+                  </Group>
+                }
                 onChange={(event) =>
-                  setLocationForm((current) => ({
-                    ...current,
-                    serviceTimingEnabled: event.currentTarget.checked,
-                  }))
+                  setLocationForm((current) => ({ ...current, isPrimary: event.target.checked }))
                 }
               />
-            </ConfigurationSection>
-            <ConfigurationSection
-              title="Operating hours"
-              description="Set the default operating hours customers should see. Add multiple intervals when a location closes and reopens on the same day."
-            >
-              <div className="ops-stack">
-                {getOrderedLocationHours(locationForm.hours).map(
-                  ({ hour, index }) => (
-                    <div
-                      className="config-hour"
-                      key={`${hour.weekday}-${index}`}
-                    >
-                      <div className="ops-row ops-between">
-                        <p className="ops-strong">
-                          {
-                            [
-                              "Sunday",
-                              "Monday",
-                              "Tuesday",
-                              "Wednesday",
-                              "Thursday",
-                              "Friday",
-                              "Saturday",
-                            ][hour.weekday]
-                          }
-                        </p>
-                        <ConfigurationCheck
-                          name={`hours.${index}.isClosed`}
-                          checked={hour.isClosed}
-                          label="Closed"
-                          onChange={(event) =>
-                            setLocationForm((current) => ({
-                              ...current,
-                              hours: current.hours.map((item, i) =>
-                                i === index
-                                  ? { ...item, isClosed: event.target.checked }
-                                  : item,
-                              ),
-                            }))
-                          }
-                        />
-                      </div>
-                      {!hour.isClosed ? (
-                        <div className="ops-grid ops-grid-2">
-                          <ConfigurationInput
-                            name={`hours.${index}.opensAt`}
-                            label="Opens"
-                            type="time"
-                            required
-                            value={hour.opensAt}
-                            onChange={(event) =>
-                              setLocationForm((current) => ({
-                                ...current,
-                                hours: current.hours.map((item, i) =>
-                                  i === index
-                                    ? { ...item, opensAt: event.target.value }
-                                    : item,
-                                ),
-                              }))
-                            }
+            </Group>
+          </ModalSection>
+
+          <ModalSection
+            title="Operating hours"
+            description="Set the default operating hours customers should see. Add multiple intervals when a location closes and reopens on the same day."
+          >
+            {isMobileHoursLayout ? (
+              <Stack gap="sm">
+                {getOrderedLocationHours(locationForm.hours).map(({ hour, index }) => {
+                  const dayLabel = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][hour.weekday];
+
+                  return (
+                    <Card key={`${hour.weekday}-${index}`} withBorder radius="lg" p="sm">
+                      <Stack gap="sm">
+                        <Group justify="space-between" align="flex-start">
+                          <Text fw={700}>{dayLabel}</Text>
+                          <Checkbox
+                            name={`hours.${index}.isClosed`}
+                            checked={hour.isClosed}
+                            label="Closed"
+                            description="Hide opening and closing times for this day."
+                            onChange={(event) => updateLocationHour(index, { isClosed: event.target.checked })}
                           />
-                          <ConfigurationInput
-                            name={`hours.${index}.closesAt`}
-                            label="Closes"
-                            type="time"
-                            required
-                            value={hour.closesAt}
-                            onChange={(event) =>
-                              setLocationForm((current) => ({
-                                ...current,
-                                hours: current.hours.map((item, i) =>
-                                  i === index
-                                    ? { ...item, closesAt: event.target.value }
-                                    : item,
-                                ),
-                              }))
-                            }
-                          />
-                        </div>
-                      ) : null}
-                      <div className="ops-row">
-                        <OperationButton
-                          variant="outline"
-                          onClick={() => {
-                            unsavedForm.current.mark(
-                              document.getElementById("vendor-location-editor"),
-                            );
-                            addInterval(hour.weekday);
-                          }}
+                        </Group>
+                        {!hour.isClosed ? (
+                          <SimpleGrid cols={2} spacing="sm">
+                            <TextInput
+                              name={`hours.${index}.opensAt`}
+                              label="Opens"
+                              type="time"
+                              value={hour.opensAt}
+                              onChange={(event) => updateLocationHour(index, { opensAt: event.target.value })}
+                            />
+                            <TextInput
+                              name={`hours.${index}.closesAt`}
+                              label="Closes"
+                              type="time"
+                              value={hour.closesAt}
+                              onChange={(event) => updateLocationHour(index, { closesAt: event.target.value })}
+                            />
+                          </SimpleGrid>
+                        ) : null}
+                        <Group gap="xs">
+                          <Button size="compact-sm" variant="subtle" onClick={() => addInterval(hour.weekday)}>
+                            Add interval
+                          </Button>
+                          <Button
+                            color="red"
+                            size="compact-sm"
+                            variant="subtle"
+                            onClick={() => removeInterval(hour.weekday, index)}
+                          >
+                            Remove interval
+                          </Button>
+                        </Group>
+                      </Stack>
+                    </Card>
+                  );
+                })}
+              </Stack>
+            ) : (
+              <ScrollArea offsetScrollbars type="auto">
+                <Box miw={700} pb="xs">
+                  <Table className="vendor-operating-hours-table">
+                    <Table.Thead>
+                      <Table.Tr>
+                        <Table.Th>Day</Table.Th>
+                        <Table.Th>Closed</Table.Th>
+                        <Table.Th>Opens</Table.Th>
+                        <Table.Th>Closes</Table.Th>
+                        <Table.Th>Actions</Table.Th>
+                      </Table.Tr>
+                    </Table.Thead>
+                    <Table.Tbody>
+                      {getOrderedLocationHours(locationForm.hours).map(({ hour, index, isFirstForDay, isLastForDay }) => (
+                        <Table.Tr
+                          key={`${hour.weekday}-${index}`}
+                          className={isLastForDay ? "vendor-operating-hours-table__group-end" : undefined}
                         >
-                          Add interval
-                        </OperationButton>
-                        <OperationButton
-                          variant="outline"
-                          onClick={() => {
-                            unsavedForm.current.mark(
-                              document.getElementById("vendor-location-editor"),
-                            );
-                            removeInterval(hour.weekday, index);
-                          }}
-                        >
-                          Remove interval
-                        </OperationButton>
-                      </div>
-                    </div>
-                  ),
-                )}
-              </div>
-            </ConfigurationSection>
-              </ConfigTabsContent>
-              <ConfigTabsContent value="payments" keepMounted data-location-tab="payments" className="ops-stack">
-            <ConfigurationSection
-              title="Manual payment"
-              description="Optional payment details shown when this branch accepts manual payments."
-            >
-              <div className="ops-grid ops-grid-2">
-                <ConfigurationSelect
-                  name="paymentMethodLabel"
-                  label="Payment method"
-                  description="Where customers should send payment for this location."
-                  data={["GCash", "Maya", "Bank Transfer"]}
-                  placeholder="Choose a payment method"
-                  value={locationForm.paymentMethodLabel}
-                  onChange={(value) =>
-                    setLocationForm((current) => ({
-                      ...current,
-                      paymentMethodLabel: value || "",
-                    }))
-                  }
-                />
-                {locationForm.paymentMethodLabel === "Bank Transfer" ? (
-                  <ConfigurationInput
-                    name="paymentBankName"
-                    label="Bank name"
-                    placeholder="e.g. BPI, BDO, UnionBank"
-                    value={locationForm.paymentBankName}
-                    onChange={(event) =>
-                      setLocationForm((current) => ({
-                        ...current,
-                        paymentBankName: event.target.value,
-                      }))
-                    }
-                  />
-                ) : null}
-                <ConfigurationInput
-                  name="paymentAccountDisplayName"
-                  label={
-                    locationForm.paymentMethodLabel === "Bank Transfer"
-                      ? "Account owner"
-                      : "Account display name"
-                  }
-                  description={
-                    locationForm.paymentMethodLabel === "Bank Transfer"
-                      ? "Name of the bank account owner."
-                      : "Business or account holder name shown beside the QR code."
-                  }
-                  placeholder={
-                    locationForm.paymentMethodLabel === "Bank Transfer"
-                      ? "Account owner name"
-                      : "Business or account name"
-                  }
-                  value={locationForm.paymentAccountDisplayName}
-                  onChange={(event) =>
-                    setLocationForm((current) => ({
-                      ...current,
-                      paymentAccountDisplayName: event.target.value,
-                    }))
-                  }
-                />
-                <ConfigurationInput
-                  name="paymentAccountIdentifierDisplay"
-                  description={locationForm.paymentMethodLabel === "Bank Transfer" ? "The account number customers use for bank transfers." : "Use a partially hidden number or suffix so customers can verify the account without exposing the full number."}
-                  label={
-                    locationForm.paymentMethodLabel === "Bank Transfer"
-                      ? "Account number"
-                      : "Masked account identifier"
-                  }
-                  placeholder={
-                    locationForm.paymentMethodLabel === "Bank Transfer"
-                      ? "Bank account number"
-                      : "0917 *** 1234 or account suffix"
-                  }
-                  value={locationForm.paymentAccountIdentifierDisplay}
-                  onChange={(event) =>
-                    setLocationForm((current) => ({
-                      ...current,
-                      paymentAccountIdentifierDisplay: event.target.value,
-                    }))
-                  }
-                />
-                {locationForm.paymentMethodLabel === "Bank Transfer" ? (
-                  <div className="ops-stack">
-                    <div className="config-media">
-                      <IconBuildingBank size={44} />
-                    </div>
-                    <p className="ops-muted">
-                      Customers will see your bank details instead of a QR code.
-                    </p>
-                  </div>
-                ) : (
-                  <div className="ops-stack">
-                    <PaymentQrImageField url={locationForm.paymentQrImageUrl} file={paymentQrUploadFile} disabled={busyAction === "payment-qr-upload"} onFile={setPaymentQrUploadFile} onUpload={(file,onPrepared)=>uploadLocationPaymentQr(file,onPrepared)} />
-                  </div>
-                )}
-              </div>
-              <ConfigurationCheck
-                name="paymentQrActive"
-                checked={locationForm.paymentQrActive}
-                label="Enable manual payment for this location"
-                description="Only turn this on if customers should see these payment details for this branch."
-                onChange={(event) =>
-                  setLocationForm((current) => ({
-                    ...current,
-                    paymentQrActive: event.currentTarget.checked,
-                  }))
-                }
-              />
-            </ConfigurationSection>
-
-              </ConfigTabsContent>
-            </ConfigTabs>
-          </form>
-        </ConfigurationScope>
-      </EditorSurface>
+                          <Table.Td>
+                            {isFirstForDay ? ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][hour.weekday] : null}
+                          </Table.Td>
+                          <Table.Td>
+                            <Checkbox
+                              name={`hours.${index}.isClosed`}
+                              checked={hour.isClosed}
+                              onChange={(event) => updateLocationHour(index, { isClosed: event.target.checked })}
+                            />
+                          </Table.Td>
+                          <Table.Td>
+                            <TextInput
+                              name={`hours.${index}.opensAt`}
+                              disabled={hour.isClosed}
+                              type="time"
+                              value={hour.opensAt}
+                              onChange={(event) => updateLocationHour(index, { opensAt: event.target.value })}
+                            />
+                          </Table.Td>
+                          <Table.Td>
+                            <TextInput
+                              name={`hours.${index}.closesAt`}
+                              disabled={hour.isClosed}
+                              type="time"
+                              value={hour.closesAt}
+                              onChange={(event) => updateLocationHour(index, { closesAt: event.target.value })}
+                            />
+                        </Table.Td>
+                        <Table.Td>
+                          <Group gap="xs" wrap="nowrap">
+                            <Button size="compact-sm" variant="subtle" onClick={() => addInterval(hour.weekday)}>
+                              Add
+                            </Button>
+                            <Button
+                              color="red"
+                              size="compact-sm"
+                              variant="subtle"
+                              onClick={() => removeInterval(hour.weekday, index)}
+                            >
+                              Remove
+                            </Button>
+                          </Group>
+                        </Table.Td>
+                      </Table.Tr>
+                    ))}
+                  </Table.Tbody>
+                </Table>
+              </Box>
+            </ScrollArea>
+            )}
+          </ModalSection>
+            </Stack>
+          </ScrollArea>
+          <Group justify="flex-end" className="service-dialog__footer vendor-location-modal__footer">
+            <Button variant="default" onClick={() => setLocationDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button className="neura-primary-button" disabled={busyAction === "location"} onClick={saveLocation}>
+              {busyAction === "location" ? "Saving..." : "Save location"}
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
     );
   }
 
@@ -4877,962 +4688,821 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     );
   }
 
-  function renderRecordedIntervals() {
-    return <OperationPanel><div className="queue-stack"><div><h2 className="account-panel-title">Recent ticket activity</h2><p className="ops-muted">Intervals between recorded update times for served tickets in the current location snapshot. Each point uses two recorded timestamps.</p></div>
-      {recordedIntervals.length ? <><OperationMetric label="Average interval" value={`${averageRecordedInterval} min`} detail={`From ${recordedIntervals.length + 1} served-ticket records`} /><div className="report-intervals" tabIndex={0} role="region" aria-label="Recorded ticket intervals">{recordedIntervals.map((bar,index)=><div className="queue-stack" key={`${bar.label}:${index}`}><div className="ops-row ops-between"><span>{bar.label}</span><span>{bar.minutes} min</span></div><progress aria-label={`${bar.label}: ${bar.minutes} minute recorded interval`} max={intervalMaximum} value={bar.minutes} /></div>)}</div></> : <OperationEmpty title="More recorded activity needed" text="Intervals appear when this snapshot includes two served tickets with valid update times." />}
-    </div></OperationPanel>;
+  function renderStats() {
+    return (
+      <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="md">
+        <MetricCard
+          label="Now serving"
+          value={snapshot?.current?.ticketNumber || "--"}
+          detail={snapshot?.current?.customerName || "No active ticket"}
+        />
+        <MetricCard
+          label="Waiting"
+          value={snapshot?.stats?.waitingCount ?? 0}
+          detail={`${snapshot?.stats?.estimatedWaitMinutes ?? 0} mins estimated`}
+        />
+        <MetricCard
+          label="Served today"
+          value={snapshot?.stats?.servedToday ?? 0}
+          detail="Across the selected tenant"
+        />
+      </SimpleGrid>
+    );
+  }
+
+  function renderServiceTrend() {
+    const chartWidth = 600;
+    const chartHeight = 180;
+    const chartPadding = 18;
+    const chartInnerWidth = chartWidth - chartPadding * 2;
+    const chartInnerHeight = chartHeight - chartPadding * 2;
+    const barSlotWidth = serviceTrendBars.length
+      ? chartInnerWidth / serviceTrendBars.length
+      : chartInnerWidth;
+    const averageLineY =
+      chartPadding + chartInnerHeight - (averageServiceMinutes / trendMax) * chartInnerHeight;
+
+    return (
+      <Card className="neura-card neura-card-dark" padding="lg">
+        <Group justify="space-between" align="flex-start">
+          <div>
+            <Text className="neura-label">Service time</Text>
+            <Title order={3}>Recent trend</Title>
+          </div>
+          {averageServiceMinutes ? <Badge variant="white">Avg {averageServiceMinutes}m</Badge> : null}
+        </Group>
+        <div className="neura-chart">
+          {serviceTrendBars.length ? (
+            <svg role="img" viewBox={`0 0 ${chartWidth} ${chartHeight}`} preserveAspectRatio="none">
+              <title>Last {serviceTrendBars.length} users served today with average service time</title>
+              {serviceTrendBars.map((bar, index) => {
+                const barHeight = (bar.minutes / trendMax) * chartInnerHeight;
+                const x = chartPadding + index * barSlotWidth + barSlotWidth * 0.18;
+                const y = chartPadding + chartInnerHeight - barHeight;
+
+                return (
+                  <rect
+                    className="neura-chart-bar"
+                    height={Math.max(4, barHeight)}
+                    key={bar.label}
+                    rx={6}
+                    width={Math.max(6, barSlotWidth * 0.64)}
+                    x={x}
+                    y={y}
+                  >
+                    <title>{`${bar.label}: ${bar.minutes} mins`}</title>
+                  </rect>
+                );
+              })}
+              <line
+                className="neura-chart-line"
+                x1={chartPadding}
+                x2={chartWidth - chartPadding}
+                y1={averageLineY}
+                y2={averageLineY}
+              />
+            </svg>
+          ) : (
+            <Text c="dimmed">Service trend appears after served tickets.</Text>
+          )}
+        </div>
+      </Card>
+    );
   }
 
   function renderQueuePage() {
-    if (intakeMode === "loading") return <OperationQueryState loading={!effectiveEntitlementsQuery.error} error={effectiveEntitlementsQuery.error} onRetry={() => void effectiveEntitlementsQuery.refetch()} />;
-    const queueActionBusy = Boolean(busyAction) || managementReadPending;
     const activeCounters = serviceCounters.filter((counter) => counter.isActive);
-    const activeTicket = selectedCalledTicket;
-    const queueDayBadgeVariant = queueDayClosed
-      ? "destructive"
-      : queueDayReconciling || queueDayPaused
-        ? "warning"
-        : queueDayUnopened
-          ? "info"
-          : "success";
+    const activeTicket = snapshot?.current || null;
 
     return (
-      <div className="queue-stack vendor-live-queue">
-        <QueueCard>
-          <QueueCardHeader className="queue-controls-header">
-            <div className="queue-controls-heading">
-              <QueueCardTitle>Queue controls</QueueCardTitle>
-              <QueueBadge variant={queueDayBadgeVariant}>
-                {queueDayReconciling
-                  ? "Queue closing"
-                  : queueDayUnopened
-                    ? "Queue not opened"
-                    : queueDayActuallyClosed
-                      ? "Queue day closed"
-                      : queueDayPaused
-                        ? "Queue intake paused"
-                        : queueDayExtended
-                          ? "Queue day extended"
-                          : "Queue day open"}
-              </QueueBadge>
-            </div>
-            <div className="queue-controls-actions">
-                  {queueDayUnopened && canOperateQueueDay ? (
-                    <QueueButton
-                      variant="default"
-                      disabled={queueActionBusy || boardScannerBusy || boardSettingsBusy || savingNotificationSettings || requestingBrowserPermission}
-                      aria-busy={busyAction === "queue-open"}
-                      onClick={() => void handleOpenQueueDay()}
-                    >
-                      Open queue
-                    </QueueButton>
-                  ) : queueDayActuallyClosed && canReopenQueueDay ? (
-                    <QueueButton
-                      variant="default"
-                      disabled={queueActionBusy || boardScannerBusy || boardSettingsBusy || savingNotificationSettings || requestingBrowserPermission}
+      <Stack gap="md">
+        {renderStats()}
+        <Grid gutter="md">
+          <Grid.Col span={{ base: 12, lg: 8 }}>
+          <Card className="neura-card" h="100%" padding="lg">
+            <Stack gap="md">
+              <Group justify="space-between" align="flex-start">
+                <SegmentedControl
+                  data={[
+                    { value: "current", label: "Current queue" },
+                    { value: "overflow", label: "Overflow queue" },
+                    { value: "recovery", label: "Missed recovery" }
+                  ]}
+                  value={queueView}
+                  onChange={(value) => setQueueView(value as QueueView)}
+                />
+                <Stack gap={6} align="flex-end">
+                  <Badge
+                    color={
+                      queueDayReconciling
+                        ? "orange"
+                        : queueDayClosed
+                          ? "red"
+                          : queueDayPaused
+                            ? "yellow"
+                            : queueDayExtended
+                              ? "blue"
+                              : "teal"
+                    }
+                    variant="light"
+                  >
+                    {queueDayReconciling
+                      ? "Queue closing"
+                      : queueDayUnopened
+                        ? "Queue not opened"
+                        : queueDayActuallyClosed
+                          ? "Queue day closed"
+                          : queueDayPaused
+                            ? "Queue intake paused"
+                            : queueDayExtended
+                              ? "Queue day extended"
+                              : "Queue day open"}
+                  </Badge>
+                  <Group gap="xs" justify="flex-end">
+                    {queueDayUnopened && canOperateQueueDay ? (
+                      <Button
+                        className="neura-primary-button"
+                        loading={busyAction === "queue-open"}
+                        onClick={() => void handleOpenQueueDay()}
+                      >
+                        Open queue
+                      </Button>
+                    ) : queueDayActuallyClosed && canReopenQueueDay ? (
+                      <Button
+                        className="neura-primary-button"
+                        disabled={busyAction === "queue-reopen"}
+                        onClick={async () => {
+                          const success = await runAction("queue-reopen", () =>
+                            vendorDashboardQueue.reopenQueueDay(token, selectedTenantSlug, locationQuery)
+                          );
+                          if (success) {
+                            showSuccessNotification(
+                              "Queue reopened",
+                              "The Queue Day is accepting joins again. Earlier ticket outcomes were not reversed."
+                            );
+                            setQueueView("current");
+                          }
+                        }}
+                      >
+                        {busyAction === "queue-reopen" ? "Reopening..." : "Reopen queue"}
+                      </Button>
+                    ) : !queueDayClosed && queueDayPaused ? (
+                      <Button
+                        color="yellow"
+                        variant="light"
+                        disabled={busyAction === "queue-resume"}
+                        onClick={async () => {
+                          const success = await runAction("queue-resume", () =>
+                            vendorDashboardQueue.resumeQueueDay(token, selectedTenantSlug, locationQuery)
+                          );
+                          if (success) {
+                            showSuccessNotification("Queue resumed", "Customers can join this queue again.");
+                          }
+                        }}
+                      >
+                        {busyAction === "queue-resume" ? "Resuming..." : "Resume intake"}
+                      </Button>
+                    ) : !queueDayClosed ? (
+                      <Button
+                        color="yellow"
+                        variant="light"
+                        disabled={busyAction === "queue-pause"}
+                        onClick={async () => {
+                          const success = await runAction("queue-pause", () =>
+                            vendorDashboardQueue.pauseQueueDay(token, selectedTenantSlug, locationQuery)
+                          );
+                          if (success) {
+                            showSuccessNotification("Queue paused", "New joins are paused while staff continues serving the active queue.");
+                          }
+                        }}
+                      >
+                        {busyAction === "queue-pause" ? "Pausing..." : "Pause intake"}
+                      </Button>
+                    ) : null}
+                    {!queueDayClosed && canOperateQueueDay ? (
+                      <Button
+                        color="red"
+                        variant="light"
+                        disabled={busyAction === "queue-close"}
+                        onClick={() => {
+                          setConfirmAction({
+                            title: `Close ${selectedLocation?.name || "this queue"} now?`,
+                            description:
+                              "Unresolved waiting tickets will carry over once or expire, called tickets become unserved, and skipped recovery ends. Reopening will not reverse these outcomes.",
+                            confirmLabel: "Close queue and reconcile",
+                            confirmColor: "red",
+                            onConfirm: async () => {
+                              await handleCloseQueueDay();
+                            }
+                          });
+                        }}
+                      >
+                        {busyAction === "queue-close" ? "Closing..." : "Close queue"}
+                      </Button>
+                    ) : null}
+                  </Group>
+                </Stack>
+              </Group>
+              {queueDayUnopened ? (
+                <Alert color="blue" icon={<IconInfoCircle size={18} />} variant="light">
+                  Store hours make this Queue Day eligible, but they do not open it automatically.
+                  An authorized operator must open the queue before customers can join.
+                </Alert>
+              ) : null}
+              {queueDayActuallyClosed && snapshot?.queueDay?.outcomeCounts ? (
+                <Alert color="gray" icon={<IconHistory size={18} />} title="Close reconciliation completed">
+                  {snapshot.queueDay.outcomeCounts.pendingCarryOver} saved for carry-over ·{" "}
+                  {snapshot.queueDay.outcomeCounts.expired} expired ·{" "}
+                  {snapshot.queueDay.outcomeCounts.unserved} unserved ·{" "}
+                  {snapshot.queueDay.outcomeCounts.skipped} skipped recovery ended. Reopening does not
+                  reverse these outcomes.
+                </Alert>
+              ) : null}
+              {queueView === "current" ? (
+                <>
+                  <Group justify="space-between" align="flex-end">
+                    <Select
+                      data={activeCounters.map((counter) => ({
+                        label: counter.name,
+                        value: counter.slug
+                      }))}
+                      label="Serving from"
+                      placeholder="Select counter"
+                      value={selectedCounterSlug || null}
+                      onChange={(value) => setSelectedCounterSlug(value || "")}
+                    />
+                    {snapshot?.queueDay?.closureReason ? (
+                      <Text c="dimmed" size="sm" maw={280} ta="right">
+                        {snapshot.queueDay.closureReason}
+                      </Text>
+                    ) : null}
+                  </Group>
+                  <Group>
+                    <Button
+                      className="neura-primary-button"
+                      disabled={
+                        busyAction === "call-next" ||
+                        !selectedCounterSlug ||
+                        queueDayClosed ||
+                        Boolean(activeTicket)
+                      }
                       onClick={async () => {
-                        const success = await runAction("queue-reopen", () =>
-                          vendorDashboardQueue.reopenQueueDay(
-                            token,
-                            selectedTenantSlug,
-                            locationQuery,
-                          ),
+                        const success = await runAction("call-next", () =>
+                          vendorDashboardQueue.callNextTicket(token, selectedTenantSlug, locationQuery, selectedCounterSlug)
                         );
                         if (success) {
-                          showSuccessNotification(
-                            "Queue reopened",
-                            "The Queue Day is accepting joins again. Earlier ticket outcomes were not reversed.",
+                          showSuccessNotification("Customer called", "The next customer has been called to the counter.");
+                        }
+                      }}
+                    >
+                      {busyAction === "call-next" ? "Calling..." : "Call next"}
+                    </Button>
+                    {activeTicket && (activeTicket.customerConfirmedAt || activeTicket.joinChannel === "vendor") ? (
+                      <Button
+                        className="neura-secondary-button"
+                        disabled={busyAction === "serve-current"}
+                        leftSection={<IconCheck size={16} />}
+                        loading={busyAction === "serve-current"}
+                        onClick={async () => {
+                          const success = await runAction("serve-current", () =>
+                            vendorDashboardQueue.serveCurrentTicket(token, selectedTenantSlug, locationQuery, activeTicket.id, selectedCounterSlug || null)
                           );
+                          if (success) {
+                            showSuccessNotification("Customer served", "The ticket was marked as served.");
+                          }
+                        }}
+                      >
+                        Serve customer
+                      </Button>
+                    ) : (
+                      <Button
+                        className="neura-secondary-button"
+                        disabled={!activeTicket}
+                        leftSection={<IconQrcode size={16} />}
+                        onClick={() => {
+                          setTicketScannerError("");
+                          setTicketScannerOpen(true);
+                        }}
+                      >
+                        Confirm ticket
+                      </Button>
+                    )}
+                    <Button
+                      variant="default"
+                      disabled={busyAction === "skip-current" || !activeTicket}
+                      onClick={async () => {
+                        const success = await runAction("skip-current", () =>
+                          vendorDashboardQueue.skipCurrentTicket(token, selectedTenantSlug, locationQuery, activeTicket!.id, selectedCounterSlug || null)
+                        );
+                        if (success) {
+                          showSuccessNotification("Ticket skipped", "The current ticket was skipped.");
                           setQueueView("current");
                         }
                       }}
                     >
-                      {busyAction === "queue-reopen"
-                        ? "Reopening..."
-                        : "Reopen queue"}
-                    </QueueButton>
-                  ) : !queueDayClosed && queueDayPaused ? (
-                    <QueueButton
-                      variant="secondary"
-                      disabled={queueActionBusy || boardScannerBusy || boardSettingsBusy || savingNotificationSettings || requestingBrowserPermission}
-                      onClick={async () => {
-                        const success = await runAction("queue-resume", () =>
-                          vendorDashboardQueue.resumeQueueDay(
-                            token,
-                            selectedTenantSlug,
-                            locationQuery,
-                          ),
-                        );
-                        if (success) {
-                          showSuccessNotification(
-                            "Queue resumed",
-                            "Customers can join this queue again.",
-                          );
+                      Skip current
+                    </Button>
+                  </Group>
+                  <SimpleGrid cols={{ base: 1, sm: intakeState?.autoPauseEnabled ? 3 : 2 }} spacing="md">
+                    <Paper withBorder radius="md" p="md">
+                      <Text className="neura-label">Now serving</Text>
+                      <Group gap="xs">
+                        <Title order={3}>{activeTicket?.ticketNumber || "--"}</Title>
+                        {activeTicket && isCheckedInBookingTicket(activeTicket) ? (
+                          <Badge color="blue" variant="light">Booking</Badge>
+                        ) : null}
+                        {activeTicket?.customerConfirmedAt ? (
+                          <Badge color="teal" variant="light">Customer confirmed</Badge>
+                        ) : null}
+                      </Group>
+                      <Text c="dimmed" size="sm">
+                        {activeTicket?.customerName || "No active ticket"}
+                      </Text>
+                      {activeTicket?.linkedBookingReference ? (
+                        <Text c="dimmed" size="xs">
+                          Booking {activeTicket.linkedBookingReference}
+                        </Text>
+                      ) : null}
+                    </Paper>
+                    <Paper withBorder radius="md" p="md">
+                      <Text className="neura-label">Queue day</Text>
+                      <Title order={3}>
+                        {queueDayReconciling
+                          ? "Closing"
+                          : queueDayUnopened
+                            ? "Not opened"
+                            : queueDayActuallyClosed
+                              ? "Closed"
+                              : queueDayPaused
+                                ? "Paused"
+                                : queueDayExtended
+                                  ? "Extended"
+                                  : "Open"}
+                      </Title>
+                      <Text c="dimmed" size="sm">
+                        {queueDayReconciling
+                          ? "Ticket outcomes are being reconciled"
+                          : queueDayUnopened
+                            ? "Waiting for an authorized operator to open the Queue Day"
+                            : queueDayClosed && snapshot?.queueDay?.closedAt
+                          ? `Closed ${formatDateTime(snapshot.queueDay.closedAt)}`
+                          : queueDayPaused && snapshot?.queueDay?.pausedAt
+                            ? `Paused ${formatDateTime(snapshot.queueDay.pausedAt)}`
+                            : snapshot?.queueDay?.currentClosesAt
+                              ? `Scheduled close ${formatDateTime(snapshot.queueDay.currentClosesAt)}`
+                              : "Customers can continue joining this queue"}
+                      </Text>
+                    </Paper>
+                    {intakeState?.autoPauseEnabled && intakeState.autoPauseThreshold ? (
+                      <QueueIntakeGauge
+                        waitingCount={intakeState.currentWaitingCount}
+                        threshold={intakeState.autoPauseThreshold}
+                        resumeWaitingCount={intakeState.resumeWaitingCount}
+                        autoResumeEnabled={intakeState.autoResumeEnabled}
+                        state={
+                          intakeState.state === "paused"
+                            ? "paused"
+                            : intakeState.state === "near_limit"
+                              ? "near_limit"
+                              : "open"
                         }
-                      }}
-                    >
-                      {busyAction === "queue-resume"
-                        ? "Resuming..."
-                        : "Resume intake"}
-                    </QueueButton>
-                  ) : !queueDayClosed ? (
-                    <QueueButton
-                      variant="secondary"
-                      disabled={queueActionBusy || boardScannerBusy || boardSettingsBusy || savingNotificationSettings || requestingBrowserPermission}
-                      onClick={async () => {
-                        const success = await runAction("queue-pause", () =>
-                          vendorDashboardQueue.pauseQueueDay(
-                            token,
-                            selectedTenantSlug,
-                            locationQuery,
-                          ),
-                        );
-                        if (success) {
-                          showSuccessNotification(
-                            "Queue paused",
-                            "New joins are paused while staff continues serving the active queue.",
-                          );
-                        }
-                      }}
-                    >
-                      <IconPlayerPause aria-hidden="true" data-icon="inline-start" />
-                      {busyAction === "queue-pause"
-                        ? "Pausing..."
-                        : "Pause intake"}
-                    </QueueButton>
+                        stateLabel={intakeState.stateLabel}
+                      />
+                    ) : null}
+                  </SimpleGrid>
+                  <Table.ScrollContainer minWidth={420}>
+                    <Table verticalSpacing="sm">
+                      <Table.Thead>
+                        <Table.Tr>
+                          <Table.Th>ID</Table.Th>
+                          <Table.Th>Up next</Table.Th>
+                          <Table.Th>Channel</Table.Th>
+                          <Table.Th>Source</Table.Th>
+                          <Table.Th>Joined</Table.Th>
+                        </Table.Tr>
+                      </Table.Thead>
+                      <Table.Tbody>
+                        {currentQueueTickets.length ? (
+                          currentQueueTickets.map((ticket) => (
+                            <Table.Tr key={ticket.id}>
+                              <Table.Td fw={700}>{ticket.id}</Table.Td>
+                              <Table.Td>
+                                <Text fw={700}>{ticket.ticketNumber}</Text>
+                                <Text c="dimmed" size="sm">
+                                  {getQueueCustomerFullNameLabel(
+                                    ticket.customerName,
+                                    ticket.customerDisplayName
+                                  )}
+                                </Text>
+                                {ticket.linkedBookingReference ? (
+                                  <Text c="dimmed" size="xs">Booking {ticket.linkedBookingReference}</Text>
+                                ) : null}
+                              </Table.Td>
+                              <Table.Td><Badge variant="light">{ticket.joinChannel}</Badge></Table.Td>
+                              <Table.Td>
+                                <Group gap={6}>
+                                  {isCheckedInBookingTicket(ticket) ? (
+                                    <Badge color="blue" variant="light">Booking</Badge>
+                                  ) : null}
+                                  <Badge color={ticket.isCarriedOver ? "orange" : "gray"} variant="light">
+                                    {ticket.isCarriedOver ? "Carry-over" : "Same-day"}
+                                  </Badge>
+                                </Group>
+                              </Table.Td>
+                              <Table.Td>{formatDateTime(ticket.createdAt)}</Table.Td>
+                            </Table.Tr>
+                          ))
+                        ) : (
+                          <Table.Tr>
+                            <Table.Td colSpan={5}>
+                              <DashboardEmptyState
+                                title="No one is waiting right now."
+                                text="Fresh same-day joins will appear here once the carry-over backlog is cleared."
+                              />
+                            </Table.Td>
+                          </Table.Tr>
+                        )}
+                      </Table.Tbody>
+                    </Table>
+                  </Table.ScrollContainer>
+                </>
+              ) : queueView === "overflow" ? (
+                <>
+                  <Group justify="space-between" align="flex-start">
+                    <div>
+                      <Text className="neura-label">Overflow queue</Text>
+                      <Title order={3}>Carry-over tickets</Title>
+                    </div>
+                    <Badge variant="light">
+                      {overflowTickets.length} ticket{overflowTickets.length === 1 ? "" : "s"}
+                    </Badge>
+                  </Group>
+                  <Table.ScrollContainer minWidth={420}>
+                    <Table verticalSpacing="sm">
+                      <Table.Thead>
+                        <Table.Tr>
+                          <Table.Th>ID</Table.Th>
+                          <Table.Th>Ticket</Table.Th>
+                          <Table.Th>Channel</Table.Th>
+                          <Table.Th>Status</Table.Th>
+                          <Table.Th>Activated at</Table.Th>
+                          <Table.Th>Joined</Table.Th>
+                        </Table.Tr>
+                      </Table.Thead>
+                      <Table.Tbody>
+                        {overflowTickets.length ? (
+                          overflowTickets.map((ticket) => (
+                            <Table.Tr key={ticket.id}>
+                              <Table.Td fw={700}>{ticket.id}</Table.Td>
+                              <Table.Td>
+                                <Text fw={700}>{ticket.ticketNumber}</Text>
+                                <Text c="dimmed" size="sm">{ticket.customerName}</Text>
+                              </Table.Td>
+                              <Table.Td><Badge variant="light">{ticket.joinChannel}</Badge></Table.Td>
+                              <Table.Td>
+                                <Badge
+                                  color={ticket.status === "pending_carry_over" ? "blue" : "orange"}
+                                  variant="light"
+                                >
+                                  {ticket.status === "pending_carry_over"
+                                    ? getTicketStateSummary(ticket.status).label
+                                    : "Carried over"}
+                                </Badge>
+                              </Table.Td>
+                              <Table.Td>{ticket.carriedOverAt ? formatDateTime(ticket.carriedOverAt) : "--"}</Table.Td>
+                              <Table.Td>{formatDateTime(ticket.createdAt)}</Table.Td>
+                            </Table.Tr>
+                          ))
+                        ) : (
+                          <Table.Tr>
+                            <Table.Td colSpan={6}>
+                              <DashboardEmptyState
+                                title="No overflow tickets."
+                                text="Waiting tickets carried over from a previous queue day will appear here."
+                              />
+                            </Table.Td>
+                          </Table.Tr>
+                        )}
+                      </Table.Tbody>
+                    </Table>
+                  </Table.ScrollContainer>
+                </>
+              ) : (
+                <>
+                  <Group justify="space-between" align="flex-start">
+                    <div>
+                      <Text className="neura-label">Missed ticket recovery</Text>
+                      <Title order={3}>Skipped tickets</Title>
+                    </div>
+                    <Badge variant="light">
+                      {recoverableTickets.length} ticket{recoverableTickets.length === 1 ? "" : "s"}
+                    </Badge>
+                  </Group>
+                  {queueDayClosed || queueDayPaused || restoreBlockedByThreshold ? (
+                    <Alert color={queueDayClosed ? "red" : "yellow"} variant="light" radius="md">
+                      {queueDayClosed
+                        ? "Missed tickets cannot be restored while the queue day is closed."
+                        : queueDayPaused
+                          ? "Missed tickets cannot be restored while queue intake is paused."
+                          : `Missed tickets cannot be restored while the queue is at its intake threshold of ${intakeState?.autoPauseThreshold} waiting tickets.`}
+                    </Alert>
                   ) : null}
-                  {!queueDayClosed && canOperateQueueDay ? (
-                    <QueueButton
-                      variant="destructive"
-                      disabled={queueActionBusy || boardScannerBusy || boardSettingsBusy || savingNotificationSettings || requestingBrowserPermission}
-                      onClick={() => {
-                        setConfirmAction({
-                          title: `Close ${selectedLocation?.name || "this queue"} now?`,
-                          description:
-                            "Unresolved waiting tickets will carry over once or expire, called tickets become unserved, and skipped recovery ends. Reopening will not reverse these outcomes.",
-                          confirmLabel: "Close queue and reconcile",
-                          confirmColor: "red",
-                          onConfirm: async () => {
-                            await handleCloseQueueDay();
-                          },
-                        });
-                      }}
-                    >
-                      <IconX aria-hidden="true" data-icon="inline-start" />
-                      {busyAction === "queue-close"
-                        ? "Closing..."
-                        : "Close queue"}
-                    </QueueButton>
-                  ) : null}
-            </div>
-          </QueueCardHeader>
-          <QueueCardContent className="queue-stack queue-controls-surface">
-            {queueDayUnopened ? (
-              <QueueAlert>
-                <QueueAlertDescription>
-                  Store hours make this Queue Day eligible, but they do not open
-                  it automatically. An authorized operator must open the queue
-                  before customers can join.
-                </QueueAlertDescription>
-              </QueueAlert>
-            ) : null}
-            {queueDayActuallyClosed && snapshot?.queueDay?.outcomeCounts ? (
-              <QueueAlert>
-                <QueueAlertTitle>Close reconciliation completed</QueueAlertTitle>
-                <QueueAlertDescription>
-                  {snapshot.queueDay.outcomeCounts.pendingCarryOver} saved for
-                  carry-over · {snapshot.queueDay.outcomeCounts.expired} expired ·{" "}
-                  {snapshot.queueDay.outcomeCounts.unserved} unserved ·{" "}
-                  {snapshot.queueDay.outcomeCounts.skipped} skipped recovery
-                  ended. Reopening does not reverse these outcomes.
-                </QueueAlertDescription>
-              </QueueAlert>
-            ) : null}
-            <ButtonGroup className="vendor-queue-action-layout" aria-label="Queue controls actions">
-              <div className="vendor-queue-serving-row">
-              <QueueCounterPicker
-                className="vendor-queue-counter-select"
-                data={[
-                  ...activeCounters.map((counter) => ({
-                    label: counter.name,
-                    value: counter.slug,
-                  })),
-                  ...(snapshot?.counterDispatch || [])
-                    .filter(
-                      (lane) =>
-                        lane.counterSlug &&
-                        lane.currentTicketId &&
-                        !activeCounters.some(
-                          (counter) => counter.slug === lane.counterSlug,
-                        ),
-                    )
-                    .map((lane) => ({
-                      label: `${lane.counterName} (inactive)`,
-                      value: lane.counterSlug!,
-                    })),
-                  ...(snapshot?.counterDispatch?.some(
-                    (lane) => lane.counterSlug === null && lane.currentTicketId,
-                  )
-                    ? [
-                        {
-                          label: "Unassigned legacy ticket",
-                          value: "__unassigned__",
-                        },
-                      ]
-                    : []),
-                ]}
-                disabled={queueActionBusy || ticketScannerOpen}
-                label="Serving from"
-                placeholder="Select counter"
-                value={selectedCounterSlug || null}
-                onChange={(value) => setSelectedCounterSlug(value || "")}
-              />
-                {intakeMode === "legacy" && workPresentation.resourceCounters ? <QueueButton variant="default" disabled={Boolean(queueDayClosed || queueDayPaused || busyAction) || boardScannerBusy || managementReadPending} onClick={()=>setWalkInDialogOpen(true)}><IconUserPlus data-icon="inline-start" />Add walk-in</QueueButton> : null}
-                {resourceQueueEnabled ? <>
-                  <QueueButton
-                    variant="default"
-                    disabled={Boolean(queueDayClosed || queueDayPaused || busyAction) || boardScannerBusy || !serviceRequestAvailable}
-                    onClick={() => setServiceRequestSequence(value=>value+1)}
+                  <Table.ScrollContainer minWidth={620}>
+                    <Table verticalSpacing="sm">
+                      <Table.Thead>
+                        <Table.Tr>
+                          <Table.Th>ID</Table.Th>
+                          <Table.Th>Ticket</Table.Th>
+                          <Table.Th>Joined</Table.Th>
+                          <Table.Th>Recovery</Table.Th>
+                          <Table.Th>Action</Table.Th>
+                        </Table.Tr>
+                      </Table.Thead>
+                      <Table.Tbody>
+                        {recoverableTickets.length ? (
+                          recoverableTickets.map((ticket) => {
+                            const priorityRecovery = isRecoveryWindowActive(ticket.rejoinDeadlineAt);
+
+                            return (
+                              <Table.Tr key={ticket.id}>
+                                <Table.Td fw={700}>{ticket.id}</Table.Td>
+                                <Table.Td>
+                                  <Text fw={700}>{ticket.ticketNumber}</Text>
+                                  <Text c="dimmed" size="sm">{ticket.customerName}</Text>
+                                </Table.Td>
+                                <Table.Td>{formatDateTime(ticket.createdAt)}</Table.Td>
+                                <Table.Td>
+                                  <Badge color={priorityRecovery ? "blue" : "gray"} variant="light">
+                                    {priorityRecovery ? "recovery" : "normal"}
+                                  </Badge>
+                                  <Text c="dimmed" size="sm" mt={4}>
+                                    {ticket.rejoinDeadlineAt
+                                      ? priorityRecovery
+                                        ? `Priority until ${formatDateTime(ticket.rejoinDeadlineAt)}`
+                                        : `Recovery expired ${formatDateTime(ticket.rejoinDeadlineAt)}`
+                                      : "No recovery deadline"}
+                                  </Text>
+                                </Table.Td>
+                                <Table.Td>
+                                  <Button
+                                    disabled={
+                                      busyAction === `restore-${ticket.id}` ||
+                                      !ticket.lookupCode ||
+                                      queueDayClosed ||
+                                      queueDayPaused ||
+                                      restoreBlockedByThreshold
+                                    }
+                                    onClick={async () => {
+                                      const success = await runAction(`restore-${ticket.id}`, () =>
+                                        vendorDashboardQueue.restoreSkippedTicket(
+                                          token,
+                                          selectedTenantSlug,
+                                          ticket.id,
+                                          locationQuery,
+                                          ticket.lookupCode || ""
+                                        )
+                                      );
+
+                                      if (success) {
+                                        showSuccessNotification(
+                                          "Ticket restored",
+                                          priorityRecovery
+                                            ? "The skipped ticket was restored with recovery priority."
+                                            : "The skipped ticket was restored at normal priority."
+                                        );
+                                        setQueueView("current");
+                                      }
+                                    }}
+                                    size="xs"
+                                    variant="light"
+                                  >
+                                    Restore
+                                  </Button>
+                                </Table.Td>
+                              </Table.Tr>
+                            );
+                          })
+                        ) : (
+                          <Table.Tr>
+                            <Table.Td colSpan={5}>
+                              <DashboardEmptyState
+                                title="No skipped tickets to recover."
+                                text="Skipped tickets will appear here while they are still relevant for operator recovery."
+                              />
+                            </Table.Td>
+                          </Table.Tr>
+                        )}
+                      </Table.Tbody>
+                    </Table>
+                  </Table.ScrollContainer>
+                </>
+              )}
+            </Stack>
+          </Card>
+          </Grid.Col>
+
+          <Grid.Col span={{ base: 12, lg: 4 }}>
+          <Card className="neura-card" h="100%" padding="lg">
+            <Stack gap="md">
+              <Group justify="space-between">
+                <div>
+                  <Text className="neura-label">QR and public links</Text>
+                  <Title order={3}>Customer self-service entry</Title>
+                </div>
+                <Group gap="sm">
+                  <Button component="a" href={queueLinks.monitorUrl} target="_blank" variant="default">
+                    Open board
+                  </Button>
+                  <Button
+                    className="neura-primary-button"
+                    disabled={queueDayClosed || queueDayPaused}
+                    leftSection={<IconUserPlus size={16} />}
+                    onClick={() => setWalkInDialogOpen(true)}
                   >
-                    <IconUserPlus data-icon="inline-start" />
-                    New service request
-                  </QueueButton>
-                </> : null}
-              </div>
-              {(intakeMode === "workflow" && !rawCounterTicket) || scopedResourceIds(localPoolScope,workflowInventory).includes(rawCounterTicket?.id||"") ? <p className="ops-muted">Use the station actions in Workflow journeys below.</p> : workPresentation.resourceCounters ? <CounterQueueControls token={token} tenant={selectedTenantSlug} location={selectedLocationSlug} counterSlug={selectedCounterSlug} busy={queueActionBusy||ticketScannerOpen} onScan={command=>{setTicketScannerError("");setScannerTarget({ticketId:command.ticketId,ticketNumber:command.ticketNumber,counterSlug:command.counterSlug,tenantSlug:selectedTenantSlug,locationQuery});setTicketScannerOpen(true);}}/> : <ButtonGroup className="vendor-queue-primary-actions" aria-label="Ticket actions">
-                <ButtonGroupSeparator className="queue-walkin-separator" aria-hidden="true" />
-                <QueueButton
-                  variant="default"
-                  disabled={Boolean(
-                    (queueActionBusy || workPresentation.currentResource) ||
-                    !selectedLane?.canCallNext ||
-                    queueDayClosed ||
-                    Boolean(activeTicket),
+                    Add walk-in
+                  </Button>
+                </Group>
+              </Group>
+              <Group align="flex-start" gap="lg">
+                <Paper className="neura-qr-card" p="md">
+                  {queueLinks.qrUrl ? (
+                    <div ref={queueQrRef}>
+                      <StyledQRCode size={160} value={queueLinks.qrUrl} />
+                    </div>
+                  ) : (
+                    <QueueQrUnavailable />
                   )}
-                  onClick={async () => {
-                    const success = await runAction("call-next", () =>
-                      vendorDashboardQueue.callNextTicket(
-                        token,
-                        selectedTenantSlug,
-                        locationQuery,
-                        selectedCounterSlug,
-                      ),
-                    );
-                    if (success) {
-                      showSuccessNotification(
-                        "Customer called",
-                        "The next customer has been called to the counter.",
-                      );
-                    }
-                  }}
-                >
-                  {busyAction === "call-next" ? "Calling..." : "Call next"}
-                </QueueButton>
-                {activeTicket &&
-                (activeTicket.customerConfirmedAt ||
-                  activeTicket.joinChannel === "vendor") ? (
-                  <QueueButton
-                    variant="outline"
-                    disabled={
-                      (queueActionBusy || workPresentation.currentResource) ||
-                      (resourceQueueEnabled && !activeTicket.serviceStartedAt &&
-                        (!hasExecutableLocalPlan(localPoolData?.called.find(work => work.id === activeTicket.id)) || Boolean(localPoolData?.reconciliation.required))) ||
-                      Boolean(
-                        [
-                          "serve-current",
-                          "service-start",
-                          "service-complete",
-                        ].includes(busyAction || ""),
-                      )
-                    }
-                    aria-busy={[
-                      "serve-current",
-                      "service-start",
-                      "service-complete",
-                    ].includes(busyAction || "")}
-                    onClick={async () => {
-                      const tracking =
-                        snapshot?.location?.serviceTimingEnabled ||
-                        Boolean(activeTicket.serviceStartedAt);
-                      const action = activeTicket.serviceStartedAt
-                        ? "complete"
-                        : "start";
-                      const execute = async () => {
-                        const success = await runAction(
-                          tracking ? `service-${action}` : "serve-current",
-                          () =>
-                            tracking
-                              ? vendorDashboardQueue.recordTicketService(
-                                  token,
-                                  selectedTenantSlug,
-                                  locationQuery,
-                                  activeTicket.id,
-                                  action,
-                                )
-                              : vendorDashboardQueue.serveCurrentTicket(
-                                  token,
-                                  selectedTenantSlug,
-                                  locationQuery,
-                                  activeTicket.id,
-                                  selectedLane?.counterSlug ?? null,
-                                ),
-                        );
-                        if (success) {
-                          showSuccessNotification(
-                            tracking && action === "start"
-                              ? "Service started"
-                              : "Customer served",
-                            tracking && action === "start"
-                              ? "The actual service start has been recorded."
-                              : "The ticket was marked as served.",
-                          );
-                        }
-                      };
-                      if (activeTicket.serviceStartedAt) {
-                        setConfirmAction({
-                          title: "Complete service?",
-                          description: `Mark ticket ${activeTicket.ticketNumber} as served and record the service end time.`,
-                          confirmLabel: "Complete service",
-                          confirmColor: "blue",
-                          onConfirm: execute,
-                        });
-                      } else {
-                        await execute();
+                  <Group gap={6} justify="center" mt="sm">
+                    <IconQrcode size={16} />
+                    <Text className="neura-label">Join QR</Text>
+                  </Group>
+                  <Button disabled={!queueLinks.qrUrl} fullWidth leftSection={<IconDownload size={16} />} loading={savingQueueQr} mt="md" onClick={() => void saveQueueQr()} variant="default">
+                    Save QR
+                  </Button>
+                </Paper>
+                <Stack flex={1} gap="sm">
+                  <TextInput
+                    label="Join URL"
+                    onClick={() => void copyLocationUrl("Join URL", queueLinks.joinUrl)}
+                    onFocus={(event) => event.currentTarget.select()}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        void copyLocationUrl("Join URL", queueLinks.joinUrl);
                       }
                     }}
-                  >
-                    <IconCheck data-icon="inline-start" />
-                    {activeTicket.serviceStartedAt
-                      ? "Complete service"
-                      : snapshot?.location?.serviceTimingEnabled
-                        ? "Start service"
-                        : "Serve customer"}
-                  </QueueButton>
-                ) : (
-                  <QueueButton
-                    variant="outline"
-                    disabled={Boolean(!activeTicket || (queueActionBusy || workPresentation.currentResource))}
-                    onClick={() => {
-                      setTicketScannerError("");
-                      if (activeTicket)
-                        setScannerTarget({
-                          ticketId: activeTicket.id,
-                          ticketNumber: activeTicket.ticketNumber,
-                          counterSlug: selectedLane?.counterSlug ?? null,
-                          tenantSlug: selectedTenantSlug,
-                          locationQuery,
-                        });
-                      setTicketScannerOpen(true);
-                    }}
-                  >
-                    <IconQrcode data-icon="inline-start" />
-                    Confirm ticket
-                  </QueueButton>
-                )}
-                <QueueButton
-                  variant="outline"
-                  disabled={Boolean(
-                    (queueActionBusy || workPresentation.currentResource) ||
-                    !activeTicket ||
-                    Boolean(activeTicket.serviceStartedAt),
-                  )}
-                  onClick={() => {
-                    if (!activeTicket) return;
-                    setConfirmAction({
-                      title: "Skip current ticket?",
-                      description: `Skip ticket ${activeTicket.ticketNumber} at the selected counter.`,
-                      confirmLabel: "Skip ticket",
-                      confirmColor: "orange",
-                      onConfirm: async () => {
-                        const success = await runAction("skip-current", () =>
-                          vendorDashboardQueue.skipCurrentTicket(
-                            token,
-                            selectedTenantSlug,
-                            locationQuery,
-                            activeTicket.id,
-                            selectedLane?.counterSlug ?? null,
-                          ),
-                        );
-                        if (success) {
-                          showSuccessNotification(
-                            "Ticket skipped",
-                            "The current ticket was skipped.",
-                          );
-                          setQueueView("current");
-                        }
-                      },
-                    });
-                  }}
-                >
-                  Skip current
-                </QueueButton>
-                {activeTicket?.serviceStartedAt ? (
-                  <QueueButton
-                    variant="outline"
-                    disabled={(queueActionBusy || workPresentation.currentResource)}
-                    onClick={() =>
-                      setConfirmAction({
-                        title: "Interrupt service?",
-                        description:
-                          "Record that service ended without completion and mark the called ticket unserved. This is excluded from completed service duration samples.",
-                        confirmLabel: "Record interruption",
-                        confirmColor: "orange",
-                        onConfirm: async () => {
-                          await runAction("service-interrupt", () =>
-                            vendorDashboardQueue.recordTicketService(
-                              token,
-                              selectedTenantSlug,
-                              locationQuery,
-                              activeTicket.id,
-                              "interrupt",
-                            ),
-                          );
-                        },
-                      })
-                    }
-                  >
-                    Interrupt service
-                  </QueueButton>
-                ) : null}
-                {intakeMode === "legacy" && <QueueButton
-                        variant="default"
-                        disabled={Boolean(queueDayClosed || queueDayPaused || busyAction) || boardScannerBusy || (resourceQueueEnabled && !serviceRequestAvailable)}
-                        onClick={() => resourceQueueEnabled ? setServiceRequestSequence(value=>value+1) : setWalkInDialogOpen(true)}
-                      >
-                        <IconUserPlus data-icon="inline-start" />
-                        Add walk-in
-                      </QueueButton>}
-              </ButtonGroup>}
-            </ButtonGroup>
-            {snapshot?.queueDay?.closureReason ? (
-              <p className="queue-text queue-muted queue-small">
-                {snapshot.queueDay.closureReason}
-              </p>
-            ) : null}
-            {selectedLane?.blockReason && !activeTicket ? (
-              <p className="queue-text queue-muted queue-small">
-                {counterBlockMessage(selectedLane.blockReason)}
-              </p>
-            ) : null}
-            {!resourceQueueEnabled ? (
-            <div
-              className="vendor-queue-status-columns"
-              data-columns={intakeState?.autoPauseEnabled ? 3 : 2}
-            >
-              <div className="vendor-queue-status-column">
-                <p className="queue-text vendor-eyebrow">
-                  {activeTicket?.serviceStartedAt
-                    ? "In service"
-                    : snapshot?.location?.serviceTimingEnabled
-                      ? "Called ticket"
-                      : "Now serving"}
-                </p>
-                <div className="queue-row">
-                  <h3 className="queue-heading">
-                    {activeTicket?.ticketNumber || "--"}
-                  </h3>
-                  {activeTicket && isCheckedInBookingTicket(activeTicket) ? (
-                    <QueueBadge variant="outline">Booking</QueueBadge>
-                  ) : null}
-                  {activeTicket?.customerConfirmedAt ? (
-                    <QueueBadge variant="outline">Customer confirmed</QueueBadge>
-                  ) : null}
-                </div>
-                <p className="queue-text queue-muted queue-small">
-                  {activeTicket?.customerName || "No active ticket"}
-                </p>
-                {activeTicket?.serviceStartedAt ? (
-                  <p className="queue-text queue-muted queue-small">
-                    Service started{" "}
-                    {formatDateTime(activeTicket.serviceStartedAt)}
-                  </p>
-                ) : snapshot?.location?.serviceTimingEnabled && activeTicket ? (
-                  <p className="queue-text queue-muted queue-small">
-                    Called · service has not started
-                  </p>
-                ) : null}
-                {activeTicket?.linkedBookingReference ? (
-                  <p className="queue-text queue-muted queue-small">
-                    Booking {activeTicket.linkedBookingReference}
-                  </p>
-                ) : null}
-              </div>
-              <div className="vendor-queue-status-column">
-                <p className="queue-text vendor-eyebrow">Queue day</p>
-                <h3 className="queue-heading">
-                  {queueDayReconciling
-                    ? "Closing"
-                    : queueDayUnopened
-                      ? "Not opened"
-                      : queueDayActuallyClosed
-                        ? "Closed"
-                        : queueDayPaused
-                          ? "Paused"
-                          : queueDayExtended
-                            ? "Extended"
-                            : "Open"}
-                </h3>
-                <p className="queue-text queue-muted queue-small">
-                  {queueDayReconciling
-                    ? "Ticket outcomes are being reconciled"
-                    : queueDayUnopened
-                      ? "Waiting for an authorized operator to open the Queue Day"
-                      : queueDayClosed && snapshot?.queueDay?.closedAt
-                        ? `Closed ${formatDateTime(snapshot.queueDay.closedAt)}`
-                        : queueDayPaused && snapshot?.queueDay?.pausedAt
-                          ? `Paused ${formatDateTime(snapshot.queueDay.pausedAt)}`
-                          : snapshot?.queueDay?.currentClosesAt
-                            ? `Scheduled close ${formatDateTime(snapshot.queueDay.currentClosesAt)}`
-                            : "Customers can continue joining this queue"}
-                </p>
-              </div>
-              {intakeState?.autoPauseEnabled && intakeState.autoPauseThreshold ? (
-                <div className="vendor-queue-status-column">
-                  <LiveQueueIntake
-                    waitingCount={intakeState.currentWaitingCount}
-                    threshold={intakeState.autoPauseThreshold}
-                    resumeWaitingCount={intakeState.resumeWaitingCount}
-                    autoResumeEnabled={intakeState.autoResumeEnabled}
-                    state={
-                      intakeState.state === "paused"
-                        ? "paused"
-                        : intakeState.state === "near_limit"
-                          ? "near_limit"
-                          : "open"
-                    }
-                    stateLabel={intakeState.stateLabel}
+                    readOnly
+                    rightSection={<IconCopy aria-hidden="true" size={16} />}
+                    rightSectionPointerEvents="none"
+                    styles={{ input: { cursor: "copy" } }}
+                    title="Click to copy Join URL"
+                    value={queueLinks.joinUrl}
                   />
-                </div>
-              ) : null}
-            </div>
-            ) : null}
-          </QueueCardContent>
-        </QueueCard>
-        {!resourceQueueEnabled ? <LiveQueueSummary snapshot={snapshot} /> : null}
-        {intakeMode==='blocked'?<OperationAlert color="orange" title="New requests need review">This location’s selected queue type is unavailable or needs setup. Existing requests can still be resolved below.</OperationAlert>:null}
-        {resourceManagementEnabled&&selectedTenantSlug&&selectedLocationSlug?<WorkflowQueuePanel key={`workflow:${localPoolScope}`} token={token} tenant={selectedTenantSlug} location={selectedLocationSlug} counterSlug={selectedCounterSlug} onEditForm={form=>unsavedForm.current.mark(form)} onClean={id=>unsavedForm.current.discardId(id)} onBusy={busy=>setBusyAction(busy?"workflow-command":"")} allowNew={intakeMode==='workflow'} onTicketIds={(ids,scope)=>{if(scope===localPoolScopeRef.current)setWorkflowInventory({scope,ids});}} onManagementReady={(ready,scope)=>{if(scope===localPoolScopeRef.current)setWorkflowManagementRead({scope,ready});}}/>:null}
-        {resourceManagementEnabled && selectedTenantSlug && selectedLocationSlug ? <NamedQueuePanel onSetupReady={(ready,scope)=>{if(scope===localPoolScopeRef.current)setQueueSetupRead(current=>current.scope===scope&&current.ready===ready?current:{scope,ready});}} managementOnly={!resourceQueueEnabled} onManagementReady={(ready,scope)=>{if(scope===localPoolScopeRef.current)setNamedManagementRead({scope,ready});}} hasUnsavedEdits={()=>unsavedForm.current.hasEdits()} key={`named:${selectedTenantSlug}:${selectedLocationSlug}`} token={token} tenant={selectedTenantSlug} location={selectedLocationSlug} counterSlug={selectedCounterSlug} staffMode={selectedTenantRole === "staff"} onReviewQueueSetup={resourceSetupAllowed&&(isOwner||isAdmin)&&visibleNavItems.some(item=>item.section==="services")?()=>{if(!canLeaveFeature())return;setServicesTab("queue-policy");navigate(workspacePath("services","administration",location.search));}:undefined} newRequestSequence={resourceQueueEnabled?serviceRequestSequence:0} onIntakeAvailability={setServiceRequestAvailable} onTicketIds={(ids,scope)=>{if(scope===localPoolScopeRef.current)setNamedInventory({scope,ids});}} onEditForm={form=>unsavedForm.current.mark(form)} onCloseForm={()=>unsavedForm.current.discardId("named-queue-plan")} onBusy={busy=>setBusyAction(busy?"named-queue-plan":"")} onNotice={showSuccessNotification}/>:null}
+                  <TextInput
+                    label="QR target"
+                    onClick={() => void copyLocationUrl("QR target", queueLinks.qrUrl)}
+                    onFocus={(event) => event.currentTarget.select()}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        void copyLocationUrl("QR target", queueLinks.qrUrl);
+                      }
+                    }}
+                    readOnly
+                    rightSection={<IconCopy aria-hidden="true" size={16} />}
+                    rightSectionPointerEvents="none"
+                    styles={{ input: { cursor: "copy" } }}
+                    title="Click to copy QR target"
+                    value={queueLinks.qrUrl}
+                  />
+                  <TextInput
+                    label="Monitor URL"
+                    onClick={() => void copyLocationUrl("Monitor URL", queueLinks.monitorUrl)}
+                    onFocus={(event) => event.currentTarget.select()}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        void copyLocationUrl("Monitor URL", queueLinks.monitorUrl);
+                      }
+                    }}
+                    readOnly
+                    rightSection={<IconCopy aria-hidden="true" size={16} />}
+                    rightSectionPointerEvents="none"
+                    styles={{ input: { cursor: "copy" } }}
+                    title="Click to copy Monitor URL"
+                    value={queueLinks.monitorUrl}
+                  />
+                </Stack>
+              </Group>
+            </Stack>
+          </Card>
+          </Grid.Col>
+        </Grid>
 
-
-        {linearCommandError?.scope === `${selectedTenantSlug}:${selectedLocationSlug}` ? <OperationAlert color="orange" title="Queue action needs review">{linearCommandError.message}<OperationButton variant="outline" disabled={queueActionBusy} onClick={() => { void Promise.all([queueLifecycleSnapshotQuery.refetch(), resourceQueueEnabled ? localPoolQuery.refetch() : Promise.resolve()]); }}>Refresh queue</OperationButton></OperationAlert> : null}
-        {startPlanErrorScope === `${selectedTenantSlug}:${selectedLocationSlug}` ? <OperationAlert color="orange" title="Service selection required">{missingServicePlanGuidance}</OperationAlert> : null}
-        {resourceQueueEnabled ? <ResourceReadStatus state={localPoolReadState(snapshot,localPoolQuery.data,selectedTenantSlug,selectedLocationSlug,localPoolQuery.isPending,localPoolQuery.isError,localPoolQuery.error)} refreshing={localPoolQuery.isFetching} onRetry={()=>void localPoolQuery.refetch()}/> : null}
-        {resourceQueueEnabled && localPoolData?.reconciliation.required ? <OperationAlert color="red" title="Resource records need review">Refresh and reconcile these records before starting more work. Active sessions continue to hold capacity.</OperationAlert> : null}
-        {!resourceQueueEnabled ? <>
-        <CounterTickets
-          onEdit={openQueueDetails}
-          snapshot={legacyCounterSnapshot}
-          selectedTicketId={activeTicket?.id}
-          disabled={queueActionBusy || ticketScannerOpen}
-          onSelect={(counter) => {
-            setSelectedCounterSlug(counter);
-            setQueueView("current");
-          }}
-          onStart={(ticket) => {
-            void runAction("service-start", () => vendorDashboardQueue.recordTicketService(token, selectedTenantSlug, locationQuery, ticket.id, "start"));
-          }}
-          onEnd={(ticket, action) =>
-            setConfirmAction({
-              title:
-                action === "complete"
-                  ? `Complete service for ${ticket.ticketNumber}?`
-                  : `Interrupt service for ${ticket.ticketNumber}?`,
-              description:
-                action === "complete"
-                  ? "Mark this ticket as served and record the service end time."
-                  : "Record that service ended without completion and mark this ticket unserved.",
-              confirmLabel:
-                action === "complete"
-                  ? "Complete service"
-                  : "Record interruption",
-              confirmColor: action === "complete" ? "blue" : "orange",
-              onConfirm: async () => {
-                await runAction(`service-${action}`, () =>
-                  vendorDashboardQueue.recordTicketService(
-                    token,
-                    selectedTenantSlug,
-                    locationQuery,
-                    ticket.id,
-                    action,
-                  ),
-                );
-              },
-            })
-          }
-        />
-        </> : null}
-
-        <div className="queue-stack">
-          <Accordion>
-            <AccordionItem value="request-recovery">
-              <AccordionTrigger headingLevel={2}>Request recovery</AccordionTrigger>
-              <AccordionContent keepMounted className="queue-stack">
-        {resourceManagementEnabled && selectedTenantSlug && selectedLocationSlug ? <SkippedQueueRequests key={`skipped:${selectedTenantSlug}:${selectedLocationSlug}`} token={token} tenant={selectedTenantSlug} location={selectedLocationSlug}/>:null}
-            {!resourceQueueEnabled && queueView === "current" ? (
-              <QueueCard>
-                <QueueCardHeader><QueueCardTitle>Waiting and recovery</QueueCardTitle></QueueCardHeader>
-                <QueueCardContent className="queue-stack">
-                  <QueueViewPicker data={[{value:"current",label:"Current queue"},{value:"overflow",label:"Carried over"},{value:"recovery",label:"Missed recovery"}]} value={queueView} onChange={value => setQueueView(value as QueueView)} />
-
-                    <>
-                      <div className="queue-table-wrapper">
-                        <QueueTable aria-label="Waiting queue" role="table">
-                          <QueueTableHeader>
-                            <QueueTableRow>
-                              <QueueTableHead scope="col">ID</QueueTableHead>
-                              <QueueTableHead scope="col">Up next</QueueTableHead>
-                              <QueueTableHead scope="col">Channel</QueueTableHead>
-                              <QueueTableHead scope="col">Source</QueueTableHead>
-                              <QueueTableHead scope="col">Joined</QueueTableHead>
-                              <QueueTableHead scope="col">Actions</QueueTableHead>
-                            </QueueTableRow>
-                          </QueueTableHeader>
-                          <QueueTableBody>
-                            {currentQueueTickets.length ? (
-                              currentQueueTickets.map((ticket) => (
-                                <QueueTableRow key={ticket.id}>
-                                  <QueueTableCell data-label="ID">
-                                    {ticket.id}
-                                  </QueueTableCell>
-                                  <QueueTableCell data-label="Ticket">
-                                    <p className="queue-text queue-strong">
-                                      {ticket.ticketNumber}
-                                    </p>
-                                    <p className="queue-text queue-muted queue-small">
-                                      {getQueueCustomerFullNameLabel(
-                                        ticket.customerName,
-                                        ticket.customerDisplayName,
-                                      )}
-                                    </p>
-                                    {ticket.linkedBookingReference ? (
-                                      <div className="queue-stack">
-                                        <p className="queue-text queue-muted queue-small">
-                                          Booking {ticket.linkedBookingReference}
-                                        </p>
-                                        {ticket.bookingScheduledStartAt ? (
-                                          <p className="queue-text queue-muted queue-small">
-                                            Earliest call:{" "}
-                                            {formatDateTime(
-                                              ticket.bookingScheduledStartAt,
-                                            )}
-                                          </p>
-                                        ) : null}
-                                      </div>
-                                    ) : null}
-                                  </QueueTableCell>
-                                  <QueueTableCell data-label="Channel">
-                                    <QueueBadge variant="outline">
-                                      {ticket.joinChannel}
-                                    </QueueBadge>
-                                  </QueueTableCell>
-                                  <QueueTableCell data-label="Source">
-                                    <div className="queue-row">
-                                      {isCheckedInBookingTicket(ticket) ? (
-                                        <QueueBadge variant="outline">
-                                          Booking
-                                        </QueueBadge>
-                                      ) : null}
-                                      <QueueBadge variant="outline">
-                                        {ticket.isCarriedOver
-                                          ? "Carry-over"
-                                          : "Same-day"}
-                                      </QueueBadge>
-                                    </div>
-                                  </QueueTableCell>
-                                  <QueueTableCell data-label="Joined">
-                                    {formatDateTime(ticket.createdAt)}
-                                  </QueueTableCell>
-                                  <QueueTableCell data-label="Actions">
-                                    {selectedTenantRole && ticket.status === "waiting" ? <QueueButton variant="outline" disabled={queueActionBusy} onClick={()=>openQueueDetails(ticket.id)} aria-label={`Edit queue details for ${ticket.ticketNumber}`}>Edit queue details</QueueButton> : null}
-                                    {selectedTenantRole &&
-                                    ticket.status === "waiting" ? (
-                                      <QueueButton
-                                        variant="destructive"
-                                        disabled={queueActionBusy}
-                                        aria-label={`Cancel waiting ticket ${ticket.ticketNumber}`}
-                                        onClick={() =>
-                                          openWaitingTicketCancellation(ticket)
-                                        }
-                                      >
-                                        Cancel ticket
-                                      </QueueButton>
-                                    ) : null}
-                                  </QueueTableCell>
-                                </QueueTableRow>
-                              ))
-                            ) : (
-                              <QueueTableRow>
-                                <QueueTableCell colSpan={6}>
-                                  <QueueEmptyState
-                                    title="No one is waiting right now."
-                                    text="Fresh same-day joins will appear here once the carry-over backlog is cleared."
-                                  />
-                                </QueueTableCell>
-                              </QueueTableRow>
-                            )}
-                          </QueueTableBody>
-                        </QueueTable>
-                      </div>
-                    </>
-
-                </QueueCardContent>
-              </QueueCard>
-            ) : (
-              <QueueRecoveryTable
-                tickets={queueView === "recovery" ? recoverableTickets : overflowTickets}
-                view={queueView === "recovery" ? "recovery" : "overflow"}
-                includeCurrent={!resourceQueueEnabled}
-                onViewChange={value => setQueueView(value as QueueView)}
-                formatDateTime={formatDateTime}
-                isPriorityRecovery={isRecoveryWindowActive}
-                carryOverStatus={status => status === "pending_carry_over" ? getTicketStateSummary(status).label : "Carried over"}
-                notice={queueView === "recovery" && (queueDayClosed || queueDayPaused || restoreBlockedByThreshold) ? (
-                        <QueueAlert>
-                          <QueueAlertDescription>
-                            {queueDayClosed
-                              ? "Missed tickets cannot be restored while the queue day is closed."
-                              : queueDayPaused
-                                ? "Missed tickets cannot be restored while queue intake is paused."
-                                : `Missed tickets cannot be restored while the queue is at its intake threshold of ${intakeState?.autoPauseThreshold} waiting tickets.`}
-                          </QueueAlertDescription>
-                        </QueueAlert>
-                      ) : null}
-                renderRestore={(ticket, priorityRecovery) => (
-                                      <QueueButton
-                                        variant="secondary"
-                                        disabled={Boolean(
-                                          busyAction === `restore-${ticket.id}` ||
-                                          !ticket.lookupCode ||
-                                          queueDayClosed ||
-                                          queueDayPaused ||
-                                          restoreBlockedByThreshold,
-                                        )}
-                                        onClick={async () => {
-                                          const success = await runAction(
-                                            `restore-${ticket.id}`,
-                                            () =>
-                                              vendorDashboardQueue.restoreSkippedTicket(
-                                                token,
-                                                selectedTenantSlug,
-                                                ticket.id,
-                                                locationQuery,
-                                                ticket.lookupCode || "",
-                                              ),
-                                          );
-
-                                          if (success) {
-                                            showSuccessNotification(
-                                              "Ticket restored",
-                                              priorityRecovery
-                                                ? "The skipped ticket was restored with recovery priority."
-                                                : "The skipped ticket was restored at normal priority.",
-                                            );
-                                            setQueueView("current");
-                                          }
-                                        }}
-                                      >
-                                        Restore
-                                      </QueueButton>
-                )}
-              />
-            )}
-              </AccordionContent>
-            </AccordionItem>
-          </Accordion>
-          <Accordion>
-            <AccordionItem value="public-access">
-              <AccordionTrigger headingLevel={2}>Public access and displays</AccordionTrigger>
-              <AccordionContent keepMounted className="queue-public-access-layout">
-                <div className="queue-public-access-grid">
-            <QueueCard>
-              <QueueCardHeader>
-                <QueueCardTitle>Customer self-service entry</QueueCardTitle>
-              </QueueCardHeader>
-              <QueueCardContent className="queue-stack">
-                <div className="queue-stack">
-                  <div className="queue-row queue-between">
-                    <div>
-                      <p className="vendor-eyebrow">QR and public links</p>
-                    </div>
-                    <div className="queue-row">
-                      <a
-                        className={queueButtonVariants({ variant: "outline" })}
-                        href={queueLinks.monitorUrl || undefined}
-                        aria-disabled={!queueLinks.monitorUrl || undefined}
-                        tabIndex={queueLinks.monitorUrl ? undefined : -1}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                      >
-                        Open board
-                      </a>
-
-                    </div>
-                  </div>
-                  <div className="queue-public-entry-grid">
-                    <article className="queue-paper neura-qr-card queue-surface">
-                      {queueLinks.qrUrl ? (
-                        <div ref={queueQrRef}>
-                          <StyledQRCode size={160} value={queueLinks.qrUrl} />
-                        </div>
-                      ) : (
-                        <QueueQrUnavailable />
-                      )}
-                      <div className="queue-row">
-                        <IconQrcode size={16} />
-                        <p className="queue-text vendor-eyebrow">Join QR</p>
-                      </div>
-                      <QueueButton
-                        variant="outline"
-                        disabled={
-                          Boolean(!queueLinks.qrUrl) || Boolean(savingQueueQr)
-                        }
-                        aria-busy={savingQueueQr}
-                        className="queue-full-width"
-                        onClick={() => void saveQueueQr()}
-                      >
-                        <IconDownload data-icon="inline-start" />
-                        Save QR
-                      </QueueButton>
-                    </article>
-                    <div className="queue-stack queue-public-link-fields">
-                      <QueueCopyField
-                        label="Join URL"
-                        onClick={() =>
-                          void copyLocationUrl("Join URL", queueLinks.joinUrl)
-                        }
-                        value={queueLinks.joinUrl}
-                      />
-                      <QueueCopyField
-                        label="QR target"
-                        onClick={() =>
-                          void copyLocationUrl("QR target", queueLinks.qrUrl)
-                        }
-                        value={queueLinks.qrUrl}
-                      />
-                      <QueueCopyField
-                        label="Queue board URL"
-                        onClick={() =>
-                          void copyLocationUrl(
-                            "Queue board URL",
-                            queueLinks.monitorUrl,
-                          )
-                        }
-                        value={queueLinks.monitorUrl}
-                      />
-                    </div>
-                  </div>
-                </div>
-              </QueueCardContent>
-            </QueueCard>
-            {token && selectedTenantSlug && selectedLocationSlug ? (
-              <QueueBoardScanner
-                key={`${selectedTenantSlug}:${selectedLocationSlug}`}
-                token={token}
-                tenantSlug={selectedTenantSlug}
-                locationSlug={selectedLocationSlug}
-                onBusyChange={setBoardScannerBusy}
-                onDiscard={() =>
-                  unsavedForm.current.discardId("queue-board-pairing-form")
-                }
-              />
-            ) : null}
-                </div>
-              </AccordionContent>
-            </AccordionItem>
-          </Accordion>
-        </div>
-
-        {(snapshot?.unfinishedServiceTiming || []).some(
-          (record) =>
-            !snapshot?.calledTickets?.some((ticket) => ticket.id === record.id),
-        ) ? (
-          <QueueCard>
-            <QueueCardHeader>
-              <QueueCardTitle>Unfinished service records</QueueCardTitle>
-            </QueueCardHeader>
-            <QueueCardContent className="queue-stack">
-              <div className="queue-stack">
-                <p className="queue-text queue-muted queue-small">
-                  These services have a recorded start but no recorded end.
-                  Closing a queue does not finish service. The oldest 100
-                  unfinished records are shown. Resolving a record here preserves
-                  its existing queue and booking outcome.
-                </p>
-                {(snapshot?.unfinishedServiceTiming || [])
-                  .filter(
-                    (record) =>
-                      !snapshot?.calledTickets?.some(
-                        (ticket) => ticket.id === record.id,
-                      ),
-                  )
-                  .map((record) => (
-                    <article
-                      className="queue-paper queue-surface"
-                      key={record.id}
-                    >
-                      <div className="queue-stack">
-                        <p className="queue-text queue-strong">
-                          {record.ticketNumber} · {record.status}
-                        </p>
-                        <p className="queue-text queue-small">
-                          Started {formatDateTime(record.serviceStartedAt)}
-                        </p>
-                        <div className="queue-row">
-                          {(["complete", "interrupt"] as const).map((action) => (
-                            <QueueButton
-                              variant="outline"
-                              disabled={queueActionBusy}
-                              key={action}
-                              onClick={() =>
-                                setConfirmAction({
-                                  title:
-                                    action === "complete"
-                                      ? "Record service completion?"
-                                      : "Record interrupted service?",
-                                  description:
-                                    "The current time will be recorded as the service end. The existing queue and booking outcome will be preserved.",
-                                  confirmLabel:
-                                    action === "complete"
-                                      ? "Record completion"
-                                      : "Record interruption",
-                                  confirmColor: "orange",
-                                  onConfirm: async () => {
-                                    await runAction(`service-${action}`, () =>
-                                      vendorDashboardQueue.recordTicketService(
-                                        token,
-                                        selectedTenantSlug,
-                                        locationQuery,
-                                        record.id,
-                                        action,
-                                      ),
-                                    );
-                                  },
-                                })
-                              }
-                            >
-                              {action === "complete"
-                                ? "Record completion"
-                                : "Record interruption"}
-                            </QueueButton>
-                          ))}
-                        </div>
-                      </div>
-                    </article>
-                  ))}
-              </div>
-            </QueueCardContent>
-          </QueueCard>
-        ) : null}
-      </div>
+      </Stack>
     );
   }
 
   function renderWalkInDialog() {
-    if (intakeMode !== "legacy") return null;
     const intakeUnavailable = queueDayClosed || queueDayPaused;
-    return <WalkInDialog linearMode={resourceQueueEnabled} opened={walkInDialogOpen} busy={busyAction === "walk-in"} unavailable={intakeUnavailable} closed={queueDayClosed}
-      form={walkInForm} options={ticketServiceOptionsQuery.data?.services || []} optionsLoading={ticketServiceOptionsQuery.isFetching} optionsError={ticketServiceOptionsQuery.isError}
-      onChange={(change) => setWalkInForm((current) => ({ ...current, ...change }))} onClose={() => { unsavedForm.current.discardId("vendor-walk-in"); setWalkInDialogOpen(false); }} onSubmit={handleCreateWalkIn} />;
+
+    return (
+      <Modal
+        centered
+        className="customer-modal walk-in-modal"
+        closeOnClickOutside={busyAction !== "walk-in"}
+        closeOnEscape={busyAction !== "walk-in"}
+        onClose={() => {
+          if (busyAction !== "walk-in") {
+            setWalkInDialogOpen(false);
+          }
+        }}
+        opened={walkInDialogOpen}
+        radius="xl"
+        size="lg"
+        title={
+          <div>
+            <Text className="neura-label">WALK-IN CUSTOMER</Text>
+            <Text fw={800} size="xl">Add customer at counter</Text>
+          </div>
+        }
+      >
+        <form onSubmit={handleCreateWalkIn}>
+          <Stack gap="md">
+            <Text c="dimmed" size="sm">
+              Create a same-day queue ticket for a customer who is already at this location.
+            </Text>
+            {intakeUnavailable ? (
+              <Alert color="orange" icon={<IconInfoCircle size={18} />}>
+                {queueDayClosed ? "Open the queue before adding a walk-in customer." : "Resume intake before adding a walk-in customer."}
+              </Alert>
+            ) : null}
+            <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
+              <TextInput
+                autoFocus
+                disabled={intakeUnavailable}
+                label="Customer name"
+                data-autofocus
+                name="walkInCustomerName"
+                onChange={(event) =>
+                  setWalkInForm((current) => ({ ...current, customerName: event.target.value }))
+                }
+                required
+                value={walkInForm.customerName}
+              />
+              <TextInput
+                disabled={intakeUnavailable}
+                label="Email"
+                name="walkInCustomerEmail"
+                onChange={(event) =>
+                  setWalkInForm((current) => ({ ...current, customerEmail: event.target.value }))
+                }
+                type="email"
+                value={walkInForm.customerEmail}
+              />
+              <PhilippineMobileInput
+                disabled={intakeUnavailable}
+                label="Phone"
+                name="walkInCustomerPhone"
+                onChange={(nextValue) =>
+                  setWalkInForm((current) => ({ ...current, customerPhone: nextValue }))
+                }
+                value={walkInForm.customerPhone}
+              />
+              <Textarea
+                disabled={intakeUnavailable}
+                label="Notes"
+                minRows={2}
+                name="walkInNotes"
+                onChange={(event) =>
+                  setWalkInForm((current) => ({ ...current, notes: event.target.value }))
+                }
+                value={walkInForm.notes}
+              />
+            </SimpleGrid>
+            <Checkbox
+              checked={walkInForm.notifyByEmail}
+              disabled={intakeUnavailable}
+              label="Send email alerts"
+              name="walkInNotifyByEmail"
+              onChange={(event) =>
+                setWalkInForm((current) => ({ ...current, notifyByEmail: event.target.checked }))
+              }
+            />
+            <Group className="customer-modal-actions" justify="flex-end">
+              <Button
+                className="neura-primary-button"
+                disabled={intakeUnavailable}
+                loading={busyAction === "walk-in"}
+                type="submit"
+              >
+                Issue ticket
+              </Button>
+            </Group>
+          </Stack>
+        </form>
+      </Modal>
+    );
   }
 
   function renderThemePreview() {
@@ -5891,12 +5561,13 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   </Badge>
                 </Group>
                 <Stack gap="sm" mt="md">
-                  <Title className="vendor-hero-title" order={2}>
+                  <Title className="vendor-hero-title" order={1}>
                     {previewVendorName}
                   </Title>
                   {settings.publicProfileDescription ? <RichCampaignDescription className="vendor-hero-description" content={settings.publicProfileDescription} /> : null}
                 </Stack>
               </div>
+
 
               <Stack gap="xs">
                 <Group c="dimmed" gap={8} wrap="nowrap">
@@ -6035,6 +5706,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         size="xl"
         title={
           <Stack className="getprio-modal-title" gap={2}>
+            <Text className="getprio-modal-eyebrow">PUBLIC BOARD</Text>
             <Text className="getprio-modal-heading">
               {`Setup theme${themeLocation ? `: ${themeLocation.name}` : ""}`}
             </Text>
@@ -6158,6 +5830,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     accept="image/png,image/jpeg,image/webp"
                     clearable
                     label="Company logo"
+                    description="Displayed inside the circular logo frame."
                     disabled={busyAction === "theme-upload:logo"}
                     onChange={(file) => uploadThemeAsset("logo", file)}
                   />
@@ -6246,17 +5919,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     );
   }
 
-  const openLocationDialog = useCallback((locationItem?: StoreLocationWithHours, fromRoute = false) => {
-    if (locationItem && !fromRoute) {
-      const params = new URLSearchParams(location.search);
-      params.set("workspace", "administration");
-      params.set("business", selectedTenantSlug);
-      navigate(locationEditorPath(locationItem.slug, `?${params}`));
-      return;
-    }
-    setLocationEditorTab("general");
-    setLocationErrorTitle("Unable to save location");
-    setError("");
+  function openLocationDialog(locationItem?: StoreLocationWithHours) {
     setPaymentQrUploadFile(null);
     if (locationItem) {
       setEditingLocationSlug(locationItem.slug);
@@ -6284,8 +5947,6 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         paymentAccountIdentifierDisplay: locationItem.paymentAccountIdentifierDisplay,
         paymentQrImageUrl: locationItem.paymentQrImageUrl,
         paymentQrActive: locationItem.paymentQrActive,
-        customerSelfCheckInEnabled: locationItem.customerSelfCheckInEnabled === true,
-        serviceTimingEnabled: locationItem.serviceTimingEnabled === true,
         isPrimary: locationItem.isPrimary,
         isActive: locationItem.isActive,
         hours: locationItem.hours.length ? locationItem.hours : defaultHours
@@ -6301,22 +5962,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     }
 
     setLocationDialogOpen(true);
-
-  },[platformDefaultTimezone,location.search,selectedTenantSlug,navigate]);
-
-  useEffect(() => {
-    if (!locationSlug) { if(locationEditorScopeRef.current)setLocationDialogOpen(false); locationEditorScopeRef.current=""; return; }
-    if (!selectedTenantSlug || !dashboardBootstrapQuery.data) return;
-    const item = resolveLocationEditor(locationSlug, locations, new Set(dashboardBootstrapQuery.data.locationsResponse.locations.map(item => item.id)));
-    if (!item) return;
-    const scope = `${selectedTenantSlug}:${item.id}`;
-    if (locationSlug !== item.slug) {
-      navigate(locationEditorPath(item.slug, location.search), { replace: true });
-    }
-    if (locationEditorScopeRef.current === scope) return;
-    locationEditorScopeRef.current = scope;
-    openLocationDialog(item, true);
-  },[locationSlug,selectedTenantSlug,locations,dashboardBootstrapQuery.data,openLocationDialog,navigate,location.search]);
+  }
 
   useEffect(() => {
     if (!locationDialogOpen || editingLocationSlug || locationSlugManuallyEdited) {
@@ -6388,7 +6034,6 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
   }, [editingLocationId, editingLocationSlug, locationDialogOpen, locationForm.slug, selectedTenantSlug, token]);
 
   async function saveLocation() {
-    setLocationErrorTitle("Unable to save location");
     setBusyAction("location");
     setError("");
 
@@ -6416,8 +6061,6 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         paymentAccountIdentifierDisplay: locationForm.paymentAccountIdentifierDisplay,
         paymentQrImageUrl: locationForm.paymentQrImageUrl,
         paymentQrActive: locationForm.paymentQrActive,
-        customerSelfCheckInEnabled: locationForm.customerSelfCheckInEnabled,
-        serviceTimingEnabled: locationForm.serviceTimingEnabled,
         isPrimary: locationForm.isPrimary,
         isActive: locationForm.isActive
       };
@@ -6427,17 +6070,6 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         editingLocationSlug || null,
         payload
       );
-
-      // Keep the server-created target if the separate hours write needs a retry.
-      setEditingLocationSlug(locationResponse.location.slug);
-      setEditingLocationId(locationResponse.location.id);
-      setLocationSlugManuallyEdited(true);
-      setLocationForm(current=>({...current,slug:locationResponse.location.slug}));
-      if (locationSlug && locationSlug !== locationResponse.location.slug) {
-        setLocations(current => current.map(item => item.id === locationResponse.location.id
-          ? { ...item, slug: locationResponse.location.slug } : item));
-        navigate(locationEditorPath(locationResponse.location.slug, location.search), { replace: true });
-      }
 
       const hoursResponse = await vendorDashboardOperations.saveLocationHours(
         token,
@@ -6450,15 +6082,9 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         const next = current.filter((item) => item.id !== hoursResponse.location.id);
         return [...next, hoursResponse.location].sort((a, b) => Number(b.isPrimary) - Number(a.isPrimary) || a.name.localeCompare(b.name));
       });
-      setSnapshot((current) => current && current.location?.id === hoursResponse.location.id
-        ? { ...current, location: hoursResponse.location }
-        : current);
-      await queryClient.invalidateQueries({ queryKey: ["vendor-dashboard-queue-lifecycle", token, selectedTenantSlug] });
       setSelectedLocationSlug(hoursResponse.location.slug);
-      unsavedForm.current.discardId("vendor-location-editor");
       setLocationDialogOpen(false);
       setPaymentQrUploadFile(null);
-      if (locationSlug) navigate(workspacePath("tenants","administration",location.search));
       showSuccessNotification(
         editingLocationSlug ? "Location updated" : "Location created",
         `${hoursResponse.location.name} is ready in your vendor dashboard.`
@@ -6470,279 +6096,248 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     }
   }
 
-  function selectConfigurationLocation(slug: string) {
-    if (slug === selectedLocationSlug || !canLeaveFeature()) return;
-    setSnapshot(null);
-    setServiceCounters([]);
-    setVendorBookings([]);
-    setBookingPagination(null);
-    setClients(null);
-    setHistory(null);
-    setBookingDetailOpen(false);
-    setBookingDetailBooking(null);
-    setBookingDetailModalId(null);
-    setSelectedCounterSlug("");
-    setAvailabilityBlocks([]);
-    setAvailabilityExceptions([]);
-    setAvailabilitySummary(null);
-    setSelectedLocationSlug(slug);
-  }
   function renderTenantsPage() {
-    const admin = isOwner || isAdmin;
     return (
-      <ConfigurationScope
-        busy={Boolean(busyAction)}
-        onEdit={(form) => unsavedForm.current.mark(form)}
-      >
-        <ConfigTabs
-          value={
-            locationsTab === "resources" && !admin ? "locations" : locationsTab
-          }
-          onValueChange={(value) => {
-            if (!busyAction && !resourceConfigurationBusy)
-              setLocationsTab(String(value));
-          }}
-        >
-          <ConfigTabsList
-            activateOnFocus
-            aria-label="Location settings"
-            className="config-tabs-list"
-          >
-            <ConfigTabsTrigger
-              disabled={Boolean(busyAction) || resourceConfigurationBusy}
-              value="locations"
-            >
-              Locations
-            </ConfigTabsTrigger>
-            {admin && resourceSetupAllowed ? (
-              <ConfigTabsTrigger
-                disabled={Boolean(busyAction) || resourceConfigurationBusy}
-                value="resources"
-              >
-                Resources
-              </ConfigTabsTrigger>
-            ) : null}
-            <ConfigTabsTrigger
-              disabled={Boolean(busyAction) || resourceConfigurationBusy}
-              value="counters"
-            >
-              Counters
-            </ConfigTabsTrigger>
-          </ConfigTabsList>
-          {error && !locationDialogOpen && !counterDialogOpen ? (
-            <OperationAlert color="red" title="Unable to complete the action">
-              {error}
-            </OperationAlert>
-          ) : null}
-          <ConfigTabsContent value="locations" keepMounted>
-            <div className="ops-stack">
-              <div className="ops-row ops-between">
+      <Stack gap="md">
+        <Group justify="space-between">
+          <div>
+            <Text className="neura-label">Locations</Text>
+            <Title order={3}>Store locations</Title>
+            <Text c="dimmed" size="sm">
+              {locations.filter((item) => item.isActive).length}/{activeLocationLimit} active locations
+            </Text>
+          </div>
+          <Button className="neura-primary-button" onClick={() => openLocationDialog()}>
+            Add location
+          </Button>
+        </Group>
+        <SimpleGrid cols={{ base: 1, md: 2 }} spacing="md">
+        {locations.map((locationItem) => (
+          <Card className="neura-card" key={locationItem.id} padding="lg">
+            <Stack gap="md">
+              <Group justify="space-between">
                 <div>
-                  <h2 className="ops-heading">Store locations</h2>
-                  <p className="ops-muted">
-                    {locations.filter((item) => item.isActive).length} of{" "}
-                    {activeLocationLimit} active locations allowed
-                  </p>
+                  <Text className="neura-label">{locationItem.timezone}</Text>
+                  <Title order={3}>{locationItem.name}</Title>
+                  <Text c="dimmed">
+                    {[locationItem.addressLine1, locationItem.city, locationItem.province]
+                      .filter(Boolean)
+                      .join(", ") || `/${locationItem.slug}`}
+                  </Text>
                 </div>
-                <OperationButton
-                  disabled={
-                    !admin ||
-                    dashboardBootstrapQuery.isPending ||
-                    dashboardBootstrapQuery.isError
-                  }
-                  onClick={() => openLocationDialog()}
-                >
-                  Add location
-                </OperationButton>
-              </div>
-              {dashboardBootstrapQuery.isPending ||
-              dashboardBootstrapQuery.isError ? (
-                <OperationQueryState
-                  loading={dashboardBootstrapQuery.isPending}
-                  error={dashboardBootstrapQuery.error}
-                  onRetry={() => void retryDashboardContext()}
-                />
-              ) : (
-                <>
-                  {!locations.length ? (
-                    <OperationEmpty
-                      title="No locations yet"
-                      text="Add a location to set its hours and manage its queue."
-                    />
+                <Group gap="xs">
+                  {locationItem.isPrimary ? <Badge>Primary</Badge> : null}
+                  <Badge color={locationItem.isActive && locationItem.openStatus.isOpen ? "teal" : "red"}>
+                    {locationItem.isActive && locationItem.openStatus.isOpen ? "Open" : "Closed"}
+                  </Badge>
+                  {locationItem.paymentQrActive ? (
+                    <Badge color="yellow" variant="light">Payment QR</Badge>
                   ) : null}
-                  <ManagedCollection key={`${selectedTenantSlug}:${selectedLocationSlug}`} items={locations} label="locations" searchText={(item) => [item.name,item.slug,item.city,item.province].filter(Boolean).join(" ")} statusOf={(item) => item.isActive ? "active" : "inactive"} statuses={[{value:"active",label:"Enabled"},{value:"inactive",label:"Disabled"}]}>{(visibleItems) => (
-                  <LocationsGrid items={visibleItems} selectedSlug={selectedLocationSlug} canManage={admin} busyAction={busyAction} errors={locationToggleErrors} onToggle={(item,enabled)=>void handleToggleLocationActive(item,enabled)} onEdit={item=>openLocationDialog(item)} onSelect={selectConfigurationLocation} onQr={item=>void handleRegenerateLocationQueueQr(item)} onTheme={effectiveEntitlements?.brandedQueuePages ? openThemeDialog : undefined} formatHours={formatStoreHourRange}/>
-                  )}</ManagedCollection>
-                </>
-              )}
-            </div>
-          </ConfigTabsContent>
-          <ConfigTabsContent value="resources" keepMounted>
-            {token && selectedTenantSlug && selectedLocationSlug && admin && resourceSetupAllowed ? (
-              <VendorResourceConfiguration
-                key={`${selectedTenantSlug}:${selectedLocationSlug}`}
-                token={token}
-                tenantSlug={selectedTenantSlug}
-                locationSlug={selectedLocationSlug}
-                locationName={selectedLocation?.name || selectedLocationSlug}
-                onBusyChange={setResourceConfigurationBusy}
-                onDialogChange={setResourceConfigurationDialogOpen}
-                onDiscard={(id) => unsavedForm.current.discardId(id)}
+                </Group>
+              </Group>
+              {locationItem.paymentQrActive ? (
+                <Text size="sm" c="dimmed">
+                  {locationItem.paymentMethodLabel} · {locationItem.paymentAccountDisplayName}
+                </Text>
+              ) : null}
+              <Switch
+                checked={locationItem.isActive}
+                disabled={busyAction === `location-status:${locationItem.slug}`}
+                label={locationItem.isActive ? "Location enabled" : "Location disabled"}
+                onChange={(event) => handleToggleLocationActive(locationItem, event.currentTarget.checked)}
               />
-            ) : (
-              <OperationEmpty
-                title="Select a location"
-                text="Choose a location to configure its resource pools and service requirements."
-              />
-            )}
-          </ConfigTabsContent>
-          <ConfigTabsContent value="counters" keepMounted>
-            <div className="ops-stack">
-              <div className="ops-row ops-between">
-                <div>
-                  <h2 className="ops-heading">Service counters</h2>
-                  <p className="ops-muted">
-                    {selectedLocation?.name || "Select a location"} ·{" "}
-                    {serviceCounters.length} of {counterLimit} counters allowed
-                  </p>
-                </div>
-                <OperationButton
-                  disabled={
-                    !admin ||
-                    !selectedLocation ||
-                    countersQuery.isPending ||
-                    countersQuery.isError ||
-                    serviceCounters.length >= counterLimit
+              <Text size="sm" c="dimmed">
+                Today{locationItem.openStatus.today
+                  ? `, ${["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][locationItem.openStatus.today.weekday]}`
+                  : ""} · {formatStoreHourRange(locationItem.openStatus.today)}
+              </Text>
+              <TextInput
+                label="Join URL"
+                onClick={() => void copyLocationUrl("Join URL", locationItem.joinUrl)}
+                onFocus={(event) => event.currentTarget.select()}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    void copyLocationUrl("Join URL", locationItem.joinUrl);
                   }
-                  onClick={() => openCounterDialog()}
+                }}
+                readOnly
+                rightSection={<IconCopy aria-hidden="true" size={16} />}
+                rightSectionPointerEvents="none"
+                styles={{ input: { cursor: "copy" } }}
+                title="Click to copy Join URL"
+                value={locationItem.joinUrl}
+              />
+              <TextInput
+                label="Mobile queue QR target"
+                onClick={() => void copyLocationUrl("QR target", locationItem.qrJoinUrl || locationItem.joinUrl)}
+                onFocus={(event) => event.currentTarget.select()}
+                readOnly
+                rightSection={<IconCopy aria-hidden="true" size={16} />}
+                rightSectionPointerEvents="none"
+                styles={{ input: { cursor: "copy" } }}
+                title="Click to copy mobile queue QR target"
+                value={locationItem.qrJoinUrl || locationItem.joinUrl}
+              />
+              <TextInput
+                label="Monitor URL"
+                onClick={() => void copyLocationUrl("Monitor URL", locationItem.monitorUrl)}
+                onFocus={(event) => event.currentTarget.select()}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    void copyLocationUrl("Monitor URL", locationItem.monitorUrl);
+                  }
+                }}
+                readOnly
+                rightSection={<IconCopy aria-hidden="true" size={16} />}
+                rightSectionPointerEvents="none"
+                styles={{ input: { cursor: "copy" } }}
+                title="Click to copy Monitor URL"
+                value={locationItem.monitorUrl}
+              />
+              <Group>
+                <Button
+                  disabled={busyAction === `location-qr:${locationItem.slug}`}
+                  onClick={() => void handleRegenerateLocationQueueQr(locationItem)}
+                  variant="light"
                 >
-                  Add counter
-                </OperationButton>
+                  {busyAction === `location-qr:${locationItem.slug}` ? "Regenerating..." : "Regenerate queue QR"}
+                </Button>
+                <Button variant="default" onClick={() => setSelectedLocationSlug(locationItem.slug)}>
+                  Select
+                </Button>
+                <Button variant="default" onClick={() => openLocationDialog(locationItem)}>
+                  Edit
+                </Button>
+                {effectiveEntitlements?.brandedQueuePages ? (
+                  <Button className="neura-secondary-button" onClick={() => openThemeDialog(locationItem)}>
+                    Setup Theme
+                  </Button>
+                ) : null}
+              </Group>
+            </Stack>
+          </Card>
+        ))}
+        </SimpleGrid>
+        <Card className="neura-card" padding="lg">
+          <Stack gap="md">
+            <Group justify="space-between">
+              <div>
+                <Text className="neura-label">Counters</Text>
+                <Title order={3}>Service counters</Title>
               </div>
-              {!selectedLocation ? (
-                <OperationEmpty
-                  title="Select a location"
-                  text="Counters belong to a location. Select one to manage its dispatch lanes."
-                />
-              ) : countersQuery.isPending || countersQuery.isError ? (
-                <OperationQueryState
-                  loading={countersQuery.isPending}
-                  error={countersQuery.error}
-                  onRetry={() => void countersQuery.refetch()}
-                />
-              ) : (
-                <>
-                  {!serviceCounters.length ? (
-                    <OperationEmpty
-                      title="No counters yet"
-                      text="Add a counter and assign the staff who can serve its queue."
+              <Badge variant="light">{serviceCounters.length}/{counterLimit}</Badge>
+            </Group>
+            <SimpleGrid cols={{ base: 1, md: 3 }}>
+              {serviceCounters.map((counter) => (
+                <Paper key={counter.id} p="md" withBorder>
+                  <Group justify="space-between" mb="xs">
+                    <Text fw={700}>{counter.name}</Text>
+                    <Switch
+                      checked={counter.isActive}
+                      disabled={busyAction === `counter-status:${counter.slug}`}
+                      label={counter.isActive ? "Enabled" : "Disabled"}
+                      onChange={(event) => handleToggleCounterActive(counter, event.currentTarget.checked)}
                     />
-                  ) : null}
-                  <ManagedCollection key={`${selectedTenantSlug}:${selectedLocationSlug}`} items={serviceCounters} label="counters" searchText={(counter) => `${counter.name} ${counter.slug}`} statusOf={(counter) => counter.isActive ? "active" : "inactive"} statuses={[{value:"active",label:"Enabled"},{value:"inactive",label:"Disabled"}]}>{(visibleItems) => (
-                  <CountersGrid items={visibleItems} staff={staff} canManage={admin} busyAction={busyAction}
-                    onToggle={(counter,active)=>void handleToggleCounterActive(counter,active)}
-                    onEdit={openCounterDialog}
-                    onRemove={counter=>openConfirmAction({
-                      title: "Remove counter?",
-                      description: "This permanently removes the counter from this location. Existing called work remains recorded.",
-                      confirmLabel: "Remove counter", confirmColor: "red",
-                      onConfirm: async()=>{await handleDeleteCounter(counter);}
-                    })}/>
-
-                  )}</ManagedCollection>
-                </>
-              )}
-            </div>
-          </ConfigTabsContent>
-        </ConfigTabs>
-      </ConfigurationScope>
+                  </Group>
+                  <Text c="dimmed" size="sm">
+                    {counter.assignedUserIds
+                      .map((userId) => staff.find((member) => member.id === userId)?.name)
+                      .filter(Boolean)
+                      .join(", ") || "No staff assigned"}
+                  </Text>
+                  <Group gap="xs" mt="md">
+                    <Button size="xs" variant="default" onClick={() => openCounterDialog(counter)}>
+                      Edit
+                    </Button>
+                    <Button
+                      color="red"
+                      size="xs"
+                      variant="light"
+                      onClick={() =>
+                        openConfirmAction({
+                          title: "Remove counter?",
+                          description: "This will permanently remove the counter from the location.",
+                          confirmLabel: "Remove counter",
+                          confirmColor: "red",
+                          onConfirm: async () => {
+                            await handleDeleteCounter(counter);
+                          }
+                        })
+                      }
+                    >
+                      Remove
+                    </Button>
+                  </Group>
+                </Paper>
+              ))}
+            </SimpleGrid>
+            <Button
+              className="neura-secondary-button"
+              disabled={!selectedLocation || serviceCounters.length >= counterLimit}
+              onClick={() => openCounterDialog()}
+            >
+              Add counter
+            </Button>
+          </Stack>
+        </Card>
+      </Stack>
     );
   }
 
-  function openServiceResourceSettings(locationSlug:string,kind:'policy'|'resources'){
-    requestServiceLeave(()=>{
-      const params=new URLSearchParams(location.search);params.set('business',selectedTenantSlug);params.set('location',locationSlug);
-      setSelectedLocationSlug(locationSlug);
-      if(kind==='policy')setServicesTab('queue-policy');else setLocationsTab('resources');
-      navigate(workspacePath(kind==='policy'?'services':'tenants','administration',`?${params.toString()}`));
-    });
-  }
   function renderServiceDialog() {
-    const bookingConfigurationReady=Boolean(bookingConfigurationQuery.data&&!bookingConfigurationQuery.isPending&&!bookingConfigurationQuery.isError);
-    const resourceSettings=(bookingConfigurationQuery.data?.locations||[]).filter(item=>item.serviceId===editingServiceId);
-    const enabledAssignments=(serviceForm.locationServices||[]).filter(item=>item.isActive!==false);
-    const resourceOnly=enabledAssignments.length>0&&enabledAssignments.every(item=>resourceSettings.some(setting=>setting.locationSlug===item.locationSlug&&setting.capabilityEnabled&&setting.ready));
-    const EditorSurface = routeServiceSlug ? TaskPage : TaskDialog;
-    const close = () => {
-      if(routeServiceSlug)requestServiceLeave(()=>navigate(workspacePath("services","administration",location.search)));
-      else if (canLeaveFeature()) { unsavedForm.current.discardId("vendor-service-editor");setServiceDialogOpen(false); }
-    };
     return (
-      <EditorSurface
+      <Modal
+        centered
         opened={serviceDialogOpen}
-        onClose={close}
-        busy={Boolean(busyAction)}
-        headingEyebrow="SERVICE EDITOR"
-        title={`Service: ${serviceForm.name || "New service"}`}
-        description="Set the service details, duration and locations where it is offered."
-        footer={
-          <>
-            <OperationButton
-              variant="outline"
-              className="ops-redundant-dismiss"
-              disabled={Boolean(busyAction)}
-              onClick={close}
-            >
-              Cancel
-            </OperationButton>
-            <OperationButton
-              type="submit"
-              form="vendor-service-editor"
-              disabled={
-                Boolean(busyAction)
-              }
-              aria-busy={Boolean(busyAction)}
-            >
-              {busyAction ? "Working…" : "Save service"}
-            </OperationButton>
-          </>
+        onClose={() => setServiceDialogOpen(false)}
+        size="xl"
+        title={
+          <Stack gap={2}>
+            <Text className="service-dialog__modal-eyebrow">{editingServiceSlug ? "EDIT" : "ADD"} SERVICE</Text>
+            <Text className="service-dialog__modal-title">
+              {serviceForm.name ? `Service: ${serviceForm.name}` : "Service: New service"}
+            </Text>
+          </Stack>
         }
+        overlayProps={{ blur: 6, backgroundOpacity: 0.35 }}
       >
-        <ConfigurationScope
-          busy={Boolean(busyAction)}
-          onEdit={(form) => unsavedForm.current.mark(form)}
-        >
-          <form id="vendor-service-editor" noValidate onSubmit={handleSaveService}>
-            <FieldGroup>
-              {error ? (
-                <OperationAlert color="red" title="Unable to save">
-                  {error}
-                </OperationAlert>
-              ) : null}
-              <ServiceEditorTabs bookingEnabled={bookingSettingsAllowed} busy={Boolean(busyAction)}
-                general={<FieldGroup>                <ConfigurationSection
-                  title="Service details"
-                  description=""
-                >
-                  <ConfigurationFile
+        <form className="task-modal-form" onSubmit={handleSaveService}>
+          <Stack className="task-modal-form__main" gap="lg">
+            <Group justify="space-between" align="flex-start" className="service-dialog__header">
+              <div>
+                <Text c="dimmed" size="sm">
+                  Configure booking details, pricing, and the service&apos;s availability state.
+                </Text>
+              </div>
+              <Badge variant="light" color="orange">
+                Vendor admin
+              </Badge>
+            </Group>
+
+            <SimpleGrid cols={{ base: 1, lg: 2 }} spacing="md">
+              <Card className="service-dialog__panel" withBorder radius="xl" p="md">
+                <Stack gap="md">
+                  <div>
+                    <Text className="service-dialog__label">Basics</Text>
+                    <Text fw={700}>Identity and timing</Text>
+                  </div>
+                  <FileInput
                     accept="image/png,image/jpeg,image/webp"
+                    clearable
                     label="Service image"
-                    placeholder={
-                      serviceForm.imageUrl
-                        ? "Replace service image"
-                        : "Upload service image"
-                    }
+                    placeholder={serviceForm.imageUrl ? "Replace service image" : "Upload service image"}
                     disabled={busyAction === "service-image-upload"}
                     onChange={(file) => uploadServiceImage(file)}
                   />
-                  {serviceForm.imageUrl ? (
-                    <img
-                      className="config-image"
-                      alt="Service preview"
-                      src={serviceForm.imageUrl}
-                    />
-                  ) : null}
-                  <ConfigurationInput
+                  <TextInput
+                    label="Service image URL"
+                    value={serviceForm.imageUrl || ""}
+                    onChange={(event) => setServiceForm((current) => ({ ...current, imageUrl: event.target.value }))}
+                  />
+                  {serviceForm.imageUrl ? <Image alt="" h={120} radius="md" src={serviceForm.imageUrl} /> : null}
+                  <TextInput
                     label="Service name"
                     required
                     value={serviceForm.name}
@@ -6751,363 +6346,273 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       setServiceForm((current) => ({
                         ...current,
                         name: nextName,
-                        slug: serviceSlugManuallyEdited
-                          ? current.slug
-                          : buildServiceSlug(nextName),
+                        slug: serviceSlugManuallyEdited ? current.slug : buildServiceSlug(nextName)
                       }));
                     }}
                   />
-                </ConfigurationSection>
-              <ConfigurationSection
-                title="Description and availability"
-                description=""
-              >
-                <ConfigurationTextarea
-                  label="Service description"
-                  description="Describe what is included in this service."
-                  value={serviceForm.description || ""}
-                  onChange={(event) =>
-                    setServiceForm((current) => ({
-                      ...current,
-                      description: event.target.value,
-                    }))
-                  }
-                />
-                <ConfigurationNumber label="Service duration (minutes)" min={5} max={480} required value={serviceForm.durationMinutes} onChange={value=>setServiceForm(current=>({...current,durationMinutes:Number(value)||30}))}/>
-                <ConfigurationCheck
-                  checked={serviceForm.isActive !== false}
-                  label="Available across the business"
-                  description="Turn off to stop new requests. Existing requests stay in your records."
-                  onChange={(event) =>
-                    setServiceForm((current) => ({
-                      ...current,
-                      isActive: event.currentTarget.checked,
-                    }))
-                  }
-                />
-              </ConfigurationSection>{bookingSettingsAllowed && <ConfigurationSection title="Price and payment" description="Base service price; resource booking amounts are confirmed by the vendor.">                  <ConfigurationNumber
-                    step={0.01}
-                    label={
-                      serviceForm.allowBookingQuantity
-                        ? "Price per unit (PHP)"
-                        : "Service price (PHP)"
-                    }
-                    min={0}
-                    value={(serviceForm.priceAmountCents || 0) / 100}
-                    onChange={(value) =>
-                      setServiceForm((current) => ({
-                        ...current,
-                        priceAmountCents: Math.max(
-                          0,
-                          Math.round((Number(value) || 0) * 100),
-                        ),
-                      }))
-                    }
-                  />
-                  {bookingSettingsAllowed && <ConfigurationCheck
-                    checked={serviceForm.manualPaymentRequired === true}
-                    label="Require proof of payment"
-                    description="Customers pay separately, then submit a receipt and payment reference. Review their payment before confirming the booking."
-                    onChange={(event) =>
-                      setServiceForm((current) => ({
-                        ...current,
-                        manualPaymentRequired: event.currentTarget.checked,
-                      }))
-                    }
-                  />
-                  }
-</ConfigurationSection>}</FieldGroup>}
-                advanced={<FieldGroup><ConfigurationSection title="Advanced details" description="Optional link, image and display settings.">                  <ConfigurationInput
-                    label="Image link (optional)"
-                    description="Paste an image link, or upload an image above."
-                    value={serviceForm.imageUrl || ""}
-                    onChange={(event) =>
-                      setServiceForm((current) => ({
-                        ...current,
-                        imageUrl: event.target.value,
-                      }))
-                    }
-                  />
-                  <ConfigurationInput
-                    data-service-field="slug"
-                    label="Service link name"
-                    description={
-                      checkingServiceSlug
-                        ? "Checking link availability..."
-                        : serviceSlugMessage ||
-                          "Used in this service’s link. Created from the service name; changing it changes the link."
-                    }
+                  <TextInput
+                    label="Slug"
+                    description={checkingServiceSlug ? "Checking slug availability..." : serviceSlugMessage}
                     error={
-                      !checkingServiceSlug &&
-                      !serviceSlugAvailable &&
-                      serviceForm.slug &&
-                      serviceSlugMessage
-                        ? serviceSlugMessage
+                      !serviceSlugAvailable && serviceForm.slug
+                        ? serviceSlugMessage || "That service slug is already taken for this vendor."
                         : undefined
                     }
                     value={serviceForm.slug || ""}
                     onChange={(event) => {
                       setServiceSlugManuallyEdited(true);
-                      setServiceForm((current) => ({
-                        ...current,
-                        slug: buildServiceSlug(event.target.value),
-                      }));
+                      setServiceForm((current) => ({ ...current, slug: buildServiceSlug(event.target.value) }));
                     }}
                   />
-                  <ConfigurationNumber
-                    label="List order"
-                    description="Lower numbers appear first in your service list."
-                    value={serviceForm.sortOrder || 0}
+                  <NumberInput
+                    label="Duration"
+                    min={5}
+                    max={480}
+                    required
+                    suffix=" min"
+                    value={serviceForm.durationMinutes}
                     onChange={(value) =>
                       setServiceForm((current) => ({
                         ...current,
-                        sortOrder: Number(value) || 0,
+                        durationMinutes: Number(value) || 30
                       }))
                     }
                   />
-                  {bookingSettingsAllowed && <ConfigurationInput
-                    label="Price text shown to customers (optional)"
-                    description="Use custom text instead of the formatted price. The booking total uses the price above, or the branch price below."
-                    placeholder="For example, PHP 500 per session"
+                  <NumberInput
+                    label="Display order"
+                    value={serviceForm.sortOrder || 0}
+                    onChange={(value) =>
+                      setServiceForm((current) => ({ ...current, sortOrder: Number(value) || 0 }))
+                    }
+                  />
+                </Stack>
+              </Card>
+
+              <Card className="service-dialog__panel" withBorder radius="xl" p="md">
+                <Stack gap="md">
+                  <div>
+                    <Text className="service-dialog__label">Pricing</Text>
+                    <Text fw={700}>Payment and display rules</Text>
+                  </div>
+                  <NumberInput
+                    decimalScale={2}
+                    fixedDecimalScale
+                    label="Price"
+                    min={0}
+                    prefix="PHP "
+                    value={(serviceForm.priceAmountCents || 0) / 100}
+                    onChange={(value) =>
+                      setServiceForm((current) => ({
+                        ...current,
+                        priceAmountCents: Math.max(0, Math.round((Number(value) || 0) * 100))
+                      }))
+                    }
+                  />
+                  <TextInput
+                    label="Price display override"
+                    placeholder="Leave blank to auto-format"
                     value={serviceForm.priceDisplay || ""}
+                    onChange={(event) =>
+                      setServiceForm((current) => ({ ...current, priceDisplay: event.target.value }))
+                    }
+                  />
+                  <Switch
+                    checked={serviceForm.manualPaymentRequired === true}
+                    label="Require manual payment"
+                    description="Customers must submit payment reference and proof before vendor confirmation."
                     onChange={(event) =>
                       setServiceForm((current) => ({
                         ...current,
-                        priceDisplay: event.target.value,
+                        manualPaymentRequired: event.currentTarget.checked
                       }))
                     }
                   />
-                  }
-</ConfigurationSection></FieldGroup>}
-                booking={<FieldGroup><p className="ops-muted">Resource bookings use the duration and resource choices set for each location.</p><details data-service-advanced open={!resourceOnly}><summary>Duration and booking limits</summary><FieldSet className="config-section"><FieldLegend className="v:sr-only">Duration and booking limits</FieldLegend><FieldGroup>
-                  <ConfigurationCheck
+                  <Switch
                     checked={serviceForm.allowBookingQuantity === true}
-                    label="Allow quantity input"
-                    description={`Let customers choose a quantity. Each unit adds ${serviceForm.durationMinutes} minutes and the unit price to the booking. A quantity of 2 doubles the time and price.`}
-                    onChange={(event) => {
-                      const enabled = event.currentTarget.checked;
+                    label="Allow units"
+                    onChange={(event) =>
                       setServiceForm((current) => ({
                         ...current,
-                        ...quantityInputChanges(
-                          {
-                            bookingQuantityLabel:
-                              current.bookingQuantityLabel || "Units",
-                          },
-                          enabled,
-                        ),
-                      }));
-                    }}
+                        allowBookingQuantity: event.currentTarget.checked,
+                        bookingQuantityLabel: event.currentTarget.checked
+                          ? current.bookingQuantityLabel || "Units"
+                          : current.bookingQuantityLabel
+                      }))
+                    }
                   />
                   {serviceForm.allowBookingQuantity ? (
-                    <div data-service-field="quantity"><DurationUnitControls
-                      durationMinutes={serviceForm.durationMinutes}
-                      value={serviceForm}
-                      onChange={(changes) =>
-                        setServiceForm((current) => ({ ...current, ...changes }))
+                    <TextInput
+                      label="Unit label"
+                      maxLength={40}
+                      required
+                      value={serviceForm.bookingQuantityLabel || "Units"}
+                      onChange={(event) =>
+                        setServiceForm((current) => ({
+                          ...current,
+                          bookingQuantityLabel: event.target.value
+                        }))
                       }
-                    /></div>
+                    />
                   ) : null}
-                  <ConfigurationSelect
+                  <Select
+                    allowDeselect={false}
                     data={[
                       {
                         value: "service",
-                        label: "Only this service",
+                        label: "Same service only"
                       },
                       {
                         value: "location",
-                        label: "All services at the branch",
-                      },
+                        label: "All services at this branch"
+                      }
                     ]}
-                    label="Booking limit applies to"
-                    description="For ordinary bookings only. Resource bookings use their location pool capacity and queue duration policy."
+                    label="Booking capacity"
+                    description="Controls whether overlapping bookings from other services can consume this service's slot capacity."
                     value={serviceForm.bookingCapacityScope || "service"}
                     onChange={(value) =>
                       setServiceForm((current) => ({
                         ...current,
-                        bookingCapacityScope:
-                          value === "location" ? "location" : "service",
+                        bookingCapacityScope: value === "location" ? "location" : "service"
                       }))
                     }
                   />
-                </FieldGroup></FieldSet></details></FieldGroup>}
-                locations={<ConfigurationSection title="Locations offering this service" description="">
+                  <Divider />
                   <div>
-                    <p className="ops-muted">
-                      Turn on each location where this service is offered. The service duration applies to its queue entry.
-                    </p>
+                    <Text fw={700}>Branch inventory</Text>
+                    <Text c="dimmed" size="sm">
+                      Set the number of courts or slots this service has at each location.
+                    </Text>
                   </div>
-                  {bookingSettingsAllowed && <OperationQueryState loading={bookingConfigurationQuery.isPending} error={bookingConfigurationQuery.error} onRetry={()=>void bookingConfigurationQuery.refetch()}/>}
-                  {bookingSettingsAllowed && (bookingConfigurationQuery.data?.locations||[]).filter(item=>item.serviceId===editingServiceId).map(item=><OperationAlert key={item.locationSlug} color={item.ready?'blue':'yellow'} title={locations.find(location=>location.slug===item.locationSlug)?.name||item.locationSlug}>
-                    {item.capabilityEnabled?(item.ready?`Resource bookings use ${item.assignment==='named'?'selected named resources':'pool quantities'} and the existing location duration policy. Pool capacity controls simultaneous bookings.`:'Resource bookings need setup before they can be offered.'):'Resource booking configuration is prepared; the new booking flow is not enabled.'}
-                    {item.duration?` Default duration: ${item.duration.defaultCount} × ${item.duration.baseMinutes} minutes.`:''}
-                    <OperationButton variant="outline" onClick={()=>openServiceResourceSettings(item.locationSlug,'policy')}>Open queue policies</OperationButton>
-                    <OperationButton variant="outline" onClick={()=>openServiceResourceSettings(item.locationSlug,'resources')}>Open resource pools</OperationButton>
-                  </OperationAlert>)}
-                  {(serviceForm.locationServices || []).map(
-                    (assignment, index) => (
-                      <FieldGroup
-                        className="config-branch-assignment"
-                        key={assignment.locationSlug}
-                      >
-                        <ConfigurationCheck
-                          label={
-                            locations.find(
-                              (location) =>
-                                location.slug === assignment.locationSlug,
-                            )?.name || assignment.locationSlug
-                          }
-                          checked={assignment.isActive !== false}
-                          onChange={(event) => {
-                            const isActive = event.currentTarget.checked;
-                            setServiceForm((current) => ({
-                              ...current,
-                              locationServices: current.locationServices?.map(
-                                (entry, entryIndex) =>
-                                  entryIndex === index
-                                    ? { ...entry, isActive }
-                                    : entry,
-                              ),
-                            }));
-                          }}
-                        />
-                        {bookingSettingsAllowed && (!bookingConfigurationReady?<p className="ops-muted">Booking configuration is unavailable until location settings finish loading. Retry above to review limits.</p>:resourceSettings.some(setting=>setting.locationSlug===assignment.locationSlug&&setting.capabilityEnabled&&setting.ready)?<p className="ops-muted">Pool capacity controls resource bookings at this location.</p>:<>                        <ConfigurationNumber
-                          label={`${locations.find((location) => location.slug === assignment.locationSlug)?.name || assignment.locationSlug} bookings allowed at the same time`}
-                          description="Counts service bookings, rather than the number of guests."
-                          min={1}
-                          max={100}
-                          disabled={assignment.isActive === false}
-                          value={assignment.capacity}
-                          onChange={(value) =>
-                            setServiceForm((current) => ({
-                              ...current,
-                              locationServices: current.locationServices?.map(
-                                (entry, entryIndex) =>
-                                  entryIndex === index
-                                    ? { ...entry, capacity: Number(value) || 1 }
-                                    : entry,
-                              ),
-                            }))
-                          }
-                        />
-                        </>)}
-                        {bookingSettingsAllowed && <><ConfigurationNumber
-                          step={0.01}
-                          label="Price at this branch (PHP, optional)"
-                          description="Leave blank to use the service price above."
-                          min={0}
-                          disabled={assignment.isActive === false}
-                          value={
-                            assignment.priceAmountCents == null
-                              ? ""
-                              : assignment.priceAmountCents / 100
-                          }
-                          onChange={(value) =>
-                            setServiceForm((current) => ({
-                              ...current,
-                              locationServices: current.locationServices?.map(
-                                (entry, entryIndex) =>
-                                  entryIndex === index
-                                    ? {
-                                        ...entry,
-                                        priceAmountCents:
-                                          value === ""
-                                            ? null
-                                            : Math.max(
-                                                0,
-                                                Math.round(
-                                                  (Number(value) || 0) * 100,
-                                                ),
-                                              ),
-                                      }
-                                    : entry,
-                              ),
-                            }))
-                          }
-                        />
-                        <details data-service-advanced><summary>Advanced price display</summary>                        <ConfigurationInput
-                          label="Price text for this branch (optional)"
-                          description="Custom text shown to customers at this branch. It does not change the amount charged."
-                          disabled={assignment.isActive === false}
-                          value={assignment.priceDisplay || ""}
-                          onChange={(event) => {
-                            const priceDisplay = event.currentTarget.value;
-                            setServiceForm((current) => ({
-                              ...current,
-                              locationServices: current.locationServices?.map(
-                                (entry, entryIndex) =>
-                                  entryIndex === index
-                                    ? { ...entry, priceDisplay }
-                                    : entry,
-                              ),
-                            }));
-                          }}
-                        />
-</details></>}
-                      </FieldGroup>
-                    ),
-                  )}
-                  <p className="ops-muted">
-                    {bookingSettingsAllowed ? "For ordinary bookings, a higher weekly or special-date limit still applies. Resource bookings always follow pool capacity; operating hours and exceptions apply to both." : "Queue requests use the resources and duration set in Queue policy. Make sure each service fits within this location’s operating hours."}
-                  </p>
-</ConfigurationSection>}
-              />
-            </FieldGroup>
-          </form>
-        </ConfigurationScope>
-      </EditorSurface>
+                  <Stack gap="sm">
+                    {locations.length ? locations.map((location) => {
+                      const nextEntry = serviceForm.locationServices?.find((entry) => entry.locationSlug === location.slug);
+                      const branchEnabled = nextEntry?.isActive !== false;
+                      return (
+                        <Card key={location.slug} withBorder radius="md" p="sm" className="service-dialog__panel">
+                          <Stack gap="xs">
+                            <Group justify="space-between" align="center">
+                              <Text fw={600}>{location.name}</Text>
+                              <Badge variant="light">{location.slug}</Badge>
+                            </Group>
+                            <NumberInput
+                              label="Capacity"
+                              min={1}
+                              max={100}
+                              value={nextEntry?.capacity || 1}
+                              onChange={(value) =>
+                                updateServiceLocationEntry(location.slug, (entry) => ({
+                                  ...entry,
+                                  capacity: Number(value) || 1
+                                }))
+                              }
+                            />
+                            <Switch
+                              checked={branchEnabled}
+                              label="Available at this branch"
+                              onChange={(event) =>
+                                updateServiceLocationEntry(location.slug, (entry) => ({
+                                  ...entry,
+                                  isActive: event.currentTarget.checked
+                                }))
+                              }
+                            />
+                          </Stack>
+                        </Card>
+                      );
+                    }) : (
+                      <Alert color="yellow">Add locations before assigning branch inventory.</Alert>
+                    )}
+                  </Stack>
+                </Stack>
+              </Card>
+            </SimpleGrid>
+
+            <Card className="service-dialog__panel" withBorder radius="xl" p="md">
+              <Stack gap="md">
+                <div>
+                  <Text className="service-dialog__label">Notes</Text>
+                  <Text fw={700}>Description and activation</Text>
+                </div>
+                <Textarea
+                  autosize
+                  label="Description"
+                  minRows={4}
+                  value={serviceForm.description || ""}
+                  onChange={(event) =>
+                    setServiceForm((current) => ({ ...current, description: event.target.value }))
+                  }
+                />
+                <Switch
+                  checked={serviceForm.isActive !== false}
+                  label="Active service"
+                  onChange={(event) =>
+                    setServiceForm((current) => ({ ...current, isActive: event.currentTarget.checked }))
+                  }
+                />
+              </Stack>
+            </Card>
+
+          </Stack>
+          <Group justify="space-between" align="center" className="service-dialog__footer">
+              <Text c="dimmed" size="sm">
+                {editingServiceSlug
+                  ? "Update this service and keep the catalog ready for booking flows."
+                  : "Create the service before exposing it to customers and queue scheduling."}
+              </Text>
+              <Group gap="sm">
+                <Button variant="default" onClick={() => setServiceDialogOpen(false)}>
+                  Cancel
+                </Button>
+                <Button className="neura-primary-button" disabled={busyAction === "service-save"} type="submit">
+                  {busyAction === "service-save" ? "Saving..." : "Save service"}
+                </Button>
+              </Group>
+          </Group>
+        </form>
+      </Modal>
     );
   }
 
   function renderAvailabilityBlockDialog() {
-    const close = () => {
-      if (canLeaveFeature()) {
-        unsavedForm.current.discardId("vendor-weekly-editor");
-        setAvailabilityBlockDialogOpen(false);
-      }
-    };
     return (
-      <TaskDialog
+      <Modal
+        centered
         opened={availabilityBlockDialogOpen}
-        onClose={close}
-        busy={Boolean(busyAction)}
-        eyebrow="WEEKLY AVAILABILITY"
-        title={`${editingAvailabilityBlockId ? "Edit" : "Add"} weekly rule`}
-        description="Set weekly booking times within the selected branch’s business hours."
-        footer={
-          <>
-            <OperationButton
-              variant="outline"
-              className="ops-redundant-dismiss"
-              disabled={Boolean(busyAction)}
-              onClick={close}
-            >
-              Cancel
-            </OperationButton>
-            <OperationButton
-              type="submit"
-              form="vendor-weekly-editor"
-              disabled={Boolean(busyAction)}
-              aria-busy={Boolean(busyAction)}
-            >
-              {busyAction ? "Working…" : "Save weekly rule"}
-            </OperationButton>
-          </>
+        onClose={() => setAvailabilityBlockDialogOpen(false)}
+        size="xl"
+        title={
+          <Stack gap={2}>
+            <Text className="service-dialog__modal-eyebrow">WEEKLY AVAILABILITY</Text>
+            <Text className="service-dialog__modal-title">
+              {availabilityBlockForm.weekday
+                ? `Rule: ${weekdayOptions.find((day) => day.value === String(availabilityBlockForm.weekday))?.label || "New rule"}`
+                : "Rule: New availability"}
+            </Text>
+          </Stack>
         }
+        overlayProps={{ blur: 6, backgroundOpacity: 0.35 }}
       >
-        <ConfigurationScope
-          busy={Boolean(busyAction)}
-          onEdit={(form) => unsavedForm.current.mark(form)}
-        >
-          <form id="vendor-weekly-editor" onSubmit={handleSaveAvailabilityBlock}>
-            <FieldGroup>
-              {error ? (
-                <OperationAlert color="red" title="Unable to save">
-                  {error}
-                </OperationAlert>
-              ) : null}
-              <FieldGroup className="config-related-fields">
-                <ConfigurationSection title="Day and time range" description="">
-                  <ConfigurationSelect
+        <form className="task-modal-form" onSubmit={handleSaveAvailabilityBlock}>
+          <Stack className="task-modal-form__main" gap="lg">
+            <Group justify="space-between" align="flex-start" className="service-dialog__header">
+              <div>
+                <Text c="dimmed" size="sm">
+                  Define recurring weekly hours for a location, with optional service scoping and notes.
+                </Text>
+              </div>
+              <Badge variant="light" color="orange">
+                Vendor admin
+              </Badge>
+            </Group>
+
+            <SimpleGrid cols={{ base: 1, lg: 2 }} spacing="md">
+              <Card className="service-dialog__panel" withBorder radius="xl" p="md">
+                <Stack gap="md">
+                  <div>
+                    <Text className="service-dialog__label">Schedule</Text>
+                    <Text fw={700}>Day and time range</Text>
+                  </div>
+                  <Select
                     data={weekdayOptions}
                     label="Day"
                     required
@@ -7121,1086 +6626,1183 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                         return {
                           ...current,
                           weekday,
-                          ...getWeeklyAvailabilityDefaults(
-                            availabilityBlockLocation?.hours || [],
-                            weekday,
-                          ),
+                          ...getWeeklyAvailabilityDefaults(selectedLocation?.hours || [], weekday)
                         };
                       });
                     }}
                   />
-                  <FieldGroup className="config-related-fields">
-                    <ConfigurationInput
+                  <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
+                    <TextInput
                       label="Starts"
                       required
                       type="time"
                       value={availabilityBlockForm.startsAt}
                       onChange={(event) =>
-                        setAvailabilityBlockForm((current) => ({
-                          ...current,
-                          startsAt: event.target.value,
-                        }))
+                        setAvailabilityBlockForm((current) => ({ ...current, startsAt: event.target.value }))
                       }
                     />
-                    <ConfigurationInput
+                    <TextInput
                       label="Ends"
                       required
                       type="time"
                       value={availabilityBlockForm.endsAt}
                       onChange={(event) =>
-                        setAvailabilityBlockForm((current) => ({
-                          ...current,
-                          endsAt: event.target.value,
-                        }))
+                        setAvailabilityBlockForm((current) => ({ ...current, endsAt: event.target.value }))
                       }
                     />
-                  </FieldGroup>
-                  <ConfigurationCheck
+                  </SimpleGrid>
+                  <Checkbox
                     label="Ends next day"
                     checked={availabilityBlockForm.endsNextDay === true}
                     onChange={(event) =>
-                      setAvailabilityBlockForm((current) => ({
-                        ...current,
-                        endsNextDay: event.currentTarget.checked,
-                      }))
+                      setAvailabilityBlockForm((current) => ({ ...current, endsNextDay: event.currentTarget.checked }))
                     }
                   />
-                  <p className="ops-muted">
-                    {formatPreviewHourRange(
-                      availabilityBlockLocation,
-                      availabilityBlockForm.weekday,
-                    )}
-                    . Weekly availability must stay within these business hours.
-                  </p>
-                  <ConfigurationNumber
-                    label="Simultaneous booking capacity"
-                    description="An all-services rule shares one limit across this branch. A service-specific rule counts that service’s bookings; its branch setting can raise the limit."
+                  <Text c="dimmed" size="xs">
+                    {formatPreviewHourRange(availabilityBlockLocation, availabilityBlockForm.weekday)}. Weekly availability must stay within these business hours.
+                  </Text>
+                  <NumberInput
+                    label="Capacity"
                     min={1}
                     max={100}
                     value={availabilityBlockForm.capacity}
                     onChange={(value) =>
-                      setAvailabilityBlockForm((current) => ({
-                        ...current,
-                        capacity: Number(value) || 1,
-                      }))
+                      setAvailabilityBlockForm((current) => ({ ...current, capacity: Number(value) || 1 }))
                     }
                   />
-                </ConfigurationSection>
+                </Stack>
+              </Card>
 
-                <ConfigurationSection
-                  title="Where this schedule applies"
-                  description=""
-                >
-                  <ConfigurationSelect
+              <Card className="service-dialog__panel" withBorder radius="xl" p="md">
+                <Stack gap="md">
+                  <div>
+                    <Text className="service-dialog__label">Scope</Text>
+                    <Text fw={700}>Service and state</Text>
+                  </div>
+                  <Select
+                    allowDeselect={false}
                     data={locationOptions}
                     description="This weekly rule applies only to the selected branch."
                     label="Branch"
                     required
-                    value={
-                      availabilityBlockForm.locationSlug || selectedLocationSlug
-                    }
+                    searchable
+                    value={availabilityBlockForm.locationSlug || selectedLocationSlug}
                     onChange={(value) => {
                       if (!value) {
                         return;
                       }
-                      const nextLocation = locations.find(
-                        (locationItem) => locationItem.slug === value,
-                      );
+                      const nextLocation = locations.find((locationItem) => locationItem.slug === value);
                       setAvailabilityBlockForm((current) => ({
                         ...current,
                         locationSlug: value,
                         ...(!editingAvailabilityBlockId
-                          ? getWeeklyAvailabilityDefaults(
-                              nextLocation?.hours || [],
-                              current.weekday,
-                            )
-                          : {}),
+                          ? getWeeklyAvailabilityDefaults(nextLocation?.hours || [], current.weekday)
+                          : {})
                       }));
                     }}
                   />
-                  <ConfigurationSelect
-                    data={weeklyServiceOptions.map((option) => ({
-                      ...option,
-                      value: option.value || "__all__",
-                    }))}
-                    label="Applies to"
-                    description="All services share one branch limit. Select a service to apply the schedule only to it."
-                    value={availabilityBlockForm.serviceSlug || "__all__"}
+                  <Select
+                    data={serviceOptions}
+                    label="Service"
+                    value={availabilityBlockForm.serviceSlug || ""}
                     onChange={(value) =>
-                      setAvailabilityBlockForm((current) => ({
-                        ...current,
-                        serviceSlug: value === "__all__" ? "" : value || "",
-                      }))
+                      setAvailabilityBlockForm((current) => ({ ...current, serviceSlug: value || "" }))
                     }
                   />
-                  <ConfigurationCheck
+                  <Switch
                     checked={availabilityBlockForm.isActive !== false}
-                    label="Use this weekly schedule"
-                    description="When off, this rule is ignored. If no weekly rules are enabled, bookings use business hours with the current fallback capacity."
+                    label="Active weekly rule"
                     onChange={(event) =>
                       setAvailabilityBlockForm((current) => ({
                         ...current,
-                        isActive: event.currentTarget.checked,
+                        isActive: event.currentTarget.checked
                       }))
                     }
                   />
-                </ConfigurationSection>
-              </FieldGroup>
+                </Stack>
+              </Card>
+            </SimpleGrid>
 
-              <ConfigurationSection title="Internal guidance" description="">
-                <ConfigurationTextarea
+            <Card className="service-dialog__panel" withBorder radius="xl" p="md">
+              <Stack gap="md">
+                <div>
+                  <Text className="service-dialog__label">Notes</Text>
+                  <Text fw={700}>Internal guidance</Text>
+                </div>
+                <Textarea
+                  autosize
                   label="Notes"
+                  minRows={3}
                   value={availabilityBlockForm.notes || ""}
                   onChange={(event) =>
-                    setAvailabilityBlockForm((current) => ({
-                      ...current,
-                      notes: event.target.value,
-                    }))
+                    setAvailabilityBlockForm((current) => ({ ...current, notes: event.target.value }))
                   }
                 />
-              </ConfigurationSection>
-            </FieldGroup>
-          </form>
-        </ConfigurationScope>
-      </TaskDialog>
+              </Stack>
+            </Card>
+
+          </Stack>
+          <Group justify="space-between" align="center" className="service-dialog__footer">
+              <Text c="dimmed" size="sm">
+                {editingAvailabilityBlockId
+                  ? "Update the weekly rule and keep the schedule aligned with the current location."
+                  : "Create the rule before exposing it in the weekly availability table."}
+              </Text>
+              <Group gap="sm">
+                <Button variant="default" onClick={() => setAvailabilityBlockDialogOpen(false)}>
+                  Cancel
+                </Button>
+                <Button className="neura-primary-button" disabled={busyAction === "availability-block-save"} type="submit">
+                  {busyAction === "availability-block-save" ? "Saving..." : "Save availability"}
+                </Button>
+              </Group>
+          </Group>
+        </form>
+      </Modal>
     );
   }
 
   function renderAvailabilityExceptionDialog() {
-    const close = () => {
-      if (canLeaveFeature()) {
-        unsavedForm.current.discardId("vendor-exception-editor");
-        setAvailabilityExceptionDialogOpen(false);
-      }
-    };
     return (
-      <TaskDialog
+      <Modal
+        centered
         opened={availabilityExceptionDialogOpen}
-        onClose={close}
-        busy={Boolean(busyAction)}
-        eyebrow="DATE EXCEPTION"
-        title={`${editingAvailabilityExceptionId ? "Edit" : "Add"} date exception`}
-        description="Change booking availability for one date at the selected branch. Existing bookings remain in your records."
-        footer={
-          <>
-            <OperationButton
-              variant="outline"
-              className="ops-redundant-dismiss"
-              disabled={Boolean(busyAction)}
-              onClick={close}
-            >
-              Cancel
-            </OperationButton>
-            <OperationButton
-              type="submit"
-              form="vendor-exception-editor"
-              disabled={Boolean(busyAction)}
-              aria-busy={Boolean(busyAction)}
-            >
-              {busyAction ? "Working…" : "Save exception"}
-            </OperationButton>
-          </>
+        onClose={() => setAvailabilityExceptionDialogOpen(false)}
+        size="xl"
+        title={
+          <Stack gap={2}>
+            <Text className="service-dialog__modal-eyebrow">DATE EXCEPTION</Text>
+            <Text className="service-dialog__modal-title">
+              {availabilityExceptionForm.exceptionDate
+                ? `Exception: ${formatDate(availabilityExceptionForm.exceptionDate)}`
+                : "Exception: New exception"}
+            </Text>
+          </Stack>
         }
+        overlayProps={{ blur: 6, backgroundOpacity: 0.35 }}
       >
-        <ConfigurationScope
-          busy={Boolean(busyAction)}
-          onEdit={(form) => unsavedForm.current.mark(form)}
-        >
-          <form
-            id="vendor-exception-editor"
-            onSubmit={handleSaveAvailabilityException}
-          >
-            <FieldGroup>
-              {error ? (
-                <OperationAlert color="red" title="Unable to save">
-                  {error}
-                </OperationAlert>
-              ) : null}
-              <FieldGroup className="config-related-fields">
-                <ConfigurationSection title="Date and timing" description="">
-                  <ConfigurationInput
+        <form className="task-modal-form" onSubmit={handleSaveAvailabilityException}>
+          <Stack className="task-modal-form__main" gap="lg">
+            <Group justify="space-between" align="flex-start" className="service-dialog__header">
+              <div>
+                <Text c="dimmed" size="sm">
+                  Override recurring availability for a specific date with optional time and capacity changes.
+                </Text>
+              </div>
+              <Badge variant="light" color="orange">
+                Vendor admin
+              </Badge>
+            </Group>
+
+            <SimpleGrid cols={{ base: 1, lg: 2 }} spacing="md">
+              <Card className="service-dialog__panel" withBorder radius="xl" p="md">
+                <Stack gap="md">
+                  <div>
+                    <Text className="service-dialog__label">Schedule</Text>
+                    <Text fw={700}>Date and timing</Text>
+                  </div>
+                  <DatePickerInput
                     label="Date"
-                    type="date"
+                    clearable={false}
+                    leftSection={<IconCalendar size={16} />}
+                    placeholder="Select date"
                     required
-                    value={availabilityExceptionForm.exceptionDate || ""}
-                    onChange={(event) =>
+                    value={availabilityExceptionForm.exceptionDate || null}
+                    onChange={(value) =>
                       setAvailabilityExceptionForm((current) => ({
                         ...current,
-                        exceptionDate: event.currentTarget.value,
+                        exceptionDate: value || ""
                       }))
                     }
                   />
-                  <ConfigurationCheck
+                  <Checkbox
                     checked={availabilityExceptionBlockEntireDay}
-                    label="Block the whole day"
-                    description="Block every service and time on this date."
+                    label={
+                      <Group gap={6} align="center" wrap="nowrap">
+                        <Text span size="sm">
+                          Block entire day
+                        </Text>
+                        <Tooltip label="Marks the selected date as unavailable for every service and time slot." withArrow>
+                          <ActionIcon aria-label="Block entire day help" variant="subtle">
+                            <IconInfoCircle size={16} />
+                          </ActionIcon>
+                        </Tooltip>
+                      </Group>
+                    }
                     onChange={(event) =>
-                      setAvailabilityExceptionBlockEntireDay(
-                        event.currentTarget.checked,
-                      )
+                      setAvailabilityExceptionBlockEntireDay(event.currentTarget.checked)
                     }
                   />
-                  <FieldGroup className="config-related-fields">
+                  <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
                     <div>
-                      <ConfigurationInput
+                      <TextInput
                         label="Starts"
                         type="time"
-                        required={
-                          !availabilityExceptionBlockEntireDay &&
-                          Boolean(availabilityExceptionForm.endsAt)
-                        }
                         disabled={availabilityExceptionBlockEntireDay}
                         value={availabilityExceptionForm.startsAt || ""}
                         onChange={(event) =>
-                          setAvailabilityExceptionForm((current) => ({
-                            ...current,
-                            startsAt: event.target.value,
-                          }))
+                          setAvailabilityExceptionForm((current) => ({ ...current, startsAt: event.target.value }))
                         }
                       />
                     </div>
                     <div>
-                      <ConfigurationInput
+                      <TextInput
                         label="Ends"
                         type="time"
-                        required={
-                          !availabilityExceptionBlockEntireDay &&
-                          Boolean(availabilityExceptionForm.startsAt)
-                        }
                         disabled={availabilityExceptionBlockEntireDay}
                         value={availabilityExceptionForm.endsAt || ""}
                         onChange={(event) =>
-                          setAvailabilityExceptionForm((current) => ({
-                            ...current,
-                            endsAt: event.target.value,
-                          }))
+                          setAvailabilityExceptionForm((current) => ({ ...current, endsAt: event.target.value }))
                         }
                       />
                     </div>
-                  </FieldGroup>
-                  <ConfigurationNumber
-                    label="Bookings allowed at the same time (optional)"
-                    description="Leave blank to keep the usual booking limit."
+                  </SimpleGrid>
+                  <NumberInput
+                    label="Capacity override"
                     min={1}
                     max={100}
-                    value={availabilityExceptionForm.capacity ?? ""}
+                    labelProps={{
+                      children: (
+                        <Group gap={6} wrap="nowrap">
+                          <span>Capacity override</span>
+                          <Tooltip label="Overrides the normal capacity for this date or time window." withArrow>
+                            <ActionIcon aria-label="Capacity override help" variant="subtle">
+                              <IconInfoCircle size={16} />
+                            </ActionIcon>
+                          </Tooltip>
+                        </Group>
+                      )
+                    }}
+                    value={availabilityExceptionForm.capacity ?? undefined}
                     onChange={(value) =>
                       setAvailabilityExceptionForm((current) => ({
                         ...current,
-                        capacity:
-                          value === "" || value === null ? null : Number(value),
+                        capacity: value === "" || value === null ? null : Number(value)
                       }))
                     }
                   />
-                </ConfigurationSection>
+                </Stack>
+              </Card>
 
-                <ConfigurationSection
-                  title="Service and availability"
-                  description=""
-                >
-                  <ConfigurationSelect
-                    data={exceptionServiceOptions.map((option) => ({
-                      ...option,
-                      value: option.value || "__all__",
-                    }))}
-                    label="Applies to"
-                    disabled={availabilityExceptionBlockEntireDay}
-                    value={
-                      availabilityExceptionBlockEntireDay
-                        ? "__all__"
-                        : availabilityExceptionForm.serviceSlug || "__all__"
-                    }
+              <Card className="service-dialog__panel" withBorder radius="xl" p="md">
+                <Stack gap="md">
+                  <div>
+                    <Text className="service-dialog__label">Scope</Text>
+                    <Text fw={700}>Service and availability</Text>
+                  </div>
+                  <Select
+                    data={serviceOptions}
+                    label="Service"
+                    value={availabilityExceptionForm.serviceSlug || ""}
                     onChange={(value) =>
-                      setAvailabilityExceptionForm((current) => ({
-                        ...current,
-                        serviceSlug: value === "__all__" ? "" : value || "",
-                      }))
+                      setAvailabilityExceptionForm((current) => ({ ...current, serviceSlug: value || "" }))
                     }
                   />
-                  <QueueSeparator />
-                  <p className="ops-muted">
-                    Choose whether this exception blocks availability or opens a
-                    specific date for booking.
-                  </p>
-                  <ConfigurationCheck
-                    disabled={availabilityExceptionBlockEntireDay}
-                    checked={
-                      !availabilityExceptionBlockEntireDay &&
-                      availabilityExceptionForm.isAvailable
-                    }
+                  <Divider />
+                  <Text c="dimmed" size="sm">
+                    Choose whether this exception blocks availability or opens a specific date for booking.
+                  </Text>
+                  <Switch
+                    checked={availabilityExceptionForm.isAvailable}
                     label="Allow bookings on this date"
                     onChange={(event) =>
                       setAvailabilityExceptionForm((current) => ({
                         ...current,
-                        isAvailable: event.currentTarget.checked,
+                        isAvailable: event.currentTarget.checked
                       }))
                     }
                   />
-                </ConfigurationSection>
-              </FieldGroup>
+                </Stack>
+              </Card>
+            </SimpleGrid>
 
-              <ConfigurationSection title="Reason and context" description="">
-                <ConfigurationTextarea
+            <Card className="service-dialog__panel" withBorder radius="xl" p="md">
+              <Stack gap="md">
+                <div>
+                  <Text className="service-dialog__label">Notes</Text>
+                  <Text fw={700}>Reason and context</Text>
+                </div>
+                <Textarea
+                  autosize
                   label="Reason"
+                  minRows={3}
                   value={availabilityExceptionForm.reason || ""}
                   onChange={(event) =>
-                    setAvailabilityExceptionForm((current) => ({
-                      ...current,
-                      reason: event.target.value,
-                    }))
+                    setAvailabilityExceptionForm((current) => ({ ...current, reason: event.target.value }))
                   }
                 />
-              </ConfigurationSection>
-            </FieldGroup>
-          </form>
-        </ConfigurationScope>
-      </TaskDialog>
+              </Stack>
+            </Card>
+
+          </Stack>
+          <Group justify="space-between" align="center" className="service-dialog__footer">
+              <Text c="dimmed" size="sm">
+                {editingAvailabilityExceptionId
+                  ? "Update the exception and keep the date-specific availability aligned."
+                  : "Create the exception before exposing it in the availability exceptions table."}
+              </Text>
+              <Group gap="sm">
+                <Button variant="default" onClick={() => setAvailabilityExceptionDialogOpen(false)}>
+                  Cancel
+                </Button>
+                <Button className="neura-primary-button" disabled={busyAction === "availability-exception-save"} type="submit">
+                  {busyAction === "availability-exception-save" ? "Saving..." : "Save exception"}
+                </Button>
+              </Group>
+          </Group>
+        </form>
+      </Modal>
     );
   }
 
   function renderServicesPage() {
-    const busy = Boolean(busyAction);
-    const catalogReady = Boolean(servicesQuery.data && !servicesQuery.isError);
-    const assignmentsReady = Boolean(
-      locationServicesQuery.data && !locationServicesQuery.isError,
-    );
-    const availabilityReady = Boolean(
-      availabilityQuery.data && !availabilityQuery.isError && catalogReady,
-    );
     const activeServices = services.filter((service) => service.isActive).length;
-    const changeTab = (value: unknown) => {
-      if (value !== servicesTab && canLeaveFeature())
-        setServicesTab(value as typeof servicesTab);
-    };
-    const remove = (
-      title: string,
-      description: string,
-      confirmLabel: string,
-      onConfirm: () => Promise<void>,
-    ) =>
-      openConfirmAction({
-        title,
-        description,
-        confirmLabel,
-        confirmColor: "red",
-        onConfirm,
-      });
+
     return (
-      <ConfigurationScope
-        busy={busy}
-        onEdit={(form) => unsavedForm.current.mark(form)}
-      >
-        <div className="config-page">
-          <div className="ops-grid ops-grid-3">
-            <OperationMetric
-              label="Active business services"
-              value={catalogReady ? activeServices : "—"}
-              detail="Shared catalog; location offerings are configured separately."
-            />
-            <OperationMetric
-              label="Inactive business services"
-              value={catalogReady ? services.length - activeServices : "—"}
-              detail="Existing requests and service records are retained."
-            />
-            <OperationMetric
-              label="Availability at"
-              value={selectedLocation?.name || "Select a branch"}
-              detail={`Branch time zone: ${selectedLocation?.timezone || "not set"}.`}
-            />
-          </div>
-          <ConfigTabs value={!bookingSettingsAllowed && (servicesTab === "weekly" || servicesTab === "exceptions") ? "catalog" : servicesTab} onValueChange={changeTab}>
-            <ConfigTabsList
-              className="config-tabs-list"
-              activateOnFocus
-              aria-label="Services and availability"
-            >
-              <ConfigTabsTrigger disabled={busy} value="catalog">
-                Service catalog
-              </ConfigTabsTrigger>
-              {resourceSetupAllowed?<ConfigTabsTrigger disabled={busy} value="queue-policy">Queue policy</ConfigTabsTrigger>:null}
-              {bookingSettingsAllowed && <><ConfigTabsTrigger disabled={busy} value="weekly">
-                Weekly availability
-              </ConfigTabsTrigger>
-              <ConfigTabsTrigger disabled={busy} value="exceptions">
-                Date exceptions
-              </ConfigTabsTrigger></>}
-            </ConfigTabsList>
-            <ConfigTabsContent value="catalog" keepMounted>
-              <div className="ops-stack">
-                <OperationQueryState
-                  loading={servicesQuery.isPending}
-                  error={servicesQuery.error}
-                  onRetry={() => void servicesQuery.refetch()}
-                />
-                <OperationQueryState
-                  loading={locationServicesQuery.isPending}
-                  error={locationServicesQuery.error}
-                  onRetry={() => void locationServicesQuery.refetch()}
-                />
-                <ServiceCatalog key={`${selectedTenantSlug}:${selectedLocationSlug}`} services={servicesQuery.data?.services || []}
-                    bookingEnabled={bookingSettingsAllowed} assignments={locationServicesQuery.data?.locationServices || []} locations={locations}
-                    selectedLocationSlug={selectedLocationSlug} catalogReady={catalogReady}
-                    assignmentsLoading={locationServicesQuery.isPending}
-                    canManage={isOwner || isAdmin} busyAction={busyAction} assignmentsReady={assignmentsReady}
-                    onAdd={() => openServiceDialog()}
-                    onToggle={(service,active)=>void handleToggleServiceActive(service,active)} onEdit={openServiceDialog}
-                    onRemove={service=>remove("Remove service from all locations?", "New bookings will stop for this shared service at every location. Existing bookings and service records are retained.", "Remove from all locations", ()=>handleDeleteService(service))}/>
-              </div>
-            </ConfigTabsContent>
-            {bookingSettingsAllowed && <><ConfigTabsContent value="weekly" keepMounted>
-              <div className="ops-stack">
-                <div className="ops-list-heading">
+      <Stack gap="lg">
+        <SimpleGrid cols={{ base: 1, md: 3 }}>
+          <MetricCard
+            detail="Visible to future booking flows."
+            label="Active services"
+            value={activeServices}
+          />
+          <MetricCard
+            detail="Inactive services stay available for reporting history."
+            label="Draft or disabled"
+            value={services.length - activeServices}
+          />
+          <Card className="neura-card" padding="lg">
+            <Stack gap="md">
+              <Text className="neura-label">Catalog controls</Text>
+              <Title order={3}>Service setup</Title>
+              <Button className="neura-primary-button" onClick={() => openServiceDialog()}>
+                Add service
+              </Button>
+            </Stack>
+          </Card>
+        </SimpleGrid>
+
+        <Card className="neura-card" padding="lg">
+          <Tabs value={servicesTab} onChange={(value) => setServicesTab((value as typeof servicesTab) || "catalog")}>
+            <Tabs.List>
+              <Tabs.Tab value="catalog">Service catalog</Tabs.Tab>
+              <Tabs.Tab value="weekly">Weekly availability</Tabs.Tab>
+              <Tabs.Tab value="exceptions">Availability exceptions</Tabs.Tab>
+            </Tabs.List>
+
+            <Tabs.Panel pt="lg" value="catalog">
+              <Stack gap="md">
+                <Group justify="space-between">
                   <div>
-                    <h2>Weekly availability</h2>
-                    <p className="ops-muted">
-                      Recurring booking times for{" "}
-                      {selectedLocation?.name || "this branch"}.
-                    </p>
+                    <Text className="neura-label">Vendor Admin</Text>
+                    <Title order={3}>Service catalog</Title>
                   </div>
-                  <OperationButton
-                    disabled={!availabilityReady}
-                    onClick={() => openAvailabilityBlockDialog()}
-                  >
-                    Add weekly rule
-                  </OperationButton>
-                </div>
-                <ConfigurationSelect
-                  label="Branch"
-                  data={locationOptions}
-                  value={selectedLocationSlug}
-                  onChange={(value) =>
-                    value && selectConfigurationLocation(value)
-                  }
-                />
-                <OperationQueryState
-                  loading={availabilityQuery.isPending || servicesQuery.isPending}
-                  error={availabilityQuery.error || servicesQuery.error}
-                  onRetry={() => {
-                    void availabilityQuery.refetch();
-                    void servicesQuery.refetch();
-                  }}
-                />
-                {availabilityReady ? (
-                  <>
-                    <OperationAlert title="How weekly rules work">
-                      Rules must fit within business hours. When no weekly rules
-                      are enabled, bookings use business hours and the current
-                      fallback capacity. Disabling a rule does not cancel existing
-                      bookings.
-                    </OperationAlert>
-                    {availabilitySummary?.hasSharedLocationCapacity &&
-                    availabilitySummary?.hasServiceSpecificCapacity ? (
-                      <OperationAlert title="Mixed booking limits">
-                        This branch has both shared and service-specific limits. A
-                        shared rule can make a booking for one service affect
-                        other services.
-                      </OperationAlert>
-                    ) : null}
-                    {availabilityBlocks.length ? (
-                      <WeeklyAvailabilityGrid items={availabilityBlocks}
-                        branchName={selectedLocation?.name || "This branch"}
-                        timezone={selectedLocation?.timezone || platformDefaultTimezone}
-                        weekdayLabel={weekday => weekdayOptions.find(day => day.value === String(weekday))?.label || "Weekly rule"}
-                        serviceLabel={getServiceLabel}
-                        serviceAvailable={serviceId => serviceSlugById.has(serviceId)}
-                        canManage={isOwner || isAdmin} busyAction={busyAction}
-                        onToggle={(block, active) => void handleToggleAvailabilityBlockActive(block, active)}
-                        onEdit={openAvailabilityBlockDialog}
-                        onRemove={block => remove("Remove weekly rule?", "This recurring rule will be removed. Remaining enabled rules or business-hour fallback will determine new booking times.", "Remove rule", () => handleDeleteAvailabilityBlock(block))}
-                      />
-                    ) : (
-                      <OperationEmpty title="No weekly rules" text="Bookings currently use business hours and fallback capacity. Add a rule to customize recurring booking times."/>
-                    )}
-                  </>
+                  <Button className="neura-secondary-button" onClick={() => openServiceDialog()}>
+                    New service
+                  </Button>
+                </Group>
+                {services.length ? (
+                  <Table.ScrollContainer minWidth={900}>
+                    <Table className="neura-services-table" verticalSpacing="sm">
+                      <Table.Thead>
+                        <Table.Tr>
+                          <Table.Th>ID</Table.Th>
+                          <Table.Th>Service</Table.Th>
+                          <Table.Th>Duration</Table.Th>
+                          <Table.Th>Price</Table.Th>
+                          <Table.Th>Status</Table.Th>
+                          <Table.Th>Order</Table.Th>
+                          <Table.Th style={{ width: 1, whiteSpace: "nowrap" }}>Actions</Table.Th>
+                        </Table.Tr>
+                      </Table.Thead>
+                      <Table.Tbody>
+                        {services.map((service) => (
+                          <Table.Tr key={service.id}>
+                            <Table.Td fw={700} className="neura-services-table__sticky neura-services-table__sticky-first">
+                              {service.id}
+                            </Table.Td>
+                            <Table.Td>
+                              <Stack gap={2}>
+                                <Text fw={700} c={service.isActive ? undefined : "dimmed"}>
+                                  {service.name}
+                                </Text>
+                                <Text c={service.isActive ? "dimmed" : "gray"} size="sm">
+                                  {service.description || service.slug}
+                                </Text>
+                              </Stack>
+                            </Table.Td>
+                            <Table.Td>
+                              <Text c={service.isActive ? undefined : "dimmed"}>{service.durationMinutes} min</Text>
+                              {service.allowBookingQuantity ? (
+                                <Text c={service.isActive ? "dimmed" : "gray"} size="sm">
+                                  {service.bookingQuantityLabel}
+                                </Text>
+                              ) : null}
+                              {service.manualPaymentRequired ? (
+                                <Badge color="yellow" variant="light">Manual payment</Badge>
+                              ) : null}
+                              <Text c={service.isActive ? "dimmed" : "gray"} size="sm">
+                                {service.bookingCapacityScope === "location" ? "Branch-wide capacity" : "Service-only capacity"}
+                              </Text>
+                            </Table.Td>
+                            <Table.Td>
+                              <Text c={service.isActive ? undefined : "dimmed"}>
+                                {service.priceDisplay || `PHP ${(service.priceAmountCents / 100).toLocaleString()}`}
+                              </Text>
+                            </Table.Td>
+                            <Table.Td>
+                              <Badge color={service.isActive ? "teal" : "gray"} variant="light">
+                                {service.isActive ? "Active" : "Inactive"}
+                              </Badge>
+                            </Table.Td>
+                            <Table.Td>
+                              <Text c={service.isActive ? undefined : "dimmed"}>{service.sortOrder}</Text>
+                            </Table.Td>
+                            <Table.Td
+                              className="neura-services-table__sticky neura-services-table__sticky-last"
+                              style={{ width: 1, whiteSpace: "nowrap" }}
+                            >
+                              <Group gap="xs" wrap="nowrap">
+                                <Tooltip label="Edit service" withArrow>
+                                  <ActionIcon aria-label="Edit service" onClick={() => openServiceDialog(service)} variant="light">
+                                    <IconPencil size={16} />
+                                  </ActionIcon>
+                                </Tooltip>
+                                <Switch
+                                  checked={service.isActive}
+                                  disabled={busyAction === `service-status:${service.slug}`}
+                                  onChange={(event) =>
+                                    handleToggleServiceActive(service, event.currentTarget.checked)
+                                  }
+                                />
+                                <Tooltip label="Delete service" withArrow>
+                                  <ActionIcon
+                                    aria-label="Delete service"
+                                    color="red"
+                                    variant="light"
+                                    disabled={busyAction === `service-delete:${service.slug}`}
+                                    onClick={() =>
+                                      openConfirmAction({
+                                        title: "Delete service?",
+                                        description: "This will permanently remove the service from the catalog.",
+                                        confirmLabel: "Delete service",
+                                        confirmColor: "red",
+                                        onConfirm: async () => {
+                                          await handleDeleteService(service);
+                                        }
+                                      })
+                                    }
+                                  >
+                                    <IconTrash size={16} />
+                                  </ActionIcon>
+                                </Tooltip>
+                              </Group>
+                            </Table.Td>
+                          </Table.Tr>
+                        ))}
+                      </Table.Tbody>
+                    </Table>
+                  </Table.ScrollContainer>
+                ) : (
+                  <DashboardEmptyState
+                    title="No services yet"
+                    text="Add services before building availability and customer booking flows."
+                  />
+                )}
+              </Stack>
+            </Tabs.Panel>
+
+            <Tabs.Panel pt="lg" value="weekly">
+              <Stack gap="md">
+                <Group className="weekly-availability-header" justify="space-between">
+                  <div>
+                    <Text className="neura-label">{selectedLocation?.name || "Selected location"}</Text>
+                    <Title order={3}>Weekly availability</Title>
+                  </div>
+                  <Group align="flex-end" className="weekly-availability-actions" gap="sm">
+                    <Select
+                      allowDeselect={false}
+                      aria-label="Filter weekly availability by branch"
+                      data={locationOptions}
+                      label="Branch"
+                      searchable
+                      value={selectedLocationSlug}
+                      onChange={(value) => value && setSelectedLocationSlug(value)}
+                    />
+                    <Button className="neura-secondary-button" onClick={() => openAvailabilityBlockDialog()}>
+                      Add weekly rule
+                    </Button>
+                  </Group>
+                </Group>
+                {availabilitySummary?.hasSharedLocationCapacity && availabilitySummary?.hasServiceSpecificCapacity ? (
+                  <Alert color="yellow" variant="light">
+                    This location mixes shared branch capacity and service-specific court capacity. A shared rule can make one court&apos;s booking block other courts.
+                  </Alert>
                 ) : null}
-              </div>
-            </ConfigTabsContent>
-            <ConfigTabsContent value="exceptions" keepMounted>
-              <div className="ops-stack">
-                <div className="ops-list-heading">
+                {availabilityBlocks.length ? (
+                  <Table.ScrollContainer minWidth={900}>
+                    <Table className="neura-availability-table" verticalSpacing="sm">
+                      <Table.Thead>
+                        <Table.Tr>
+                          <Table.Th>ID</Table.Th>
+                          <Table.Th>Day</Table.Th>
+                          <Table.Th>Time</Table.Th>
+                          <Table.Th>Service</Table.Th>
+                          <Table.Th>Capacity</Table.Th>
+                          <Table.Th>Status</Table.Th>
+                          <Table.Th style={{ width: 1, whiteSpace: "nowrap" }}>Actions</Table.Th>
+                        </Table.Tr>
+                      </Table.Thead>
+                      <Table.Tbody>
+                        {availabilityBlocks.map((block) => (
+                          <Table.Tr key={block.id}>
+                            <Table.Td fw={700} className="neura-availability-table__sticky neura-availability-table__sticky-first">
+                              {block.id}
+                            </Table.Td>
+                            <Table.Td>
+                              <Text c={block.isActive ? undefined : "dimmed"}>
+                                {weekdayOptions.find((day) => day.value === String(block.weekday))?.label}
+                              </Text>
+                            </Table.Td>
+                            <Table.Td>
+                              <Text c={block.isActive ? undefined : "dimmed"}>{block.startsAt} - {block.endsAt}{block.endsNextDay ? " next day" : ""}</Text>
+                            </Table.Td>
+                            <Table.Td>
+                              <Text c={block.isActive ? undefined : "dimmed"}>{getServiceLabel(block.serviceId)}</Text>
+                            </Table.Td>
+                            <Table.Td>
+                              <Text c={block.isActive ? undefined : "dimmed"}>{block.capacity}</Text>
+                            </Table.Td>
+                            <Table.Td>
+                              <Badge color={block.isActive ? "teal" : "gray"} variant="light">
+                                {block.isActive ? "Active" : "Inactive"}
+                              </Badge>
+                            </Table.Td>
+                            <Table.Td
+                              className="neura-availability-table__sticky neura-availability-table__sticky-last"
+                              style={{ width: 1, whiteSpace: "nowrap" }}
+                            >
+                              <Group gap="xs" wrap="nowrap">
+                                <Tooltip label="Edit weekly rule" withArrow>
+                                  <ActionIcon aria-label="Edit weekly rule" onClick={() => openAvailabilityBlockDialog(block)} variant="light">
+                                    <IconPencil size={16} />
+                                  </ActionIcon>
+                                </Tooltip>
+                                <Switch
+                                  checked={block.isActive}
+                                  disabled={busyAction === `availability-block-status:${block.id}`}
+                                  onChange={(event) => handleToggleAvailabilityBlockActive(block, event.currentTarget.checked)}
+                                />
+                                <Tooltip label="Delete weekly rule" withArrow>
+                                  <ActionIcon
+                                    aria-label="Delete weekly rule"
+                                    color="red"
+                                    variant="light"
+                                    disabled={busyAction === `availability-block-delete:${block.id}`}
+                                    onClick={() =>
+                                      openConfirmAction({
+                                        title: "Delete weekly rule?",
+                                        description: "This will permanently remove the recurring availability rule from the schedule.",
+                                        confirmLabel: "Delete rule",
+                                        confirmColor: "red",
+                                        onConfirm: async () => {
+                                          await handleDeleteAvailabilityBlock(block);
+                                        }
+                                      })
+                                    }
+                                  >
+                                    <IconTrash size={16} />
+                                  </ActionIcon>
+                                </Tooltip>
+                              </Group>
+                            </Table.Td>
+                          </Table.Tr>
+                        ))}
+                      </Table.Tbody>
+                    </Table>
+                  </Table.ScrollContainer>
+                ) : (
+                  <DashboardEmptyState
+                    title="No weekly availability"
+                    text="Add recurring bookable hours for this branch."
+                  />
+                )}
+              </Stack>
+            </Tabs.Panel>
+
+            <Tabs.Panel pt="lg" value="exceptions">
+              <Stack gap="md">
+                <Group justify="space-between">
                   <div>
-                    <h2>Date exceptions</h2>
-                    <p className="ops-muted">
-                      Holidays, special hours and one-off changes for{" "}
-                      {selectedLocation?.name || "this branch"}.
-                    </p>
+                    <Text className="neura-label">Date overrides</Text>
+                    <Title order={3}>Availability exceptions</Title>
                   </div>
-                  <OperationButton
-                    disabled={!availabilityReady}
-                    onClick={() => openAvailabilityExceptionDialog()}
-                  >
+                  <Button className="neura-secondary-button" onClick={() => openAvailabilityExceptionDialog()}>
                     Add exception
-                  </OperationButton>
-                </div>
-                <ConfigurationSelect
-                  label="Branch"
-                  data={locationOptions}
-                  value={selectedLocationSlug}
-                  onChange={(value) =>
-                    value && selectConfigurationLocation(value)
-                  }
-                />
-                <OperationQueryState
-                  loading={availabilityQuery.isPending || servicesQuery.isPending}
-                  error={availabilityQuery.error || servicesQuery.error}
-                  onRetry={() => {
-                    void availabilityQuery.refetch();
-                    void servicesQuery.refetch();
-                  }}
-                />
-                {availabilityReady ? (
-                  <>
-                    {availabilityExceptions.length ? (
-                      <DateExceptionsGrid items={availabilityExceptions}
-                        branchName={selectedLocation?.name || "This branch"}
-                        timezone={selectedLocation?.timezone || platformDefaultTimezone}
-                        dateLabel={formatDate} serviceLabel={getServiceLabel}
-                        serviceAvailable={serviceId => serviceSlugById.has(serviceId)}
-                        canManage={isOwner || isAdmin} busyAction={busyAction}
-                        onToggle={(exception, available) => void handleToggleAvailabilityExceptionActive(exception, available)}
-                        onEdit={openAvailabilityExceptionDialog}
-                        onRemove={exception => remove("Remove date exception?", "The usual weekly schedule or business-hour fallback will apply on this date. Existing bookings are retained.", "Remove exception", () => handleDeleteAvailabilityException(exception))}
-                      />
-                    ) : (
-                      <OperationEmpty title="No date exceptions" text="Add a holiday, special opening time or one-off booking limit."/>
-                    )}
-                  </>
-                ) : null}
-              </div>
-            </ConfigTabsContent>
-            </>}
-            {resourceManagementEnabled&&selectedTenantSlug&&selectedLocationSlug?<ConfigTabsContent value="queue-policy">
-              <OperationQueryState loading={servicesQuery.isPending} error={servicesQuery.error} onRetry={()=>void servicesQuery.refetch()}/>
-              <OperationQueryState loading={locationServicesQuery.isPending} error={locationServicesQuery.error} onRetry={()=>void locationServicesQuery.refetch()}/>
-              <QueueServicePolicyEditor key={`${selectedTenantSlug}:${selectedLocationSlug}`} token={token} tenant={selectedTenantSlug} location={selectedLocationSlug} services={servicesQuery.data?.services || []} assignments={locationServicesQuery.data?.locationServices || []} locations={locations} servicesReady={catalogReady} assignmentsReady={assignmentsReady} canManage={resourceSetupAllowed&&(isOwner||isAdmin)} onBusy={value=>setBusyAction(value?'queue-service-policy':'')} onCloseForm={()=>unsavedForm.current.discardId('queue-service-policy')} onNotice={showSuccessNotification}/>
-            </ConfigTabsContent>:null}
-          </ConfigTabs>
-        </div>
-      </ConfigurationScope>
+                  </Button>
+                </Group>
+                {availabilityExceptions.length ? (
+                  <Table.ScrollContainer minWidth={820}>
+                    <Table className="neura-availability-table" verticalSpacing="sm">
+                      <Table.Thead>
+                        <Table.Tr>
+                          <Table.Th>ID</Table.Th>
+                          <Table.Th>Date</Table.Th>
+                          <Table.Th>Time</Table.Th>
+                          <Table.Th>Service</Table.Th>
+                          <Table.Th>Mode</Table.Th>
+                          <Table.Th>Reason</Table.Th>
+                          <Table.Th style={{ width: 1, whiteSpace: "nowrap" }}>Actions</Table.Th>
+                        </Table.Tr>
+                      </Table.Thead>
+                      <Table.Tbody>
+                        {availabilityExceptions.map((exception) => (
+                          <Table.Tr key={exception.id}>
+                            <Table.Td fw={700} className="neura-availability-table__sticky neura-availability-table__sticky-first">
+                              {exception.id}
+                            </Table.Td>
+                            <Table.Td>
+                              <Text c={exception.isAvailable ? undefined : "dimmed"}>{formatDate(exception.exceptionDate)}</Text>
+                            </Table.Td>
+                            <Table.Td>
+                              <Text c={exception.isAvailable ? undefined : "dimmed"}>
+                                {exception.startsAt && exception.endsAt ? `${exception.startsAt} - ${exception.endsAt}` : "Full day"}
+                              </Text>
+                            </Table.Td>
+                            <Table.Td>
+                              <Text c={exception.isAvailable ? undefined : "dimmed"}>{getServiceLabel(exception.serviceId)}</Text>
+                            </Table.Td>
+                            <Table.Td>
+                              <Badge color={exception.isAvailable ? "teal" : "red"} variant="light">
+                                {exception.isAvailable ? "Available" : "Blocked"}
+                              </Badge>
+                            </Table.Td>
+                            <Table.Td>
+                              <Text c={exception.isAvailable ? undefined : "dimmed"}>{exception.reason || "-"}</Text>
+                            </Table.Td>
+                            <Table.Td
+                              className="neura-availability-table__sticky neura-availability-table__sticky-last"
+                              style={{ width: 1, whiteSpace: "nowrap" }}
+                            >
+                              <Group gap="xs" wrap="nowrap">
+                                <Tooltip label="Edit exception" withArrow>
+                                  <ActionIcon aria-label="Edit exception" onClick={() => openAvailabilityExceptionDialog(exception)} variant="light">
+                                    <IconPencil size={16} />
+                                  </ActionIcon>
+                                </Tooltip>
+                                <Switch
+                                  checked={exception.isAvailable}
+                                  disabled={busyAction === `availability-exception-status:${exception.id}`}
+                                  onChange={(event) =>
+                                    handleToggleAvailabilityExceptionActive(exception, event.currentTarget.checked)
+                                  }
+                                />
+                                <Tooltip label="Remove exception" withArrow>
+                                  <ActionIcon
+                                    aria-label="Remove exception"
+                                    color="red"
+                                    disabled={busyAction === `availability-exception-delete:${exception.id}`}
+                                    onClick={() =>
+                                      openConfirmAction({
+                                        title: "Delete availability exception?",
+                                        description: "This will permanently remove the exception from the schedule.",
+                                        confirmLabel: "Delete exception",
+                                        confirmColor: "red",
+                                        onConfirm: async () => {
+                                          await handleDeleteAvailabilityException(exception);
+                                        }
+                                      })
+                                    }
+                                    variant="light"
+                                  >
+                                    <IconTrash size={16} />
+                                  </ActionIcon>
+                                </Tooltip>
+                              </Group>
+                            </Table.Td>
+                          </Table.Tr>
+                        ))}
+                      </Table.Tbody>
+                    </Table>
+                  </Table.ScrollContainer>
+                ) : (
+                  <DashboardEmptyState
+                    title="No exceptions"
+                    text="Add holidays, special hours, or one-off availability overrides."
+                  />
+                )}
+              </Stack>
+            </Tabs.Panel>
+          </Tabs>
+        </Card>
+      </Stack>
     );
   }
 
   function renderBookingsPage() {
-    const pendingBookings = vendorBookings.filter(
-      (booking) => booking.status === "pending",
-    ).length;
+    const pendingBookings = vendorBookings.filter((booking) => booking.status === "pending").length;
     const actionableBookings = vendorBookings.filter((booking) =>
-      ["pending", "confirmed", "rescheduled"].includes(booking.status),
+      ["pending", "confirmed", "rescheduled"].includes(booking.status)
     ).length;
-    if (bookingListQuery.isError || bookingListQuery.isPending)
-      return (
-        <OperationScope>
-          <OperationQueryState
-            loading={bookingListQuery.isPending}
-            error={bookingListQuery.error}
-            onRetry={() => void bookingListQuery.refetch()}
-          />
-        </OperationScope>
-      );
+
     return (
-      <OperationScope busy={Boolean(busyAction)}>
-        <section className="request-data-table booking-request-data-table" aria-label="Booking requests">
-          <div className="ops-list-heading request-card-heading">
-            <div>
-              <p className="vendor-eyebrow">{selectedLocation?.name || "Selected location"}</p>
-              <h2 className="ops-heading">{canAdminBookings ? "Incoming booking requests" : "Booking check-in queue"}</h2>
-              <p className="ops-muted">
-                Review scheduled services for {selectedLocation?.name || selectedLocationSlug}.
-                <span className="booking-summary-counts">{pendingBookings} pending · {actionableBookings} active</span>
-              </p>
-            </div>
-            <div className="request-card-actions">
-              <OperationButton onClick={reloadBookings} variant="outline">Refresh bookings</OperationButton>
-            </div>
-          </div>
+      <Stack gap="lg">
+        <SimpleGrid cols={{ base: 1, md: 3 }}>
+          <MetricCard
+            detail="Awaiting vendor confirmation."
+            label="Pending requests"
+            value={pendingBookings}
+          />
+          <MetricCard
+            detail="Confirmed or waiting for a vendor decision."
+            label="Active bookings"
+            value={actionableBookings}
+          />
+          <Card className="neura-card" padding="lg">
+            <Stack gap="md">
+              <Text className="neura-label">{selectedLocation?.name || "Selected location"}</Text>
+              <Title order={3}>Booking queue</Title>
+              <Button className="neura-secondary-button" onClick={reloadBookings}>
+                Refresh bookings
+              </Button>
+            </Stack>
+          </Card>
+        </SimpleGrid>
 
-          <div className="request-table-surface">
-            <div className="request-filter-surface booking-filter-surface">
-              <div className="request-table-toolbar booking-table-toolbar">
-                <div className="request-search-field">
-                  <IconSearch aria-hidden="true" />
-                  <QueueInput
-                    aria-label="Search booking requests"
-                    placeholder="Search bookings…"
-                    value={bookingSearch}
-                    onChange={(event) => setBookingSearch(event.target.value)}
-                  />
-                </div>
-                <div className="request-filter-controls">
-                  <OperationSelect
-                    data={bookingStatusFilterOptions}
-                    label="Status"
-                    icon={<IconFilter aria-hidden="true" size={16} />}
-                    value={bookingStatusFilter}
-                    onChange={(value) => {
-                      setBookingStatusFilter((value || "all") as BookingStatusFilter);
-                      setHideNonActiveBookings(false);
-                    }}
-                  />
-                  <DateRangePicker
-                    value={bookingDateRange}
-                    onChange={(value) => setBookingDateRange(value)}
-                  />
-                  {bookingSearch || bookingStatusFilter !== "all" || bookingDateRange[0] || bookingDateRange[1] ? (
-                    <OperationButton
-                      className="booking-clear-filters"
-                      onClick={() => {
-                        setBookingSearch("");
-                        setBookingStatusFilter("all");
-                        setHideNonActiveBookings(false);
-                        setBookingDateRange([null, null]);
-                      }}
-                      variant="ghost"
-                    >
-                      Clear filters
-                    </OperationButton>
-                  ) : null}
-                </div>
+        <Card className="neura-card" padding="lg">
+          <Stack gap="md">
+            <Group justify="space-between" align="flex-end">
+              <div>
+                <Text className="neura-label">{canAdminBookings ? "Vendor Admin" : "Vendor Staff"}</Text>
+                <Title order={3}>{canAdminBookings ? "Incoming booking requests" : "Booking check-in queue"}</Title>
               </div>
-            </div>
-
-              {filteredBookings.length ? (
-                <>
-                  <div className="ops-table">
-                    <QueueTable role="table" className="ops-data-table">
-                      <QueueTableHeader role="rowgroup">
-                        <QueueTableRow role="row">
-                          <QueueTableHead role="columnheader" scope="col">ID</QueueTableHead>
-                          <QueueTableHead role="columnheader" scope="col">Reference</QueueTableHead>
-                          <QueueTableHead role="columnheader" scope="col">Customer</QueueTableHead>
-                          <QueueTableHead role="columnheader" scope="col">Service</QueueTableHead>
-                          <QueueTableHead role="columnheader" scope="col">Schedule</QueueTableHead>
-                          <QueueTableHead role="columnheader" scope="col">Status</QueueTableHead>
-                          <QueueTableHead role="columnheader" scope="col">Payment</QueueTableHead>
-                          <QueueTableHead role="columnheader" scope="col">Actions</QueueTableHead>
-                        </QueueTableRow>
-                      </QueueTableHeader>
-                      <QueueTableBody role="rowgroup">
-                        {filteredBookings.map((booking) => {
-                          const paymentReviewPending =
-                            booking.paymentStatus === "pending";
-                          const paymentVerified =
-                            booking.paymentStatus === "paid";
-                          const manualPaymentRequired = Boolean(
-                            booking.serviceManualPaymentRequired,
-                          );
-                          const checkInState = getBookingCheckInState(
-                            booking,
-                            bookingCheckInNow,
-                          );
-                          const hasExpired = Boolean(booking.expiredAt);
-                          const isGroupFundedBooking =
-                            booking.bookingPaymentSource === "group_funded" ||
-                            Boolean(booking.groupFundedBookingId);
-                          const bookingBundleItems =
-                            isGroupFundedBooking &&
-                            booking.groupFundedCampaign?.bundleItems?.length
-                              ? booking.groupFundedCampaign.bundleItems
-                              : booking.bundleItems || [];
-                          const displayedServiceItems =
-                            bookingBundleItems.length
-                              ? bookingBundleItems
-                              : [
-                                  {
-                                    serviceName: booking.serviceName,
-                                    bookingQuantity: booking.bookingQuantity,
-                                    priceAmountCents:
-                                      booking.servicePriceAmountCents,
-                                    currency: booking.serviceCurrency,
-                                    scheduledStartAt: booking.scheduledStartAt,
-                                    scheduledEndAt: booking.scheduledEndAt,
-                                  },
-                                ];
-                          const primaryServiceItem = displayedServiceItems[0];
-                          const additionalServiceCount = Math.max(
-                            displayedServiceItems.length - 1,
-                            0,
-                          );
-                          const executionModeLabel =
-                            booking.executionMode === "sequential"
-                              ? "Back-to-back"
-                              : "Together";
-                          const displayedTotalCents =
-                            isGroupFundedBooking && booking.groupFundedCampaign
-                              ? Number(
-                                  booking.groupFundedCampaign
-                                    .targetAmountCents || 0,
-                                ) +
-                                Number(
-                                  booking.groupFundedCampaign
-                                    .roundingAdjustmentCents || 0,
-                                )
-                              : displayedServiceItems.reduce(
-                                  (total, item) =>
-                                    total + Number(item.priceAmountCents || 0),
-                                  0,
-                                );
-                          let bookingProofLabel = "No manual payment";
-                          if (isGroupFundedBooking) {
-                            bookingProofLabel = "No individual proof";
-                          } else if (manualPaymentRequired) {
-                            bookingProofLabel =
-                              booking.hasPaymentProof || booking.paymentProof
-                                ? "Proof submitted"
-                                : "Proof required";
-                          }
-                          const canReviewBookingPayment =
-                            canAdminBookings &&
-                            paymentReviewPending &&
-                            Boolean(booking.paymentProof);
-                          const rescheduleAction = (disabled: boolean) => (
-                            <OperationAction
-                              label="Reschedule booking"
-                              color="orange"
-                              disabled={disabled}
-                              onClick={() => openRescheduleDialog(booking)}
-                            >
-                              <IconCalendar size={16} />
-                            </OperationAction>
-                          );
-                          const cancelAction = (
-                            <OperationAction
-                              label="Cancel booking"
-                              color="red"
-                              onClick={() =>
-                                openConfirmAction({
-                                  title: "Cancel booking?",
-                                  description: "Are you sure you want to cancel this booking?",
-                                  confirmLabel: "Cancel booking",
-                                  confirmColor: "red",
-                                  onConfirm: async () => {
-                                    await handleUpdateBookingStatus(booking, "canceled");
-                                  },
-                                })
-                              }
-                            >
-                              <IconX size={16} />
-                            </OperationAction>
-                          );
-                          const actionButtons = (() => {
-                            if (booking.checkedInAt || booking.linkedTicket) {
-                              return <p className="ops-muted">Manage from the live queue.</p>;
-                            }
-                            if (canReviewBookingPayment) {
-                              return (
-                                <div className="ops-row">
-                                  <OperationAction
-                                    label="Review payment"
-                                    color="blue"
-                                    onClick={() => {
-                                      openBookingDetail(booking.id);
-                                    }}
-                                  >
-                                    <IconClipboardList size={16} />
-                                  </OperationAction>
-                                  {rescheduleAction(
-                                    Boolean(busyAction) ||
-                                      (checkInState.isEligibleStatus &&
-                                        checkInState.isLate &&
-                                        manualPaymentRequired &&
-                                        !paymentVerified &&
-                                        !booking.paymentVerifiedAt),
-                                  )}
-                                  {cancelAction}
-                                </div>
-                              );
-                            }
-                            if (
-                              canAdminBookings &&
-                              checkInState.isEligibleStatus &&
-                              checkInState.isLate
-                            ) {
-                              return (
-                                <div className="ops-row">
-                                  {rescheduleAction(
-                                    Boolean(busyAction) ||
-                                      (manualPaymentRequired &&
-                                        !paymentVerified &&
-                                        !booking.paymentVerifiedAt),
-                                  )}
-                                  <OperationAction
-                                    label="Mark no-show"
-                                    color="red"
-                                    disabled={busyAction === `booking-no-show:${booking.id}`}
-                                    onClick={() => handleMarkBookingNoShow(booking)}
-                                  >
-                                    <IconAlertTriangle size={16} />
-                                  </OperationAction>
-                                </div>
-                              );
-                            }
-                            if (
-                              canAdminBookings &&
-                              booking.status === "pending" &&
-                              (paymentVerified || !manualPaymentRequired)
-                            ) {
-                              return (
-                                <div className="ops-row">
-                                  <OperationAction
-                                    label="Confirm booking"
-                                    color="teal"
-                                    onClick={() => handleUpdateBookingStatus(booking, "confirmed")}
-                                  >
-                                    <IconCheck size={16} />
-                                  </OperationAction>
-                                  {rescheduleAction(false)}
-                                  {cancelAction}
-                                </div>
-                              );
-                            }
-                            if (canAdminBookings && paymentReviewPending && !booking.paymentProof) {
-                              return <p className="ops-muted">Waiting for customer payment proof.</p>;
-                            }
-                            if (canAdminBookings && paymentVerified) {
-                              return (
-                                <div className="ops-row">
-                                  {rescheduleAction(false)}
-                                  {cancelAction}
-                                </div>
-                              );
-                            }
-                            if (
-                              canAdminBookings &&
-                              booking.status === "confirmed" &&
-                              checkInState.isTooEarly
-                            ) {
-                              return (
-                                <div className="ops-row">
-                                  {rescheduleAction(false)}
-                                  {cancelAction}
-                                </div>
-                              );
-                            }
-                            return null;
-                          })();
-                          return (
-                            <BookingTableRow
-                              key={booking.id}
-                              reference={booking.reference}
-                              onOpen={() => {
-                                openBookingDetail(booking.id);
-                              }}
-                            >
-                              <QueueTableCell role="cell" data-label="ID">{booking.id}</QueueTableCell>
-                              <QueueTableCell role="cell" data-label="Reference">
-                                <div className="ops-stack">
-                                  <OperationButton
-                                    onClick={() => {
-                                      openBookingDetail(booking.id);
-                                    }}
-                                    variant="ghost"
-                                  >
-                                    {booking.reference}
-                                  </OperationButton>
-                                  <p className="ops-muted">
-                                    Requested{" "}
-                                    {formatDateTime(booking.createdAt)}
-                                  </p>
-                                  <GroupFundedBookingIndicator
-                                    booking={booking}
-                                  />
-                                </div>
-                              </QueueTableCell>
-                              <QueueTableCell role="cell" data-label="Customer">
-                                <div className="ops-stack">
-                                  <p className="ops-strong">
-                                    {booking.customerName}
-                                  </p>
-                                  <p className="ops-muted">
-                                    {booking.customerEmail ||
-                                      booking.customerPhone ||
-                                      "No contact details"}
-                                  </p>
-                                </div>
-                              </QueueTableCell>
-                              <QueueTableCell role="cell" data-label="Service">
-                                <div className="ops-stack">
-                                  <div className="ops-row">
-                                    <p className="ops-strong">
-                                      {primaryServiceItem.serviceName}
-                                    </p>
-                                    {isGroupFundedBooking ? (
-                                      <QueueBadge variant="outline">
-                                        Campaign
-                                      </QueueBadge>
-                                    ) : null}
-                                  </div>
-                                  <p className="ops-muted">
-                                    Quantity{" "}
-                                    {primaryServiceItem.bookingQuantity}
-                                    {additionalServiceCount
-                                      ? ` · +${additionalServiceCount} service${additionalServiceCount === 1 ? "" : "s"}`
-                                      : ""}
-                                  </p>
-                                  <p className="ops-muted">
-                                    {displayedServiceItems.length > 1
-                                      ? `${executionModeLabel} bundle · `
-                                      : ""}
-                                    {formatMoney(
-                                      displayedTotalCents,
-                                      primaryServiceItem.currency ||
-                                        booking.serviceCurrency,
-                                    )}
-                                  </p>
-                                </div>
-                              </QueueTableCell>
-                              <QueueTableCell role="cell" data-label="Schedule">
-                                <div className="ops-stack">
-                                  <p>
-                                    {formatBookingScheduleDateTime(
-                                      booking.scheduledStartAt,
-                                    )}
-                                  </p>
-                                  <p className="ops-muted">
-                                    Ends{" "}
-                                    {formatBookingScheduleDateTime(
-                                      booking.scheduledEndAt,
-                                    )}
-                                  </p>
-                                  {displayedServiceItems.length > 1 ? (
-                                    <p className="ops-muted">
-                                      {executionModeLabel} services
-                                    </p>
-                                  ) : null}
-                                </div>
-                              </QueueTableCell>
-                              <QueueTableCell role="cell" data-label="Status">
-                                <div className="ops-stack">
-                                  <div className="ops-row ops-status-chips">
-                                    <QueueBadge variant={getBookingBadgeColor(booking.status) === "red" ? "destructive" : "outline"}>
-                                      {hasExpired ? "expired" : booking.status}
-                                    </QueueBadge>
-                                    {booking.checkedInAt ||
-                                    booking.linkedTicket ? (
-                                      <QueueBadge variant="outline">
-                                        Checked in
-                                      </QueueBadge>
-                                    ) : null}
-                                    {booking.noShowAt ? (
-                                      <QueueBadge variant="destructive">
-                                        No-show
-                                      </QueueBadge>
-                                    ) : null}
-                                    {hasExpired ? (
-                                      <QueueBadge variant="outline">
-                                        Pending timeout
-                                      </QueueBadge>
-                                    ) : null}
-                                    {!manualPaymentRequired &&
-                                    !isGroupFundedBooking ? (
-                                      <QueueBadge variant="outline">
-                                        No manual payment
-                                      </QueueBadge>
-                                    ) : null}
-                                  </div>
-                                  {booking.linkedTicket ? (
-                                    <p className="ops-muted">
-                                      Ticket {booking.linkedTicket.ticketNumber}
-                                    </p>
-                                  ) : null}
-                                  {hasExpired && booking.expirationReason ? (
-                                    <p className="ops-muted">
-                                      {booking.expirationReason}
-                                    </p>
-                                  ) : null}
-                                </div>
-                              </QueueTableCell>
-                              <QueueTableCell role="cell" data-label="Payment">
-                                <div className="ops-stack">
-                                  <QueueBadge variant="outline">
-                                    {isGroupFundedBooking
-                                      ? "Campaign funded"
-                                      : booking.paymentStatus}
-                                  </QueueBadge>
-                                  <p className="ops-muted">
-                                    {bookingProofLabel}
-                                  </p>
-                                </div>
-                              </QueueTableCell>
-                              <QueueTableCell role="cell" data-label="Actions">
-                                <div className="ops-row">
-                                  {canOperateBookingQueue &&
-                                  checkInState.isWindowOpen ? (
-                                    <OperationAction
-                                      label={
-                                        bookingCheckInBlocked
-                                          ? `Check in customer: ${bookingCheckInGuidance}`
-                                          : "Check in customer"
-                                      }
-                                      color="teal"
-                                      size={44}
-                                      loading={
-                                        busyAction ===
-                                        `booking-check-in:${booking.id}`
-                                      }
-                                      disabled={
-                                        Boolean(busyAction) ||
-                                        bookingCheckInBlocked
-                                      }
-                                      onClick={() =>
-                                        void handleCheckInBooking(booking)
-                                      }
-                                    >
-                                      <IconCalendarCheck size={18} />
-                                    </OperationAction>
-                                  ) : null}
-                                  {renderBookingNoShowAction(booking)}
-                                  {actionButtons}
-                                </div>
-                              </QueueTableCell>
-                            </BookingTableRow>
-                          );
-                        })}
-                      </QueueTableBody>
-                    </QueueTable>
-                  </div>
-                  {bookingPagination && bookingPagination.totalItems > 0 ? (
-                    <div className="ops-row ops-between">
-                      <p className="ops-muted">
-                        Showing{" "}
-                        {vendorBookings.length ? (bookingPage - 1) * 10 + 1 : 0}
-                        -
-                        {Math.min(
-                          (bookingPage - 1) * 10 + vendorBookings.length,
-                          bookingPagination.totalItems,
-                        )}{" "}
-                        of {bookingPagination.totalItems}
-                      </p>
-                      {bookingPagination.totalPages > 1 ? (
-                        <OperationPagination
-                          total={bookingPagination.totalPages}
-                          value={bookingPage}
-                          onChange={setBookingPage}
-                        />
-                      ) : null}
-                    </div>
-                  ) : null}
-                </>
-              ) : (
-                <OperationEmpty
-                  title="No booking requests"
-                  text="Incoming service booking requests for this location will appear here."
+              <Group gap="sm">
+                <TextInput
+                  label="Search"
+                  placeholder="Reference, customer, service"
+                  value={bookingSearch}
+                  onChange={(event) => setBookingSearch(event.target.value)}
                 />
-              )}
-          </div>
-        </section>
-      </OperationScope>
+                <Select
+                  data={[
+                    { label: "All statuses", value: "all" },
+                    { label: "Pending", value: "pending" },
+                    { label: "Confirmed", value: "confirmed" },
+                    { label: "Rescheduled", value: "rescheduled" },
+                    { label: "Canceled", value: "canceled" }
+                  ]}
+                  label="Status"
+                  value={bookingStatusFilter}
+                  onChange={(value) => setBookingStatusFilter((value || "all") as BookingStatusFilter)}
+                />
+                <DatePickerInput
+                  type="range"
+                  clearable
+                  label="Booking date"
+                  leftSection={<IconCalendar size={16} />}
+                  placeholder="Select date range"
+                  value={bookingDateRange}
+                  onChange={(value) => setBookingDateRange(value as [Date | null, Date | null])}
+                />
+                {bookingDateRange[0] || bookingDateRange[1] ? (
+                  <Button
+                    className="neura-secondary-button"
+                    mt={24}
+                    onClick={() => setBookingDateRange([null, null])}
+                  >
+                    Clear range
+                  </Button>
+                ) : null}
+              </Group>
+            </Group>
+
+            {filteredBookings.length ? (
+              <>
+                <Table.ScrollContainer minWidth={1240}>
+                  <Table className="neura-bookings-table" verticalSpacing="sm">
+                      <Table.Thead>
+                        <Table.Tr>
+                          <Table.Th>ID</Table.Th>
+                          <Table.Th>Reference</Table.Th>
+                          <Table.Th>Customer</Table.Th>
+                          <Table.Th>Service</Table.Th>
+                          <Table.Th>Schedule</Table.Th>
+                          <Table.Th>Status</Table.Th>
+                        <Table.Th>Payment</Table.Th>
+                        <Table.Th>Actions</Table.Th>
+                      </Table.Tr>
+                    </Table.Thead>
+                    <Table.Tbody>
+                      {filteredBookings.map((booking) => {
+                      const paymentReviewPending = booking.paymentStatus === "pending";
+                      const paymentVerified = booking.paymentStatus === "paid";
+                      const manualPaymentRequired = Boolean(booking.serviceManualPaymentRequired);
+                      const checkInState = getBookingCheckInState(booking);
+                      const hasExpired = Boolean(booking.expiredAt);
+                      const bookingBundleItems = booking.bundleItems || [];
+                      const displayedServiceItems = bookingBundleItems.length
+                        ? bookingBundleItems
+                        : [{
+                            serviceName: booking.serviceName,
+                            bookingQuantity: booking.bookingQuantity,
+                            priceAmountCents: booking.servicePriceAmountCents,
+                            currency: booking.serviceCurrency,
+                            scheduledStartAt: booking.scheduledStartAt,
+                            scheduledEndAt: booking.scheduledEndAt
+                          }];
+                      const primaryServiceItem = displayedServiceItems[0];
+                      const additionalServiceCount = Math.max(displayedServiceItems.length - 1, 0);
+                      const executionModeLabel = booking.executionMode === "sequential" ? "Back-to-back" : "Together";
+                      const displayedTotalCents = displayedServiceItems.reduce((total, item) => total + Number(item.priceAmountCents || 0), 0);
+                      const actionButtons = (() => {
+                        if (canAdminBookings && paymentReviewPending && booking.paymentProof) {
+                          return (
+                            <Group gap="xs" justify="flex-end" wrap="nowrap">
+                              <IconActionButton
+                                label="Review payment"
+                                color="blue"
+                                onClick={() => {
+                                  setPaymentRejectionReason("");
+                                  setBookingDetailModalId(booking.id);
+                                  setBookingDetailOpen(true);
+                                }}
+                              >
+                                <IconClipboardList size={16} />
+                              </IconActionButton>
+                              <IconActionButton
+                                label="Reschedule booking"
+                                color="orange"
+                                onClick={() => openRescheduleDialog(booking)}
+                              >
+                                <IconCalendar size={16} />
+                              </IconActionButton>
+                              <IconActionButton
+                                label="Cancel booking"
+                                color="red"
+                                onClick={() =>
+                                  openConfirmAction({
+                                    title: "Cancel booking?",
+                                    description: "Are you sure you want to cancel this booking?",
+                                    confirmLabel: "Cancel booking",
+                                    confirmColor: "red",
+                                    onConfirm: handleUpdateBookingStatus.bind(null, booking, "canceled")
+                                  })
+                                }
+                              >
+                                <IconX size={16} />
+                              </IconActionButton>
+                            </Group>
+                          );
+                        }
+
+                        if (canAdminBookings && booking.status === "pending" && paymentVerified) {
+                          return (
+                            <Group gap="xs" justify="flex-end" wrap="nowrap">
+                              <IconActionButton
+                                label="Confirm booking"
+                                color="teal"
+                                onClick={() => handleUpdateBookingStatus(booking, "confirmed")}
+                              >
+                                <IconCheck size={16} />
+                              </IconActionButton>
+                              <IconActionButton
+                                label="Reschedule booking"
+                                color="orange"
+                                onClick={() => openRescheduleDialog(booking)}
+                              >
+                                <IconCalendar size={16} />
+                              </IconActionButton>
+                              <IconActionButton
+                                label="Cancel booking"
+                                color="red"
+                                onClick={() =>
+                                  openConfirmAction({
+                                    title: "Cancel booking?",
+                                    description: "Are you sure you want to cancel this booking?",
+                                    confirmLabel: "Cancel booking",
+                                    confirmColor: "red",
+                                    onConfirm: handleUpdateBookingStatus.bind(null, booking, "canceled")
+                                  })
+                                }
+                              >
+                                <IconX size={16} />
+                              </IconActionButton>
+                            </Group>
+                          );
+                        }
+
+                        if (canAdminBookings && booking.status === "pending" && !manualPaymentRequired) {
+                          return (
+                            <Group gap="xs" justify="flex-end" wrap="nowrap">
+                              <IconActionButton
+                                label="Confirm booking"
+                                color="teal"
+                                onClick={() => handleUpdateBookingStatus(booking, "confirmed")}
+                              >
+                                <IconCheck size={16} />
+                              </IconActionButton>
+                              <IconActionButton
+                                label="Reschedule booking"
+                                color="orange"
+                                onClick={() => openRescheduleDialog(booking)}
+                              >
+                                <IconCalendar size={16} />
+                              </IconActionButton>
+                              <IconActionButton
+                                label="Cancel booking"
+                                color="red"
+                                onClick={() =>
+                                  openConfirmAction({
+                                    title: "Cancel booking?",
+                                    description: "Are you sure you want to cancel this booking?",
+                                    confirmLabel: "Cancel booking",
+                                    confirmColor: "red",
+                                    onConfirm: handleUpdateBookingStatus.bind(null, booking, "canceled")
+                                  })
+                                }
+                              >
+                                <IconX size={16} />
+                              </IconActionButton>
+                            </Group>
+                          );
+                        }
+
+                        if (canAdminBookings && paymentReviewPending && !booking.paymentProof) {
+                          return <Text c="dimmed" size="xs">Waiting for customer payment proof.</Text>;
+                        }
+
+                        if (canAdminBookings && paymentVerified) {
+                          return (
+                            <Group gap="xs" justify="flex-end" wrap="nowrap">
+                              <IconActionButton
+                                label="Reschedule booking"
+                                color="orange"
+                                onClick={() => openRescheduleDialog(booking)}
+                              >
+                                <IconCalendar size={16} />
+                              </IconActionButton>
+                              <IconActionButton
+                                label="Cancel booking"
+                                color="red"
+                                onClick={() =>
+                                  openConfirmAction({
+                                    title: "Cancel booking?",
+                                    description: "Are you sure you want to cancel this booking?",
+                                    confirmLabel: "Cancel booking",
+                                    confirmColor: "red",
+                                    onConfirm: handleUpdateBookingStatus.bind(null, booking, "canceled")
+                                  })
+                                }
+                              >
+                                <IconX size={16} />
+                              </IconActionButton>
+                            </Group>
+                          );
+                        }
+
+                        if (canAdminBookings && booking.status === "confirmed" && checkInState.isTooEarly) {
+                          return (
+                            <Group gap="xs" justify="flex-end" wrap="nowrap">
+                              <IconActionButton
+                                label="Reschedule booking"
+                                color="orange"
+                                onClick={() => openRescheduleDialog(booking)}
+                              >
+                                <IconCalendar size={16} />
+                              </IconActionButton>
+                              <IconActionButton
+                                label="Cancel booking"
+                                color="red"
+                                onClick={() =>
+                                  openConfirmAction({
+                                    title: "Cancel booking?",
+                                    description: "Are you sure you want to cancel this booking?",
+                                    confirmLabel: "Cancel booking",
+                                    confirmColor: "red",
+                                    onConfirm: handleUpdateBookingStatus.bind(null, booking, "canceled")
+                                  })
+                                }
+                              >
+                                <IconX size={16} />
+                              </IconActionButton>
+                            </Group>
+                          );
+                        }
+
+                        if (canAdminBookings && booking.status === "confirmed" && checkInState.isLate) {
+                          return (
+                            <Group gap="xs" justify="flex-end" wrap="nowrap">
+                              <IconActionButton
+                                label="Reschedule booking"
+                                color="orange"
+                                onClick={() => openRescheduleDialog(booking)}
+                              >
+                                <IconCalendar size={16} />
+                              </IconActionButton>
+                              <Tooltip label="Late check-in override: customer is more than 15 minutes past the scheduled start." withArrow>
+                                <ActionIcon
+                                  aria-label="Late check-in"
+                                  color="orange"
+                                  disabled={busyAction === `booking-check-in:${booking.id}:override`}
+                                  onClick={() => handleCheckInBooking(booking, true)}
+                                  variant="light"
+                                >
+                                  <IconCalendarCheck size={16} />
+                                </ActionIcon>
+                              </Tooltip>
+                              <IconActionButton
+                                label="Mark no-show"
+                                color="red"
+                                disabled={busyAction === `booking-no-show:${booking.id}`}
+                                onClick={() => handleMarkBookingNoShow(booking)}
+                              >
+                                <IconAlertTriangle size={16} />
+                              </IconActionButton>
+                            </Group>
+                          );
+                        }
+
+                        return null;
+                      })();
+
+                        return (
+                        <Table.Tr key={booking.id}>
+                          <Table.Td fw={700} className="neura-bookings-table__sticky neura-bookings-table__sticky-first">
+                            {booking.id}
+                          </Table.Td>
+                          <Table.Td>
+                            <Stack gap={2}>
+                              <Button
+                                className="neura-inline-link-button"
+                                onClick={() => {
+                                  setPaymentRejectionReason("");
+                                  setBookingDetailModalId(booking.id);
+                                  setBookingDetailOpen(true);
+                                }}
+                                p={0}
+                                size="xs"
+                                variant="subtle"
+                              >
+                                {booking.reference}
+                              </Button>
+                              <Text c="dimmed" size="sm">Requested {formatDateTime(booking.createdAt)}</Text>
+                            </Stack>
+                          </Table.Td>
+                          <Table.Td>
+                            <Stack gap={2}>
+                              <Text fw={700}>{booking.customerName}</Text>
+                              <Text c="dimmed" size="sm">{booking.customerEmail || booking.customerPhone || "No contact details"}</Text>
+                            </Stack>
+                          </Table.Td>
+                          <Table.Td>
+                            <Stack gap={2}>
+                              <Group gap="xs" wrap="nowrap">
+                                <Text fw={700} lineClamp={1}>{primaryServiceItem.serviceName}</Text>
+                              </Group>
+                              <Text c="dimmed" size="sm">
+                                Quantity {primaryServiceItem.bookingQuantity}
+                                {additionalServiceCount ? ` · +${additionalServiceCount} service${additionalServiceCount === 1 ? "" : "s"}` : ""}
+                              </Text>
+                              <Text c="dimmed" size="sm">
+                                {displayedServiceItems.length > 1 ? `${executionModeLabel} bundle · ` : ""}
+                                {formatMoney(displayedTotalCents, primaryServiceItem.currency || booking.serviceCurrency)}
+                              </Text>
+                            </Stack>
+                          </Table.Td>
+                          <Table.Td>
+                            <Stack gap={2}>
+                              <Text>{formatBookingScheduleDateTime(booking.scheduledStartAt)}</Text>
+                              <Text c="dimmed" size="sm">Ends {formatBookingScheduleDateTime(booking.scheduledEndAt)}</Text>
+                              {displayedServiceItems.length > 1 ? (
+                                <Text c="dimmed" size="xs">{executionModeLabel} services</Text>
+                              ) : null}
+                            </Stack>
+                          </Table.Td>
+                          <Table.Td>
+                            <Stack gap={4}>
+                              <Group className="booking-list-status-chips" gap={6}>
+                                <Badge color={getBookingBadgeColor(booking.status)} variant="light">
+                                  {hasExpired ? "expired" : booking.status}
+                                </Badge>
+                                {booking.checkedInAt || booking.linkedTicket ? (
+                                  <Badge color="blue" variant="light">Checked in</Badge>
+                                ) : null}
+                                {booking.noShowAt ? (
+                                  <Badge color="red" variant="light">No-show</Badge>
+                                ) : null}
+                                {hasExpired ? (
+                                  <Badge color="orange" variant="light">Pending timeout</Badge>
+                                ) : null}
+                                {!manualPaymentRequired ? (
+                                  <Badge color="gray" variant="light">No manual payment</Badge>
+                                ) : null}
+                              </Group>
+                              {booking.linkedTicket ? (
+                                <Text c="dimmed" size="xs">
+                                  Ticket {booking.linkedTicket.ticketNumber}
+                                </Text>
+                              ) : null}
+                              {hasExpired && booking.expirationReason ? (
+                                <Text c="dimmed" size="xs">{booking.expirationReason}</Text>
+                              ) : null}
+                            </Stack>
+                          </Table.Td>
+                          <Table.Td>
+                            <Stack gap={4}>
+                              <Badge color={booking.paymentStatus === "paid" ? "teal" : "gray"} variant="light" w="fit-content">
+                                {booking.paymentStatus}
+                              </Badge>
+                              <Text c="dimmed" size="xs">
+                                {manualPaymentRequired
+                                  ? booking.paymentProof ? "Proof submitted" : "Proof required"
+                                  : "No manual payment"}
+                              </Text>
+                            </Stack>
+                          </Table.Td>
+                          <Table.Td>
+                            <Group gap="xs" wrap="wrap">{actionButtons}</Group>
+                          </Table.Td>
+                        </Table.Tr>
+                      );
+                      })}
+                    </Table.Tbody>
+                  </Table>
+                </Table.ScrollContainer>
+                {bookingPagination && bookingPagination.totalItems > 0 ? (
+                  <Group justify="space-between" mt="md">
+                    <Text size="sm" c="dimmed">
+                      Showing {vendorBookings.length ? (bookingPage - 1) * 10 + 1 : 0}-
+                      {Math.min(bookingPage * 10, bookingPagination.totalItems)} of {bookingPagination.totalItems}
+                    </Text>
+                    {bookingPagination.totalPages > 1 ? (
+                      <Pagination
+                        total={bookingPagination.totalPages}
+                        value={bookingPage}
+                        onChange={setBookingPage}
+                      />
+                    ) : null}
+                  </Group>
+                ) : null}
+              </>
+            ) : (
+              <DashboardEmptyState
+                title="No booking requests"
+                text="Incoming service booking requests for this location will appear here."
+              />
+            )}
+          </Stack>
+        </Card>
+      </Stack>
     );
   }
 
   function renderRescheduleDialog() {
-    const isSaving = Boolean(
-      reschedulingBooking &&
-      busyAction === `booking-reschedule:${reschedulingBooking.id}`,
-    );
     const rescheduleSlotOptions = rescheduleSlots.map((slot) => ({
       value: String(slot.startAt),
       label: `${formatBookingScheduleTimeRange(slot.startAt, slot.endAt)} (${slot.remainingCapacity} left)`,
-      disabled: !slot.isAvailable,
+      disabled: !slot.isAvailable
     }));
     const closeRescheduleDialog = () => {
-      if (isSaving || !canLeaveFeature()) return;
-      unsavedForm.current.discardId("vendor-booking-reschedule");
       setRescheduleDialogOpen(false);
       setReschedulingBooking(null);
       setRescheduleDate("");
@@ -8208,73 +7810,43 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       setRescheduleSlots([]);
       setRescheduleSlotsError("");
     };
+
     return (
-      <TaskDialog
+      <Modal
+        centered
         opened={rescheduleDialogOpen}
         onClose={closeRescheduleDialog}
-        busy={Boolean(busyAction)}
-        eyebrow="BOOKING SCHEDULE"
         title={
-          reschedulingBooking
-            ? `Reschedule ${reschedulingBooking.reference}`
-            : "Reschedule booking"
-        }
-        footer={
-          <>
-            <OperationButton
-              variant="outline"
-              disabled={Boolean(busyAction)}
-              onClick={closeRescheduleDialog}
-              className="ops-redundant-dismiss"
-            >
-              Cancel
-            </OperationButton>
-            <OperationButton
-              variant="default"
-              type="submit"
-              form="vendor-booking-reschedule"
-              loading={isSaving}
-              disabled={
-                !rescheduleStartAt ||
-                rescheduleSlotsLoading ||
-                Boolean(busyAction)
-              }
-            >
-              Save schedule
-            </OperationButton>
-          </>
+          <Stack className="getprio-modal-title" gap={2}>
+            <Text className="getprio-modal-eyebrow">BOOKING SCHEDULE</Text>
+            <Text className="getprio-modal-heading">
+              {reschedulingBooking ? `Reschedule ${reschedulingBooking.reference}` : "Reschedule booking"}
+            </Text>
+          </Stack>
         }
       >
-        <OperationScope busy={Boolean(busyAction)}>
-          <form
-            id="vendor-booking-reschedule"
-            ref={rescheduleFormRef}
-            onSubmit={handleRescheduleBooking}
-            className="ops-stack"
-          >
-            {error ? <OperationAlert color="red">{error}</OperationAlert> : null}
+        <form onSubmit={handleRescheduleBooking}>
+          <Stack gap="md">
             {reschedulingBooking ? (
-              <OperationAlert>
-                {reschedulingBooking.customerName} requested{" "}
-                {reschedulingBooking.serviceName}.
-              </OperationAlert>
+              <Alert color="blue" variant="light">
+                {reschedulingBooking.customerName} requested {reschedulingBooking.serviceName}.
+              </Alert>
             ) : null}
-            <OperationInput
+            <TextInput
               label="Service"
-              value={
-                reschedulingBooking
-                  ? `${reschedulingBooking.serviceName} - ${formatBookingScheduleTimeRange(reschedulingBooking.scheduledStartAt, reschedulingBooking.scheduledEndAt)}`
-                  : ""
-              }
+              value={reschedulingBooking ? `${reschedulingBooking.serviceName} - ${formatBookingScheduleTimeRange(reschedulingBooking.scheduledStartAt, reschedulingBooking.scheduledEndAt)}` : ""}
               readOnly
             />
-            <OperationInput
+            <TextInput
               label="Branch"
               value={reschedulingBooking?.locationName || ""}
               readOnly
             />
-            <OperationDate
+            <DatePickerInput
+              clearable={false}
               label="Date"
+              leftSection={<IconCalendar size={16} />}
+              placeholder="Select date"
               required
               value={rescheduleDate || null}
               onChange={(value) => {
@@ -8282,319 +7854,273 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                 setRescheduleStartAt("");
               }}
             />
-            <OperationSelect
+            <Select
+              allowDeselect={false}
               data={rescheduleSlotOptions}
-              disabled={
-                rescheduleSlotsLoading || !rescheduleDate || Boolean(busyAction)
-              }
+              disabled={rescheduleSlotsLoading || !rescheduleDate}
               label="Available slot"
               required
-              placeholder={
-                rescheduleSlotsLoading ? "Loading slots…" : "Select a time"
-              }
+              placeholder={rescheduleSlotsLoading ? "Loading slots..." : "Select a time"}
               value={rescheduleStartAt}
-              onChange={(value) => {
-                if ((value || "") !== rescheduleStartAt && rescheduleFormRef.current) {
-                  unsavedForm.current.mark(rescheduleFormRef.current);
-                }
-                setRescheduleStartAt(value || "");
-              }}
+              onChange={(value) => setRescheduleStartAt(value || "")}
             />
             {rescheduleSlotsError ? (
-              <OperationAlert color="red">
-                {rescheduleSlotsError}
-              </OperationAlert>
+              <Alert color="red">{rescheduleSlotsError}</Alert>
             ) : null}
-            {!rescheduleSlotsLoading &&
-            rescheduleDate &&
-            !rescheduleSlotOptions.length &&
-            !rescheduleSlotsError ? (
-              <OperationAlert>No available slots for this date.</OperationAlert>
+            {!rescheduleSlotsLoading && rescheduleDate && !rescheduleSlotOptions.length && !rescheduleSlotsError ? (
+              <Alert color="yellow">No available slots for this date.</Alert>
             ) : null}
-          </form>
-        </OperationScope>
-      </TaskDialog>
+            <Group justify="flex-end">
+              <Button variant="default" onClick={closeRescheduleDialog}>
+                Cancel
+              </Button>
+              <Button
+                className="neura-primary-button"
+                disabled={Boolean(
+                  !rescheduleStartAt ||
+                    rescheduleSlotsLoading ||
+                    (reschedulingBooking && busyAction === `booking-reschedule:${reschedulingBooking.id}`)
+                )}
+                type="submit"
+              >
+                {reschedulingBooking && busyAction === `booking-reschedule:${reschedulingBooking.id}`
+                  ? "Saving..."
+                  : "Save schedule"}
+              </Button>
+            </Group>
+          </Stack>
+        </form>
+      </Modal>
     );
   }
 
   function renderRescheduleBlockedModal() {
     return (
-      <TaskDialog
+      <Modal
+        centered
         opened={rescheduleBlockModalOpen}
         onClose={() => setRescheduleBlockModalOpen(false)}
-        eyebrow="BOOKING SCHEDULE"
+        className="reschedule-blocked-modal"
         title="Reschedule blocked"
-        footer={
-          <OperationButton
-            variant="outline"
-            onClick={() => setRescheduleBlockModalOpen(false)}
-          >
-            OK
-          </OperationButton>
-        }
       >
-        <OperationAlert>Review payment before rescheduling.</OperationAlert>
-      </TaskDialog>
+        <Stack gap="md">
+          <Alert color="orange" variant="light">
+            Review payment first before rescheduling
+          </Alert>
+          <Group justify="flex-end">
+            <Button className="neura-primary-button" onClick={() => setRescheduleBlockModalOpen(false)}>
+              OK
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
     );
   }
 
   function renderStaffPage() {
-    if (staffQuery.isPending || staffQuery.isError)
-      return (
-        <OperationScope>
-          <OperationQueryState
-            loading={staffQuery.isPending}
-            error={staffQuery.error}
-            onRetry={() => void staffQuery.refetch()}
-          />
-        </OperationScope>
-      );
-    const confirmStaffChange = (
-      member: VendorStaffSummary,
-      kind: "role" | "status" | "remove",
-      value?: "admin" | "staff" | boolean,
-    ) => {
-      setError("");
-      const role = value === "admin" ? "admin" : "staff";
-      const enabled = value === true;
-      openConfirmAction({
-        title:
-          kind === "role"
-            ? `Change ${member.name}'s role?`
-            : kind === "remove"
-              ? `Remove ${member.name}?`
-              : `${enabled ? "Enable" : "Disable"} ${member.name}'s access?`,
-        description:
-          kind === "role"
-            ? `Their role in this business will become ${role === "admin" ? "Admin" : "Staff"}. Their existing location and counter assignments are retained.`
-            : kind === "remove"
-              ? "This revokes their access to this business. Their GetPrio account remains available for other businesses and customer bookings."
-              : enabled
-                ? "Allow this member to access this business again, subject to their role and assignments."
-                : "This disables their access to this business. Their account and membership remain saved; you can enable access again.",
-        confirmLabel:
-          kind === "role"
-            ? "Change role"
-            : kind === "remove"
-              ? "Remove staff"
-              : enabled
-                ? "Enable access"
-                : "Disable access",
-        confirmColor:
-          kind === "remove" || (kind === "status" && !enabled) ? "red" : "blue",
-        onConfirm: async () => {
-          if (kind === "role") await handleUpdateStaffRole(member, role);
-          else if (kind === "status")
-            await handleUpdateStaffStatus(member, enabled);
-          else await handleRemoveStaff(member);
-        },
-      });
-    };
+    const assignableRoles = isOwner
+      ? [
+          { label: "Admin", value: "admin" },
+          { label: "Staff", value: "staff" }
+        ]
+      : [{ label: "Staff", value: "staff" }];
+
     return (
-      <ConfigurationScope busy={Boolean(busyAction)}>
-        <div className="config-page">
-          <div className="ops-grid ops-grid-3">
-            <OperationMetric label="Team members" value={staff.length} detail="Saved memberships in this business" />
-            <OperationMetric label="Enabled access" value={staff.filter((member) => member.isActive !== false).length} detail="Members currently allowed to sign in" />
-            <OperationMetric label="Staff seats" value={`${staff.length}/${staffSeatLimit}`} detail="Disabled memberships still use a seat" />
-          </div>
-        <div className="ops-stack">
-          <div className="ops-list-heading ops-between">
+      <Card className="neura-card" padding="lg">
+        <Stack gap="md">
+          <Group justify="space-between">
             <div>
-              <h2>Business access</h2>
-              <p className="ops-muted">
-                {staff.length} of {staffSeatLimit} staff seats used. Saved
-                memberships, including disabled accounts, count toward this limit.
-              </p>
+              <Text className="neura-label">Staff</Text>
+              <Title order={3}>Tenant access</Title>
+              <Text c="dimmed" size="sm">{staff.length}/{staffSeatLimit} staff seats used</Text>
             </div>
             {isOwner || isAdmin ? (
-              <OperationButton
+              <Button
+                className="neura-primary-button"
                 disabled={staff.length >= staffSeatLimit}
-                onClick={() => {
-                  setError("");
-                  setStaffForm({ email: "", role: "staff" });
-                  setStaffDialogOpen(true);
-                }}
+                onClick={() => setStaffDialogOpen(true)}
               >
                 Add staff
-              </OperationButton>
+              </Button>
             ) : null}
-          </div>
-          {staff.length >= staffSeatLimit ? (
-            <p className="ops-muted">
-              The staff seat limit has been reached. Remove an eligible membership
-              or change your plan before adding another account.
-            </p>
-          ) : null}
-          <p className="ops-muted">
-            Owners can change other members’ roles and remove access. Owners and
-            admins can enable or disable eligible members. Counter assignments are
-            managed in Locations → Counters; names below use the selected
-            location.
-          </p>
-          {error && !staffDialogOpen && !confirmAction ? (
-            <OperationAlert color="red" title="Unable to update staff">
-              {error}
-            </OperationAlert>
-          ) : null}
-          <StaffManagement
-            key={selectedTenantSlug}
-            members={staff}
-            busyAction={busyAction}
-            locationName={selectedLocation?.name || "the selected location"}
-            actorId={user?.id || ""}
-            owner={isOwner}
-            admin={isAdmin}
-            counters={serviceCounters}
-            countersAvailable={!countersQuery.isPending && !countersQuery.isError}
-            onRole={(member, role) => confirmStaffChange(member, "role", role)}
-            onStatus={(member, active) =>
-              confirmStaffChange(member, "status", active)
-            }
-            onRemove={(member) => confirmStaffChange(member, "remove")}
-          />
-        </div>
-      </div>
-      </ConfigurationScope>
+          </Group>
+          <Table.ScrollContainer minWidth={720}>
+            <Table verticalSpacing="sm">
+              <Table.Thead>
+                <Table.Tr>
+                  <Table.Th>ID</Table.Th>
+                  <Table.Th>Name</Table.Th>
+                  <Table.Th>Contact</Table.Th>
+                  <Table.Th>Role</Table.Th>
+                  <Table.Th>Status</Table.Th>
+                  <Table.Th>Counters</Table.Th>
+                  <Table.Th />
+                </Table.Tr>
+              </Table.Thead>
+              <Table.Tbody>
+                {staff.map((member) => {
+                  const isCurrentUser = member.id === user?.id;
+                  const roleOptions = member.role === "owner"
+                    ? [{ label: "Owner", value: "owner" }]
+                    : member.role === "admin"
+                      ? [{ label: "Admin", value: "admin" }]
+                      : [{ label: "Staff", value: "staff" }];
+
+                  return (
+                    <Table.Tr key={member.id}>
+                      <Table.Td fw={700}>{member.id}</Table.Td>
+                      <Table.Td fw={700}>{member.name}</Table.Td>
+                      <Table.Td>{member.email || member.phone || "--"}</Table.Td>
+                      <Table.Td>
+                        {member.role === "owner" || isCurrentUser || !isOwner ? (
+                          <Select data={roleOptions} disabled value={member.role} />
+                        ) : (
+                          <Select
+                            data={assignableRoles}
+                            value={member.role}
+                            onChange={(value) =>
+                              value && handleUpdateStaffRole(member, value as "owner" | "admin" | "staff")
+                            }
+                          />
+                        )}
+                      </Table.Td>
+                      <Table.Td>
+                        <Switch
+                          checked={member.isActive !== false}
+                          disabled={member.role === "owner" || isCurrentUser}
+                          label={member.isActive !== false ? "Enabled" : "Disabled"}
+                          onChange={(event) => handleUpdateStaffStatus(member, event.currentTarget.checked)}
+                        />
+                      </Table.Td>
+                      <Table.Td>
+                        {member.assignedCounterIds
+                          .map((counterId) => serviceCounters.find((counter) => counter.id === counterId)?.name)
+                          .filter(Boolean)
+                          .join(", ") || "--"}
+                      </Table.Td>
+                      <Table.Td>
+                        {isOwner && member.role !== "owner" && !isCurrentUser ? (
+                          <Button
+                            color="red"
+                            size="xs"
+                            variant="light"
+                            onClick={() =>
+                              openConfirmAction({
+                                title: "Remove staff member?",
+                                description: "This will revoke the staff member's access to this tenant.",
+                                confirmLabel: "Remove staff",
+                                confirmColor: "red",
+                                onConfirm: async () => {
+                                  await handleRemoveStaff(member);
+                                }
+                              })
+                            }
+                          >
+                            Remove
+                          </Button>
+                        ) : null}
+                      </Table.Td>
+                    </Table.Tr>
+                  );
+                })}
+              </Table.Tbody>
+            </Table>
+          </Table.ScrollContainer>
+        </Stack>
+      </Card>
     );
   }
 
   function renderClientsPage() {
-    if (clientsQuery.isError || clientsQuery.isPending)
-      return (
-        <OperationScope>
-          <OperationQueryState
-            loading={clientsQuery.isPending}
-            error={clientsQuery.error}
-            onRetry={() => void clientsQuery.refetch()}
-          />
-        </OperationScope>
-      );
     return (
-      <OperationScope busy={Boolean(busyAction)}>
-        <OperationPanel>
-          <div className="ops-stack">
-            <div className="ops-row ops-between">
-              <div>
-                <p className="vendor-eyebrow">Clients</p>
-                <h2 className="ops-heading">Customer history</h2><p className="ops-muted">Search and sort cover the records loaded within this history window.</p>
-              </div>
-              <QueueBadge variant="outline">
-                {clients?.historyLabel || "History window"}
-              </QueueBadge>
+      <Card className="neura-card" padding="lg">
+        <Stack gap="md">
+          <Group justify="space-between">
+            <div>
+              <Text className="neura-label">Clients</Text>
+              <Title order={3}>Customer history</Title>
             </div>
-            <div className="ops-row">
-              <OperationInput
-                label="Search loaded clients"
-                placeholder="Name, contact, ticket, status"
-                value={clientsSearch}
-                onChange={(event) => {
-                  setClientsSearch(event.currentTarget.value);
-                  setClientsPage(1);
-                }}
-              />
-              <OperationSelect
-                label="Sort by"
-                data={[
-                  { value: "latestVisitDesc", label: "Latest visit newest" },
-                  { value: "latestVisitAsc", label: "Latest visit oldest" },
-                  { value: "nameAsc", label: "Name A-Z" },
-                  { value: "nameDesc", label: "Name Z-A" },
-                  { value: "visitsDesc", label: "Most visits" },
-                  { value: "visitsAsc", label: "Fewest visits" },
-                ]}
-                value={clientsSort}
-                onChange={(value) =>
-                  setClientsSort((value as ClientSort) || "latestVisitDesc")
-                }
-              />
-            </div>
-            <div className="ops-table">
-              <QueueTable role="table" className="ops-data-table">
-                <QueueTableHeader role="rowgroup">
-                  <QueueTableRow role="row">
-                    <QueueTableHead role="columnheader" scope="col">ID</QueueTableHead>
-                    <QueueTableHead role="columnheader" scope="col">Customer</QueueTableHead>
-                    <QueueTableHead role="columnheader" scope="col">Contact</QueueTableHead>
-                    <QueueTableHead role="columnheader" scope="col">Visits</QueueTableHead>
-                    <QueueTableHead role="columnheader" scope="col">Latest ticket</QueueTableHead>
-                    <QueueTableHead role="columnheader" scope="col">Latest visit</QueueTableHead>
-                  </QueueTableRow>
-                </QueueTableHeader>
-                <QueueTableBody role="rowgroup">
-                  {paginatedClients.length ? (
-                    paginatedClients.map((client) => (
-                      <QueueTableRow role="row" key={client.id}>
-                        <QueueTableCell role="cell" data-label="ID">{client.id}</QueueTableCell>
-                        <QueueTableCell role="cell" data-label="Customer">{client.customerName}</QueueTableCell>
-                        <QueueTableCell role="cell" data-label="Contact">
-                          {[client.customerEmail, client.customerPhone]
-                            .filter(Boolean)
-                            .join(" | ") || "—"}
-                        </QueueTableCell>
-                        <QueueTableCell role="cell" data-label="Visits">{client.visitCount}</QueueTableCell>
-                        <QueueTableCell role="cell" data-label="Latest ticket">
-                          {client.latestTicketNumber}
-                        </QueueTableCell>
-                        <QueueTableCell role="cell" data-label="Latest visit">
-                          {formatDateTime(client.latestVisitAt)}
-                        </QueueTableCell>
-                      </QueueTableRow>
-                    ))
-                  ) : (
-                    <QueueTableRow role="row">
-                      <QueueTableCell role="cell" colSpan={6}>
-                        <OperationEmpty
-                          title={
-                            clientsSearch
-                              ? "No matching clients."
-                              : "No client history yet."
-                          }
-                          text={
-                            clientsSearch
-                              ? "Try a different search term or reset the sort."
-                              : "Client records appear after tickets are created."
-                          }
-                        />
-                      </QueueTableCell>
-                    </QueueTableRow>
-                  )}
-                </QueueTableBody>
-              </QueueTable>
-            </div>
-            <div className="ops-row ops-between">
-              <p className="ops-muted">
-                Showing{" "}
-                {paginatedClients.length
-                  ? (clientsVisiblePage - 1) * CLIENTS_PAGE_SIZE + 1
-                  : 0}
-                -
-                {Math.min(
-                  clientsVisiblePage * CLIENTS_PAGE_SIZE,
-                  filteredClients.length,
-                )}{" "}
-                of {filteredClients.length}
-              </p>
-              <OperationPagination
-                total={clientsTotalPages}
-                value={clientsVisiblePage}
-                onChange={setClientsPage}
-              />
-            </div>
-          </div>
-        </OperationPanel>
-      </OperationScope>
+            <Badge variant="light">{clients?.historyLabel || "History window"}</Badge>
+          </Group>
+          <Group align="end">
+            <TextInput
+              label="Search clients"
+              placeholder="Name, contact, ticket, status"
+              value={clientsSearch}
+              onChange={(event) => setClientsSearch(event.currentTarget.value)}
+            />
+            <Select
+              label="Sort by"
+              data={[
+                { value: "latestVisitDesc", label: "Latest visit newest" },
+                { value: "latestVisitAsc", label: "Latest visit oldest" },
+                { value: "nameAsc", label: "Name A-Z" },
+                { value: "nameDesc", label: "Name Z-A" },
+                { value: "visitsDesc", label: "Most visits" },
+                { value: "visitsAsc", label: "Fewest visits" }
+              ]}
+              value={clientsSort}
+              onChange={(value) => setClientsSort((value as ClientSort) || "latestVisitDesc")}
+            />
+          </Group>
+          <Table.ScrollContainer minWidth={720}>
+            <Table verticalSpacing="sm">
+              <Table.Thead>
+                <Table.Tr>
+                  <Table.Th>ID</Table.Th>
+                  <Table.Th>Customer</Table.Th>
+                  <Table.Th>Contact</Table.Th>
+                  <Table.Th>Visits</Table.Th>
+                  <Table.Th>Latest ticket</Table.Th>
+                  <Table.Th>Latest visit</Table.Th>
+                </Table.Tr>
+              </Table.Thead>
+              <Table.Tbody>
+                {paginatedClients.length ? (
+                  paginatedClients.map((client) => (
+                    <Table.Tr key={client.id}>
+                      <Table.Td fw={700}>{client.id}</Table.Td>
+                      <Table.Td fw={700}>{client.customerName}</Table.Td>
+                      <Table.Td>{[client.customerEmail, client.customerPhone].filter(Boolean).join(" | ") || "—"}</Table.Td>
+                      <Table.Td>{client.visitCount}</Table.Td>
+                      <Table.Td>{client.latestTicketNumber}</Table.Td>
+                      <Table.Td>{formatDateTime(client.latestVisitAt)}</Table.Td>
+                    </Table.Tr>
+                  ))
+                ) : (
+                  <Table.Tr>
+                    <Table.Td colSpan={6}>
+                      <DashboardEmptyState
+                        title={clientsSearch ? "No matching clients." : "No client history yet."}
+                        text={
+                          clientsSearch
+                            ? "Try a different search term or reset the sort."
+                            : "Client records appear after tickets are created."
+                        }
+                      />
+                    </Table.Td>
+                  </Table.Tr>
+                )}
+              </Table.Tbody>
+            </Table>
+          </Table.ScrollContainer>
+          <Group justify="space-between" align="center">
+            <Text c="dimmed" size="sm">
+              Showing {paginatedClients.length ? (clientsPage - 1) * CLIENTS_PAGE_SIZE + 1 : 0}-
+              {Math.min(clientsPage * CLIENTS_PAGE_SIZE, filteredClients.length)} of {filteredClients.length}
+            </Text>
+            <Pagination total={clientsTotalPages} value={clientsPage} onChange={setClientsPage} />
+          </Group>
+        </Stack>
+      </Card>
     );
   }
 
   function renderHistoryPage() {
     const exportTypeOptions = [
       effectiveEntitlements?.csvExport ? { value: "csv", label: "CSV" } : null,
-      effectiveEntitlements?.pdfExport ? { value: "pdf", label: "PDF" } : null,
-    ].filter(Boolean) as Array<{
-      value: "csv" | "pdf";
-      label: string;
-    }>;
+      effectiveEntitlements?.pdfExport ? { value: "pdf", label: "PDF" } : null
+    ].filter(Boolean) as Array<{ value: "csv" | "pdf"; label: string }>;
     const historyRangeOptions =
       effectiveEntitlements?.allowedHistoryExportRanges?.map((range) => ({
         value: range,
@@ -8607,201 +8133,158 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                 ? "1 Month"
                 : range === "quarter"
                   ? "3 Months"
-                  : "1 Year",
+                  : "1 Year"
       })) || [];
-    if (historyQuery.isError || historyQuery.isPending)
-      return (
-        <OperationScope>
-          <OperationQueryState
-            loading={historyQuery.isPending}
-            error={historyQuery.error}
-            onRetry={() => void historyQuery.refetch()}
-          />
-        </OperationScope>
-      );
+
     return (
-      <OperationScope busy={Boolean(busyAction)}>
-        <OperationPanel>
-          <div className="ops-stack">
-            <div className="ops-row ops-between">
-              <div>
-                <p className="vendor-eyebrow">History</p>
-                <h2 className="ops-heading">Completed queue activity</h2><p className="ops-muted">Search covers up to 50 loaded records. Export periods are separate from this list.</p>
-              </div>
-              <QueueBadge variant="outline">
-                {history?.historyLabel || "Recent history"}
-              </QueueBadge>
+      <Card className="neura-card" padding="lg">
+        <Stack gap="md">
+          <Group justify="space-between">
+            <div>
+              <Text className="neura-label">History</Text>
+              <Title order={3}>Completed queue activity</Title>
             </div>
-            {canExportHistory &&
-            exportTypeOptions.length &&
-            historyRangeOptions.length ? (
-              <div className="ops-row">
-                <OperationSelect
-                  data={exportTypeOptions}
-                  label="Export type"
-                  value={historyExportFormat}
-                  onChange={(value) =>
-                    setHistoryExportFormat(value as "csv" | "pdf" | null)
-                  }
-                />
-                <OperationSelect
-                  data={historyRangeOptions}
-                  label="Export period"
-                  value={historyExportRange}
-                  onChange={(value) =>
-                    setHistoryExportRange(value as HistoryExportRange | null)
-                  }
-                />
-                <OperationButton
-                  disabled={!historyExportFormat || !historyExportRange}
-                  onClick={() =>
-                    historyExportFormat &&
-                    historyExportRange &&
-                    handleHistoryExport(historyExportRange, historyExportFormat)
-                  }
-                  variant="outline"
-                >
-                  Export
-                </OperationButton>
-              </div>
-            ) : null}
-            <div className="ops-row">
-              <OperationInput
-                label="Search loaded history"
-                placeholder="Ticket, customer, status, lookup code"
-                value={historySearch}
-                onChange={(event) => {
-                  setHistorySearch(event.currentTarget.value);
-                  setHistoryPage(1);
-                }}
+            <Badge variant="light">{history?.historyLabel || "Recent history"}</Badge>
+          </Group>
+          {canExportHistory && exportTypeOptions.length && historyRangeOptions.length ? (
+            <Group align="flex-end">
+              <Select
+                data={exportTypeOptions}
+                label="Export type"
+                value={historyExportFormat}
+                onChange={(value) => setHistoryExportFormat(value as "csv" | "pdf" | null)}
               />
-              <OperationSelect
-                label="Sort by"
-                data={[
-                  { value: "updatedDesc", label: "Updated newest" },
-                  { value: "updatedAsc", label: "Updated oldest" },
-                  { value: "ticketAsc", label: "Ticket A-Z" },
-                  { value: "ticketDesc", label: "Ticket Z-A" },
-                  { value: "customerAsc", label: "Customer A-Z" },
-                  { value: "customerDesc", label: "Customer Z-A" },
-                ]}
-                value={historySort}
-                onChange={(value) =>
-                  setHistorySort((value as HistorySort) || "updatedDesc")
+              <Select
+                data={historyRangeOptions}
+                label="History length"
+                value={historyExportRange}
+                onChange={(value) => setHistoryExportRange(value as HistoryExportRange | null)}
+              />
+              <Button
+                className="neura-secondary-button"
+                disabled={!historyExportFormat || !historyExportRange}
+                onClick={() =>
+                  historyExportFormat &&
+                  historyExportRange &&
+                  handleHistoryExport(historyExportRange, historyExportFormat)
                 }
-              />
-            </div>
-            <div className="ops-table">
-              <QueueTable role="table" className="ops-data-table">
-                <QueueTableHeader role="rowgroup">
-                  <QueueTableRow role="row">
-                    <QueueTableHead role="columnheader" scope="col">ID</QueueTableHead>
-                    <QueueTableHead role="columnheader" scope="col">Ticket</QueueTableHead>
-                    <QueueTableHead role="columnheader" scope="col">Customer</QueueTableHead>
-                    <QueueTableHead role="columnheader" scope="col">Status</QueueTableHead>
-                    <QueueTableHead role="columnheader" scope="col">Updated</QueueTableHead>
-                  </QueueTableRow>
-                </QueueTableHeader>
-                <QueueTableBody role="rowgroup">
-                  {paginatedHistoryTickets.length ? (
-                    paginatedHistoryTickets.map((ticket) => (
-                      <QueueTableRow role="row" key={ticket.id}>
-                        <QueueTableCell role="cell" data-label="ID">{ticket.id}</QueueTableCell>
-                        <QueueTableCell role="cell" data-label="Ticket">{ticket.ticketNumber}</QueueTableCell>
-                        <QueueTableCell role="cell" data-label="Customer">{ticket.customerName}</QueueTableCell>
-                        <QueueTableCell role="cell" data-label="Status">
-                          <QueueBadge variant="outline">
-                            {ticket.status}
-                          </QueueBadge>
-                        </QueueTableCell>
-                        <QueueTableCell role="cell" data-label="Updated">
-                          {formatDateTime(ticket.updatedAt)}
-                        </QueueTableCell>
-                      </QueueTableRow>
-                    ))
-                  ) : (
-                    <QueueTableRow role="row">
-                      <QueueTableCell role="cell" colSpan={5}>
-                        <OperationEmpty
-                          title={
-                            historySearch
-                              ? "No matching history records."
-                              : "No completed queue activity yet."
-                          }
-                          text={
-                            historySearch
-                              ? "Try a different search term or reset the sort."
-                              : "Completed queue records appear here within your plan’s history window."
-                          }
-                        />
-                      </QueueTableCell>
-                    </QueueTableRow>
-                  )}
-                </QueueTableBody>
-              </QueueTable>
-            </div>
-            <div className="ops-row ops-between">
-              <p className="ops-muted">
-                Showing{" "}
-                {paginatedHistoryTickets.length
-                  ? (historyVisiblePage - 1) * HISTORY_PAGE_SIZE + 1
-                  : 0}
-                -
-                {Math.min(
-                  historyVisiblePage * HISTORY_PAGE_SIZE,
-                  filteredHistoryTickets.length,
-                )}{" "}
-                of {filteredHistoryTickets.length}
-              </p>
-              <OperationPagination
-                total={historyTotalPages}
-                value={historyVisiblePage}
-                onChange={setHistoryPage}
-              />
-            </div>
-          </div>
-        </OperationPanel>
-      </OperationScope>
+              >
+                Export
+              </Button>
+            </Group>
+          ) : null}
+          <Group align="end">
+            <TextInput
+              label="Search history"
+              placeholder="Ticket, customer, status, lookup code"
+              value={historySearch}
+              onChange={(event) => setHistorySearch(event.currentTarget.value)}
+            />
+            <Select
+              label="Sort by"
+              data={[
+                { value: "updatedDesc", label: "Updated newest" },
+                { value: "updatedAsc", label: "Updated oldest" },
+                { value: "ticketAsc", label: "Ticket A-Z" },
+                { value: "ticketDesc", label: "Ticket Z-A" },
+                { value: "customerAsc", label: "Customer A-Z" },
+                { value: "customerDesc", label: "Customer Z-A" }
+              ]}
+              value={historySort}
+              onChange={(value) => setHistorySort((value as HistorySort) || "updatedDesc")}
+            />
+          </Group>
+          <Table.ScrollContainer minWidth={620}>
+            <Table verticalSpacing="sm">
+              <Table.Thead>
+                <Table.Tr>
+                  <Table.Th>ID</Table.Th>
+                  <Table.Th>Ticket</Table.Th>
+                  <Table.Th>Customer</Table.Th>
+                  <Table.Th>Status</Table.Th>
+                  <Table.Th>Updated</Table.Th>
+                </Table.Tr>
+              </Table.Thead>
+              <Table.Tbody>
+                {paginatedHistoryTickets.length ? (
+                  paginatedHistoryTickets.map((ticket) => (
+                    <Table.Tr key={ticket.id}>
+                      <Table.Td fw={700}>{ticket.id}</Table.Td>
+                      <Table.Td fw={700}>{ticket.ticketNumber}</Table.Td>
+                      <Table.Td>{ticket.customerName}</Table.Td>
+                      <Table.Td><Badge variant="light">{ticket.status}</Badge></Table.Td>
+                      <Table.Td>{formatDateTime(ticket.updatedAt)}</Table.Td>
+                    </Table.Tr>
+                  ))
+                ) : (
+                  <Table.Tr>
+                    <Table.Td colSpan={5}>
+                      <DashboardEmptyState
+                        title={historySearch ? "No matching history records." : "No completed queue activity yet."}
+                        text={
+                          historySearch
+                            ? "Try a different search term or reset the sort."
+                            : "Served and skipped tickets will gather here over time."
+                        }
+                      />
+                    </Table.Td>
+                  </Table.Tr>
+                )}
+              </Table.Tbody>
+            </Table>
+          </Table.ScrollContainer>
+          <Group justify="space-between" align="center">
+            <Text c="dimmed" size="sm">
+              Showing {paginatedHistoryTickets.length ? (historyPage - 1) * HISTORY_PAGE_SIZE + 1 : 0}-
+              {Math.min(historyPage * HISTORY_PAGE_SIZE, filteredHistoryTickets.length)} of {filteredHistoryTickets.length}
+            </Text>
+            <Pagination total={historyTotalPages} value={historyPage} onChange={setHistoryPage} />
+          </Group>
+        </Stack>
+      </Card>
     );
   }
 
-  function renderPeriodTicketUsage() {
-    return <div className="queue-stack">
-      <OperationMetric label="Tickets" value={periodUsageQuery.isPending ? "Loading usage…" : periodTicketMetric.value} detail={periodTicketMetric.detail} />
-      {periodUsageQuery.isError ? <OperationButton variant="outline" className="v:min-h-11 v:w-full v:sm:w-fit" onClick={() => void periodUsageQuery.refetch()} loading={periodUsageQuery.isFetching}>Retry usage</OperationButton> : null}
-    </div>;
-  }
-
   function renderReportsPage() {
-    const ready = !dashboardBootstrapQuery.error && snapshot?.tenant.slug === selectedTenantSlug && snapshot?.location?.slug === selectedLocationSlug;
-    return <div className="config-page">
-      <div className="ops-list-heading"><div><h2 className="account-panel-title">Today at {selectedLocation?.name || "this location"}</h2><p className="ops-muted">Current queue activity for the selected location.</p></div></div>
-      {!ready || !snapshot ? <OperationQueryState loading={!dashboardBootstrapQuery.error} error={dashboardBootstrapQuery.error} onRetry={()=>void dashboardBootstrapQuery.refetch()} /> : <div className="ops-grid report-metrics"><OperationMetric label="Waiting tickets" value={snapshot.stats.waitingCount} detail="At the selected location" /><OperationMetric label="Tickets served today" value={ticketUsage} detail="At the selected location" /><OperationMetric label="Estimated wait" value={`${snapshot.stats.estimatedWaitMinutes} min`} detail="Current queue estimate" /><OperationMetric label="Called ticket" value={selectedCalledTicket?.ticketNumber || "—"} detail={selectedCalledTicket?.customerName || "No called ticket for the selected counter"} /></div>}
-      <div className="report-detail-grid">
-        {ready ? renderRecordedIntervals() : null}
-        <OperationPanel><h2 className="account-panel-title">Billing period usage</h2><p className="ops-muted">Across all locations in this business.</p>{renderPeriodTicketUsage()}</OperationPanel>
-      </div>
-    </div>;
+    return (
+      <Stack gap="md">
+        {renderStats()}
+        <SimpleGrid cols={{ base: 1, lg: 2 }} spacing="md">
+          <Card className="neura-card" padding="lg">
+            <Stack gap="md">
+              <div>
+                <Text className="neura-label">Usage</Text>
+                <Title order={3}>Plan consumption</Title>
+              </div>
+              <SimpleGrid cols={2}>
+                <MetricCard label="Tickets" value={`${ticketUsage}/${ticketLimit || "--"}`} detail="Current period" />
+                <MetricCard label="Email journeys" value={`${emailJourneyUsage}/${emailJourneyLimit ?? "--"}`} detail={emailJourneyDetail} />
+              </SimpleGrid>
+            </Stack>
+          </Card>
+          {renderServiceTrend()}
+        </SimpleGrid>
+      </Stack>
+    );
   }
 
   function renderSecurityPage() {
     const mfaRequired = Boolean(user?.mfaRequired || isOwner || isAdmin);
-    const totpMfaEnabled = Boolean(user?.totpMfaEnabled);
 
     return (
-      <AccountStack gap="md">
-        {!requiresMfaEnrollment ? <AccountCard className="neura-card vendor-security-card" padding="lg">
-          <AccountStack gap="md">
+      <Stack gap="md">
+        {!requiresMfaEnrollment ? <Card className="neura-card vendor-security-card" padding="lg">
+          <Stack gap="md">
             <div>
-              <AccountText className="neura-label">Account access</AccountText>
-              <AccountTitle order={3}>Change password</AccountTitle>
-              <AccountText c="dimmed" mt="xs">
+              <Text className="neura-label">Account access</Text>
+              <Title order={3}>Change password</Title>
+              <Text c="dimmed" mt="xs">
                 Changing your password closes this session and all other active sessions.
-              </AccountText>
+              </Text>
             </div>
             <form onSubmit={handlePasswordChange}>
-              <AccountStack gap="md">
-                <AccountPassword
+              <Stack gap="md">
+                <PasswordInput
                   autoComplete="current-password"
                   label="Current password"
                   name="currentPassword"
@@ -8809,7 +8292,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   value={passwordForm.currentPassword}
                   onChange={(event) => setPasswordForm((current) => ({ ...current, currentPassword: event.target.value }))}
                 />
-                <AccountPassword
+                <PasswordInput
                   autoComplete="new-password"
                   label="New password"
                   name="newPassword"
@@ -8817,186 +8300,210 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   value={passwordForm.newPassword}
                   onChange={(event) => setPasswordForm((current) => ({ ...current, newPassword: event.target.value }))}
                 />
-                <AccountButton
+                <Button
                   className="neura-primary-button"
                   loading={passwordBusy}
                   type="submit"
                   w={{ base: "100%", sm: "fit-content" }}
                 >
                   Change password
-                </AccountButton>
-              </AccountStack>
+                </Button>
+              </Stack>
             </form>
-          </AccountStack>
-        </AccountCard> : null}
+          </Stack>
+        </Card> : null}
 
-        <AccountCard className="neura-card vendor-security-card" padding="lg">
-          <AccountStack gap="md">
+        <Card className="neura-card vendor-security-card" padding="lg">
+          <Stack gap="md">
             <div>
-              <AccountText className="neura-label">2FA/MFA</AccountText>
-              <AccountTitle order={3}>Multi-factor authentication</AccountTitle>
-              <AccountText c="dimmed" mt="xs">
+              <Text className="neura-label">2FA/MFA</Text>
+              <Title order={3}>Multi-factor authentication</Title>
+              <Text c="dimmed" mt="xs">
                 This protection belongs to your account and applies across every vendor workspace you can access.
-              </AccountText>
+              </Text>
             </div>
-            <AccountGroup gap="sm">
-              <AccountBadge color={mfaEnabled ? "teal" : "gray"} variant="light">
+            <Group gap="sm">
+              <Badge color={mfaEnabled ? "teal" : "gray"} variant="light">
                 {mfaEnabled ? "Enabled" : "Not enabled"}
-              </AccountBadge>
-              <AccountBadge color={mfaRequired ? "orange" : "gray"} variant="light">
+              </Badge>
+              <Badge color={mfaRequired ? "orange" : "gray"} variant="light">
                 {mfaRequired ? "Required for your role" : "Optional"}
-              </AccountBadge>
-            </AccountGroup>
+              </Badge>
+            </Group>
 
             {mfaRequired && !mfaEnabled ? (
-              <AccountAlert color="orange" title="Authenticator setup required" variant="light">
+              <Alert color="orange" title="Authenticator setup required" variant="light">
                 Vendor owners and admins must enable MFA to protect privileged business actions.
-              </AccountAlert>
+              </Alert>
             ) : null}
 
             {mfaRecoveryCodes.length ? (
-              <AccountAlert color="teal" title="Save your recovery codes" variant="light">
-                <AccountStack gap="sm">
-                  <AccountText size="sm">These recovery codes are shown only once.</AccountText>
-                  <AccountGrid cols={{ base: 1, sm: 2 }} spacing={6}>
+              <Alert color="teal" title="Save your recovery codes" variant="light">
+                <Stack gap="sm">
+                  <Text size="sm">These recovery codes are shown only once.</Text>
+                  <SimpleGrid cols={{ base: 1, sm: 2 }} spacing={6}>
                     {mfaRecoveryCodes.map((code) => (
-                      <AccountText ff="monospace" key={code}>{code}</AccountText>
+                      <Text ff="monospace" key={code}>{code}</Text>
                     ))}
-                  </AccountGrid>
-                  <AccountButton
+                  </SimpleGrid>
+                  <Button
                     color="teal"
                     onClick={() => setMfaRecoveryCodes([])}
                     variant="light"
                     w="fit-content"
                   >
                     I saved these recovery codes
-                  </AccountButton>
-                </AccountStack>
-              </AccountAlert>
+                  </Button>
+                </Stack>
+              </Alert>
             ) : null}
 
-            {!totpMfaEnabled && !mfaSecret && !mfaRecoveryCodes.length ? (
-              <AccountButton
+            {!mfaEnabled && !mfaSecret && !mfaRecoveryCodes.length ? (
+              <Button
                 className="neura-primary-button"
                 loading={mfaBusy}
                 onClick={() => void startMfaEnrollment()}
                 w={{ base: "100%", sm: "fit-content" }}
               >
                 Set up authenticator
-              </AccountButton>
+              </Button>
             ) : null}
 
             {mfaSecret ? (
-              <AccountStack gap="md">
-                <AccountStack align="center" gap="sm">
-                  <AccountText fw={700} ta="center">Scan with your authenticator app</AccountText>
-                  <AccountText c="dimmed" maw={460} size="sm" ta="center">
+              <Stack gap="md">
+                <Stack align="center" gap="sm">
+                  <Text fw={700} ta="center">Scan with your authenticator app</Text>
+                  <Text c="dimmed" maw={460} size="sm" ta="center">
                     Add an account in your authenticator app, then scan this QR code.
-                  </AccountText>
+                  </Text>
                   <div aria-label="GetPrio authenticator setup QR code" className="mfa-setup-qr" role="img">
                     <StyledQRCode aria-label="Authenticator setup QR code" size={192} value={mfaEnrollmentUri} />
                   </div>
-                </AccountStack>
-                <AccountAlert color="blue" title="Cannot scan the QR code?" variant="light">
+                </Stack>
+                <Alert color="blue" title="Cannot scan the QR code?" variant="light">
                   Enter this secret manually in your authenticator app.
-                  <AccountText ff="monospace" mt="xs" style={{ overflowWrap: "anywhere" }}>{mfaSecret}</AccountText>
-                </AccountAlert>
-                <OtpInputField label="6-digit authenticator code" value={mfaCode} onChange={setMfaCode} disabled={mfaBusy} onVerify={confirmMfaEnrollment} autoVerifyEnabled={Boolean(mfaSecret)} verificationKey={mfaSecret} autoFocus />
-                <AccountGroup justify="flex-end">
+                  <Text ff="monospace" mt="xs" style={{ overflowWrap: "anywhere" }}>{mfaSecret}</Text>
+                </Alert>
+                <TextInput
+                  autoFocus
+                  autoComplete="one-time-code"
+                  inputMode="numeric"
+                  label="6-digit authenticator code"
+                  maxLength={6}
+                  value={mfaCode}
+                  onChange={(event) => setMfaCode(event.target.value.replace(/\D/g, ""))}
+                />
+                <Group justify="flex-end">
                   {mfaEnabled && mfaSecret ? (
-                    <AccountButton disabled={mfaBusy} onClick={() => void cancelMfaEnrollment()} variant="default">
+                    <Button disabled={mfaBusy} onClick={() => void cancelMfaEnrollment()} variant="default">
                       Cancel
-                    </AccountButton>
+                    </Button>
                   ) : null}
-                  <AccountButton
+                  <Button
                     className="neura-primary-button"
                     disabled={mfaCode.length !== 6}
                     loading={mfaBusy}
                     onClick={() => void confirmMfaEnrollment()}
                   >
                     Verify and enable
-                  </AccountButton>
-                </AccountGroup>
-              </AccountStack>
+                  </Button>
+                </Group>
+              </Stack>
             ) : null}
 
-            {totpMfaEnabled && !mfaSecret && !mfaRecoveryCodes.length ? (
-              <AccountStack gap="md">
-                <AccountAlert color="teal" variant="light">
+            {mfaEnabled && !mfaSecret && !mfaRecoveryCodes.length ? (
+              <Stack gap="md">
+                <Alert color="teal" variant="light">
                   Your authenticator is active. Protected sign-ins and sensitive actions can require a security code.
-                </AccountAlert>
+                </Alert>
                 {!replacingMfa && !removingMfa ? (
-                  <AccountGroup align="stretch">
-                    <AccountButton onClick={() => setReplacingMfa(true)} variant="default">
+                  <Group align="stretch">
+                    <Button onClick={() => setReplacingMfa(true)} variant="default">
                       Replace authenticator
-                    </AccountButton>
+                    </Button>
                     {!mfaRequired ? (
-                      <AccountButton color="red" onClick={() => setRemovingMfa(true)} variant="light">Remove authenticator</AccountButton>
+                      <Button color="red" onClick={() => setRemovingMfa(true)} variant="light">Remove MFA</Button>
                     ) : null}
-                  </AccountGroup>
+                  </Group>
                 ) : null}
 
                 {replacingMfa ? (
-                  <AccountCard className="vendor-security-action" padding="md" withBorder>
-                    <AccountStack gap="md">
+                  <Card className="vendor-security-action" padding="md" withBorder>
+                    <Stack gap="md">
                       <div>
-                        <AccountTitle order={3}>Replace authenticator</AccountTitle>
-                        <AccountText c="dimmed" size="sm">
+                        <Title order={3}>Replace authenticator</Title>
+                        <Text c="dimmed" size="sm">
                           Confirm your password and current authenticator code before scanning a replacement QR code.
-                        </AccountText>
+                        </Text>
                       </div>
-                      <AccountPassword
+                      <PasswordInput
                         autoComplete="current-password"
                         label="Current password"
                         required
                         value={replacementPassword}
                         onChange={(event) => setReplacementPassword(event.target.value)}
                       />
-                      <OtpInputField label="Current authenticator code" value={replacementCode} onChange={setReplacementCode} disabled={mfaBusy} onVerify={startMfaReplacement} autoVerifyEnabled={Boolean(replacementPassword)} required />
-                      <AccountGroup justify="flex-end">
-                        <AccountButton disabled={mfaBusy} onClick={() => {if(discardAccountTask(true,Boolean(replacementPassword || replacementCode))){setReplacingMfa(false);setReplacementPassword("");setReplacementCode("");}}} variant="default">Cancel</AccountButton>
-                        <AccountButton
+                      <TextInput
+                        autoComplete="one-time-code"
+                        inputMode="numeric"
+                        label="Current authenticator code"
+                        maxLength={6}
+                        required
+                        value={replacementCode}
+                        onChange={(event) => setReplacementCode(event.target.value.replace(/\D/g, ""))}
+                      />
+                      <Group justify="flex-end">
+                        <Button disabled={mfaBusy} onClick={() => setReplacingMfa(false)} variant="default">Cancel</Button>
+                        <Button
                           className="neura-primary-button"
                           disabled={!replacementPassword || replacementCode.length !== 6}
                           loading={mfaBusy}
                           onClick={() => void startMfaReplacement()}
                         >
                           Verify and replace
-                        </AccountButton>
-                      </AccountGroup>
-                    </AccountStack>
-                  </AccountCard>
+                        </Button>
+                      </Group>
+                    </Stack>
+                  </Card>
                 ) : null}
 
                 {removingMfa && !mfaRequired ? (
-                  <AccountCard className="vendor-security-action" padding="md" withBorder>
-                    <AccountStack gap="md">
-                      <AccountAlert color="red" title="Your account will be less secure" variant="light">
-                        This revokes your authenticator and recovery codes. {user?.emailMfaEnabled ? "Email OTP will remain enabled." : "Your account will no longer have MFA."} Other sessions will be closed.
-                      </AccountAlert>
-                      <AccountPassword
+                  <Card className="vendor-security-action" padding="md" withBorder>
+                    <Stack gap="md">
+                      <Alert color="red" title="Your account will be less secure" variant="light">
+                        Removing MFA revokes your authenticator and every recovery code. Other sessions will be closed.
+                      </Alert>
+                      <PasswordInput
                         autoComplete="current-password"
                         label="Current password"
                         required
                         value={removalPassword}
                         onChange={(event) => setRemovalPassword(event.target.value)}
                       />
-                      <OtpInputField label="Current authenticator code" value={removalCode} onChange={setRemovalCode} disabled={mfaBusy} onVerify={removeMfa} autoVerifyEnabled={Boolean(removalPassword) && removalAcknowledged && !removalRecoveryCode} description="Use this or an unused recovery code below." />
-                      <AccountInput
+                      <TextInput
+                        autoComplete="one-time-code"
+                        description="Use this or an unused recovery code below."
+                        inputMode="numeric"
+                        label="Current authenticator code"
+                        maxLength={6}
+                        value={removalCode}
+                        onChange={(event) => setRemovalCode(event.target.value.replace(/\D/g, ""))}
+                      />
+                      <TextInput
                         autoComplete="one-time-code"
                         description="Use this only if your authenticator is unavailable."
                         label="Recovery code"
                         value={removalRecoveryCode}
                         onChange={(event) => setRemovalRecoveryCode(event.target.value)}
                       />
-                      <ConfigurationCheck
+                      <Checkbox
                         checked={removalAcknowledged}
                         label="I understand that removing MFA reduces my account security."
-                        onChange={(event)=>setRemovalAcknowledged(event.currentTarget.checked)}
+                        onChange={(event) => setRemovalAcknowledged(event.target.checked)}
                       />
-                      <AccountGroup justify="flex-end">
-                        <AccountButton disabled={mfaBusy} onClick={() => {if(discardAccountTask(true,Boolean(removalPassword || removalCode || removalRecoveryCode))){setRemovingMfa(false);setRemovalPassword("");setRemovalCode("");setRemovalRecoveryCode("");setRemovalAcknowledged(false);}}} variant="default">Keep MFA</AccountButton>
-                        <AccountButton
+                      <Group justify="flex-end">
+                        <Button disabled={mfaBusy} onClick={() => setRemovingMfa(false)} variant="default">Keep MFA</Button>
+                        <Button
                           color="red"
                           disabled={
                             !removalAcknowledged ||
@@ -9006,22 +8513,17 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                           loading={mfaBusy}
                           onClick={() => void removeMfa()}
                         >
-                          Remove authenticator
-                        </AccountButton>
-                      </AccountGroup>
-                    </AccountStack>
-                  </AccountCard>
+                          Remove MFA
+                        </Button>
+                      </Group>
+                    </Stack>
+                  </Card>
                 ) : null}
-              </AccountStack>
+              </Stack>
             ) : null}
-          </AccountStack>
-        </AccountCard>
-        <EmailMfaSettingsPanel
-          variant="vendor"
-          onUpdated={(updatedUser) => setMfaEnabled(Boolean(updatedUser?.mfaEnabled))}
-        />
-        <VendorAccountDeletionPanel />
-      </AccountStack>
+          </Stack>
+        </Card>
+      </Stack>
     );
   }
 
@@ -9033,28 +8535,14 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       ? billing?.plans.find((item) => item.slug === subscription.planSlug) || null
       : null;
 
-    const billingUnavailable = billingOverviewQuery.isPending || Boolean(billingOverviewQuery.error);
-    const billingReadState = <OperationQueryState loading={billingOverviewQuery.isPending} error={billingOverviewQuery.error} onRetry={()=>void billingOverviewQuery.refetch()} />;
     return (
-      <AccountPresentation key={accountTaskRevision} onBusyChange={setAccountPanelBusy} onDraftChange={setAccountPanelDraft}>
-      <ConfigurationScope busy={Boolean(accountProfileBusy || passwordBusy || mfaBusy || accountPanelBusy || busyAction)}>
-      <div className="config-page account-page">
-        <QueueCard>
-          <QueueCardHeader>
-            <QueueCardDescription>Your GetPrio account</QueueCardDescription>
-            <QueueCardTitle>{user?.displayName || user?.name || "Account"}</QueueCardTitle>
-            <QueueCardDescription>One identity across your vendor workspaces.</QueueCardDescription>
-          </QueueCardHeader>
-          <QueueCardContent className="ops-row">
-            <QueueBadge variant="secondary">{selectedTenantRole === "owner" ? "Business owner" : selectedTenantRole === "admin" ? "Business admin" : "Staff"}</QueueBadge>
-            <QueueBadge variant="outline">{user?.totpMfaEnabled ? "Authenticator enabled" : "Authenticator not enabled"}</QueueBadge>
-          </QueueCardContent>
-        </QueueCard>
-          <ConfigTabs
+      <Stack gap="md">
+        <Card className="neura-card" padding="lg">
+          <Tabs
             className="vendor-account-tabs"
+            keepMounted={false}
             value={accountTab}
-            onValueChange={(value) => {
-              if (!value || value === accountTab || !canLeaveFeature()) return;
+            onChange={(value) => {
               const nextTab = (value || "profile") as AccountTab;
               if (!canAccessBillingTabs && (nextTab === "subscription" || nextTab === "billing")) {
                 setAccountTab("profile");
@@ -9063,137 +8551,138 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
               setAccountTab(nextTab);
             }}
           >
-            <ConfigTabsList className="config-tabs-list">
+            <Tabs.List>
               {canAccessBillingTabs && !requiresMfaEnrollment ? (
                 <>
-                  <ConfigTabsTrigger value="subscription">Subscription</ConfigTabsTrigger>
-                  <ConfigTabsTrigger value="billing">Billing</ConfigTabsTrigger>
+                  <Tabs.Tab value="subscription">Subscription</Tabs.Tab>
+                  <Tabs.Tab value="billing">Billing</Tabs.Tab>
                 </>
               ) : null}
-              {!requiresMfaEnrollment ? <ConfigTabsTrigger value="profile">Profile</ConfigTabsTrigger> : null}
-              <ConfigTabsTrigger value="security">Security</ConfigTabsTrigger>
-            </ConfigTabsList>
+              {!requiresMfaEnrollment ? <Tabs.Tab value="profile">Profile</Tabs.Tab> : null}
+              <Tabs.Tab value="security">Security</Tabs.Tab>
+            </Tabs.List>
 
             {canAccessBillingTabs ? (
-              <ConfigTabsContent className="queue-stack" value="subscription">
-                {billingUnavailable ? billingReadState : <AccountStack gap="md">
-                  <AccountGroup justify="space-between" align="flex-start">
+              <Tabs.Panel pt="lg" value="subscription">
+                <Stack gap="md">
+                  <Group justify="space-between" align="flex-start">
                     <div>
-                      <AccountText className="neura-label">Subscription</AccountText>
-                      <AccountTitle order={3}>{renderActivePlanName()}</AccountTitle>
-                      <AccountText c="dimmed" size="sm">
+                      <Text className="neura-label">Subscription</Text>
+                      <Title order={3}>{renderActivePlanName()}</Title>
+                      <Text c="dimmed" size="sm">
                         {subscription
                           ? `${subscription.status} plan access for ${snapshot?.tenant.name || selectedTenantSlug}.`
                           : "Choose a plan to unlock tenant entitlements."}
-                      </AccountText>
+                      </Text>
                     </div>
                     {isFreeSubscription ? (
-                      <AccountButton
+                      <Button
                         className="neura-primary-button"
                         onClick={() => openPlanDialog(true)}
                         w={{ base: "100%", sm: "fit-content" }}
                       >
                         Upgrade to paid plan
-                      </AccountButton>
+                      </Button>
                     ) : subscription?.currentPeriodEnd ? (
-                      <AccountBadge variant="light">Renews {formatDate(subscription.currentPeriodEnd)}</AccountBadge>
+                      <Badge variant="light">Renews {formatDate(subscription.currentPeriodEnd)}</Badge>
                     ) : null}
-                  </AccountGroup>
-                  <AccountGrid cols={1}>
-                    {renderPeriodTicketUsage()}
-                  </AccountGrid>
+                  </Group>
+                  <SimpleGrid cols={{ base: 1, sm: 2 }}>
+                    <MetricCard label="Tickets" value={`${ticketUsage}/${ticketLimit || "--"}`} detail="Current period" />
+                    <MetricCard label="Email journeys" value={`${emailJourneyUsage}/${emailJourneyLimit ?? "--"}`} detail={emailJourneyDetail} />
+                  </SimpleGrid>
                   {!activeSubscription ? <div>{renderPlanCards()}</div> : !isFreeSubscription ? (
-                    <AccountButton onClick={() => openPlanDialog()} variant="light" w={{ base: "100%", sm: "fit-content" }}>
+                    <Button onClick={() => openPlanDialog()} variant="light" w={{ base: "100%", sm: "fit-content" }}>
                       Review available plans
-                    </AccountButton>
+                    </Button>
                   ) : null}
-                </AccountStack>}
-              </ConfigTabsContent>
+                </Stack>
+              </Tabs.Panel>
             ) : null}
 
             {canAccessBillingTabs ? (
-              <ConfigTabsContent className="queue-stack" value="billing">
-                {billingUnavailable ? billingReadState : <AccountStack gap="md">
+              <Tabs.Panel pt="lg" value="billing">
+                <Stack gap="md">
                   <div>
-                    <AccountText className="neura-label">Billing</AccountText>
-                    <AccountTitle order={3}>Billing details</AccountTitle>
-                    <AccountText c="dimmed" size="sm">
+                    <Text className="neura-label">Billing</Text>
+                    <Title order={3}>Billing details</Title>
+                    <Text c="dimmed" size="sm">
                       Review the server-owned billing record and operational capacity for this workspace.
-                    </AccountText>
+                    </Text>
                   </div>
                   {isFreeSubscription ? (
-                    <AccountGrid cols={{ base: 1, sm: 2, lg: 4 }}>
-                      <OperationMetric
+                    <SimpleGrid cols={{ base: 1, sm: 2, lg: 4 }}>
+                      <MetricCard
                         label="Current plan"
                         value={subscription.planName}
                         detail={plan ? getPlanPriceDisplay(plan) : "No recurring charge"}
                       />
-                    </AccountGrid>
+                    </SimpleGrid>
                   ) : subscription ? (
                     <>
-                      <AccountGrid cols={{ base: 1, sm: 2, lg: 4 }}>
-                        <OperationMetric
+                      <SimpleGrid cols={{ base: 1, sm: 2, lg: 4 }}>
+                        <MetricCard
                           label="Current plan"
                           value={subscription.planName}
                           detail={plan ? getPlanPriceDisplay(plan) : "Plan pricing"}
                         />
-                        <OperationMetric label="Billing interval" value={subscription.billingInterval} detail="Subscription cadence" />
-                        <OperationMetric label="Provider" value={subscription.provider} detail="Payment processor" />
-                        <OperationMetric
+                        <MetricCard label="Billing interval" value={subscription.billingInterval} detail="Subscription cadence" />
+                        <MetricCard label="Provider" value={subscription.provider} detail="Payment processor" />
+                        <MetricCard
                           label="Current period"
                           value={subscription.currentPeriodEnd ? formatDate(subscription.currentPeriodEnd) : "Open-ended"}
                           detail={subscription.currentPeriodEnd ? "Period end" : "No scheduled renewal"}
                         />
-                      </AccountGrid>
-                      <VendorCapacityPanel key={selectedTenantSlug} tenantSlug={selectedTenantSlug} token={token || ""} />
+                      </SimpleGrid>
+                      <VendorCapacityPanel tenantSlug={selectedTenantSlug} token={token || ""} />
                     </>
                   ) : (
-                    <AccountAlert color="blue" variant="light">
+                    <Alert color="blue" variant="light">
                       This workspace has no billing record yet. Choose a plan from the Subscription tab to begin.
-                    </AccountAlert>
+                    </Alert>
                   )}
-                </AccountStack>}
-              </ConfigTabsContent>
+                </Stack>
+              </Tabs.Panel>
             ) : null}
 
-            <ConfigTabsContent className="queue-stack" value="profile">
-              <OperationPanel><form onSubmit={handleAccountProfileSave}>
-                <AccountStack gap="md">
+            <Tabs.Panel pt="lg" value="profile">
+              <form onSubmit={handleAccountProfileSave}>
+                <Stack gap="md">
                   <div>
-                    <AccountText className="neura-label">Vendor account</AccountText>
-                    <AccountTitle order={3}>Account details</AccountTitle>
-                    <AccountText c="dimmed" size="sm">
+                    <Text className="neura-label">Vendor account</Text>
+                    <Title order={3}>Account details</Title>
+                    <Text c="dimmed" size="sm">
                       These details belong to your user account and follow you across vendor workspaces.
-                    </AccountText>
+                    </Text>
                   </div>
-                  <AccountGrid cols={{ base: 1, md: 2 }}>
-                    <AccountInput
+                  <SimpleGrid cols={{ base: 1, md: 2 }}>
+                    <TextInput
                       label="Full name"
                       required
                       value={accountProfileForm.name}
                       onChange={(event) => setAccountProfileForm((current) => ({ ...current, name: event.target.value }))}
                     />
-                    <AccountInput
+                    <TextInput
                       label="Display name"
                       description="Shown to teammates and customers where your account is identified."
                       value={accountProfileForm.displayName}
                       onChange={(event) => setAccountProfileForm((current) => ({ ...current, displayName: event.target.value }))}
                     />
-                    <AccountInput disabled label="Username" value={user?.username || "Not set"} />
-                    <AccountInput disabled label="Email" value={user?.email || "Not set"} />
-                    <AccountInput disabled label="Phone" value={user?.phone || "Not set"} />
-                    <AccountInput disabled label="Workspace role" value={selectedTenantRole || "No active role"} />
-                  </AccountGrid>
-                  <AccountButton
+                    <TextInput disabled label="Username" value={user?.username || "Not set"} />
+                    <TextInput disabled label="Email" value={user?.email || "Not set"} />
+                    <TextInput disabled label="Phone" value={user?.phone || "Not set"} />
+                    <TextInput disabled label="Workspace role" value={selectedTenantRole || "No active role"} />
+                  </SimpleGrid>
+                  <Button
                     className="neura-primary-button"
                     loading={accountProfileBusy}
                     type="submit"
                     w={{ base: "100%", sm: "fit-content" }}
                   >
                     Save account details
-                  </AccountButton>
-                </AccountStack>
-              </form></OperationPanel>
+                  </Button>
+                </Stack>
+              </form>
               <EmailChangePanel
                 currentEmail={user?.email || ""}
                 onCompleted={async () => { await refreshUser(); }}
@@ -9204,28 +8693,26 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                 onCompleted={async () => { await refreshUser(); }}
                 token={token || ""}
               />
-            </ConfigTabsContent>
+            </Tabs.Panel>
 
-            <ConfigTabsContent className="queue-stack" value="security">
+            <Tabs.Panel pt="lg" value="security">
               {renderSecurityPage()}
-            </ConfigTabsContent>
-          </ConfigTabs>
-      </div>
-      </ConfigurationScope>
-      </AccountPresentation>
+            </Tabs.Panel>
+          </Tabs>
+        </Card>
+      </Stack>
     );
   }
 
   function renderBusinessProfilePreview() {
     const selectedTenant = user?.tenants.find((tenant) => tenant.slug === selectedTenantSlug);
-    const previewName = settings.publicProfileDisplayName || settings.name || selectedTenant?.name || "Your business";
+    const previewName = settings.name || selectedTenant?.name || "Your business";
     const previewLocation = selectedLocation
       ? [selectedLocation.name, selectedLocation.city, selectedLocation.province].filter(Boolean).join(", ")
       : "Main location";
     const previewStyle = {
       "--vendor-theme-card-bg": businessProfileTheme.cardBackgroundColor,
       "--vendor-theme-logo-fit": businessProfileTheme.logoFit,
-      backgroundSize: businessProfileTheme.backgroundImageFit,
       "--vendor-theme-logo-frame-padding": businessProfileTheme.logoFit === "cover" ? "0px" : undefined,
       ...(businessProfileTheme.backgroundImageUrl
         ? {
@@ -9235,13 +8722,9 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     } as CSSProperties;
 
     return (
-      <Stack className="vendor-profile-preview-shell" data-preview-theme={profilePreviewMode} gap="xs">
-        <Group justify="space-between" align="flex-start" gap="sm">
-          <div><Text fw={700}>Profile preview</Text><Text c="dimmed" size="sm">This is how the default profile media will appear on public profile cards.</Text></div>
-          <Button size="xs" variant="subtle" leftSection={profilePreviewMode === "light" ? <IconMoon size={16} /> : <IconSun size={16} />} onClick={() => setProfilePreviewMode((mode) => mode === "light" ? "dark" : "light")}>
-            {profilePreviewMode === "light" ? "Dark preview" : "Light preview"}
-          </Button>
-        </Group>
+      <Stack gap="xs">
+        <Text fw={700}>Profile preview</Text>
+        <Text c="dimmed" size="sm">This is how the default profile media will appear on public profile cards.</Text>
         <Paper className="vendor-card vendor-profile-settings-preview" component="div" p={{ base: "md", sm: "lg" }}>
           <Stack gap="md">
             <div
@@ -9271,723 +8754,589 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     );
   }
 
-  function markSettingsForm() {
-    const form = document.getElementById("vendor-business-profile");
-    if (form instanceof HTMLFormElement) unsavedForm.current.mark(form);
-  }
-  function selectSettingsTab(value: string | null) {
-    if (!value || value === settingsTab || !canLeaveFeature()) return;
-    setSettings({ ...savedSettings.current });
-    setBusinessProfileTheme({ ...savedProfileTheme.current });
-    setError("");
-    setSettingsTab(value as SettingsTab);
-  }
   function renderSettingsPage() {
-    const settingsBusy =
-      Boolean(busyAction) ||
-      boardSettingsBusy ||
-      savingNotificationSettings ||
-      requestingBrowserPermission;
-    const profileDisabled =
-      !canManageContactSettings ||
-      profileThemeLoading ||
-      Boolean(profileThemeError);
     return (
-      <ConfigurationScope
-        busy={settingsBusy}
-        onEdit={(form) => unsavedForm.current.mark(form)}
-      >
-        <ConfigTabs value={settingsTab} onValueChange={selectSettingsTab}>
-          <ConfigTabsList className="config-tabs-list">
-            <ConfigTabsTrigger value="contact">
-              Business profile
-            </ConfigTabsTrigger>
-            <ConfigTabsTrigger value="queue">Queue settings</ConfigTabsTrigger>
-            <ConfigTabsTrigger value="notifications">
-              Notifications
-            </ConfigTabsTrigger>
-            {isOwner || isAdmin ? (
-              <ConfigTabsTrigger value="board">Queue Board</ConfigTabsTrigger>
-            ) : null}
-          </ConfigTabsList>
-          <ConfigTabsContent value="contact">
-            <OperationPanel className="config-long-form">
-              <form
-                id="vendor-business-profile"
-                onSubmit={handleSaveBusinessProfile}
-              >
-                  <div className="config-persistent-actions">
-                    <h2>Business profile</h2>
-                  <OperationButton
-                    type="submit"
-                    disabled={profileDisabled}
-                    loading={settingsBusy}
-                  >
-                    Save business profile
-                  </OperationButton>
+      <Stack gap="md">
+        <Card className="neura-card" padding="lg">
+          <Tabs
+            keepMounted={false}
+            value={settingsTab}
+            onChange={(value) => setSettingsTab((value as SettingsTab | null) || "contact")}
+          >
+            <Tabs.List>
+              <Tabs.Tab value="contact">Business profile</Tabs.Tab>
+              <Tabs.Tab value="queue">Queue settings</Tabs.Tab>
+              <Tabs.Tab value="notifications">Notifications</Tabs.Tab>
+            </Tabs.List>
+
+            <Tabs.Panel pt="lg" value="contact">
+              <form onSubmit={handleSaveBusinessProfile}>
+                <Stack gap="md">
+                  <div>
+                    <Text className="neura-label">Tenant settings</Text>
+                    <Title order={3}>Business profile</Title>
+                    <Text c="dimmed" size="sm">
+                      Keep the details customers see for your business and its owner up to date.
+                    </Text>
                   </div>
-                <FieldGroup>
-                  {!canManageContactSettings ? (
-                    <OperationAlert>
-                      Only the business owner can change these details and default
-                      images.
-                    </OperationAlert>
-                  ) : null}
-                  {canManageContactSettings &&
-                  (profileThemeLoading || profileThemeError) ? (
-                    <OperationQueryState
-                      loading={profileThemeLoading}
-                      error={profileThemeError}
-                      onRetry={() => setProfileThemeRetry((count) => count + 1)}
-                    />
-                  ) : null}
-                  {error ? (
-                    <OperationAlert color="red" title="Unable to save profile">
-                      {error}
-                    </OperationAlert>
-                  ) : null}
-                  <ConfigurationSection
-                    title="Business details"
-                    description="Public profile details apply across this business; location-specific information is managed in Locations."
-                  >
-                    <ConfigurationInput
-                      name="businessName"
-                      label="Business name"
-                      required
-                      maxLength={120}
-                      disabled={profileDisabled}
-                      value={settings.name}
-                      onChange={(event) =>
-                        setSettings((current) => ({
-                          ...current,
-                          name: event.currentTarget.value,
-                        }))
+                  <TextInput
+                    label="Business name"
+                    disabled={!canManageContactSettings}
+                    value={settings.name}
+                    onChange={(event) =>
+                      setSettings((current) => ({ ...current, name: event.target.value }))
+                    }
+                  />
+                  <BusinessCategorySelect
+                    disabled={!canManageContactSettings}
+                    value={settings.businessCategoryId || null}
+                    currentLabel={settings.publicProfileCategory}
+                    onChange={(id, name) => setSettings((current) => ({ ...current, businessCategoryId: id, publicProfileCategory: name }))}
+                  />
+                  <TextInput
+                    label="Business display name"
+                    description="Shown publicly when set; otherwise the Business name is used."
+                    disabled={!canManageContactSettings}
+                    value={settings.publicProfileDisplayName || ""}
+                    onChange={(event) =>
+                      setSettings((current) => ({ ...current, publicProfileDisplayName: event.target.value }))
+                    }
+                  />
+                  <Stack gap={4}>
+                    <Text fw={500} size="sm">Business description</Text>
+                    <Text c="dimmed" size="xs">Shown on public vendor pages and related customer screens.</Text>
+                    <CampaignDescriptionEditor
+                      disabled={!canManageContactSettings}
+                      maxCharacters={1000}
+                      onChange={(value) =>
+                        setSettings((current) => ({ ...current, publicProfileDescription: value }))
                       }
+                      value={settings.publicProfileDescription || ""}
                     />
-                    <BusinessCategorySelect
-                      vendor
-                      disabled={profileDisabled}
-                      value={settings.businessCategoryId || null}
-                      currentLabel={settings.publicProfileCategory}
-                      onChange={(id, name) =>
-                        setSettings((current) => ({
-                          ...current,
-                          businessCategoryId: id,
-                          publicProfileCategory: name,
-                        }))
-                      }
-                    />
-                    <ConfigurationInput
-                      name="publicProfileDisplayName"
-                      label="Business display name"
-                      maxLength={120}
-                      disabled={profileDisabled}
-                      value={settings.publicProfileDisplayName || ""}
-                      onChange={(event) =>
-                        setSettings((current) => ({
-                          ...current,
-                          publicProfileDisplayName: event.currentTarget.value,
-                        }))
-                      }
-                    />
-                    <div className="queue-stack">
-                      <p className="ops-strong">Business description</p>
-                      <CampaignDescriptionEditor
-                        label="Business description"
-                        key={selectedTenantSlug}
-                        disabled={profileDisabled || settingsBusy}
-                        maxCharacters={1000}
-                        value={settings.publicProfileDescription || ""}
-                        onChange={(value) => {
-                          if (value !== (settings.publicProfileDescription || ""))
-                            markSettingsForm();
-                          setSettings((current) => ({
-                            ...current,
-                            publicProfileDescription: value,
-                          }));
+                  </Stack>
+                  <Divider />
+                  <div>
+                    <Text fw={700}>Default profile media</Text>
+                  <Text c="dimmed" size="sm">
+                      Set the default logo and profile background. Location theme setup can override these values.
+                    </Text>
+                  </div>
+                  <SimpleGrid cols={{ base: 1, md: 2 }} spacing="xl">
+                    <Stack gap="md">
+                      <SimpleGrid cols={1}>
+                        <FileInput
+                          name="defaultBackgroundImageFile"
+                          accept="image/png,image/jpeg,image/webp"
+                          clearable
+                          label="Profile background"
+                          description="Upload a custom image for the profile visual area."
+                          disabled={!canManageContactSettings || busyAction === "business-profile-upload:background"}
+                          onChange={(file) => void uploadBusinessProfileAsset("background", file)}
+                        />
+                        <Select
+                          name="defaultBackgroundImageFit"
+                          label="Profile background fit"
+                          description="Cover fills the profile visual area. Contain shows the full image."
+                          data={[
+                            { value: "cover", label: "Cover" },
+                            { value: "contain", label: "Contain" }
+                          ]}
+                          disabled={!canManageContactSettings}
+                          value={businessProfileTheme.backgroundImageFit}
+                          onChange={(value) => setBusinessProfileThemeField("backgroundImageFit", value === "contain" ? "contain" : "cover")}
+                        />
+                      </SimpleGrid>
+                      <SimpleGrid cols={1}>
+                        <TextInput
+                          name="defaultBackgroundImageUrl"
+                          label="Profile background URL"
+                          description="Paste a hosted image URL for the profile visual area."
+                          disabled={!canManageContactSettings}
+                          value={businessProfileTheme.backgroundImageUrl}
+                          onChange={(event) => setBusinessProfileThemeField("backgroundImageUrl", event.target.value)}
+                        />
+                        <FileInput
+                          name="defaultLogoFile"
+                          accept="image/png,image/jpeg,image/webp"
+                          clearable
+                          label="Company logo"
+                          description="Displayed inside the circular logo frame."
+                          disabled={!canManageContactSettings || busyAction === "business-profile-upload:logo"}
+                          onChange={(file) => void uploadBusinessProfileAsset("logo", file)}
+                        />
+                      </SimpleGrid>
+                      <SimpleGrid cols={1}>
+                        <TextInput
+                          name="defaultLogoUrl"
+                          label="Logo URL"
+                          description="Paste a hosted logo URL when not uploading a file."
+                          disabled={!canManageContactSettings}
+                          value={businessProfileTheme.logoUrl}
+                          onChange={(event) => setBusinessProfileThemeField("logoUrl", event.target.value)}
+                        />
+                        <Select
+                          name="defaultLogoFit"
+                          label="Profile logo fit"
+                          description="Contain shows the full logo. Cover fills the circular frame."
+                          data={[
+                            { value: "contain", label: "Contain" },
+                            { value: "cover", label: "Cover" }
+                          ]}
+                          disabled={!canManageContactSettings}
+                          value={businessProfileTheme.logoFit}
+                          onChange={(value) => setBusinessProfileThemeField("logoFit", value === "cover" ? "cover" : "contain")}
+                        />
+                      </SimpleGrid>
+                    </Stack>
+                    {renderBusinessProfilePreview()}
+                  </SimpleGrid>
+                  <Button className="neura-secondary-button" disabled={busyAction === "settings"} type="submit">
+                    {busyAction === "settings" || busyAction === "business-profile-theme-save" ? "Saving..." : "Save business profile"}
+                  </Button>
+                </Stack>
+              </form>
+            </Tabs.Panel>
+
+            <Tabs.Panel pt="lg" value="queue">
+              <form onSubmit={handleSaveSettings}>
+                <Stack gap="md">
+                  <div>
+                    <Text className="neura-label">Tenant settings</Text>
+                    <Title order={3}>Queue preferences</Title>
+                  </div>
+                  <TextInput
+                    name="queuePrefix"
+                    label="Queue prefix"
+                    maxLength={4}
+                    value={settings.queuePrefix}
+                    onChange={(event) =>
+                      setSettings((current) => ({
+                        ...current,
+                        queuePrefix: event.target.value.toUpperCase()
+                      }))
+                    }
+                  />
+                  <NumberInput
+                    name="averageServiceMinutes"
+                    label="Average service minutes"
+                    min={1}
+                    value={Number(settings.averageServiceMinutes)}
+                    onChange={(value) =>
+                      setSettings((current) => ({ ...current, averageServiceMinutes: value || 1 }))
+                    }
+                  />
+                  <NumberInput
+                    name="notificationThreshold"
+                    label="Notify when within"
+                    min={1}
+                    value={Number(settings.notificationThreshold)}
+                    onChange={(value) =>
+                      setSettings((current) => ({ ...current, notificationThreshold: value || 1 }))
+                    }
+                  />
+                  <Checkbox
+                    name="autoPauseEnabled"
+                    checked={settings.autoPauseEnabled}
+                    label="Enable auto-pause intake"
+                    onChange={(event) =>
+                      setSettings((current) => ({
+                        ...current,
+                        autoPauseEnabled: event.currentTarget.checked,
+                        autoPauseThreshold: event.currentTarget.checked
+                          ? Number(current.autoPauseThreshold) || 20
+                          : "",
+                        autoResumeEnabled: event.currentTarget.checked
+                          ? current.autoResumeEnabled
+                          : false,
+                        autoResumeVacancyPercent: event.currentTarget.checked
+                          ? Number(current.autoResumeVacancyPercent) || 20
+                          : ""
+                      }))
+                    }
+                  />
+                  <NumberInput
+                    name="autoPauseThreshold"
+                    label="Auto-pause threshold"
+                    min={1}
+                    max={500}
+                    disabled={!settings.autoPauseEnabled}
+                    description="When waiting tickets reach this number, new joins pause automatically until staff resumes intake."
+                    value={settings.autoPauseEnabled ? Number(settings.autoPauseThreshold) : undefined}
+                    onChange={(value) =>
+                      setSettings((current) => ({ ...current, autoPauseThreshold: value || 1 }))
+                    }
+                  />
+                  <Checkbox
+                    name="autoResumeEnabled"
+                    checked={settings.autoResumeEnabled}
+                    disabled={!settings.autoPauseEnabled}
+                    label="Enable auto-resume intake"
+                    onChange={(event) =>
+                      setSettings((current) => ({
+                        ...current,
+                        autoResumeEnabled: event.currentTarget.checked,
+                        autoResumeVacancyPercent: event.currentTarget.checked
+                          ? Number(current.autoResumeVacancyPercent) || 20
+                          : ""
+                      }))
+                    }
+                  />
+                  <Stack gap="sm">
+                    <Text fw={500} size="sm">Auto-resume vacancy percent</Text>
+                    {settings.autoPauseEnabled && settings.autoResumeEnabled ? (
+                      <Slider
+                        min={5}
+                        max={50}
+                        step={5}
+                        marks={[
+                          { value: 5, label: "5%" },
+                          { value: 15, label: "15%" },
+                          { value: 25, label: "25%" },
+                          { value: 35, label: "35%" },
+                          { value: 50, label: "50%" }
+                        ]}
+                        label={(value) => `${value}%`}
+                        value={Number(settings.autoResumeVacancyPercent) || 20}
+                        onChange={(value) =>
+                          setSettings((current) => ({ ...current, autoResumeVacancyPercent: value }))
+                        }
+                        styles={{
+                          markLabel: {
+                            marginTop: 10
+                          },
+                          root: {
+                            paddingBottom: 28
+                          }
                         }}
                       />
-                    </div>
-                  </ConfigurationSection>
-                  <ConfigurationSection
-                    title="Default profile media"
-                    description="Set the default logo and profile background. Location theme setup can override these values."
-                  >
-                    <div className="config-related-fields profile-media-layout">
-                      <FieldGroup>
-                        <ConfigurationFile
-                          accept="image/png,image/jpeg,image/webp"
-                          label="Profile background"
-                          value={profileBackgroundFile}
-                          disabled={profileDisabled}
-                          onChange={(file) => { setProfileBackgroundFile(file); void uploadBusinessProfileAsset("background", file); }}
-                        />
-                        <div className="profile-media-inline-fields">
-                          <ConfigurationInput name="defaultBackgroundImageUrl" label="Profile background URL" disabled={profileDisabled} value={businessProfileTheme.backgroundImageUrl} onChange={(event) => setBusinessProfileThemeField("backgroundImageUrl", event.currentTarget.value)} />
-                          <ConfigurationSelect name="defaultBackgroundImageFit" label="Image fit" description="Cover fills the visual area; contain shows the full image." data={[{ value: "cover", label: "Cover" }, { value: "contain", label: "Contain" }]} disabled={profileDisabled} value={businessProfileTheme.backgroundImageFit} onChange={(value) => setBusinessProfileThemeField("backgroundImageFit", value === "contain" ? "contain" : "cover")} />
-                        </div>
-                        <ConfigurationFile
-                          accept="image/png,image/jpeg,image/webp"
-                          label="Company logo"
-                          value={profileLogoFile}
-                          disabled={profileDisabled}
-                          onChange={(file) => { setProfileLogoFile(file); void uploadBusinessProfileAsset("logo", file); }}
-                        />
-                        <div className="profile-media-inline-fields">
-                          <ConfigurationInput name="defaultLogoUrl" label="Logo URL" disabled={profileDisabled} value={businessProfileTheme.logoUrl} onChange={(event) => setBusinessProfileThemeField("logoUrl", event.currentTarget.value)} />
-                          <ConfigurationSelect name="defaultLogoFit" label="Logo fit" description="Contain shows the full logo; cover fills the frame." data={[{ value: "contain", label: "Contain" }, { value: "cover", label: "Cover" }]} disabled={profileDisabled} value={businessProfileTheme.logoFit} onChange={(value) => setBusinessProfileThemeField("logoFit", value === "cover" ? "cover" : "contain")} />
-                        </div>
-                      </FieldGroup>
-                      {renderBusinessProfilePreview()}
-                    </div>
-                  </ConfigurationSection>
-
-                </FieldGroup>
-              </form>
-            </OperationPanel>
-          </ConfigTabsContent>
-          <ConfigTabsContent value="queue">
-            {(isOwner||isAdmin)&&queueTypeConfiguration?.capabilities.workflow?<WorkflowQueuePanel key={`workflow-setup:${selectedTenantSlug}:${selectedLocationSlug}`} token={token} tenant={selectedTenantSlug} location={selectedLocationSlug} configurationOnly onEditForm={form=>unsavedForm.current.mark(form)} onClean={id=>unsavedForm.current.discardId(id)} onBusy={busy=>setBusyAction(busy?"workflow-setup":"")} onConfigured={()=>void queueTypeQuery.refetch()}/>:null}
-            <QueueTypeSettings configuration={queueTypeConfiguration} canEdit={isOwner||isAdmin} busy={queueTypeBusy} onSave={async type=>{
-              if(!token||!queueTypeConfiguration)return;
-              const tenant=selectedTenantSlug,location=selectedLocationSlug;
-              setQueueTypeBusy(true);
-              try {await saveQueueType(token,tenant,location,{type,expectedRevision:queueTypeConfiguration.revision,confirmedFutureOnly:true},crypto.randomUUID());await queryClient.invalidateQueries({queryKey:["vendor-queue-type",tenant,location]});}
-              finally {setQueueTypeBusy(false);}
-            }}/>
-
-            <OperationPanel className="config-long-form">
-              <form id="vendor-queue-settings" onSubmit={handleSaveSettings}>
-                <div className="config-persistent-actions"><p className="ops-muted">Changes apply to queue preferences at this business.</p><OperationButton type="submit" loading={settingsBusy}>Save queue settings</OperationButton></div>
-                <FieldGroup>
-                  <div className="ops-list-heading">
-                    <h2>Queue preferences</h2>
-                    <p className="ops-muted">
-                      Manage ticket numbering, notifications and automatic intake
-                      controls. Queue Day closure remains a separate server-owned
-                      schedule.
-                    </p>
-                  </div>
-                  {error ? (
-                    <OperationAlert
-                      color="red"
-                      title="Unable to save queue settings"
-                    >
-                      {error}
-                    </OperationAlert>
-                  ) : null}
-                  <ConfigurationSection
-                    title="Ticket numbering and estimates"
-                    description="These preferences retain the current ordinary queue behavior; they do not activate resource pools or AI forecasting."
-                  >
-                    <ConfigurationInput
-                      name="queuePrefix"
-                      label="Queue prefix"
-                      description="Up to four characters shown before ticket numbers."
-                      maxLength={4}
-                      required
-                      value={settings.queuePrefix}
-                      onChange={(event) =>
-                        setSettings((current) => ({
-                          ...current,
-                          queuePrefix: event.currentTarget.value.toUpperCase(),
-                        }))
-                      }
-                    />
-                    <ConfigurationNumber
-                      name="averageServiceMinutes"
-                      label="Average service minutes"
-                      min={1}
-                      required
-                      value={settings.averageServiceMinutes}
-                      onChange={(value) =>
-                        setSettings((current) => ({
-                          ...current,
-                          averageServiceMinutes: value,
-                        }))
-                      }
-                    />
-                    <ConfigurationNumber
-                      name="notificationThreshold"
-                      label="Notify when within"
-                      description="Notify customers when their ticket is within this many places of being called."
-                      min={1}
-                      required
-                      value={settings.notificationThreshold}
-                      onChange={(value) =>
-                        setSettings((current) => ({
-                          ...current,
-                          notificationThreshold: value,
-                        }))
-                      }
-                    />
-                  </ConfigurationSection>
-                  <ConfigurationSection
-                    title="Automatic intake"
-                    description="Automatic pauses limit new joins. They do not close the Queue Day or finish active tickets."
-                  >
-                    <ConfigurationCheck
-                      name="autoPauseEnabled"
-                      label="Enable auto-pause intake"
-                      checked={settings.autoPauseEnabled}
-                      onChange={(event) =>
-                        setSettings((current) => ({
-                          ...current,
-                          autoPauseEnabled: event.currentTarget.checked,
-                          autoPauseThreshold: event.currentTarget.checked
-                            ? Number(current.autoPauseThreshold) || 20
-                            : "",
-                          autoResumeEnabled: event.currentTarget.checked
-                            ? current.autoResumeEnabled
-                            : false,
-                          autoResumeVacancyPercent: event.currentTarget.checked
-                            ? Number(current.autoResumeVacancyPercent) || 20
-                            : "",
-                        }))
-                      }
-                    />
-                    <ConfigurationNumber
-                      name="autoPauseThreshold"
-                      label="Auto-pause threshold"
-                      description="When waiting tickets reach this number, new joins pause automatically."
-                      min={1}
-                      max={500}
-                      required={settings.autoPauseEnabled}
-                      disabled={!settings.autoPauseEnabled}
-                      value={
-                        settings.autoPauseEnabled
-                          ? settings.autoPauseThreshold
-                          : ""
-                      }
-                      onChange={(value) =>
-                        setSettings((current) => ({
-                          ...current,
-                          autoPauseThreshold: value,
-                        }))
-                      }
-                    />
-                    <ConfigurationCheck
-                      name="autoResumeEnabled"
-                      label="Enable auto-resume intake"
-                      checked={settings.autoResumeEnabled}
-                      disabled={!settings.autoPauseEnabled}
-                      onChange={(event) =>
-                        setSettings((current) => ({
-                          ...current,
-                          autoResumeEnabled: event.currentTarget.checked,
-                          autoResumeVacancyPercent: event.currentTarget.checked
-                            ? Number(current.autoResumeVacancyPercent) || 20
-                            : "",
-                        }))
-                      }
-                    />
-                    <ConfigurationNumber
-                      name="autoResumeVacancyPercent"
-                      label="Auto-resume vacancy percent"
-                      min={5}
-                      max={50}
-                      step={5}
-                      required={
-                        settings.autoPauseEnabled && settings.autoResumeEnabled
-                      }
-                      disabled={
-                        !settings.autoPauseEnabled || !settings.autoResumeEnabled
-                      }
-                      value={
-                        settings.autoPauseEnabled && settings.autoResumeEnabled
-                          ? settings.autoResumeVacancyPercent
-                          : ""
-                      }
-                      onChange={(value) =>
-                        setSettings((current) => ({
-                          ...current,
-                          autoResumeVacancyPercent: value,
-                        }))
-                      }
-                    />
-                    <p className="ops-muted">
+                    ) : null}
+                    <Text c="dimmed" size="sm">
                       {settings.autoPauseEnabled && settings.autoResumeEnabled
-                        ? `With a threshold of ${Number(settings.autoPauseThreshold) || 0}, intake will reopen at ${Math.floor((Number(settings.autoPauseThreshold) || 0) * (1 - (Number(settings.autoResumeVacancyPercent) || 20) / 100))} waiting tickets or below. This only resumes threshold-based pauses.`
+                        ? `With a threshold of ${Number(settings.autoPauseThreshold) || 0}, intake will reopen at ${
+                            Math.floor((Number(settings.autoPauseThreshold) || 0) * (1 - (Number(settings.autoResumeVacancyPercent) || 20) / 100))
+                          } waiting tickets or below.`
                         : "Only applies to queues paused automatically by threshold."}
-                    </p>
-                  </ConfigurationSection>
-
-                </FieldGroup>
+                    </Text>
+                  </Stack>
+                  <Button className="neura-secondary-button" disabled={busyAction === "settings"} type="submit">
+                    {busyAction === "settings" ? "Saving..." : "Save queue settings"}
+                  </Button>
+                </Stack>
               </form>
-            </OperationPanel>
-          </ConfigTabsContent>
-          <ConfigTabsContent value="notifications">
-            <OperationPanel>
-              <div className="queue-stack">
-                <div className="ops-list-heading">
-                  <h2>Operational alerts</h2>
-                  <p className="ops-muted">
-                    Browser notifications are used after login for vendor
-                    operational alerts. Email remains the fallback channel.
-                  </p>
+            </Tabs.Panel>
+
+            <Tabs.Panel pt="lg" value="notifications">
+              <Stack gap="md">
+                <div>
+                  <Text className="neura-label">Tenant settings</Text>
+                  <Title order={3}>Operational alerts</Title>
+                  <Text c="dimmed" size="sm">
+                    Browser notifications are used after login for vendor operational alerts. Email remains the fallback channel.
+                  </Text>
                 </div>
-                {error ? (
-                  <OperationAlert color="red" title="Unable to save alerts">
-                    {error}
-                  </OperationAlert>
-                ) : null}
-                <OperationAlert>
-                  Vendor staff assigned to a booking and payment reviewers receive
-                  these alerts for the business.
-                </OperationAlert>
-                <OperationAlert>
+                <Alert color="blue" variant="light">
+                  Vendor staff assigned to a booking and payment reviewers receive these alerts for the tenant.
+                </Alert>
+                <Alert color={browserNotificationsSecure ? "teal" : "yellow"} variant="light">
                   {browserNotificationsSupported
                     ? browserNotificationsSecure
                       ? `Browser notifications are available in this browser. Current permission: ${browserPermission}.`
                       : "Browser notifications require a secure context such as https:// or localhost."
                     : "This browser does not support browser notifications."}
-                </OperationAlert>
-                <div className="ops-row config-actions">
-                  <OperationButton
-                    variant="outline"
+                </Alert>
+                <Group gap="sm">
+                  <Button
+                    color="dark"
                     disabled={
                       !browserNotificationsSupported ||
                       !browserNotificationsSecure ||
                       browserPushSubscribed ||
-                      browserPermission === "denied"
+                      requestingBrowserPermission
                     }
-                    loading={requestingBrowserPermission}
                     onClick={handleRequestBrowserPermission}
+                    type="button"
+                    variant="light"
                   >
                     {browserPushSubscribed
                       ? "Browser notifications synced"
-                      : browserPermission === "granted"
-                        ? "Sync browser notifications"
-                        : "Allow browser notifications"}
-                  </OperationButton>
-                  <p className="ops-muted">
+                      : requestingBrowserPermission
+                        ? "Syncing browser notifications..."
+                        : browserPermission === "granted"
+                          ? "Sync browser notifications"
+                          : "Allow browser notifications"}
+                  </Button>
+                  <Text c="dimmed" size="sm">
                     {browserNotificationsSupported
                       ? browserNotificationsSecure
                         ? browserPermission === "granted"
-                          ? browserPushSubscribed
-                            ? "This browser is subscribed to vendor alerts."
-                            : "Permission is granted; sync this browser to subscribe to vendor alerts."
+                          ? "This browser can receive vendor alerts."
                           : browserPermission === "denied"
                             ? "Permission was denied in this browser. You can change it in browser settings."
-                            : "Click the button to allow browser notifications for this business."
+                            : "Click the button to allow browser notifications for this tenant."
                         : "Open this page on https:// or localhost to request permission."
                       : "Use a browser that supports notifications."}
-                  </p>
-                </div>
-                <ConfigurationSection
-                  title="Alert events"
-                  description="Changes save immediately. These preferences do not replace browser permission or push subscription."
-                >
-                  <ConfigurationCheck
-                    checked={vendorNotificationSettings.queueJoin}
-                    label="New queue joins"
-                    onChange={(event) =>
-                      void handleVendorNotificationToggle(
-                        "queueJoin",
-                        event.currentTarget.checked,
-                      )
-                    }
-                  />
-                  <ConfigurationCheck
-                    checked={vendorNotificationSettings.bookingIntake}
-                    label="New booking intake"
-                    onChange={(event) =>
-                      void handleVendorNotificationToggle(
-                        "bookingIntake",
-                        event.currentTarget.checked,
-                      )
-                    }
-                  />
-                  <ConfigurationCheck
-                    checked={vendorNotificationSettings.paymentProofReview}
-                    label="Payment proof review"
-                    onChange={(event) =>
-                      void handleVendorNotificationToggle(
-                        "paymentProofReview",
-                        event.currentTarget.checked,
-                      )
-                    }
-                  />
-                  <ConfigurationCheck
-                    checked={vendorNotificationSettings.bookingStatusChanges}
-                    label="Booking status changes"
-                    onChange={(event) =>
-                      void handleVendorNotificationToggle(
-                        "bookingStatusChanges",
-                        event.currentTarget.checked,
-                      )
-                    }
-                  />
-                </ConfigurationSection>
-              </div>
-            </OperationPanel>
-          </ConfigTabsContent>
-          <ConfigTabsContent value="board">
-            {token &&
-            selectedTenantSlug &&
-            selectedLocationSlug &&
-            (isOwner || isAdmin) ? (
-              <QueueBoardSettings
-                key={`${selectedTenantSlug}:${selectedLocationSlug}`}
-                token={token}
-                tenantSlug={selectedTenantSlug}
-                locationSlug={selectedLocationSlug}
-                onBusyChange={setBoardSettingsBusy}
-                onChanged={() => void reloadDashboardSnapshot()}
-              />
-            ) : (
-              <OperationEmpty
-                title="Select a location"
-                text="Choose the location whose queue board you want to manage."
-              />
-            )}
-          </ConfigTabsContent>
-        </ConfigTabs>
-      </ConfigurationScope>
+                  </Text>
+                </Group>
+                <Divider label="Operational alerts" labelPosition="center" />
+                <Checkbox
+                  checked={vendorNotificationSettings.queueJoin}
+                  label="New queue joins"
+                  disabled={savingNotificationSettings}
+                  onChange={(event) =>
+                    handleVendorNotificationToggle("queueJoin", event.currentTarget.checked)
+                  }
+                />
+                <Checkbox
+                  checked={vendorNotificationSettings.bookingIntake}
+                  label="New booking intake"
+                  disabled={savingNotificationSettings}
+                  onChange={(event) =>
+                    handleVendorNotificationToggle("bookingIntake", event.currentTarget.checked)
+                  }
+                />
+                <Checkbox
+                  checked={vendorNotificationSettings.paymentProofReview}
+                  label="Payment proof review"
+                  disabled={savingNotificationSettings}
+                  onChange={(event) =>
+                    handleVendorNotificationToggle("paymentProofReview", event.currentTarget.checked)
+                  }
+                />
+                <Checkbox
+                  checked={vendorNotificationSettings.bookingStatusChanges}
+                  label="Booking status changes"
+                  disabled={savingNotificationSettings}
+                  onChange={(event) =>
+                    handleVendorNotificationToggle("bookingStatusChanges", event.currentTarget.checked)
+                  }
+                />
+              </Stack>
+            </Tabs.Panel>
+
+          </Tabs>
+        </Card>
+
+      </Stack>
     );
   }
 
-    function renderCounterDialog() {
-    const close = () => {
-      if (canLeaveFeature()) {
-        unsavedForm.current.discardId("vendor-counter-editor");
-        setCounterDialogOpen(false);
-      }
-    };
+  function renderCounterDialog() {
     return (
-      <TaskDialog
+      <Modal
+        centered
         opened={counterDialogOpen}
-        onClose={close}
-        busy={Boolean(busyAction)}
-        eyebrow="COUNTER SETTINGS"
+        onClose={() => setCounterDialogOpen(false)}
         title={
-          editingCounterSlug
-            ? `Edit ${counterForm.name || "counter"}`
-            : "Add counter"
-        }
-        description={`Manage a dispatch lane and its staff at ${selectedLocation?.name || "this location"}.`}
-        footer={
-          <>
-            <OperationButton
-              className="ops-redundant-dismiss"
-              variant="outline"
-              onClick={close}
-            >
-              Cancel
-            </OperationButton>
-            <OperationButton
-              type="submit"
-              form="vendor-counter-editor"
-              loading={busyAction === "counter-save"}
-              disabled={
-                Boolean(busyAction) ||
-                checkingCounterSlug ||
-                !counterSlugAvailable
-              }
-            >
-              {editingCounterSlug ? "Save counter" : "Create counter"}
-            </OperationButton>
-          </>
+          <Stack className="getprio-modal-title" gap={2}>
+            <Text className="getprio-modal-eyebrow">QUEUE OPERATIONS</Text>
+            <Text className="getprio-modal-heading">{editingCounterSlug ? "Edit counter" : "Add counter"}</Text>
+          </Stack>
         }
       >
-        <ConfigurationScope
-          busy={Boolean(busyAction)}
-          onEdit={(form) => unsavedForm.current.mark(form)}
-        >
-          <form
-            id="vendor-counter-editor"
-            className="ops-stack"
-            onSubmit={handleSaveCounter}
-          >
-            {error ? (
-              <OperationAlert color="red" title="Unable to save counter">
-                {error}
-              </OperationAlert>
-            ) : null}
-            <ConfigurationInput
+        <form onSubmit={handleSaveCounter}>
+          <Stack gap="md">
+            <TextInput
               name="counterName"
               label="Counter name"
               required
               value={counterForm.name}
               onChange={(event) => {
-                const name = event.currentTarget.value;
+                const nextName = event.target.value;
                 setCounterForm((current) => ({
                   ...current,
-                  name,
-                  slug: counterSlugManuallyEdited
-                    ? current.slug
-                    : buildCounterSlug(name),
+                  name: nextName,
+                  slug: counterSlugManuallyEdited ? current.slug : buildCounterSlug(nextName)
                 }));
               }}
             />
-            <ConfigurationInput
+            <TextInput
               name="counterSlug"
-              label="Counter link name"
+              label="Counter slug"
               required
-              description={
-                checkingCounterSlug
-                  ? "Checking link availability…"
-                  : counterSlugMessage ||
-                    "A short, unique name for this counter at the selected location."
-              }
+              description={checkingCounterSlug ? "Checking slug availability..." : counterSlugMessage}
               error={
-                !checkingCounterSlug &&
-                !counterSlugAvailable &&
-                counterForm.slug
-                  ? counterSlugMessage || "This link name is already taken."
+                !counterSlugAvailable && counterForm.slug
+                  ? counterSlugMessage || "That counter slug is already taken for this location."
                   : undefined
               }
               value={counterForm.slug}
               onChange={(event) => {
                 setCounterSlugManuallyEdited(true);
-                setCounterForm((current) => ({
-                  ...current,
-                  slug: buildCounterSlug(event.target.value),
-                }));
+                setCounterForm((current) => ({ ...current, slug: buildCounterSlug(event.target.value) }));
               }}
             />
-            <ConfigurationCheck
+            <Switch
               name="counterIsActive"
               checked={counterForm.isActive}
               label="Enable counter"
               onChange={(event) =>
-                setCounterForm((current) => ({
-                  ...current,
-                  isActive: event.currentTarget.checked,
-                }))
+                setCounterForm((current) => ({ ...current, isActive: event.currentTarget.checked }))
               }
             />
-            <ConfigurationSection
-              title="Assigned staff"
-              description="Choose which staff members can operate this counter. Location and role restrictions still apply."
-            >
-              {!canAccessVendorSection("staff", effectiveEntitlements) ? <p className="ops-muted">Staff management is not available on this plan. Existing assignments are retained.</p> : staffQuery.isPending || staffQuery.isError ? (
-                <OperationQueryState
-                  loading={staffQuery.isPending}
-                  error={staffQuery.error}
-                  onRetry={() => void staffQuery.refetch()}
-                />
-              ) : (
-                <CounterStaffAssignments staff={staff} assignedUserIds={counterForm.assignedUserIds || []} onChange={(assignedUserIds) => setCounterForm((current) => ({ ...current, assignedUserIds }))} />
-              )}
-            </ConfigurationSection>
-          </form>
-        </ConfigurationScope>
-      </TaskDialog>
+            <MultiSelect
+              name="assignedUserIds"
+              data={staff.map((member) => ({ label: member.name, value: member.id }))}
+              label="Assigned staff"
+              value={counterForm.assignedUserIds}
+              onChange={(value) =>
+                setCounterForm((current) => ({ ...current, assignedUserIds: value }))
+              }
+            />
+            <Group justify="flex-end">
+              <Button variant="default" onClick={() => setCounterDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button className="neura-primary-button" disabled={busyAction === "counter-save"} type="submit">
+                {editingCounterSlug ? "Save counter" : "Create counter"}
+              </Button>
+            </Group>
+          </Stack>
+        </form>
+      </Modal>
     );
   }
 
   function renderStaffDialog() {
-    const close = () => {
-      if (canLeaveFeature()) {
-        unsavedForm.current.discardId("vendor-staff-editor");
-        setStaffForm({ email: "", role: "staff" });
-        setStaffDialogOpen(false);
-      }
-    };
     return (
-      <TaskDialog
+      <Modal
+        centered
         opened={staffDialogOpen}
-        onClose={close}
-        busy={Boolean(busyAction)}
-        eyebrow="ACCESS MANAGEMENT"
-        title="Add staff"
-        description="Give someone with an existing GetPrio account access to this business."
-        footer={
-          <>
-            <OperationButton
-              variant="outline"
-              className="ops-redundant-dismiss"
-              disabled={Boolean(busyAction)}
-              onClick={close}
-            >
-              Cancel
-            </OperationButton>
-            <OperationButton
-              type="submit"
-              form="vendor-staff-editor"
-              disabled={
-                Boolean(busyAction) ||
-                staffQuery.isPending ||
-                staffQuery.isError ||
-                staff.length >= staffSeatLimit
-              }
-              aria-busy={Boolean(busyAction)}
-            >
-              {busyAction ? "Working…" : "Add staff"}
-            </OperationButton>
-          </>
+        onClose={() => setStaffDialogOpen(false)}
+        title={
+          <Stack className="getprio-modal-title" gap={2}>
+            <Text className="getprio-modal-eyebrow">ACCESS MANAGEMENT</Text>
+            <Text className="getprio-modal-heading">Add staff</Text>
+          </Stack>
         }
       >
-        <ConfigurationScope
-          busy={Boolean(busyAction)}
-          onEdit={(form) => unsavedForm.current.mark(form)}
-        >
-          <form id="vendor-staff-editor" onSubmit={handleAddStaff}>
-            <FieldGroup>
-              {error ? (
-                <OperationAlert color="red" title="Unable to add staff">
-                  {error}
-                </OperationAlert>
-              ) : null}
-              <ConfigurationInput
-                name="staffEmail"
-                label="Existing account email"
-                description="The person must already have a GetPrio account. Adding access here does not create an account."
-                required
-                type="email"
-                autoComplete="off"
-                autoCapitalize="none"
-                spellCheck={false}
-                value={staffForm.email}
-                onChange={(event) =>
-                  setStaffForm((current) => ({
-                    ...current,
-                    email: event.currentTarget.value,
-                  }))
-                }
-              />
-              <ConfigurationSelect
-                name="staffRole"
-                label="Role"
-                required
-                data={
-                  isOwner
-                    ? [
-                        { label: "Staff", value: "staff" },
-                        { label: "Admin", value: "admin" },
-                      ]
-                    : [{ label: "Staff", value: "staff" }]
-                }
-                description={
-                  isOwner
-                    ? "Staff handle permitted operations. Admins can also manage business configuration and staff access."
-                    : "Admins can add Staff accounts. Only an owner can assign Admin access."
-                }
-                value={staffForm.role}
-                onChange={(value) =>
-                  setStaffForm((current) => ({
-                    ...current,
-                    role: value === "admin" ? "admin" : "staff",
-                  }))
-                }
-              />
-            </FieldGroup>
-          </form>
-        </ConfigurationScope>
-      </TaskDialog>
+        <form onSubmit={handleAddStaff}>
+          <Stack gap="md">
+            <TextInput
+              name="staffEmail"
+              label="Existing account email"
+              required
+              type="email"
+              value={staffForm.email}
+              onChange={(event) =>
+                setStaffForm((current) => ({ ...current, email: event.target.value }))
+              }
+            />
+            <Select
+              name="staffRole"
+              data={
+                isOwner
+                  ? [
+                      { label: "Staff", value: "staff" },
+                      { label: "Admin", value: "admin" }
+                    ]
+                  : [{ label: "Staff", value: "staff" }]
+              }
+              label="Role"
+              value={staffForm.role}
+              onChange={(value) =>
+                setStaffForm((current) => ({
+                  ...current,
+                  role: value === "admin" ? "admin" : "staff"
+                }))
+              }
+            />
+            <Text c="dimmed" size="sm">
+              The person must already have a GetPrio account before they can be added here.
+            </Text>
+            <Group justify="flex-end">
+              <Button variant="default" onClick={() => setStaffDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button className="neura-primary-button" disabled={busyAction === "staff-save"} type="submit">
+                Add staff
+              </Button>
+            </Group>
+          </Stack>
+        </form>
+      </Modal>
+    );
+  }
+
+  function renderDashboardSidebar({ compact = false }: { compact?: boolean } = {}) {
+    return (
+      <Stack className={compact ? "neura-sidebar-content" : undefined} gap="lg" h="100%">
+        <Group gap="sm" className="neura-brand">
+          <img className="neura-logo" src="/logo-dark.svg" alt="" aria-hidden="true" />
+          <div>
+            <Text fw={800}>GetPrio</Text>
+            <Text size="xs" c="dimmed">Queue Platform</Text>
+          </div>
+        </Group>
+
+        <ScrollArea className="neura-nav-scroll">
+          <Stack gap={8}>
+            {visibleNavItems.map((item) => {
+              const Icon = item.icon;
+              return (
+                <NavLink
+                  className="neura-nav-link"
+                  key={item.section}
+                  onClick={() => setSidebarOpen(false)}
+                  to={`/dashboard/${item.section}`}
+                >
+                  <Icon size={18} />
+                  <span>{item.label}</span>
+                  <IconChevronRight className="neura-nav-chevron" size={16} />
+                </NavLink>
+              );
+            })}
+          </Stack>
+        </ScrollArea>
+
+        <Paper className="neura-sidebar-card" p="md">
+          <Group align="flex-start" justify="space-between" gap="sm" wrap="nowrap">
+            <div className="neura-sidebar-account-copy">
+              <Text size="xs" c="dimmed">Current tenant</Text>
+              <Text fw={700}>{snapshot?.tenant.name || user?.tenants[0]?.name || "Tenant"}</Text>
+              <Text size="sm" c="dimmed">{selectedLocation?.name || "Primary location"}</Text>
+              <Badge color={activeSubscription || tenantPlan?.planName ? "teal" : "orange"} mt="sm">
+                {activeSubscription?.planName || tenantPlan?.planName || "No active plan"}
+              </Badge>
+              <Divider my="sm" />
+              <Stack gap={2}>
+                <Text size="xs" c="dimmed">Logged in user:</Text>
+                <Text fw={600} size="sm">{user?.name || "Unknown user"}</Text>
+                <Badge color="gray" size="sm" variant="light">
+                  {selectedTenantRole
+                    ? selectedTenantRole.charAt(0).toUpperCase() + selectedTenantRole.slice(1)
+                    : "No tenant role"}
+                </Badge>
+              </Stack>
+            </div>
+            <Tooltip label="Log out" withArrow>
+              <ActionIcon
+                aria-label="Log out"
+                className="neura-sidebar-logout"
+                color="red"
+                onClick={logout}
+                radius="xl"
+                size={42}
+                variant="filled"
+              >
+                <IconLogout size={20} />
+              </ActionIcon>
+            </Tooltip>
+          </Group>
+        </Paper>
+      </Stack>
     );
   }
 
   function renderDashboardAlertOverlay() {
-    const Confirmation = (["queue", "bookings", "clients", "history", "tenants", "services", "staff"].includes(currentSection) || bookingDetailOpen || rescheduleDialogOpen) ? QueueConfirmation : ConfirmActionModal;
     const overlayAlerts = [
       ...activeQueueAlerts.map((ticket) => ({
         actionLabel: "Open queue",
         body: (
           <>
             {ticket.customerName} joined the queue as{" "}
-            <strong>#{ticket.ticketNumber}</strong>
+            <Text component="span" fw={900}>
+              #{ticket.ticketNumber}
+            </Text>
           </>
         ),
         id: ticket.id,
@@ -9999,7 +9348,9 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         body: (
           <>
             {booking.customerName} sent a new booking{" "}
-            <strong>{booking.reference}</strong>
+            <Text component="span" fw={900}>
+              {booking.reference}
+            </Text>
           </>
         ),
         id: booking.id,
@@ -10009,7 +9360,8 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     ];
     const detailBooking = bookingDetailBooking;
     const detailPaymentReviewable = Boolean(
-      canAdminBookings && detailBooking?.paymentProof &&
+      detailBooking &&
+      detailBooking.paymentProof &&
       detailBooking.paymentStatus === "pending" &&
       (detailBooking.status === "pending" || detailBooking.status === "rescheduled")
     );
@@ -10017,739 +9369,510 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     const detailManualPaymentRequired = Boolean(detailBooking?.serviceManualPaymentRequired);
     const detailPaymentGateActive = Boolean(detailBooking && detailManualPaymentRequired && !detailPaymentVerified);
     const detailBookingExpired = Boolean(detailBooking?.expiredAt);
-    const detailCheckInState = detailBooking ? getBookingCheckInState(detailBooking, bookingCheckInNow) : null;
-    const detailCampaignBundleItems = detailBooking?.groupFundedCampaign?.bundleItems || [];
     const detailBookingBundleItems = detailBooking?.bundleItems || [];
-    const detailServiceItems = detailCampaignBundleItems.length
-      ? detailCampaignBundleItems
-      : detailBookingBundleItems;
-    const detailFundingAdjustmentCents = Math.max(0, Number(detailBooking?.groupFundedCampaign?.roundingAdjustmentCents || 0));
-    const detailCampaignTotalCents = Number(detailBooking?.groupFundedCampaign?.targetAmountCents || 0) + detailFundingAdjustmentCents;
-    const detailServiceTotalCents = detailCampaignBundleItems.length
-      ? detailCampaignTotalCents
-      : detailServiceItems.reduce((total, item) => total + Number(item.priceAmountCents || 0), 0);
-    const isGroupFundedDetailBooking = Boolean(detailBooking?.groupFundedBookingId || detailBooking?.bookingPaymentSource === "group_funded");
+    const detailServiceItems = detailBookingBundleItems;
+    const detailServiceTotalCents = detailServiceItems.reduce((total, item) => total + Number(item.priceAmountCents || 0), 0);
     const closeBookingDetailModal = () => {
-      unsavedForm.current.discardId("vendor-booking-payment");
       setBookingDetailModalId(null);
       setBookingDetailOpen(false);
       setBookingDetailLoading(false);
       setBookingDetailBooking(null);
       setBookingDetailError("");
       setPaymentRejectionReason("");
-
     };
 
     return (
-      <>
-        {overlayAlerts.length && !bookingDetailOpen && !rescheduleDialogOpen && !rescheduleBlockModalOpen && !locationDialogOpen && !counterDialogOpen && !resourceConfigurationDialogOpen && !serviceDialogOpen && !availabilityBlockDialogOpen && !availabilityExceptionDialogOpen && !staffDialogOpen && !confirmAction ? (
-          <OperationalAlerts alerts={overlayAlerts} onDismiss={(alert) => {
-            if (alert.kind === "queue") clearQueueAlert(alert.id);
-            else clearBookingAlert(alert.id);
-          }} onOpen={(alert) => {
-            if (alert.kind === "queue") {
-              clearQueueAlert(alert.id);
-              navigate("/dashboard/queue");
-              return;
-            }
-            openBookingDetail(alert.id);
-            clearBookingAlert(alert.id);
-          }} />
+      <Portal>
+        {overlayAlerts.length ? (
+          <Box
+            className="dashboard-notification-stack"
+            style={{
+              bottom: 24,
+              left: "50%",
+              maxWidth: "min(692px, calc(100vw - 32px))",
+              position: "fixed",
+              transform: "translateX(-50%)",
+              width: "calc(100vw - 64px)",
+              pointerEvents: "none",
+              zIndex: 1200
+            }}
+          >
+            <Stack gap="sm" style={{ pointerEvents: "none" }}>
+              {overlayAlerts.map((alert) => (
+                <Notification
+                  color="blue"
+                  icon={<IconBellRinging size={20} />}
+                  key={alert.id}
+                  onClose={() => {
+                    if (alert.kind === "queue") {
+                      clearQueueAlert(alert.id);
+                      return;
+                    }
+                    clearBookingAlert(alert.id);
+                  }}
+                  radius="md"
+                  style={{
+                    boxShadow: "0 12px 32px rgba(15, 23, 42, 0.16)",
+                    pointerEvents: "auto"
+                  }}
+                  withBorder
+                >
+                  <Group className="dashboard-notification" justify="space-between" align="center" gap="md">
+                    <Stack gap={2} style={{ flex: 1, minWidth: 0 }}>
+                      <Text fw={800}>{alert.title}</Text>
+                      <Text style={{ overflowWrap: "anywhere" }}>{alert.body}</Text>
+                    </Stack>
+                    <Button
+                      color="dark"
+                      radius="xl"
+                      onClick={() => {
+                        if (alert.kind === "queue") {
+                          clearQueueAlert(alert.id);
+                          navigate("/dashboard/queue");
+                          return;
+                        }
+                        setBookingDetailModalId(alert.id);
+                        setBookingDetailOpen(true);
+                        clearBookingAlert(alert.id);
+                      }}
+                      style={{ flex: "0 0 auto" }}
+                    >
+                      {alert.actionLabel}
+                    </Button>
+                  </Group>
+                </Notification>
+              ))}
+            </Stack>
+          </Box>
         ) : null}
 
-        <TaskDialog
+        <Modal
+          centered
           opened={bookingDetailOpen}
-          onClose={() => {
-            if (canLeaveFeature()) closeBookingDetailModal();
-          }}
-          busy={Boolean(busyAction)}
-          eyebrow="BOOKING DETAILS"
-          title={detailBooking ? detailBooking.reference : "Loading booking"}
-          footer={
-            <OperationScope busy={Boolean(busyAction)}>
-              {detailBooking?.resourceSelection?<div className="space-y-2">{detailBooking.resourceSelection.warning?<OperationAlert color="yellow">{detailBooking.resourceSelection.warning}</OperationAlert>:null}{detailBooking.resourceSelection.services.map((service,index)=><div key={index}><p className="font-semibold">{service.name}</p>{service.resources.map((resource,i)=><p key={i} className="text-sm">{resource.name} · {resource.quantity} × {resource.durationMinutes} minutes{resource.extras.map(extra=>` · ${extra.name}: ${extra.quantity} × ${extra.durationMinutes} minutes`).join('')}</p>)}</div>)}</div>:null}
-              {detailBooking && !bookingDetailLoading && !bookingDetailError ? (
-                <div className="ops-row ops-between">
-                  <OperationButton
-                    onClick={() => {
-                      if (canLeaveFeature()) closeBookingDetailModal();
-                    }}
-                    variant="outline"
-                    className="ops-redundant-dismiss"
-                  >
-                    Close
-                  </OperationButton>
-                  <div className="ops-row">
-                    <OperationButton
-                      onClick={() => {
-                        if (!canLeaveFeature()) return;
-                        setBookingStatusFilter("pending");
-                        setBookingDateRange([null, null]);
-                        closeBookingDetailModal();
-                        navigate("/dashboard/bookings");
-                      }}
-                      variant="outline"
-                    >
-                      View pending bookings
-                    </OperationButton>
-                    {canOperateBookingQueue &&
-                    detailCheckInState?.isWindowOpen ? (
-                      <OperationButton
-                        leftSection={<IconCalendarCheck size={18} />}
-                        disabled={
-                          Boolean(busyAction) ||
-                          bookingCheckInBlocked ||
-                          detailCheckInState.isTooEarly
-                        }
-                        loading={
-                          busyAction === `booking-check-in:${detailBooking.id}`
-                        }
-                        onClick={() => void handleCheckInBooking(detailBooking)}
-                        variant="default"
-                      >
-                        Check in customer
-                      </OperationButton>
-                    ) : null}
-                    {canAdminBookings &&
-                    detailCheckInState?.isAwaitingCheckIn &&
-                    detailCheckInState.isLate ? (
-                      <OperationButton
-                        leftSection={<IconCalendar size={18} />}
-                        disabled={
-                          Boolean(busyAction) || detailPaymentGateActive
-                        }
-                        onClick={() => openRescheduleDialog(detailBooking)}
-                        variant="outline"
-                      >
-                        Reschedule
-                      </OperationButton>
-                    ) : null}
-                    {renderBookingNoShowAction(detailBooking, true)}
-                    {canAdminBookings && detailBooking.status === "pending" ? (
-                      <>
-                        <OperationButton
-                          disabled={
-                            detailPaymentGateActive ||
-                            busyAction ===
-                              `booking-status:${detailBooking.id}:confirmed`
-                          }
-                          onClick={async () => {
-                            const updated = await handleUpdateBookingStatus(
-                              detailBooking,
-                              "confirmed",
-                            );
-                            if (updated) {
-                              closeBookingDetailModal();
-                            }
-                          }}
-                          variant="default"
-                        >
-                          Confirm
-                        </OperationButton>
-                        <OperationButton
-                          disabled={detailPaymentGateActive}
-                          onClick={() => openRescheduleDialog(detailBooking)}
-                          variant="outline"
-                        >
-                          Reschedule
-                        </OperationButton>
-                        <OperationButton
-                          disabled={
-                            detailPaymentGateActive ||
-                            busyAction ===
-                              `booking-status:${detailBooking.id}:canceled`
-                          }
-                          onClick={() =>
-                            openConfirmAction({
-                              title: "Cancel booking?",
-                              description:
-                                "Are you sure you want to cancel this booking?",
-                              confirmLabel: "Cancel booking",
-                              confirmColor: "red",
-                              onConfirm: async () => {
-                                const updated = await handleUpdateBookingStatus(
-                                  detailBooking,
-                                  "canceled",
-                                );
-                                if (updated) {
-                                  closeBookingDetailModal();
-                                }
-                              },
-                            })
-                          }
-                          variant="destructive"
-                        >
-                          Cancel
-                        </OperationButton>
-                      </>
-                    ) : null}
-                  </div>
-                </div>
-              ) : (
-                <OperationButton
-                  onClick={closeBookingDetailModal}
-                  variant="outline"
-                >
-                  Close
-                </OperationButton>
-              )}
-            </OperationScope>
+          onClose={closeBookingDetailModal}
+          title={
+            <Stack gap={2}>
+              <Text className="booking-detail__eyebrow">Booking details</Text>
+              <Text className="booking-detail__title">
+                {detailBooking ? detailBooking.reference : "Loading booking"}
+              </Text>
+            </Stack>
           }
+          size="xl"
+          classNames={{ content: "booking-detail__modal", header: "booking-detail__modal-header", body: "booking-detail__modal-body" }}
+          closeButtonProps={{ "aria-label": "Close booking details" }}
         >
-          <OperationScope busy={Boolean(busyAction)}>
-            {error ? <OperationAlert color="red">{error}</OperationAlert> : null}
-            {bookingDetailLoading ? (
-              <p className="ops-muted">Loading booking details...</p>
-            ) : bookingDetailError ? (
-              <OperationAlert color="red">{bookingDetailError}<OperationButton variant="outline" onClick={() => setBookingDetailRetry((value) => value + 1)}>Retry booking details</OperationButton></OperationAlert>
-            ) : detailBooking ? (
-              <div className="ops-stack">
-                <div className="ops-row ops-between">
-                  <div className="ops-stack">
-                    <p>{detailBooking.customerName}</p>
-
-                    <p>
-                      {detailBooking.customerEmail ||
-                        detailBooking.customerPhone ||
-                        "No contact details"}
-                    </p>
-                  </div>
-                  <div className="ops-row">
-                    <QueueBadge variant="outline">
-                      {detailBookingExpired ? "expired" : detailBooking.status}
-                    </QueueBadge>
-                    {detailManualPaymentRequired ? (
-                      <QueueBadge variant="outline">
-                        {detailPaymentVerified
-                          ? "Payment verified"
-                          : "Payment review needed"}
-                      </QueueBadge>
-                    ) : (
-                      <QueueBadge variant="outline">
-                        No manual payment required
-                      </QueueBadge>
-                    )}
-                    {detailBookingExpired ? (
-                      <QueueBadge variant="outline">Pending timeout</QueueBadge>
-                    ) : null}
-                  </div>
-                </div>
-
-                {detailPaymentGateActive ? (
-                  <OperationAlert color="orange">
-                    Confirm, cancel, and reschedule actions unlock after manual
-                    payment has been verified.
-                  </OperationAlert>
-                ) : null}
-
-                {detailBookingExpired ? (
-                  <OperationAlert color="orange">
-                    {detailBooking.expirationReason ||
-                      "This pending booking expired before vendor confirmation or payment evidence submission."}
-                  </OperationAlert>
-                ) : null}
-
-                <div className="ops-grid ops-grid-2">
-                  {detailServiceItems.length > 1 ? (
-                    <div
-                      style={{ gridColumn: "1 / -1" }}
-                      className="ops-detail-panel"
-                    >
-                      <div className="ops-row ops-between">
-                        <div className="ops-row">
-                          <IconBriefcase size={16} />
-                          <p className="vendor-eyebrow">
-                            {detailCampaignBundleItems.length
-                              ? "Campaign services"
-                              : "Bundled services"}
-                          </p>
-                        </div>
-                        <QueueBadge variant="outline">
-                          {detailServiceItems.length} services
-                        </QueueBadge>
-                      </div>
-                      <div className="ops-stack">
-                        {detailServiceItems.map((item) => (
-                          <div key={item.id} className="ops-row ops-between">
-                            <div style={{ minWidth: 0 }} className="ops-stack">
-                              <p className="ops-strong">{item.serviceName}</p>
-                              <p className="ops-muted">
-                                Quantity {item.bookingQuantity} ·{" "}
-                                {formatBookingScheduleTimeRange(
-                                  item.scheduledStartAt,
-                                  item.scheduledEndAt,
-                                )}
-                              </p>
-                            </div>
-                            <p className="ops-strong">
-                              {formatMoney(
-                                item.priceAmountCents,
-                                item.currency,
-                              )}
-                            </p>
-                          </div>
-                        ))}
-                      </div>
-                      <QueueSeparator />
-                      <div className="ops-row ops-between">
-                        <p className="ops-strong">
-                          {detailCampaignBundleItems.length
-                            ? "Campaign total"
-                            : "Bundle total"}
-                        </p>
-                        <p className="ops-strong">
-                          {formatMoney(
-                            detailServiceTotalCents,
-                            detailBooking.groupFundedCampaign?.currency ||
-                              detailBooking.serviceCurrency,
-                          )}
-                        </p>
-                      </div>
-                    </div>
+          {bookingDetailLoading ? (
+            <Text c="dimmed">Loading booking details...</Text>
+          ) : bookingDetailError ? (
+            <Alert color="red" variant="light">
+              {bookingDetailError}
+            </Alert>
+          ) : detailBooking ? (
+            <Stack gap="lg" className="booking-detail">
+              <Group justify="space-between" align="flex-start" className="booking-detail__hero">
+                <Stack gap={6}>
+                  <Text className="booking-detail__customer">{detailBooking.customerName}</Text>
+                  <Text className="booking-detail__contact">{detailBooking.customerEmail || detailBooking.customerPhone || "No contact details"}</Text>
+                </Stack>
+                <Group gap="xs" justify="flex-end">
+                  <Badge color={getBookingBadgeColor(detailBooking.status)} variant="light">
+                    {detailBookingExpired ? "expired" : detailBooking.status}
+                  </Badge>
+                  {detailManualPaymentRequired ? (
+                    <Badge color={detailPaymentVerified ? "teal" : "orange"} variant="light">
+                      {detailPaymentVerified ? "Payment verified" : "Payment review needed"}
+                    </Badge>
                   ) : (
-                    <div className="ops-detail-panel">
-                      <div className="ops-row">
-                        <IconBriefcase size={16} />
-                        <p className="vendor-eyebrow">Service</p>
-                      </div>
-                      <p>{detailBooking.serviceName}</p>
-                      <p className="ops-muted">
-                        Quantity {detailBooking.bookingQuantity}
-                      </p>
-                      <p className="ops-muted">
-                        {detailBooking.servicePriceDisplay || "-"}
-                      </p>
-                    </div>
+                    <Badge color="gray" variant="light">
+                      No manual payment required
+                    </Badge>
                   )}
-                  <div className="ops-detail-panel">
-                    <div className="ops-row">
-                      <IconCalendar size={16} />
-                      <p className="vendor-eyebrow">Schedule</p>
-                    </div>
-                    <p>
-                      {formatBookingScheduleDateTime(
-                        detailBooking.scheduledStartAt,
-                      )}
-                    </p>
-                    <p className="ops-muted">
-                      Ends{" "}
-                      {formatBookingScheduleDateTime(
-                        detailBooking.scheduledEndAt,
-                      )}
-                    </p>
-                  </div>
-                  <div className="ops-detail-panel">
-                    <div className="ops-row">
-                      <IconClipboardList size={16} />
-                      <p className="vendor-eyebrow">Payment</p>
-                    </div>
-                    <p>{detailBooking.paymentStatus}</p>
-                    {canAdminBookings ? (
-                      <>
-                        <p className="ops-muted">
-                          {isGroupFundedDetailBooking
-                            ? "Verified through the group-funded campaign"
-                            : detailBooking.paymentReference || "No reference"}
-                        </p>
+                  {detailBookingExpired ? (
+                    <Badge color="orange" variant="light">Pending timeout</Badge>
+                  ) : null}
+                </Group>
+              </Group>
 
-                        {detailBooking.paymentVerifiedAt ? (
-                          <QueueBadge variant="outline">
-                            Verified{" "}
-                            {formatDateTime(detailBooking.paymentVerifiedAt)}
-                          </QueueBadge>
-                        ) : null}
-                        {detailBooking.paymentRejectedAt ? (
-                          <div className="ops-stack">
-                            <QueueBadge variant="destructive">
-                              Rejected{" "}
-                              {formatDateTime(detailBooking.paymentRejectedAt)}
-                            </QueueBadge>
-                            {detailBooking.paymentRejectionReason ? (
-                              <p className="ops-muted">
-                                {detailBooking.paymentRejectionReason}
-                              </p>
-                            ) : null}
-                          </div>
-                        ) : null}
-                        {detailBooking.paymentProof ? (
-                          <div className="ops-stack">
-                            <p className="ops-muted">
-                              {detailBooking.paymentProof.fileName} ·{" "}
-                              {formatBytes(
-                                detailBooking.paymentProof.sizeBytes,
-                              )}
-                            </p>
-                            {canAdminBookings ? (
-                              <OperationButton
-                                leftSection={<IconExternalLink size={14} />}
-                                loading={
-                                  busyAction ===
-                                  `booking-proof:${detailBooking.id}`
-                                }
-                                onClick={() =>
-                                  handleViewBookingPaymentProof(detailBooking)
-                                }
-                                variant="secondary"
-                              >
-                                View proof
-                              </OperationButton>
-                            ) : null}
-                          </div>
-                        ) : isGroupFundedDetailBooking ? (
-                          <p className="ops-muted">
-                            No individual payment proof is required.
-                          </p>
-                        ) : (
-                          <p className="ops-muted">No proof submitted</p>
-                        )}
-                        {detailPaymentReviewable ? (
-                          <div className="ops-stack">
-                            <div className="ops-row">
-                              <OperationButton
-                                loading={
-                                  busyAction ===
-                                  `booking-payment-verify:${detailBooking.id}`
-                                }
-                                onClick={() =>
-                                  handleVerifyBookingPayment(detailBooking)
-                                }
-                                variant="default"
-                              >
-                                Verify payment
-                              </OperationButton>
-                            </div>
-                            <form
-                              id="vendor-booking-payment"
-                              onSubmit={(event) => event.preventDefault()}
-                            >
-                              <OperationTextarea
-                                label="Rejection reason"
-                                onChange={(event) =>
-                                  setPaymentRejectionReason(
-                                    event.currentTarget.value,
-                                  )
-                                }
-                                placeholder="Customer-visible reason"
-                                value={paymentRejectionReason}
-                              />
-                            </form>
-                            <OperationButton
-                              disabled={!paymentRejectionReason.trim()}
-                              loading={
-                                busyAction ===
-                                `booking-payment-reject:${detailBooking.id}`
+              {detailPaymentGateActive ? (
+                <Alert color="orange" icon={<IconInfoCircle size={18} />} variant="light">
+                  Confirm, cancel, and reschedule actions unlock after manual payment has been verified.
+                </Alert>
+              ) : null}
+
+              {detailBookingExpired ? (
+                <Alert color="orange" variant="light">
+                  {detailBooking.expirationReason || "This pending booking expired before vendor confirmation or payment evidence submission."}
+                </Alert>
+              ) : null}
+
+              <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
+                {detailServiceItems.length > 1 ? (
+                  <Paper withBorder radius="md" p="md" className="booking-detail__panel" style={{ gridColumn: "1 / -1" }}>
+                    <Group justify="space-between" mb="xs">
+                      <Group gap="xs">
+                        <IconBriefcase size={16} />
+                        <Text className="neura-label">Bundled services</Text>
+                      </Group>
+                      <Badge color="violet" variant="light">{detailServiceItems.length} services</Badge>
+                    </Group>
+                    <Stack gap="xs">
+                      {detailServiceItems.map((item) => (
+                        <Group justify="space-between" key={item.id} wrap="nowrap">
+                          <Stack gap={0} style={{ minWidth: 0 }}>
+                            <Text fw={700}>{item.serviceName}</Text>
+                            <Text c="dimmed" size="sm">
+                              Quantity {item.bookingQuantity} · {formatBookingScheduleTimeRange(item.scheduledStartAt, item.scheduledEndAt)}
+                            </Text>
+                          </Stack>
+                          <Text fw={700}>{formatMoney(item.priceAmountCents, item.currency)}</Text>
+                        </Group>
+                      ))}
+                    </Stack>
+                    <Divider my="sm" />
+                    <Group justify="space-between">
+                      <Text fw={700}>Bundle total</Text>
+                      <Text fw={800}>{formatMoney(detailServiceTotalCents, detailBooking.serviceCurrency)}</Text>
+                    </Group>
+                  </Paper>
+                ) : (
+                  <Paper withBorder radius="md" p="md" className="booking-detail__panel">
+                    <Group gap="xs" mb="xs">
+                      <IconBriefcase size={16} />
+                      <Text className="neura-label">Service</Text>
+                    </Group>
+                    <Text className="booking-detail__panel-title">{detailBooking.serviceName}</Text>
+                    <Text c="dimmed" size="sm">Quantity {detailBooking.bookingQuantity}</Text>
+                    <Text c="dimmed" size="sm">{detailBooking.servicePriceDisplay || "-"}</Text>
+                  </Paper>
+                )}
+                <Paper withBorder radius="md" p="md" className="booking-detail__panel">
+                  <Group gap="xs" mb="xs">
+                    <IconCalendar size={16} />
+                    <Text className="neura-label">Schedule</Text>
+                  </Group>
+                  <Text className="booking-detail__panel-title">{formatBookingScheduleDateTime(detailBooking.scheduledStartAt)}</Text>
+                  <Text c="dimmed" size="sm">Ends {formatBookingScheduleDateTime(detailBooking.scheduledEndAt)}</Text>
+                </Paper>
+                <Paper withBorder radius="md" p="md" className="booking-detail__panel booking-detail__payment-panel">
+                  <Group gap="xs" mb="xs">
+                    <IconClipboardList size={16} />
+                    <Text className="neura-label">Payment</Text>
+                  </Group>
+                  <Text className="booking-detail__panel-title">{detailBooking.paymentStatus}</Text>
+                  <Text c="dimmed" size="sm">
+                    {detailBooking.paymentReference || "No reference"}
+                  </Text>
+                  {detailBooking.paymentVerifiedAt ? (
+                    <Badge color="teal" mt="xs" variant="light" w="fit-content">
+                      Verified {formatDateTime(detailBooking.paymentVerifiedAt)}
+                    </Badge>
+                  ) : null}
+                  {detailBooking.paymentRejectedAt ? (
+                    <Stack gap={4} mt="xs">
+                      <Badge color="red" variant="light" w="fit-content">
+                        Rejected {formatDateTime(detailBooking.paymentRejectedAt)}
+                      </Badge>
+                      {detailBooking.paymentRejectionReason ? (
+                        <Text c="dimmed" size="sm">{detailBooking.paymentRejectionReason}</Text>
+                      ) : null}
+                    </Stack>
+                  ) : null}
+                  {detailBooking.paymentProof ? (
+                    <Stack gap={6} mt="xs">
+                      <Text c="dimmed" size="sm">
+                        {detailBooking.paymentProof.fileName} · {formatBytes(detailBooking.paymentProof.sizeBytes)}
+                      </Text>
+                      <Button
+                        leftSection={<IconExternalLink size={14} />}
+                        loading={busyAction === `booking-proof:${detailBooking.id}`}
+                        onClick={() => handleViewBookingPaymentProof(detailBooking)}
+                        size="xs"
+                        variant="light"
+                        w="fit-content"
+                      >
+                        View proof
+                      </Button>
+                    </Stack>
+                  ) : (
+                    <Text c="dimmed" size="sm">No proof submitted</Text>
+                  )}
+                  {detailPaymentReviewable ? (
+                    <Stack gap="sm" mt="md" className="booking-detail__payment-review">
+                      <Group gap="xs">
+                        <Button
+                          className="neura-primary-button"
+                          loading={busyAction === `booking-payment-verify:${detailBooking.id}`}
+                          onClick={() => handleVerifyBookingPayment(detailBooking)}
+                          size="sm"
+                          w="fit-content"
+                        >
+                          Verify payment
+                        </Button>
+                      </Group>
+                      <Textarea
+                        label="Rejection reason"
+                        minRows={2}
+                        onChange={(event) => setPaymentRejectionReason(event.currentTarget.value)}
+                        placeholder="Customer-visible reason"
+                        value={paymentRejectionReason}
+                      />
+                      <Button
+                        color="red"
+                        disabled={!paymentRejectionReason.trim()}
+                        loading={busyAction === `booking-payment-reject:${detailBooking.id}`}
+                        onClick={async () => {
+                          const rejected = await handleRejectBookingPayment(detailBooking);
+                          if (rejected) {
+                            closeBookingDetailModal();
+                          }
+                        }}
+                        size="xs"
+                        variant="subtle"
+                        w="fit-content"
+                      >
+                        Reject payment and cancel
+                      </Button>
+                    </Stack>
+                  ) : null}
+                </Paper>
+                <Paper withBorder radius="md" p="md" className="booking-detail__panel">
+                  <Group gap="xs" mb="xs">
+                    <IconBellRinging size={16} />
+                    <Text className="neura-label">Alerts</Text>
+                  </Group>
+                  <Text className="booking-detail__panel-title">Email and browser notifications</Text>
+                  <Text c="dimmed" size="sm">
+                    {detailBooking.contactVerificationChannel
+                      ? `Verified by ${detailBooking.contactVerificationChannel}`
+                      : "Verification not recorded"}
+                  </Text>
+                </Paper>
+              </SimpleGrid>
+
+              {detailBooking.notes ? (
+                <Paper withBorder radius="md" p="md" className="booking-detail__panel">
+                  <Text className="neura-label">Customer notes</Text>
+                  <Text>{detailBooking.notes}</Text>
+                </Paper>
+              ) : null}
+
+              <Group justify="space-between" className="booking-detail__footer">
+                <Button variant="default" onClick={closeBookingDetailModal}>
+                  Close
+                </Button>
+                <Group gap="xs">
+                  <Button
+                    variant="default"
+                    onClick={() => {
+                      setBookingStatusFilter("pending");
+                      setBookingDateRange([null, null]);
+                      closeBookingDetailModal();
+                      navigate("/dashboard/bookings");
+                    }}
+                  >
+                    Open booking queue
+                  </Button>
+                  {canAdminBookings && detailBooking.status === "pending" ? (
+                    <>
+                      <Button
+                        className="neura-primary-button"
+                        disabled={
+                          detailPaymentGateActive ||
+                          busyAction === `booking-status:${detailBooking.id}:confirmed`
+                        }
+                        onClick={async () => {
+                          const updated = await handleUpdateBookingStatus(detailBooking, "confirmed");
+                          if (updated) {
+                            closeBookingDetailModal();
+                          }
+                        }}
+                      >
+                        Confirm
+                      </Button>
+                      <Button disabled={detailPaymentGateActive} variant="outline" onClick={() => openRescheduleDialog(detailBooking)}>
+                        Reschedule
+                      </Button>
+                      <Button
+                        color="red"
+                        disabled={detailPaymentGateActive || busyAction === `booking-status:${detailBooking.id}:canceled`}
+                        variant="subtle"
+                        onClick={() =>
+                          openConfirmAction({
+                            title: "Cancel booking?",
+                            description: "Are you sure you want to cancel this booking?",
+                            confirmLabel: "Cancel booking",
+                            confirmColor: "red",
+                            onConfirm: async () => {
+                              const updated = await handleUpdateBookingStatus(detailBooking, "canceled");
+                              if (updated) {
+                                closeBookingDetailModal();
                               }
-                              onClick={async () => {
-                                const rejected =
-                                  await handleRejectBookingPayment(
-                                    detailBooking,
-                                  );
-                                if (rejected) {
-                                  closeBookingDetailModal();
-                                }
-                              }}
-                              variant="destructive"
-                            >
-                              Reject payment and cancel
-                            </OperationButton>
-                          </div>
-                        ) : null}
-                      </>
-                    ) : null}
-                  </div>
-                  <div className="ops-detail-panel">
-                    <div className="ops-row">
-                      <IconBellRinging size={16} />
-                      <p className="vendor-eyebrow">Alerts</p>
-                    </div>
-                    <p>Email and browser notifications</p>
-                    <p className="ops-muted">
-                      {detailBooking.contactVerificationChannel
-                        ? `Verified by ${detailBooking.contactVerificationChannel}`
-                        : "Verification not recorded"}
-                    </p>
-                  </div>
-                </div>
-
-                {detailBooking.notes &&
-                detailBooking.notes !==
-                  "Group-funded booking approved by vendor." ? (
-                  <div className="ops-detail-panel">
-                    <p className="vendor-eyebrow">Customer notes</p>
-                    <p>{detailBooking.notes}</p>
-                  </div>
-                ) : null}
-
-                {canOperateBookingQueue ? (
-                  <BookingCheckInNotice
-                    booking={detailBooking}
-                    now={bookingCheckInNow}
-                    canReschedule={canAdminBookings}
-                    queueBlocked={bookingCheckInBlocked}
-                    queueGuidance={bookingCheckInGuidance}
-                  />
-                ) : null}
-              </div>
-            ) : null}
-          </OperationScope>
-        </TaskDialog>
-        <Confirmation
+                            }
+                          })
+                        }
+                      >
+                        Cancel
+                      </Button>
+                    </>
+                  ) : null}
+                </Group>
+              </Group>
+            </Stack>
+          ) : null}
+        </Modal>
+        <ConfirmActionModal
+          className="confirm-action-modal"
           opened={Boolean(confirmAction)}
           title={confirmAction?.title || ""}
           description={confirmAction?.description || ""}
           confirmLabel={confirmAction?.confirmLabel || "Confirm"}
           confirmColor={confirmAction?.confirmColor || "red"}
           loading={confirmBusy}
-          {...(currentSection === "staff" ? { eyebrow: "STAFF ACCESS", error } : {})}
           onClose={closeConfirmAction}
           onConfirm={async () => {
             const action = confirmAction;
             if (!action) {
               return;
             }
-            try {
-              await action.onConfirm();
-              closeConfirmAction();
-            } catch (actionError) { setError(getErrorMessage(actionError)); }
+            await action.onConfirm();
+            closeConfirmAction();
           }}
         />
-
-      </>
+      </Portal>
     );
   }
 
-  function renderCurrentSection() {
-    if (!hasActiveSubscription && currentSection !== "settings" && currentSection !== "account") {
-      return <ActivationPanel onViewPlans={() => openPlanDialog()} />;
-    }
-
-    if (currentSection === "overview") {
-      return <ResourceDashboard token={token} canOpenQueue={canAccessVendorSection("queue", effectiveEntitlements, tenantPlan)} scope={{tenantSlug: selectedTenantSlug, locationSlug: selectedLocationSlug,
-        tenantId: snapshot?.tenant.id || "", locationId: snapshot?.location?.id || ""}}
-        onOpenQueue={() => { if (canLeaveFeature()) navigate(workspacePath("queue", "operations", location.search)); }} />;
-    }
-
-    if (currentSection === "queue") {
-      return renderQueuePage();
-    }
-
-    if (currentSection === "tenants") {
-      if (locationSlug) {
-        if (!isOwner && !isAdmin) return <OperationAlert color="red" title="Location access required">You do not have permission to edit this location.</OperationAlert>;
-        if (!dashboardBootstrapQuery.data) return <OperationAlert color="blue" title="Loading location">Loading authorized locations for this business.</OperationAlert>;
-        if (!resolveLocationEditor(locationSlug, locations, new Set(dashboardBootstrapQuery.data.locationsResponse.locations.map(item => item.id)))) return <OperationAlert color="red" title="Location unavailable">This location is unavailable in the selected business.<OperationButton variant="outline" onClick={()=>navigate(workspacePath("tenants","administration",location.search))}>Back to locations</OperationButton></OperationAlert>;
-        return renderLocationDialog();
-      }
-      return renderTenantsPage();
-    }
-
-    if (currentSection === "services") {
-      if(routeServiceSlug) {
-        if(!isOwner && !isAdmin)return <OperationAlert color="red" title="Service access required">You do not have permission to edit this service.</OperationAlert>;
-        if(dashboardBootstrapQuery.isPending || servicesQuery.isPending || locationServicesQuery.isPending)return <OperationQueryState loading error={null} onRetry={()=>{void servicesQuery.refetch();void locationServicesQuery.refetch();void dashboardBootstrapQuery.refetch();}}/>;
-        if(dashboardBootstrapQuery.isError || servicesQuery.isError || locationServicesQuery.isError)return <OperationQueryState loading={false} error={dashboardBootstrapQuery.error || servicesQuery.error || locationServicesQuery.error} onRetry={()=>{void servicesQuery.refetch();void locationServicesQuery.refetch();void dashboardBootstrapQuery.refetch();}}/>;
-        if(!servicesQuery.data || !resolveServiceEditor(routeServiceSlug,services,new Set(servicesQuery.data.services.map(item=>item.id))))return <OperationAlert color="red" title="Service unavailable">This service is unavailable in the selected business.</OperationAlert>;
-        return renderServiceDialog();
-      }
-      return renderServicesPage();
-    }
-
-    if (currentSection === "bookings") {
-      return renderBookingsPage();
-    }
-
-    if (currentSection === "clients") {
-      return renderClientsPage();
-    }
-
-    if (currentSection === "staff") {
-      return renderStaffPage();
-    }
-
-    if (currentSection === "history") {
-      return renderHistoryPage();
-    }
-
-    if (currentSection === "reports") {
-      return renderReportsPage();
-    }
-
-    if (currentSection === "ratings") {
-      return <VendorRatingsPanel key={selectedTenantSlug} token={token!} tenantSlug={selectedTenantSlug} onBusyChange={setRatingsBusy} />;
-    }
-
-    if (currentSection === "account") {
-      return <Stack gap="md">{!requiresMfaEnrollment && boardApprovalReturn ? <Button component={NavLink} to={boardApprovalReturn} mih={44}>Continue to display approval</Button> : null}{renderAccountPage()}</Stack>;
-    }
-
-    return renderSettingsPage();
-  }
-
-  const canLeaveFeature = (discardApproved = false) => {
-    if (resourceConfigurationBusy || busyAction || boardScannerBusy || boardSettingsBusy || savingNotificationSettings || requestingBrowserPermission || accountProfileBusy || passwordBusy || mfaBusy || accountPanelBusy || ratingsBusy) return false;
-    const editing = unsavedForm.current.hasEdits() || themeDialogOpen || accountDraftRef.current;
-    if (editing && !discardApproved && !window.confirm("You have unsaved edits. Leave this view?")) return false;
-    if (currentSection === "account" && accountTab === "security") {
-      if (mfaRecoveryCodes.length && !window.confirm("Save your recovery codes before leaving Security. They remain visible only in this dashboard session. Leave Security?")) return false;
-      if (mfaSecret && !window.confirm("Your authenticator setup will stay pending. Return to Security to finish or cancel it. Leave Security?")) return false;
-    }
-    if (accountPanelDraft) {
-      setAccountTaskRevision((revision) => revision + 1);
-      setAccountPanelDraft(false);
-    }
-    setEditingQueueTicket(null);
-    unsavedForm.current.clear();
-    setAccountProfileForm({name:user?.name || "",displayName:user?.displayName || ""});
-    setPasswordForm({currentPassword:"",newPassword:""});
-    setReplacingMfa(false); setReplacementPassword(""); setReplacementCode("");
-    setRemovingMfa(false); setRemovalPassword(""); setRemovalCode(""); setRemovalRecoveryCode(""); setRemovalAcknowledged(false);
-    setLocationDialogOpen(false); setServiceDialogOpen(false); setCounterDialogOpen(false);
-    setAvailabilityBlockDialogOpen(false); setAvailabilityExceptionDialogOpen(false);
-    setStaffDialogOpen(false); setRescheduleDialogOpen(false); setWalkInDialogOpen(false); setThemeDialogOpen(false);
-    return true;
-  };
-  const requestLocationLeave = (proceed: () => void) => {
-    if (unsavedForm.current.hasEdits()) {
-      locationLeaveDraft.current = locationForm;
-      setLocationLeaveAction(() => proceed);
-    }
-    else if (canLeaveFeature(true)) proceed();
-  };
-  useLocationPageBackGuard(Boolean(locationSlug), location.key, requestLocationLeave);
-  const requestServiceLeave = (proceed:()=>void)=>{
-    if(unsavedForm.current.hasEdits()){serviceLeaveDraft.current=serviceForm;setServiceLeaveAction(()=>proceed);}
-    else if(canLeaveFeature(true))proceed();
-  };
-  useLocationPageBackGuard(Boolean(routeServiceSlug),location.key,requestServiceLeave);
-  useEffect(() => {
-    if (!navigationGuard) return;
-    navigationGuard.current = canLeaveFeature;
-    return () => { if (navigationGuard.current === canLeaveFeature) navigationGuard.current = null; };
+  const access = resolveVendorDashboardAccess({
+    loading,
+    invalidSection,
+    requiresMfaEnrollment,
+    currentSection,
+    canAccessSection: effectiveEntitlementsQuery.isPending || canAccessVendorSection(currentSection, effectiveEntitlements, tenantPlan),
+    entitlementsPending: effectiveEntitlementsQuery.isPending,
+    selectedTenantRole: selectedTenantRole || "",
+    staffAllowed: staffAllowedSections.has(currentSection),
+    adminAllowed: adminAllowedSections.has(currentSection),
+    user
   });
 
-  if (loading) {
-    return <VendorAuthLayout><WorkspaceLoading message="Loading dashboard…" /></VendorAuthLayout>;
-  }
-
-  if (!user) {
-    return <Navigate to={`/login?next=${encodeURIComponent(location.pathname + location.search)}`} replace />;
-  }
-
-  if (section === "tenants") return <Navigate to={`/dashboard/locations${location.search}${location.hash}`} replace />;
-
-  if (invalidSection) {
-    return <Navigate to="/dashboard/queue" replace />;
-  }
-
-  if (requiresMfaEnrollment && currentSection !== "account") {
-    return <Navigate to={boardApprovalReturn ? `/dashboard/account?next=${encodeURIComponent(boardApprovalReturn)}` : "/dashboard/account"} replace />;
-  }
-
-  if (currentSection === "ratings" && !canAccessVendorSection("ratings", effectiveEntitlements, tenantPlan)) {
-    return effectiveEntitlementsQuery.isPending
-      ? <VendorAuthLayout><WorkspaceLoading message="Loading plan access…" /></VendorAuthLayout>
-      : <Navigate to={defaultDashboardPath} replace />;
-  }
-
-  if (
-    !effectiveEntitlementsQuery.isPending &&
-    !canAccessVendorSection(currentSection, effectiveEntitlements, tenantPlan)
-  ) {
+  if (access.kind === "loading") return <Card className="neura-card">Loading dashboard...</Card>;
+  if (access.kind === "invalid-section") return <Navigate to="/dashboard/queue" replace />;
+  if (access.kind === "mfa") return <Navigate to="/dashboard/account" replace />;
+  if (access.kind === "ratings-loading") return <Card className="neura-card">Loading plan access...</Card>;
+  if (access.kind === "ratings-denied" || access.kind === "entitlement-denied" || access.kind === "role-denied") {
     return <Navigate to={defaultDashboardPath} replace />;
   }
-
-  if (
-    (selectedTenantRole === "staff" && !staffAllowedSections.has(currentSection)) ||
-    (selectedTenantRole === "admin" && !adminAllowedSections.has(currentSection))
-  ) {
-    return <Navigate to={defaultDashboardPath} replace />;
+  if (access.kind === "login") return <Navigate to="/login" replace />;
+  if (access.kind === "no-tenant") {
+    return (
+      <Card className="neura-card neura-no-tenant-card" padding="xl">
+        <SimpleGrid cols={{ base: 1, md: 2 }} spacing="xl">
+          <Stack justify="center" gap="md">
+            <Text className="neura-label">Workspace access</Text>
+            <Title order={1}>No vendor tenants found</Title>
+            <Text>Your account does not currently have access to a tenant workspace.</Text>
+          </Stack>
+          <img
+            alt=""
+            className="neura-no-tenant-art"
+            src="/illustrations/generated/vendor-onboarding.png"
+          />
+        </SimpleGrid>
+      </Card>
+    );
   }
 
-
-  if (!activeTenants.length) {
-    return <VendorAuthLayout><WorkspaceUnavailable onSignOut={() => void logout()} /></VendorAuthLayout>;
-  }
-
-  const ContextPicker = QueueCounterPicker;
-  const canSwitchWorkspace = (isOwner || isAdmin) && !requiresMfaEnrollment;
-  const workspace = sectionWorkspace(currentSection, new URLSearchParams(location.search).get("workspace"), canSwitchWorkspace);
-  const workspaceNavItems = workspaceItems(visibleNavItems, workspace);
-  const switchWorkspace = (next: "operations" | "administration") => {
-    if (!canSwitchWorkspace || !canLeaveFeature()) return;
-    const candidates = workspaceItems(visibleNavItems, next);
-    const destination = candidates.find((item) => item.section !== "account")?.section || "account";
-    savePreference(preferenceKey(user.id, selectedTenantSlug), next);
-    navigate(workspacePath(destination, next, location.search, location.hash));
-  };
-  const routedLocation = locationSlug && dashboardBootstrapQuery.data
-    ? resolveLocationEditor(locationSlug, locations, new Set(dashboardBootstrapQuery.data.locationsResponse.locations.map(item => item.id))) : undefined;
-  const routedService = routeServiceSlug && servicesQuery.data ? resolveServiceEditor(routeServiceSlug,services,new Set(servicesQuery.data.services.map(item=>item.id))) : undefined;
-  const pageTitle = requiresMfaEnrollment ? "Secure your account" : routeServiceSlug ? routedService ? `Service: ${serviceDialogOpen ? serviceForm.name || "New service" : routedService.name}` : servicesQuery.isPending ? "Loading service" : "Service unavailable" : locationSlug ? routedLocation ? `Edit ${routedLocation.name}` : "Location unavailable" : currentSection === "queue" ? "Live queue" : navItems.find(item => item.section === currentSection)?.label || "Account";
-  const pageDescription = requiresMfaEnrollment ? "Set up an authenticator to continue to your vendor workspace. Your sign-in session remains active during setup." : routeServiceSlug ? "Set the service details, duration and locations." : locationSlug ? "Set the branch details, payment options and operating hours customers see." : dashboardSectionDescriptions[currentSection] || "Manage your vendor workspace.";
   return (
-    <VendorWorkspaceShell
-      workspace={workspace} canAdmin={canSwitchWorkspace} items={workspaceNavItems}
-      businessName={activeTenants.find((tenant) => tenant.slug === selectedTenantSlug)?.name || "Your business"}
-      locationName={selectedLocation?.name || ""}
-      publicVendorUrl={selectedTenantSlug ? appUrl("customer", `/vendors/${selectedTenantSlug}`) : undefined}
-      title={pageTitle}
-      eyebrow={routeServiceSlug && !requiresMfaEnrollment ? "SERVICE EDITOR" : undefined}
-      description={pageDescription}
-      breadcrumbs={routeServiceSlug && !requiresMfaEnrollment ? [{label:"Administration",href:workspacePath("services","administration",location.search)},{label:"Services",href:workspacePath("services","administration",location.search)},{label:pageTitle}] : locationSlug && !requiresMfaEnrollment ? [
-        {label: "Administration", href: workspacePath("tenants", "administration", location.search)},
-        {label: "Locations", href: workspacePath("tenants", "administration", location.search)},
-        {label: pageTitle}
-      ] : undefined}
-      headerAction={routeServiceSlug && !requiresMfaEnrollment ? <OperationButton variant="outline" disabled={Boolean(busyAction)} onClick={()=>requestServiceLeave(()=>navigate(workspacePath("services","administration",location.search)))}><IconArrowLeft data-icon="inline-start" aria-hidden="true"/>Back to services</OperationButton> : locationSlug && !requiresMfaEnrollment ? <OperationButton variant="outline" disabled={Boolean(busyAction)} onClick={() => requestLocationLeave(() => navigate(workspacePath("tenants", "administration", location.search)))}><IconArrowLeft data-icon="inline-start" aria-hidden="true" />Back to locations</OperationButton> : undefined}
-      name={user.name || "Vendor"} role={selectedTenantRole || "Vendor"} plan={activeSubscription?.planName || tenantPlan?.planName || "No active plan"}
-      onBeforeNavigate={canLeaveFeature} onEdit={(form) => unsavedForm.current.mark(form)}
-      onWorkspace={switchWorkspace} onLogout={() => { if (canLeaveFeature()) void logout(); }} search={location.search} hash={location.hash}
-      context={!requiresMfaEnrollment ? <>
-        <ContextPicker label="Business" data={activeTenants.map((tenant) => ({ value: tenant.slug, label: tenant.name }))}
-          value={selectedTenantSlug} disabled={Boolean(busyAction) || boardScannerBusy || boardSettingsBusy || savingNotificationSettings || requestingBrowserPermission || accountPanelBusy || accountProfileBusy || passwordBusy || mfaBusy || ratingsBusy} onChange={(value) => {
-            if (!value || value === selectedTenantSlug || !canLeaveFeature()) return;
-            setSnapshot(null); setLocations([]); setSelectedLocationSlug(""); setSelectedCounterSlug("");
-            setServices([]); setStaff([]); setServiceCounters([]); setVendorBookings([]); setClients(null); setHistory(null); setBilling(null);
-            setLocationDialogOpen(false); setServiceDialogOpen(false); setAvailabilityBlockDialogOpen(false); setAvailabilityExceptionDialogOpen(false);
-            setCounterDialogOpen(false); setStaffDialogOpen(false); setThemeDialogOpen(false); setRescheduleDialogOpen(false);
-            setTicketScannerOpen(false); setScannerTarget(null); setBookingDetailOpen(false); setBookingDetailBooking(null); setBookingDetailModalId(null);
-            setAvailabilityBlocks([]); setAvailabilityExceptions([]); setAvailabilitySummary(null); setBusinessProfileTheme(defaultPublicBoardTheme);
-            setPlanDialogOpen(false); setThemeLocation(null); setConfirmAction(null); setWalkInDialogOpen(false);
-            const target = activeTenants.find((tenant) => tenant.slug === value);
-            if (!target) return;
-            const nextWorkspace = rememberedTenantWorkspace(user.id, target);
-            setSelectedTenantSlug(value);
-            navigate(workspacePath(currentSection === "account" ? "account" : nextWorkspace === "administration" ? "settings" : "overview",
-              nextWorkspace, clearQueueReview(location.search), location.hash));
-          }} />
-        <ContextPicker data={locationOptions} label="Location" value={selectedLocationSlug} disabled={Boolean(busyAction) || boardScannerBusy || boardSettingsBusy || savingNotificationSettings || requestingBrowserPermission || accountPanelBusy || accountProfileBusy || passwordBusy || mfaBusy || ratingsBusy}
-          onChange={(value) => { if (value && value !== selectedLocationSlug && canLeaveFeature()) { setSnapshot(null); setServiceCounters([]); setVendorBookings([]); setBookingPagination(null); setClients(null); setHistory(null); setBookingDetailOpen(false); setBookingDetailBooking(null); setBookingDetailModalId(null); setAvailabilityBlocks([]); setAvailabilityExceptions([]); setAvailabilitySummary(null); setSelectedCounterSlug(""); setSelectedLocationSlug(value); if(locationSlug)navigate(workspacePath("tenants","administration",clearQueueReview(location.search))); else navigate({pathname:location.pathname,search:clearQueueReview(location.search),hash:location.hash},{replace:true}); } }} />
-      </> : <QueueBadge variant="warning">MFA setup required</QueueBadge>}
-      dialogs={<>
+    <div className="neura-shell">
+      <aside className="neura-sidebar">
+        {renderDashboardSidebar()}
+      </aside>
+
+      <header className="neura-mobile-header">
+        <Group gap="sm" className="neura-mobile-brand">
+          <Burger
+            aria-label="Open dashboard navigation"
+            opened={sidebarOpen}
+            onClick={() => setSidebarOpen((current) => !current)}
+            size="sm"
+          />
+          <img className="neura-mobile-logo" src="/logo.svg" alt="" aria-hidden="true" />
+          <div>
+            <Text fw={800}>GetPrio</Text>
+            <Text size="xs" c="dimmed">Vendor Dashboard</Text>
+          </div>
+        </Group>
+      </header>
+
+      <main className="neura-main">
+        <header className="neura-header">
+          <Group align="flex-start" gap="md">
+            <div>
+              <Text className="neura-label">{requiresMfaEnrollment ? "Account security" : "Analytics dashboard"}</Text>
+              <Title order={1}>
+                {requiresMfaEnrollment
+                  ? "Secure your account"
+                  : currentSection === "queue"
+                  ? "Live queue"
+                  : navItems.find((item) => item.section === currentSection)?.label}
+              </Title>
+              <Text c="dimmed">
+                {requiresMfaEnrollment
+                  ? "Set up an authenticator to continue to your vendor workspace. Your sign-in session remains active during setup."
+                  : dashboardSectionDescriptions[currentSection]}
+              </Text>
+            </div>
+          </Group>
+          {!requiresMfaEnrollment ? <Select
+            className="neura-tenant-select"
+            data={locationOptions}
+            label="Location"
+            value={selectedLocationSlug}
+            onChange={(value) => value && setSelectedLocationSlug(value)}
+          /> : <Badge color="orange" variant="light">MFA setup required</Badge>}
+        </header>
+
+        {!requiresMfaEnrollment ? <VendorQueueLifecycleTray
+          busyAction={busyAction}
+          canOperate={canOperateQueueDay}
+          locationName={selectedLocation?.name || "This queue"}
+          onCloseNow={handleCloseQueueDay}
+          onExtend={handleExtendQueueDay}
+          onRefresh={reloadDashboardSnapshot}
+          snapshot={snapshot}
+        /> : null}
+        {error ? <Text c="red" fw={700}>{error}</Text> : null}
+        <DashboardSectionContent
+          currentSection={currentSection}
+          hasActiveSubscription={hasActiveSubscription}
+          onViewPlans={() => openPlanDialog()}
+          ratings={<VendorRatingsPanel key={selectedTenantSlug} token={token!} tenantSlug={selectedTenantSlug} />}
+          renderers={{
+            queue: renderQueuePage,
+            tenants: renderTenantsPage,
+            services: renderServicesPage,
+            bookings: renderBookingsPage,
+            clients: renderClientsPage,
+            staff: renderStaffPage,
+            history: renderHistoryPage,
+            reports: renderReportsPage,
+            account: renderAccountPage,
+            settings: renderSettingsPage
+          }}
+        />
+      </main>
       {renderPlanDialog()}
-      {!locationSlug ? renderLocationDialog() : null}
-          <QueueConfirmation opened={Boolean(locationLeaveAction)} title="Discard location changes?"
-            description="Your unsaved location changes will be discarded."
-            confirmLabel="Discard changes" cancelLabel="Keep editing"
-            onClose={() => { setLocationForm(locationLeaveDraft.current); setLocationLeaveAction(null); }}
-            onConfirm={() => {
-              if (!canLeaveFeature(true)) return;
-              const proceed = locationLeaveAction;
-              setLocationLeaveAction(null);
-              proceed?.();
-            }} />
-      {serviceLeaveAction ? <QueueConfirmation opened title="Discard service changes?" description="Your unsaved service changes will be discarded." confirmLabel="Discard changes" cancelLabel="Keep editing" confirmColor="red" loading={Boolean(busyAction)} onClose={()=>{setServiceForm(serviceLeaveDraft.current);setServiceLeaveAction(null);}} onConfirm={()=>{if(!canLeaveFeature(true))return;const proceed=serviceLeaveAction;setServiceLeaveAction(null);proceed();}}/> : null}
-      {!routeServiceSlug && !serviceEditorScopeRef.current ? renderServiceDialog() : null}
+      {renderLocationDialog()}
+      {renderServiceDialog()}
       {renderAvailabilityBlockDialog()}
       {renderAvailabilityExceptionDialog()}
       {renderRescheduleDialog()}
       {renderCounterDialog()}
       {renderStaffDialog()}
       {renderThemeDialog()}
-      <VendorToastViewport />
       {renderDashboardAlertOverlay()}
       {renderRescheduleBlockedModal()}
-      {editingQueueTicket && editingQueueTicket.tenant === selectedTenantSlug && editingQueueTicket.location === selectedLocationSlug ? <QueueDetailsEditor key={`${editingQueueTicket.tenant}:${editingQueueTicket.location}:${editingQueueTicket.id}`} token={token} tenantSlug={editingQueueTicket.tenant} locationSlug={editingQueueTicket.location} ticketId={editingQueueTicket.id} onClose={()=>{unsavedForm.current.discardId("queue-details-editor");setEditingQueueTicket(null);}} onBusy={busy=>setBusyAction(busy?"ticket-details":"")} onRefresh={async()=>{await Promise.all([reloadDashboardSnapshot(),...(resourceQueueEnabled?[localPoolQuery.refetch()]:[])]);}}/> : null}
       {renderWalkInDialog()}
       <TicketScannerModal
         error={ticketScannerError}
@@ -10762,23 +9885,22 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         }}
         onConfirm={handleConfirmCalledTicket}
         opened={ticketScannerOpen}
-        ticketNumber={scannerTarget?.ticketNumber}
+        ticketNumber={snapshot?.current?.ticketNumber}
       />
-      </>}
-    >
-        {!requiresMfaEnrollment && currentSection !== "overview" ? <VendorQueueLifecycleTray
-          busyAction={busyAction}
-          canOperate={canOperateQueueDay}
-          locationName={selectedLocation?.name || "This queue"}
-          onCloseNow={handleCloseQueueDay}
-          onExtend={handleExtendQueueDay}
-          onRefresh={reloadDashboardSnapshot}
-          snapshot={snapshot}
-        /> : null}
-        {error ? <Text c="red" fw={700}>{error}</Text> : null}
-        {requiresMfaEnrollment || currentSection === "account" || (snapshot?.tenant.slug === selectedTenantSlug && snapshot?.location?.slug === selectedLocationSlug)
-          ? renderCurrentSection()
-          : <OperationQueryState loading={!dashboardBootstrapQuery.error} error={dashboardBootstrapQuery.error} onRetry={() => void retryDashboardContext()} />}
-    </VendorWorkspaceShell>
+      <Drawer
+        classNames={{ body: "neura-drawer-body", content: "neura-drawer-content", header: "neura-drawer-header" }}
+        hiddenFrom="lg"
+        onClose={() => setSidebarOpen(false)}
+        opened={sidebarOpen}
+        padding="md"
+        position="left"
+        size={300}
+        title="Dashboard"
+      >
+        <ScrollArea h="100%" scrollbars="y">
+          {renderDashboardSidebar({ compact: true })}
+        </ScrollArea>
+      </Drawer>
+    </div>
   );
 }
