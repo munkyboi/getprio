@@ -38,7 +38,6 @@ function MarketingPublicShell({ children }: { children: ReactNode }) {
           <span>GetPrio</span>
         </a>
         <div className="marketing-header-actions">
-          <nav className="marketing-desktop-nav" aria-label="Main navigation">{links}</nav>
           <button
             className="public-theme-toggle"
             type="button"
@@ -48,6 +47,7 @@ function MarketingPublicShell({ children }: { children: ReactNode }) {
           >
             {dark ? <IconSun aria-hidden="true" size={18} stroke={1.8} /> : <IconMoon aria-hidden="true" size={18} stroke={1.8} />}
           </button>
+          <nav className="marketing-desktop-nav" aria-label="Main navigation">{links}</nav>
           <button
             className="marketing-menu-trigger"
             type="button"
