@@ -23,9 +23,12 @@ function loadLandingFunction(name, context) {
   return scope.run;
 }
 
-test("scroll-to-top visibility follows the manifesto viewport edge and survives jumping past it", () => {
+test("scroll-to-top waits for the manifesto to reach the bottom of the sticky header", () => {
   const listeners = new Map();
-  const landing = {};
+  const observed = [];
+  let headerBottom = 79;
+  const header = { getBoundingClientRect: () => ({ bottom: headerBottom }) };
+  const landing = { closest: () => ({ querySelector: () => header }) };
   const button = {};
   let top = 900;
   let visible;
@@ -34,7 +37,6 @@ test("scroll-to-top visibility follows the manifesto viewport edge and survives 
   let focusMoved = false;
   const window = {
     scrollY: 0,
-    innerHeight: 800,
     addEventListener: (event, listener) => listeners.set(event, listener),
     removeEventListener(event, listener) {
       assert.equal(listeners.get(event), listener);
@@ -52,17 +54,21 @@ test("scroll-to-top visibility follows the manifesto viewport edge and survives 
     setShowScrollTop: value => { visible = value; },
     ResizeObserver: class {
       constructor(callback) { observeResize = callback; }
-      observe(element) { assert.equal(element, landing); }
+      observe(element) { observed.push(element); }
       disconnect() { disconnected = true; }
     }
   })();
 
   assert.equal(visible, false);
+  assert.deepEqual(observed, [landing, header]);
   window.scrollY = 100;
-  top = 800;
+  top = 799;
   listeners.get("scroll")();
   assert.equal(visible, false);
-  top = 799;
+  top = 80;
+  listeners.get("scroll")();
+  assert.equal(visible, false);
+  top = 79;
   listeners.get("scroll")();
   assert.equal(visible, true);
   top = -1200;
@@ -70,12 +76,12 @@ test("scroll-to-top visibility follows the manifesto viewport edge and survives 
   assert.equal(visible, true);
 
   document.activeElement = button;
-  top = 805;
-  observeResize();
+  top = 80;
+  listeners.get("scroll")();
   assert.equal(visible, false);
   assert.equal(focusMoved, true);
-  window.innerHeight = 900;
-  listeners.get("resize")();
+  headerBottom = 82;
+  observeResize();
   assert.equal(visible, true);
   window.scrollY = 0;
   listeners.get("scroll")();

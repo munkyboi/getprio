@@ -137,9 +137,11 @@ export default function LandingPage() {
     const section = manifestoSection.current;
     const landing = landingRoot.current;
     if (!section || !landing) return;
+    const header = landing.closest(".public-marketing-shell")?.querySelector(".marketing-topbar");
 
     const updateVisibility = () => {
-      const reachedSection = window.scrollY > 0 && section.getBoundingClientRect().top < window.innerHeight;
+      const contentTop = Math.max(0, header?.getBoundingClientRect().bottom ?? 0);
+      const reachedSection = window.scrollY > 0 && section.getBoundingClientRect().top <= contentTop;
       if (!reachedSection && scrollTopButton.current && document.activeElement === scrollTopButton.current) {
         heroHeading.current?.focus({ preventScroll: true });
       }
@@ -148,6 +150,7 @@ export default function LandingPage() {
 
     const resizeObserver = new ResizeObserver(updateVisibility);
     resizeObserver.observe(landing);
+    if (header) resizeObserver.observe(header);
     window.addEventListener("scroll", updateVisibility, { passive: true });
     window.addEventListener("resize", updateVisibility);
     updateVisibility();
