@@ -63,13 +63,13 @@ test('legacy shared marketing/client origin retains its existing authenticated C
  const {createBrowserCorsMiddleware}=require('../src/services/browserSurfaceUrls');const configs=[];const cors=options=>{configs.push(options);return(req,res,next)=>next();};
  const middleware=createBrowserCorsMiddleware({...config,marketingUrl:config.clientUrl},cors);let next=false;middleware({method:'GET',url:'/api/auth/me',headers:{origin:config.clientUrl}},{},()=>next=true);assert.equal(next,true);assert.equal(configs[0].credentials,true);
 });
-test('canonical local Marketing may make credentialed reads to only the two auth discovery routes', async () => {
+test('canonical local Marketing may make only the credentialed reads and submissions used by the auth forms', async () => {
  const express = require('express');
  const cors = require('cors');
  const { createBrowserCorsMiddleware } = require('../src/services/browserSurfaceUrls');
  const app = express();
  app.use(createBrowserCorsMiddleware({ ...config, localApiProfile: 'core' }, cors));
- app.use((req, res) => res.sendStatus(req.path === '/api/auth/me' ? 401 : 200));
+ app.use((req, res) => res.sendStatus(req.method === 'POST' ? 400 : req.path === '/api/auth/me' ? 401 : 200));
  app.use((error, _req, res, _next) => res.sendStatus(error.statusCode || 500));
  const server = await new Promise(resolve => {
   const listener = app.listen(0, '127.0.0.1', () => resolve(listener));
@@ -77,7 +77,7 @@ test('canonical local Marketing may make credentialed reads to only the two auth
  const base = `http://127.0.0.1:${server.address().port}`;
  try {
   for (const origin of ['http://localhost:5190', 'http://127.0.0.1:5190']) {
-   for (const [path, status] of [['/api/auth/oauth/providers', 200], ['/api/auth/me', 401]]) {
+   for (const [path, status] of [['/api/auth/oauth/providers', 200], ['/api/auth/me', 401], ['/api/public/business-categories', 200]]) {
     const preflight = await fetch(base + path, { method: 'OPTIONS', headers: {
      Origin: origin, 'Access-Control-Request-Method': 'GET', 'Access-Control-Request-Headers': 'content-type'
     } });
@@ -93,12 +93,31 @@ test('canonical local Marketing may make credentialed reads to only the two auth
     assert.equal(actual.headers.get('access-control-allow-credentials'), 'true');
     assert.match(actual.headers.get('vary'), /Origin/i);
    }
+   for (const path of ['/api/auth/login', '/api/auth/register/customer', '/api/auth/register/vendor']) {
+    const preflight = await fetch(base + path, { method: 'OPTIONS', headers: {
+     Origin: origin, 'Access-Control-Request-Method': 'POST', 'Access-Control-Request-Headers': 'content-type,idempotency-key,x-csrf-token'
+    } });
+    assert.equal(preflight.status, 204);
+    assert.equal(preflight.headers.get('access-control-allow-origin'), origin);
+    assert.equal(preflight.headers.get('access-control-allow-credentials'), 'true');
+    assert.equal(preflight.headers.get('access-control-allow-methods'), 'POST');
+    assert.equal(preflight.headers.get('access-control-allow-headers'), 'Content-Type,Idempotency-Key,X-CSRF-Token');
+
+    const actual = await fetch(base + path, { method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json' }, body: '{}' });
+    assert.equal(actual.status, 400);
+    assert.equal(actual.headers.get('access-control-allow-origin'), origin);
+    assert.equal(actual.headers.get('access-control-allow-credentials'), 'true');
+   }
   }
   const rejected = [
    { path: '/api/auth/me', method: 'POST', origin: config.marketingUrl },
    { path: '/api/auth/me', method: 'OPTIONS', origin: config.marketingUrl, requested: 'POST' },
-   { path: '/api/auth/login', method: 'POST', origin: config.marketingUrl },
+   { path: '/api/auth/login', method: 'GET', origin: config.marketingUrl },
+   { path: '/api/auth/login', method: 'OPTIONS', origin: config.marketingUrl, requested: 'GET' },
+   { path: '/api/auth/register/vendor/complete', method: 'POST', origin: config.marketingUrl },
+   { path: '/api/auth/mfa/verify', method: 'POST', origin: config.marketingUrl },
    { path: '/api/v1/auth/me', method: 'GET', origin: config.marketingUrl },
+   { path: '/api/v1/auth/register/customer', method: 'POST', origin: config.marketingUrl },
    { path: '/api/account/profile', method: 'GET', origin: config.marketingUrl },
    { path: '/api/auth/me', method: 'GET', origin: 'http://localhost:5195' },
    { path: '/api/auth/me', method: 'GET', origin: 'https://getprio.online' }
@@ -118,7 +137,7 @@ test('canonical local Marketing may make credentialed reads to only the two auth
   await new Promise(resolve => server.close(resolve));
  }
 });
-test('local auth read exception remains off for production, sandbox, and other Marketing ports', () => {
+test('local auth exception remains off for production, sandbox, and other Marketing ports', () => {
  const cors = () => (_req, _res, next) => next();
  const { createBrowserCorsMiddleware } = require('../src/services/browserSurfaceUrls');
  for (const env of [
@@ -128,9 +147,11 @@ test('local auth read exception remains off for production, sandbox, and other M
   { ...config, localApiProfile: 'core', marketingUrl: 'http://127.0.0.1:5290' }
  ]) {
   const middleware = createBrowserCorsMiddleware(env, cors);
-  let status;
-  middleware({ method: 'GET', url: '/api/auth/me', headers: { origin: env.marketingUrl } }, {}, error => { status = error?.statusCode; });
-  assert.equal(status, 403, `${env.nodeEnv} ${env.localApiProfile} ${env.marketingUrl}`);
+  for (const [method, url] of [['GET', '/api/auth/me'], ['POST', '/api/auth/login'], ['POST', '/api/auth/register/customer'], ['POST', '/api/auth/register/vendor']]) {
+   let status;
+   middleware({ method, url, headers: { origin: env.marketingUrl } }, {}, error => { status = error?.statusCode; });
+   assert.equal(status, 403, `${env.nodeEnv} ${env.localApiProfile} ${env.marketingUrl} ${method} ${url}`);
+  }
  }
 });
 test('Apple form-post callback accepts only Apple origin on the callback route', async()=>{

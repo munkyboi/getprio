@@ -61,22 +61,27 @@ function publicMarketingRequestAllowed(path, method, requestedMethod) {
     (verb === "POST" && ["/api/public/enterprise-inquiries", "/api/v1/public/enterprise-inquiries"].includes(pathname));
 }
 const localMarketingAuthOrigins = new Set(["http://localhost:5190", "http://127.0.0.1:5190"]);
-const localMarketingAuthPaths = new Set(["/api/auth/oauth/providers", "/api/auth/me"]);
+const localMarketingAuthReads = new Set(["/api/auth/oauth/providers", "/api/auth/me", "/api/public/business-categories"]);
+const localMarketingAuthSubmissions = new Set(["/api/auth/login", "/api/auth/register/customer", "/api/auth/register/vendor"]);
 
 function createLocalMarketingAuthCors(env, marketing, cors) {
   if (!["development", "test"].includes(env.nodeEnv) || env.localApiProfile !== "core" || !localMarketingAuthOrigins.has(marketing)) return null;
-  return cors({
+  const options = {
     origin(value, callback) { callback(null, localMarketingAuthOrigins.has(value) ? value : false); },
-    credentials: true,
-    methods: ["GET"],
-    allowedHeaders: ["Content-Type"]
-  });
+    credentials: true
+  };
+  return {
+    read: cors({ ...options, methods: ["GET"], allowedHeaders: ["Content-Type"] }),
+    submit: cors({ ...options, methods: ["POST"], allowedHeaders: ["Content-Type", "Idempotency-Key", "X-CSRF-Token"] })
+  };
 }
 
-function isLocalMarketingAuthRead(req) {
+function localMarketingAuthCorsFor(req, cors) {
   const path = String(req.originalUrl || req.url || "").split("?")[0];
-  return localMarketingAuthPaths.has(path) &&
-    (req.method === "GET" || (req.method === "OPTIONS" && req.headers?.["access-control-request-method"] === "GET"));
+  const method = req.method === "OPTIONS" ? req.headers?.["access-control-request-method"] : req.method;
+  if (method === "GET" && localMarketingAuthReads.has(path)) return cors.read;
+  if (method === "POST" && localMarketingAuthSubmissions.has(path)) return cors.submit;
+  return null;
 }
 
 function createBrowserCorsMiddleware(env, cors) {
@@ -99,7 +104,8 @@ function createBrowserCorsMiddleware(env, cors) {
       return appleCallbackCors(req, res, next);
     }
     if (marketing && !allowed.has(marketing) && marketingOrigins.has(String(req.headers?.origin || "").replace(/\/$/, ""))) {
-      if (localMarketingAuthCors && isLocalMarketingAuthRead(req)) return localMarketingAuthCors(req, res, next);
+      const authCors = localMarketingAuthCors && localMarketingAuthCorsFor(req, localMarketingAuthCors);
+      if (authCors) return authCors(req, res, next);
       if (!publicMarketingRequestAllowed(req.originalUrl || req.url, req.method, req.headers?.["access-control-request-method"])) return next(Object.assign(new Error("Marketing origin cannot access private API routes."), { statusCode: 403 }));
       return publicCors(req, res, next);
     }
