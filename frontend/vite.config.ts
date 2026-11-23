@@ -18,7 +18,16 @@ export default defineConfig(({ mode }) => {
   return {
     envDir: "..",
     cacheDir: `../.cache/vite-${surface}`,
-    plugins: [react(), ["marketing", "customer"].includes(surface) && tailwindcss()],
+    plugins: [
+      react(),
+      ["marketing", "customer"].includes(surface) && tailwindcss(),
+      surface === "customer" && {
+        name: "customer-entry",
+        transformIndexHtml(html) {
+          return html.replace('/src/main.tsx', '/src/customer/main.tsx');
+        }
+      }
+    ],
     resolve: {
       alias: {
         "@shared": path.resolve(__dirname, "../shared"),
@@ -34,11 +43,6 @@ export default defineConfig(({ mode }) => {
       port,
       strictPort: true
     },
-    build: {
-      outDir: surface === "legacy" ? "dist" : `dist-${surface}`,
-      rollupOptions: {
-        input: surface === "customer" ? "index.customer.html" : "index.html"
-      }
-    }
+    build: { outDir: surface === "legacy" ? "dist" : `dist-${surface}` }
   };
 });
