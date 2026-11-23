@@ -1,5 +1,4 @@
-import { appUrl } from "../surfaces/surfaceConfig";
-import { Anchor, Box, Container, Group, Stack, Text } from "@mantine/core";
+import { Anchor, Box, Container, Grid, Group, Stack, Text } from "@mantine/core";
 import { IconChevronRight, IconBrandFacebook, IconBrandInstagram, IconBrandLinkedin, IconBrandX, IconBrandYoutube } from "@tabler/icons-react";
 import { Link } from "react-router-dom";
 
@@ -7,20 +6,12 @@ const footerGroups = [
   {
     title: "Platform",
     links: [
-      { label: "Browse Services", href: appUrl("customer", "/vendors") },
+      { label: "Browse Services", to: "/vendors" },
       { label: "How It Works", to: "/#workflow" },
-      { label: "For Customers", href: appUrl("customer", "/register") },
-      { label: "For Providers", href: appUrl("vendor", "/register") },
+      { label: "For Customers", to: "/register/customer" },
+      { label: "For Providers", to: "/register/vendor" },
       { label: "Pricing", to: "/#pricing" },
-      { label: "Become a Provider", href: appUrl("vendor", "/register") }
-    ]
-  },
-  {
-    title: "Developers",
-    links: [
-      { label: "Developer Platform", href: appUrl("developers") },
-      { label: "Guides", href: appUrl("developers", "/guides") },
-      { label: "API Reference", href: appUrl("developers", "/reference") }
+      { label: "Become a Provider", to: "/register/vendor" }
     ]
   },
   {
@@ -57,56 +48,41 @@ export default function SiteFooter() {
   return (
     <Box component="footer" className="site-footer">
       <Container size="xl">
-        <div className="site-footer-grid">
-          <Stack gap="md" className="site-footer-brand">
-            <Group gap="sm" wrap="nowrap" align="center" className="site-footer-brandmark">
-              <img className="site-footer-logo" src="/logo-dark.svg" alt="GetPrio" />
-              <Text fw={900} c="white" lh={1}>
-                GetPrio
+        <Grid gutter={{ base: "xl", md: 56 }}>
+          <Grid.Col span={{ base: 12, md: 3 }}>
+            <Stack gap="md" className="site-footer-brand">
+              <Group gap="sm" wrap="nowrap" align="center" className="site-footer-brandmark">
+                <img className="site-footer-logo" src="/logo-dark.svg" alt="GetPrio" />
+                <Text fw={900} c="white" lh={1}>
+                  GetPrio
+                </Text>
+              </Group>
+              <Text c="rgba(255,255,255,0.72)" lh={1.75}>
+                GetPrio connects you with trusted professionals for every task.
+                Book with confidence, pay securely, and get things done.
               </Text>
-            </Group>
-            <Text c="rgba(255,255,255,0.72)" lh={1.75}>
-              GetPrio connects you with trusted professionals for every task.
-              Book with confidence, pay securely, and get things done.
-            </Text>
-            <Group gap="sm" className="site-footer-socials">
-              {socialLinks.map(({ label, Icon, href }) => (
-                <Anchor
-                  key={label}
-                  aria-label={label}
-                  className="site-footer-social"
-                  href={href}
-                  target={href === "#" ? undefined : "_blank"}
-                  rel={href === "#" ? undefined : "noopener noreferrer"}
-                >
-                  <Icon size={18} stroke={2} aria-hidden="true" />
-                </Anchor>
-              ))}
-            </Group>
-          </Stack>
+              <Group gap="sm" className="site-footer-socials">
+                {socialLinks.map(({ label, Icon, href }) => (
+                  <Anchor
+                    key={label}
+                    aria-label={label}
+                    className="site-footer-social"
+                    href={href}
+                    target={href === "#" ? undefined : "_blank"}
+                    rel={href === "#" ? undefined : "noopener noreferrer"}
+                  >
+                    <Icon size={18} stroke={2} aria-hidden="true" />
+                  </Anchor>
+                ))}
+              </Group>
+            </Stack>
+          </Grid.Col>
           {footerGroups.map((group) => (
-            <Stack gap="md" key={group.title}>
-              <Text className="site-footer-title">{group.title}</Text>
-              <Stack gap="sm">
-                {group.links.map((link) => {
-                  const content = (
-                    <Group justify="space-between" wrap="nowrap" gap="sm">
-                      <span>{link.label}</span>
-                      <IconChevronRight className="site-footer-arrow" size={14} stroke={2} />
-                    </Group>
-                  );
-
-                  return "href" in link ? (
-                    <Anchor
-                      className="site-footer-link"
-                      key={link.label}
-                      href={link.href}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    >
-                      {content}
-                    </Anchor>
-                  ) : (
+            <Grid.Col key={group.title} span={{ base: 12, sm: 6, md: 3 }}>
+              <Stack gap="md">
+                <Text className="site-footer-title">{group.title}</Text>
+                <Stack gap="sm">
+                  {group.links.map((link) => (
                     <Anchor
                       className="site-footer-link"
                       component={Link}
@@ -114,21 +90,24 @@ export default function SiteFooter() {
                       to={link.to}
                       reloadDocument={link.to.includes("#")}
                     >
-                      {content}
+                      <Group justify="space-between" wrap="nowrap" gap="sm">
+                        <span>{link.label}</span>
+                        <IconChevronRight className="site-footer-arrow" size={14} stroke={2} />
+                      </Group>
                     </Anchor>
-                  );
-                })}
+                  ))}
+                </Stack>
               </Stack>
-            </Stack>
+            </Grid.Col>
           ))}
-        </div>
+        </Grid>
         <Group className="site-footer-bottom" justify="space-between" wrap="wrap">
           <Text c="rgba(255,255,255,0.7)">© 2026 MNK-Labs Software Development Services</Text>
           <Group gap="xl">
-            <Anchor className="site-footer-bottom-link" href={appUrl("marketing", "/privacy-policy")}>
+            <Anchor className="site-footer-bottom-link" component={Link} to="/privacy-policy">
               Privacy Policy
             </Anchor>
-            <Anchor className="site-footer-bottom-link" href={appUrl("marketing", "/terms")}>
+            <Anchor className="site-footer-bottom-link" component={Link} to="/terms">
               Terms of Service
             </Anchor>
           </Group>

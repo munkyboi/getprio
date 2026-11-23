@@ -1,12 +1,18 @@
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { Box, Text } from "@mantine/core";
-import type { QueueListTicket, QueueSnapshot } from "@shared";
-import { buildJoinUrl } from "../queuePaths";
+import { notifications } from "@mantine/notifications";
+import { IconCheck, IconInfoCircle } from "@tabler/icons-react";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import type { QueueJoinPaymentSyncResponse, QueueListTicket, QueueSnapshot } from "@shared";
+import { API_BASE_URL, apiRequest } from "../api/client";
+import { buildJoinUrl, buildJoinedQueuePathWithTicket } from "../queuePaths";
+import { getErrorMessage } from "../utils/errors";
 import { resolveVendorProfileMedia } from "../utils/vendorTheme";
 import StyledQRCode from "../components/StyledQRCode";
 import {
   getLocationStatusSummary,
   getQueueStateSummary,
+  getTicketStateSummary,
   isQueueAcceptingJoins
 } from "../utils/queueStatus";
 
@@ -66,25 +72,110 @@ function getEtaLabel(ticket: QueueListTicket, averageServiceMinutes: number) {
   return `${minutes}m`;
 }
 
-export default function PublicQueuePage({ snapshot }: { snapshot: QueueSnapshot }) {
-  const [callPage, setCallPage] = useState(0);
-  const calledTickets = snapshot.calledTickets || [];
-  const callPageCount = Math.max(1, Math.ceil(calledTickets.length / 4));
-  const visibleCalls = calledTickets.slice((callPage % callPageCount) * 4, (callPage % callPageCount) * 4 + 4);
+function usePaymentSync({
+  locationSlug,
+  navigate,
+  paymentId,
+  paymentStatus,
+  setError,
+  setPaymentSyncing,
+  tenantSlug
+}: {
+  locationSlug?: string;
+  navigate: ReturnType<typeof useNavigate>;
+  paymentId: string | null;
+  paymentStatus: string | null;
+  setError: (value: string) => void;
+  setPaymentSyncing: (value: boolean) => void;
+  tenantSlug: string;
+}) {
   useEffect(() => {
-    const timer = window.setInterval(() => setCallPage((page) => page + 1), 6000);
-    return () => window.clearInterval(timer);
-  }, []);
-  const [clockNow, setClockNow] = useState(() => new Date());
-  const tenantSlugValue = snapshot.tenant.slug;
-  const locationSlug = snapshot.location?.slug;
-  const joinUrl =
-    snapshot?.location?.joinUrl ||
-    snapshot?.tenant?.joinUrl ||
-    buildJoinUrl(window.location.origin, tenantSlugValue, locationSlug);
-  const joinQrUrl = `${joinUrl}?source=qr`;
+    if (!tenantSlug || !paymentId) return;
+    if (paymentStatus === "cancelled") {
+      notifications.show({ color: "blue", icon: <IconInfoCircle size={18} />, message: "No ticket was issued.", title: "Checkout cancelled" });
+      return;
+    }
+    let active = true;
+    setPaymentSyncing(true);
+    setError("");
+    notifications.show({ color: "blue", icon: <IconInfoCircle size={18} />, message: "Confirming your queue fee payment...", title: "Payment received" });
+    const basePath = locationSlug ? `/public/tenant/${tenantSlug}/location/${locationSlug}` : `/public/tenant/${tenantSlug}`;
+    apiRequest<QueueJoinPaymentSyncResponse>(`${basePath}/join-payments/${paymentId}/sync`, { method: "POST" })
+      .then((data) => {
+        if (!active) return;
+        if (data.paid && data.ticket?.lookupCode) {
+          notifications.show({ color: "teal", icon: <IconCheck size={18} />, message: "Your ticket has been issued.", title: "Joined queue" });
+          navigate(buildJoinedQueuePathWithTicket(tenantSlug, data.ticket.lookupCode, locationSlug), { replace: true });
+          return;
+        }
+        notifications.show({ color: "blue", icon: <IconInfoCircle size={18} />, message: "Payment is still being confirmed. Please refresh in a moment.", title: "Payment pending" });
+      })
+      .catch((syncError) => { if (active) setError(getErrorMessage(syncError)); })
+      .finally(() => { if (active) setPaymentSyncing(false); });
+    return () => { active = false; };
+  }, [locationSlug, navigate, paymentId, paymentStatus, setError, setPaymentSyncing, tenantSlug]);
+}
+
+function useQueueSnapshot({
+  locationSlug,
+  lookupCode,
+  setError,
+  setSnapshot,
+  tenantSlug
+}: {
+  locationSlug?: string;
+  lookupCode: string;
+  setError: (value: string) => void;
+  setSnapshot: (value: QueueSnapshot) => void;
+  tenantSlug?: string;
+}) {
+  const hasSnapshotRef = useRef(false);
+  useEffect(() => {
+    if (!tenantSlug) return undefined;
+    let active = true;
+    const query = lookupCode ? `?lookupCode=${encodeURIComponent(lookupCode)}` : "";
+    const basePath = locationSlug ? `/public/tenant/${tenantSlug}/location/${locationSlug}` : `/public/tenant/${tenantSlug}`;
+    apiRequest<QueueSnapshot>(`${basePath}/queue${query}`)
+      .then((data) => { if (active) { hasSnapshotRef.current = true; setSnapshot(data); } })
+      .catch((loadError) => { if (active) setError(getErrorMessage(loadError)); });
+    const eventSource = new EventSource(`${API_BASE_URL}${basePath}/stream${query}`);
+    eventSource.onmessage = (event) => { hasSnapshotRef.current = true; setSnapshot(JSON.parse(event.data) as QueueSnapshot); setError(""); };
+    eventSource.onerror = () => {
+      if (!hasSnapshotRef.current) {
+        setError("Live updates interrupted. Reconnecting…");
+      }
+    };
+    return () => { active = false; eventSource.close(); };
+  }, [locationSlug, lookupCode, setError, setSnapshot, tenantSlug]);
+}
+
+function getPublicQueuePresentation(snapshot: QueueSnapshot | null, tenantSlug: string, locationSlug?: string) {
   const vendorIsInactive = snapshot ? !snapshot.tenant.isActive : false;
   const locationIsClosed = snapshot?.location ? !snapshot.location.openStatus.isOpen : false;
+  const joinUrl = snapshot?.location?.joinUrl || snapshot?.tenant?.joinUrl || buildJoinUrl(window.location.origin, tenantSlug, locationSlug);
+  return {
+    joinUrl,
+    vendorIsInactive,
+    locationIsClosed,
+    canJoinQueue: isQueueAcceptingJoins(snapshot) && !vendorIsInactive && !locationIsClosed,
+    visibleTickets: (snapshot?.nextUp || []).slice(0, 19)
+  };
+}
+
+export default function PublicQueuePage({ initialSnapshot }: { initialSnapshot?: QueueSnapshot } = {}) {
+  const { tenantSlug, locationSlug } = useParams<{ tenantSlug: string; locationSlug?: string }>();
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const [snapshot, setSnapshot] = useState<QueueSnapshot | null>(initialSnapshot || null);
+  const [error, setError] = useState("");
+  const [paymentSyncing, setPaymentSyncing] = useState(false);
+  const [clockNow, setClockNow] = useState(() => new Date());
+  const lookupCode = searchParams.get("ticket") || "";
+  const paymentId = searchParams.get("payment");
+  const paymentStatus = searchParams.get("payment_status");
+  const tenantSlugValue = tenantSlug || "";
+  const { joinUrl, canJoinQueue, visibleTickets } = getPublicQueuePresentation(snapshot, tenantSlugValue, locationSlug);
+  const joinQrUrl = `${joinUrl}?source=qr`;
   const theme = resolveVendorProfileMedia(
     snapshot?.publicBoardTheme.theme,
     snapshot?.businessProfileTheme?.theme
@@ -92,15 +183,11 @@ export default function PublicQueuePage({ snapshot }: { snapshot: QueueSnapshot 
   const businessName = snapshot?.tenant?.name || tenantSlugValue || "GetPrio";
   const heroTitle = businessName;
   const queueState = getQueueStateSummary(snapshot);
+  const ticketState = getTicketStateSummary(snapshot?.focusTicket?.status);
   const locationState = getLocationStatusSummary(snapshot);
   const clockLabel = formatClock(clockNow, snapshot?.location?.timezone);
   const calendarDate = formatCalendarDate(clockNow, snapshot?.location?.timezone);
-  const canJoinQueue =
-    isQueueAcceptingJoins(snapshot) &&
-    !vendorIsInactive &&
-    !locationIsClosed;
   const averageServiceMinutes = snapshot?.tenant.averageServiceMinutes || 5;
-  const visibleTickets = (snapshot?.nextUp || []).slice(0, 19);
   const topTickets = visibleTickets.slice(0, 3);
   const gridTickets = visibleTickets.slice(3, 19);
   const pageStyle = useMemo(
@@ -131,6 +218,8 @@ export default function PublicQueuePage({ snapshot }: { snapshot: QueueSnapshot 
     return () => window.clearInterval(intervalId);
   }, []);
 
+  usePaymentSync({ locationSlug, navigate, paymentId, paymentStatus, setError, setPaymentSyncing, tenantSlug: tenantSlugValue });
+  useQueueSnapshot({ locationSlug, lookupCode, setError, setSnapshot, tenantSlug });
 
   return (
     <Box className="public-board-tv-shell" style={pageStyle}>
@@ -178,13 +267,8 @@ export default function PublicQueuePage({ snapshot }: { snapshot: QueueSnapshot 
               <section className="public-board-tv-current">
                 <div className="public-board-tv-current-inner">
                   <Text className="public-board-tv-eyebrow">Now serving</Text>
-                  <div className="public-board-tv-calls" data-multiple={visibleCalls.length > 1}>
-                    {visibleCalls.length ? visibleCalls.map((ticket) => <div className="public-board-tv-call" key={ticket.id}>
-                      <strong>{ticket.ticketNumber}</strong>
-                      <span>{ticket.serviceCounterId ? snapshot.counterDispatch?.find((lane) => lane.serviceCounterId === ticket.serviceCounterId)?.counterName || "Counter" : "Reception"}</span>
-                    </div>) : <div className="public-board-tv-call"><strong>--</strong></div>}
-                  </div>
-                  <span className="public-board-tv-call-instruction">{calledTickets.length ? "Please proceed to your counter" : "Waiting for next ticket"}{callPageCount > 1 ? ` · ${callPage % callPageCount + 1}/${callPageCount}` : ""}</span>
+                  <strong>{snapshot?.current?.ticketNumber || "--"}</strong>
+                  <span>{snapshot?.current ? "Please proceed when called" : "Waiting for next ticket"}</span>
                 </div>
               </section>
 
@@ -226,6 +310,18 @@ export default function PublicQueuePage({ snapshot }: { snapshot: QueueSnapshot 
                   <strong>{visibleTickets.length}</strong>
                 </div>
               </div>
+
+              {paymentSyncing || error || (lookupCode && snapshot?.focusTicket) ? (
+                <div className="public-board-tv-alerts">
+                  {paymentSyncing ? <p>Confirming payment and issuing your queue ticket.</p> : null}
+                  {error ? <p>{error}</p> : null}
+                  {lookupCode && snapshot?.focusTicket ? (
+                    <p>
+                      Ticket {snapshot.focusTicket.ticketNumber}: {ticketState.message}
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
 
               <div className="public-board-tv-next-strip">
                 {topTickets.length ? (

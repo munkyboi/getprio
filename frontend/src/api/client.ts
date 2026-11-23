@@ -1,39 +1,7 @@
-import type { PublicImageUploadPolicy } from "../../../shared/imageUploadPolicy";
-import { prepareImageUpload } from "../utils/prepareImageUpload";
 import { publicAuthPathAllowed } from "../../../shared/publicAuthPolicy";
-import { publicUniversalAuthEnabled } from "../surfaces/publicAuthEnabled";
-const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
 
-function resolveApiBaseUrl(
-  configuredUrl: string | undefined,
-  pageHostname: string | undefined,
-  isDevelopment: boolean
-): string {
-  const fallback = configuredUrl || "http://localhost:5001/api";
-  if (!isDevelopment || !pageHostname) return fallback;
-
-  try {
-    const apiUrl = new URL(fallback);
-    const apiHostname = apiUrl.hostname.toLowerCase();
-    const frontendHostname = pageHostname.toLowerCase();
-    if (LOOPBACK_HOSTS.has(apiHostname) && LOOPBACK_HOSTS.has(frontendHostname)) {
-      apiUrl.hostname = frontendHostname;
-      return apiUrl.toString().replace(/\/$/, "");
-    }
-  } catch {
-    // Preserve an invalid configured URL so existing configuration errors remain visible.
-  }
-
-  return fallback;
-}
-
-const API_BASE_URL = resolveApiBaseUrl(
-  import.meta.env?.VITE_API_URL,
-  typeof window === "undefined" ? undefined : window.location.hostname,
-  Boolean(import.meta.env?.DEV || import.meta.env?.VITE_LOCAL_SURFACES === "1")
-);
-const publicMarketing = import.meta.env?.VITE_APP_SURFACE === "marketing";
-const CSRF_STORAGE_KEY = `${import.meta.env?.VITE_BROWSER_COOKIE_PREFIX ? `${import.meta.env.VITE_BROWSER_COOKIE_PREFIX}_` : ""}prio_csrf`;
+const API_BASE_URL = import.meta.env?.VITE_API_URL || "http://localhost:5001/api";
+const CSRF_STORAGE_KEY = "prio_csrf";
 
 type RefreshTokenHandler = () => Promise<string | null>;
 type AuthFailureHandler = () => void;
@@ -69,26 +37,29 @@ function readCookie(name: string): string {
 }
 
 function readCsrfToken(): string {
-  // Keep the default-cookie fallback explicit for existing consumers and source checks.
-  // readStoredCsrfToken() || readCookie("prio_csrf")
-  return readStoredCsrfToken() || readCookie(CSRF_STORAGE_KEY);
+  return readStoredCsrfToken() || readCookie("prio_csrf");
 }
 
 export class ApiError extends Error {
   readonly status: number;
+  readonly code?: string;
+  readonly retryAt?: number;
 
-  constructor(message: string, status: number, readonly code?: string, readonly retryAt?: number) {
+  constructor(message: string, status: number, details: { code?: string; retryAt?: number } = {}) {
     super(message);
     this.name = "ApiError";
     this.status = status;
+    this.code = details.code;
+    this.retryAt = details.retryAt;
   }
 }
 
-export function retryAfterDeadline(value: string | null | undefined, now=Date.now()): number | undefined {
-  if (!value?.trim()) return undefined;
-  const seconds=Number(value);
-  const deadline=Number.isFinite(seconds) && seconds>=0 ? now+seconds*1000 : Date.parse(value);
-  return Number.isFinite(deadline) ? Math.max(now,deadline) : undefined;
+export function retryAfterDeadline(value: string | null | undefined, now = Date.now()): number | undefined {
+  if (!value) return undefined;
+  const seconds = Number(value);
+  if (Number.isFinite(seconds) && seconds >= 0) return now + seconds * 1000;
+  const date = Date.parse(value);
+  return Number.isFinite(date) ? date : undefined;
 }
 
 export interface ApiRequestOptions<TBody = unknown> {
@@ -112,19 +83,6 @@ export async function apiRequest<TResponse, TBody = unknown>(
   path: string,
   options: ApiRequestOptions<TBody> = {}
 ): Promise<TResponse> {
-  return performRequest<TResponse, TBody>(path, options, false);
-}
-
-/** Auth-only transport; ordinary marketing requests remain credentialless. */
-export async function publicAuthRequest<TResponse, TBody = unknown>(path: string, options: ApiRequestOptions<TBody> = {}): Promise<TResponse> {
-  if (!publicAuthPathAllowed(path, options.method) || !publicUniversalAuthEnabled) {
-    throw new ApiError("This authentication action is unavailable.", 403);
-  }
-  return performRequest<TResponse, TBody>(path, { ...options, skipAuthRefresh: true }, true);
-}
-
-async function performRequest<TResponse, TBody>(path: string, options: ApiRequestOptions<TBody>, authIsland: boolean): Promise<TResponse> {
-  const credentialless = publicMarketing && !authIsland;
   const { method = "GET", body, token, signal, skipAuthRefresh = false, headers = {} } = options;
   const unsafe = !["GET", "HEAD", "OPTIONS"].includes(method.toUpperCase());
   const idempotencyKey = unsafe && typeof crypto !== "undefined" && "randomUUID" in crypto
@@ -134,17 +92,17 @@ async function performRequest<TResponse, TBody>(path: string, options: ApiReques
   const makeRequest = async (authToken?: string) =>
     fetch(`${API_BASE_URL}${path}`, {
       method,
-      credentials: credentialless ? "omit" : "include",
+      credentials: "include",
       headers: {
         "Content-Type": "application/json",
-        ...(!credentialless && unsafe && readCsrfToken()
+        ...(unsafe && readCsrfToken()
           ? { "X-CSRF-Token": readCsrfToken() }
           : {}),
         ...(idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {}),
-        ...(!credentialless && authToken && authToken !== "cookie-session"
+        ...(authToken && authToken !== "cookie-session"
           ? { Authorization: `Bearer ${authToken}` }
           : {}),
-        ...Object.fromEntries(Object.entries(headers).filter(([name]) => !credentialless || !["authorization", "x-csrf-token"].includes(name.toLowerCase())))
+        ...headers
       },
       body: body ? JSON.stringify(body) : undefined,
       signal
@@ -168,23 +126,38 @@ async function performRequest<TResponse, TBody>(path: string, options: ApiReques
     }
   }
 
-  const data = (await response.json().catch(() => ({}))) as { message?: string; code?: string };
+  const data = (await response.json().catch(() => ({}))) as { message?: string; code?: string; retryAt?: number };
   rememberCsrfToken(data);
   if (!response.ok) {
     if (response.status === 401 && authFailureHandler && skipAuthRefresh) {
       authFailureHandler();
     }
-    throw new ApiError(data.message || "Request failed.", response.status, data.code, response.status === 429 ? retryAfterDeadline(response.headers?.get?.("Retry-After")) : undefined);
+    throw new ApiError(data.message || "Request failed.", response.status, {
+      ...data,
+      retryAt: data.retryAt ?? retryAfterDeadline(
+        typeof response.headers?.get === "function" ? response.headers.get("Retry-After") : undefined
+      )
+    });
   }
 
   return data as TResponse;
+}
+
+/** Restrict credentialed public-site requests to the explicit universal-auth allowlist. */
+export async function publicAuthRequest<TResponse, TBody = unknown>(
+  path: string,
+  options: ApiRequestOptions<TBody> = {}
+): Promise<TResponse> {
+  if (!publicAuthPathAllowed(path, options.method) || import.meta.env?.VITE_PUBLIC_UNIVERSAL_AUTH !== "1") {
+    throw new ApiError("This authentication action is unavailable.", 403);
+  }
+  return apiRequest<TResponse, TBody>(path, { ...options, skipAuthRefresh: true });
 }
 
 export async function apiUpload<TResponse>(
   path: string,
   options: {
     body: BodyInit;
-    onPreparedImage?: (blob: Blob) => void;
     contentType: string;
     token?: string;
     signal?: AbortSignal;
@@ -192,24 +165,24 @@ export async function apiUpload<TResponse>(
     headers?: Record<string, string>;
   }
 ): Promise<TResponse> {
-  const { contentType, token, signal, skipAuthRefresh = false, headers = {} } = options;
-  let body = options.body;
+  const { body, contentType, token, signal, skipAuthRefresh = false, headers = {} } = options;
   if (contentType.startsWith("image/") && body instanceof Blob) {
-    const policy = await apiRequest<PublicImageUploadPolicy>("/public/upload-policy", { signal });
-    try { body = await prepareImageUpload(body, policy.maxImageUploadBytes, signal); options.onPreparedImage?.(body); }
-    catch (error) { if (signal?.aborted) throw error; throw new ApiError(error instanceof Error ? error.message : "This image could not be prepared for upload.", 400); }
+    const policy = await apiRequest<{ maxImageUploadKb: number; maxImageUploadBytes: number }>("/public/upload-policy", { signal });
+    if (body.size < 1 || body.size > policy.maxImageUploadBytes) {
+      throw new ApiError(`Image must be between 1 byte and ${policy.maxImageUploadKb} KB. Choose a smaller image or compress it before uploading.`, 400);
+    }
   }
   const makeRequest = async (authToken?: string) =>
     fetch(`${API_BASE_URL}${path}`, {
       method: "POST",
-      credentials: publicMarketing ? "omit" : "include",
+      credentials: "include",
       headers: {
         "Content-Type": contentType,
-        ...(!publicMarketing && readCsrfToken() ? { "X-CSRF-Token": readCsrfToken() } : {}),
-        ...(!publicMarketing && authToken && authToken !== "cookie-session"
+        ...(readCsrfToken() ? { "X-CSRF-Token": readCsrfToken() } : {}),
+        ...(authToken && authToken !== "cookie-session"
           ? { Authorization: `Bearer ${authToken}` }
           : {}),
-        ...Object.fromEntries(Object.entries(headers).filter(([name]) => !publicMarketing || !["authorization", "x-csrf-token"].includes(name.toLowerCase())))
+        ...headers
       },
       body,
       signal
@@ -228,16 +201,16 @@ export async function apiUpload<TResponse>(
     }
   }
 
-  const data = (await response.json().catch(() => ({}))) as { message?: string; code?: string };
+  const data = (await response.json().catch(() => ({}))) as { message?: string; code?: string; retryAt?: number };
   rememberCsrfToken(data);
   if (!response.ok) {
     if (response.status === 401 && authFailureHandler && skipAuthRefresh) {
       authFailureHandler();
     }
-    throw new ApiError(data.message || "Request failed.", response.status, data.code, response.status === 429 ? retryAfterDeadline(response.headers?.get?.("Retry-After")) : undefined);
+    throw new ApiError(data.message || "Request failed.", response.status, data);
   }
 
   return data as TResponse;
 }
 
-export { API_BASE_URL, resolveApiBaseUrl };
+export { API_BASE_URL };

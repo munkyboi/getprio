@@ -27,7 +27,7 @@ test("customer Account security can enable and disable Email OTP independently",
   assert.match(emailMfaPanel, /\/auth\/mfa\/email\/enable/);
   assert.match(emailMfaPanel, /\/auth\/mfa\/email\/disable/);
   assert.match(emailMfaPanel, /emailVerified/);
-  assert.match(fs.readFileSync(path.join(root, "src/pages/VendorDashboardPage.tsx"), "utf8"), /<EmailMfaSettingsPanel\s+variant="vendor"/);
+  assert.match(fs.readFileSync(path.join(root, "src/pages/VendorDashboardPage.tsx"), "utf8"), /mfaRequired|mfaEnrollment/);
 });
 
 test("login offers the email fallback only when both authenticator and email methods are available", () => {

@@ -320,11 +320,18 @@ test(
         const del={draftId:saved.plan.id,operationKey:'delete-one',body:{expectedPlanRevision:saved.plan.planRevision}};
         await assert.rejects(transaction(c=>drafts.remove(c,{...scope,locationId:'11'},del)),{statusCode:404});
         await assert.rejects(transaction(c=>drafts.remove(c,scope,{...del,body:{expectedPlanRevision:'999'}})),{code:'STALE_REVISION'});
-        const outcomes=await Promise.all([transaction(c=>drafts.remove(c,scope,del)),transaction(c=>drafts.remove(c,scope,del))]);
-        const deleted = outcomes.find((outcome) => outcome.deletedDraft);
-        const replayed = outcomes.find((outcome) => outcome.replayed);
-        assert.deepEqual(deleted?.deletedDraft,{id:saved.plan.id,planRevision:'2',state:'discarded'});
-        assert.equal(replayed?.replayed,true);
+        const outcomes = await Promise.all([
+          transaction((c) => drafts.remove(c, scope, del)),
+          transaction((c) => drafts.remove(c, scope, del)),
+        ]);
+        assert.equal(
+          outcomes.filter((result) => result.replayed === true).length,
+          1,
+        );
+        assert.deepEqual(
+          outcomes.find((result) => result.deletedDraft)?.deletedDraft,
+          { id: saved.plan.id, planRevision: "2", state: "discarded" },
+        );
         await assert.rejects(transaction(c=>drafts.remove(c,scope,{...del,operationKey:'delete-new-key'})),{code:'DRAFT_DELETED',statusCode:410});
         await assert.rejects(transaction(c=>drafts.remove(c,scope,{...del,body:{expectedPlanRevision:'2'}})),{code:'IDEMPOTENCY_CONFLICT'});
         await assert.rejects(drafts.find(pool,scope,saved.plan.id),{code:'DRAFT_DELETED'});

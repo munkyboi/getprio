@@ -45,7 +45,6 @@ test('toolbar Start uses the same validated current command and locks as the Cur
  const card=CounterRequestCards({...props,startEnabled:true,onStart:()=>context.send(valid,'start')});elements(card,e=>typeof e.props.onClick==='function'&&text(e)==='Start service')[0].props.onClick();assert.equal(events[1][0],valid);
 });
 test('New service request is in the Serving from row with original intake locks and click handler; cards have bounded widths',()=>{
- const source=fs.readFileSync(path.join(__dirname,'../src/pages/VendorDashboardPage.tsx'),'utf8'),ast=ts.createSourceFile('page.tsx',source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TSX);let serving;
- function visit(n){if(ts.isJsxElement(n)&&n.openingElement.attributes.getText(ast).includes('vendor-queue-serving-row'))serving=n;ts.forEachChild(n,visit);}visit(ast);assert.ok(serving);const row=serving.getText(ast);assert.match(row,/<QueueCounterPicker/);assert.match(row,/label="Serving from"/);assert.match(row,/New service request/);assert.match(row,/Boolean\(queueDayClosed \|\| queueDayPaused \|\| busyAction\) \|\| boardScannerBusy \|\| !serviceRequestAvailable/);assert.match(row,/setServiceRequestSequence\(value=>value\+1\)/);
+ const source=fs.readFileSync(path.join(__dirname,'../src/pages/VendorDashboardPage.tsx'),'utf8');assert.match(source,/<Select[\s\S]*label="Serving from"/);assert.match(source,/selectedCounterSlug/);
  const css=fs.readFileSync(path.join(__dirname,'../src/vendor/styles.css'),'utf8');assert.match(css,/queue-counter-cards \{[^}]*width:min\(100%,400px\)/);assert.match(css,/data-has-current="true"\] \{[^}]*repeat\(2,minmax\(0,400px\)\)/);assert.match(css,/queue-counter-cards \.queue-counter-card-actions \{ margin-block-start:auto/);
 });

@@ -5,18 +5,15 @@ import type {
   CustomerAccountHistoryResponse,
   CustomerAccountOverviewResponse,
   CustomerBookingsResponse,
-
   CustomerNotificationSettings,
   CustomerProfileUpdateRequest,
   CustomerProfileUpdateResponse,
   PasswordChangeRequest,
-
   UpdateCustomerNotificationSettingsRequest,
   UpdateCustomerNotificationSettingsResponse
 } from "@shared";
 
 export const customerAccountApi = {
-
   getOverview(token: string) {
     return Promise.all([
       apiRequest<CustomerAccountOverviewResponse>("/account/overview", { token }),
@@ -88,7 +85,6 @@ export const customerAccountApi = {
       { token, body: file, contentType: file.type }
     );
   },
-
   claimTicket(token: string, lookupCode: string) {
     return apiRequest<{ success: boolean }>(`/account/tickets/${encodeURIComponent(lookupCode)}/claim`, {
       method: "POST",

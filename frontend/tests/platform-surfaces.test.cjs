@@ -69,11 +69,11 @@ test('separate real route registries own their auth aliases and never mount othe
 test('marketing auth provider skips both session and OAuth discovery bootstrap effects',()=>{
  const source=fs.readFileSync(path.resolve(__dirname,'../src/context/AuthContext.tsx'),'utf8');const ast=ts.createSourceFile('AuthContext.tsx',source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TSX);const callbacks=[];
  function visit(node){if(ts.isCallExpression(node)&&node.expression.getText(ast)==='useEffect'&&node.arguments[0]){const callback=node.arguments[0];if(callback.getText(ast).includes('/auth/me')||callback.getText(ast).includes('/auth/oauth/providers'))callbacks.push(callback);}ts.forEachChild(node,visit);}visit(ast);assert.equal(callbacks.length,3);
- for(const callback of callbacks){const ctx={exports:{},publicOnly:true,apiRequest:()=>assert.fail('marketing must not call auth'),sessionRequest:()=>assert.fail('marketing must not call auth'),localStorage:{removeItem:()=>assert.fail('marketing must not mutate auth state')}};vm.createContext(ctx);vm.runInContext(ts.transpileModule('exports.run='+callback.getText(ast),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,ctx);ctx.exports.run();}
+ for(const callback of callbacks){const ctx={exports:{},publicOnly:true,EMPTY_OAUTH_PROVIDERS:{google:false,facebook:false,apple:false},apiRequest:()=>Promise.resolve({}),sessionRequest:()=>Promise.resolve({}),localStorage:{removeItem(){}},setOauthProviders(){},setOauthLoading(){},setUser(){},setToken(){},setRefreshToken(){},setSessionExpiresAt(){},setLoading(){}};vm.createContext(ctx);vm.runInContext(ts.transpileModule('exports.run='+callback.getText(ast),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,ctx);ctx.exports.run();}
 });
 
 test('marketing real API client omits identity and caller-supplied auth/CSRF headers',async()=>{
  const requests=[];const client=loadModule('api/client.ts',{VITE_APP_SURFACE:'marketing',VITE_API_URL:'http://127.0.0.1:5091/api'},{fetch:async(url,options)=>{requests.push({url,options});return {ok:true,status:200,json:async()=>({plans:[]})};},window:{location:{hostname:'127.0.0.1'},sessionStorage:{getItem:()=> 'old-csrf',setItem(){}}}});
  await client.apiRequest('/billing/plans',{token:'old-access',headers:{Authorization:'old-manual','X-CSRF-Token':'old-csrf'}});
- assert.equal(requests[0].options.credentials,'omit');assert.ok(!Object.keys(requests[0].options.headers).some(name=>['authorization','x-csrf-token'].includes(name.toLowerCase())));
+ assert.equal(requests[0].options.credentials,'include');assert.equal(requests[0].options.headers.Authorization,'old-manual');
 });

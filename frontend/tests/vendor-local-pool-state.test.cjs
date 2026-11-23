@@ -40,6 +40,6 @@ test("tracked start requires a single frozen executable service plan",()=>{
 test('only the exact server not-applicable 404 has neutral status; auth, generic404 and network remain errors',()=>{
  const {localPoolReadState}=require('../src/vendor/localPoolState.ts'),{ApiError}=require('../src/api/client.ts');
  const state=error=>localPoolReadState(null,undefined,'club','branch',false,true,error);
- assert.equal(state(new ApiError('outside fixture',404,'LOCAL_RESOURCE_OPERATIONS_NOT_APPLICABLE')),'not_applicable');
- for(const error of [new ApiError('denied',403,'LOCAL_RESOURCE_OPERATIONS_NOT_APPLICABLE'),new ApiError('missing',404),new Error('network')])assert.equal(state(error),'unavailable');
+ assert.equal(state(new ApiError('outside fixture',404,{code:'LOCAL_RESOURCE_OPERATIONS_NOT_APPLICABLE'})),'not_applicable');
+ for(const error of [new ApiError('denied',403,{code:'LOCAL_RESOURCE_OPERATIONS_NOT_APPLICABLE'}),new ApiError('missing',404),new Error('network')])assert.equal(state(error),'unavailable');
 });

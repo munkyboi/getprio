@@ -324,8 +324,7 @@ export default function JoinedQueuePage({renderPresentation,renderUnavailable,re
   );
   const legacyTicketState = getCustomerTicketStateSummary(
     snapshot?.focusTicket?.status,
-    snapshot?.focusTicket?.customerConfirmedAt,
-    snapshot?.focusTicket?.statusReason
+    snapshot?.focusTicket?.customerConfirmedAt
   );
   const ownJourney=snapshot?.focusTicket?.journey;
   const ownJourneyStage=ownJourney?currentJourneyStage(ownJourney):null;

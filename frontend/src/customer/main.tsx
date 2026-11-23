@@ -1,4 +1,3 @@
-import { CustomerAppFailure } from "./components/CustomerFallbackPresentations";
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { MantineProvider } from "@mantine/core";
@@ -24,7 +23,7 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
       <ModalWheelBridge />
       <QueryClientProvider client={queryClient}>
         <BrowserRouter>
-          <AppErrorBoundary renderFallback={CustomerAppFailure}>
+          <AppErrorBoundary>
             <AuthProvider>
               <App />
             </AuthProvider>
