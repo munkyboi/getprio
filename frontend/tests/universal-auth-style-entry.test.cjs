@@ -23,10 +23,11 @@ assert.match(customerFallback, /oauthProviders\.apple \?/u);
 assert.match(authEnabled, /VITE_APP_SURFACE === "marketing"/u);
 });
 
-test("universal auth submits use the Marketing brand fill and explicit white text", () => {
+test("universal auth submits use the Marketing brand fill and plain white text", () => {
   const primary = authStyles.match(/\.universal-auth-primary\s*\{([^}]+)\}/u)?.[1] || "";
   assert.match(primary, /background-color:\s*var\(--primary\)\s*;/u);
   assert.match(primary, /(?:^|\s)color:\s*#fff\s*;/u);
-  assert.match(primary, /-webkit-text-stroke:\s*2px var\(--primary-foreground\)\s*;/u);
-  assert.match(primary, /paint-order:\s*stroke fill\s*;/u);
+  for (const [, declarations] of authStyles.matchAll(/\.universal-auth-primary\b[^{}]*\{([^}]+)\}/gu)) {
+    assert.doesNotMatch(declarations, /text-shadow|text-stroke|paint-order/u);
+  }
 });
