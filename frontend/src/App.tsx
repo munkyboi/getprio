@@ -216,16 +216,6 @@ function AppShell({ children }: { children: ReactNode }) {
   );
 }
 
-function LegacyCampaignRedirect() {
-  const { publicToken = "" } = useParams();
-  return <Navigate replace to={`/campaign/${encodeURIComponent(publicToken)}`} />;
-}
-
-function LegacyVendorCampaignRedirect() {
-  const { tenantSlug = "" } = useParams();
-  return <Navigate replace to={`/vendors/${encodeURIComponent(tenantSlug)}`} />;
-}
-
 function BarePage({ children }: { children: ReactNode }) {
   return (
     <div className="app-shell">
@@ -272,7 +262,7 @@ function VendorDashboardRoute() {
 }
 
 function getVendorBookingTabRoute(pathname: string) {
-  const routePattern = /^\/vendors\/([^/]+)(?:\/(group-funded))?$/;
+  const routePattern = /^\/vendors\/([^/]+)$/;
   const match = routePattern.exec(pathname);
   if (!match) {
     return null;
@@ -280,7 +270,7 @@ function getVendorBookingTabRoute(pathname: string) {
 
   return {
     tenantSlug: match[1],
-    tab: match[2] === "group-funded" ? "group-funded" : "standard"
+    tab: "standard"
   };
 }
 
@@ -362,7 +352,6 @@ export default function App() {
         <Route path="/account/profile" element={<Navigate to="/account/settings" replace />} />
         <Route path="/account/tickets" element={<AppShell><CustomerAccountPage /></AppShell>} />
         <Route path="/account/bookings" element={<AppShell><CustomerAccountPage /></AppShell>} />
-        <Route path="/account/group-funded" element={<Navigate to="/account/campaigns" replace />} />
         <Route path="/account/campaigns" element={<AppShell><CustomerAccountLayout activeSection="campaigns"><CampaignControlCenterPage /></CustomerAccountLayout></AppShell>} />
         <Route path="/account/campaigns/discover" element={<AppShell><CustomerAccountLayout activeSection="campaigns"><CampaignDiscoveryPage /></CustomerAccountLayout></AppShell>} />
         <Route path="/account/campaigns/:campaignId/manage" element={<AppShell><CustomerAccountLayout activeSection="campaigns"><CampaignControlCenterPage /></CustomerAccountLayout></AppShell>} />
@@ -371,12 +360,10 @@ export default function App() {
         <Route path="/account/security" element={<AppShell><CustomerAccountPage /></AppShell>} />
         <Route path="/account/bookings/:bookingId" element={<AppShell><CustomerBookingDetailPage /></AppShell>} />
         <Route path="/account/bookings/:bookingId/campaign/new" element={<AppShell><CustomerAccountLayout activeSection="campaigns"><CampaignCreatePage /></CustomerAccountLayout></AppShell>} />
-        <Route path="/group-funded/:publicToken" element={<LegacyCampaignRedirect />} />
         <Route path="/campaign/:publicToken" element={<AppShell><CampaignPreviewPage /></AppShell>} />
         <Route path="/vendors" element={<AppShell><VendorDiscoveryPage /></AppShell>} />
         <Route path="/vendors/:tenantSlug/book" element={<AppShell><BookingRequestPage /></AppShell>} />
         <Route path="/vendors/:tenantSlug/book/:serviceSlug" element={<AppShell><BookingRequestPage /></AppShell>} />
-        <Route path="/vendors/:tenantSlug/group-funded" element={<LegacyVendorCampaignRedirect />} />
         <Route path="/vendors/:tenantSlug" element={<AppShell><VendorProfilePage /></AppShell>} />
         <Route path="/dashboard" element={<DashboardRedirect />} />
         <Route path="/dashboard/:section" element={<AppShell><VendorDashboardRoute /></AppShell>} />
