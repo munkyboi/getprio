@@ -3316,7 +3316,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     setError("");
 
     try {
-      const response = await vendorDashboardCatalog.deactivateService(token, selectedTenantSlug, service.slug);
+      const response = await vendorDashboardCatalog.deactivateService(token, selectedTenantSlug, service.slug, !bookingSettingsAllowed);
       setServices((current) => current.map((item) => item.id === response.service.id ? response.service : item));
       await reloadBookings();
       showSuccessNotification("Service removed", `${service.name} is disabled. Existing records are retained.`);

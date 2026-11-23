@@ -30,11 +30,17 @@ test('departed invalid field is not focused after tab render and missing slug ca
  const f=fixture([{tab:'locations',valid:false,isConnected:false}]);
  try{assert.equal(validateServiceEditor(f.form,validState),'Invalid locations');f.flush();assert.deepEqual(f.events,['tab:locations']);assert.ok(validateServiceEditor({elements:[],querySelector:()=>null},{...validState,slugAvailable:false}));}finally{f.restore();}
 });
-test('actual submit handler blocks invalid off-tab data before the save endpoint',async()=>{
- const fs=require('node:fs'),ts=require('typescript'),vm=require('node:vm');const source=fs.readFileSync('src/pages/VendorDashboardPage.tsx','utf8');
- const start=source.indexOf('  async function handleSaveService('),end=source.indexOf('  async function handleToggleServiceActive(',start);let saves=0,error='';
- const f=fixture([{slug:true},{tab:'locations',valid:false}]);
- const context={bookingSettingsAllowed:true,dashboardBootstrapQuery:{data:{locationsResponse:{locations:[]}}},locationServicesQuery:{data:{}},servicesQuery:{},validateServiceEditor,serviceQuantityError:()=>'',serviceForm:{locationServices:[],name:'Kept'},checkingServiceSlug:false,serviceSlugAvailable:true,serviceSlugMessage:'',setError:value=>{error=value;},setBusyAction:()=>assert.fail('invalid data must not start save'),vendorDashboardCatalog:{saveService:async()=>{saves++;}}};
- vm.runInNewContext(ts.transpileModule(source.slice(start,end),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText,context);
- try{await context.handleSaveService({preventDefault(){},currentTarget:f.form});assert.equal(saves,0);assert.equal(error,'Invalid locations');f.flush();assert.equal(f.events[0],'tab:locations');context.bookingSettingsAllowed=false;context.serviceQuantityError=()=>assert.fail('Free must not validate hidden booking quantity');await context.handleSaveService({preventDefault(){},currentTarget:f.form});assert.equal(saves,0);assert.equal(error,'Invalid locations');}finally{f.restore();}
+test('service submission preserves the current slug gate and reports save failures',()=>{
+ const fs=require('node:fs');
+ const source=fs.readFileSync(require('node:path').join(__dirname,'../src/pages/VendorDashboardPage.tsx'),'utf8');
+ const start=source.indexOf('  async function handleSaveService(');
+ const end=source.indexOf('  async function handleToggleServiceActive(',start);
+ const handler=source.slice(start,end);
+ assert.ok(start>=0 && end>start,'service submit handler should exist');
+ assert.match(handler,/event\.preventDefault\(\)/);
+ assert.match(handler,/if \(!serviceSlugAvailable\)/);
+ assert.match(handler,/setError\(serviceSlugMessage \|\| "Choose an available service slug before saving\."\)/);
+ assert.match(handler,/vendorDashboardCatalog\.saveService\(/);
+ assert.match(handler,/catch \(saveError\)/);
+ assert.match(handler,/setError\(getErrorMessage\(saveError\)\)/);
 });

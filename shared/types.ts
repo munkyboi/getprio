@@ -563,6 +563,7 @@ export interface CustomerBookingSummary {
   bookingPaymentSource: BookingPaymentSource;
 
   organizerCampaign?: { id: string; status: OrganizerCampaignStatus } | null;
+  organizerCampaignOptIn?: boolean;
   groupFundedCampaign: BookingGroupFundedCampaignSummary | null;
   manualPaymentDestination: BookingManualPaymentDestination | null;
   paymentProof: BookingPaymentProofSummary | null;
@@ -906,6 +907,7 @@ export interface OrganizerCampaignContribution {
   reservationAttemptCount: number;
   retryAvailableAt?: string | Date | null;
   submittedAt?: string | Date | null;
+  trustRating?: { average: number; count: number } | null;
 }
 
 export interface OrganizerCampaign {
@@ -928,6 +930,7 @@ export interface OrganizerCampaign {
   joinedContributors?: number;
   reservedContributors?: number;
   underReviewContributors?: number;
+  organizerTrustRating?: { average: number; count: number } | null;
   availableContributors?: number;
   acceptedAmountCents?: number;
   paymentInstructions: string;
@@ -977,6 +980,7 @@ export interface PublicOrganizerCampaign {
   reservedContributors: number;
   underReviewContributors: number;
   availableContributors: number;
+  organizerTrustRating?: { average: number; count: number } | null;
   organizerDisplayName: string;
   organizerAvatarUrl?: string;
   scheduledStartAt: string | Date;
@@ -1156,6 +1160,7 @@ export interface VendorBookingSummary extends CustomerBookingSummary {
   paymentRejectedByUserId: string | null;
   checkedInByUserId: string | null;
   noShowByUserId: string | null;
+  organizerTrustRating?: { average: number; count: number } | null;
 }
 
 export interface PaginationMetadata {
@@ -1783,6 +1788,7 @@ export interface UpdateTenantSettingsRequest {
 export interface CustomerNotificationSettings {
   bookingAlerts: boolean;
   queueAlerts: boolean;
+  campaignAlerts?: boolean;
 
   preferredContactMethod: "in_app" | "email" | "sms";
 }

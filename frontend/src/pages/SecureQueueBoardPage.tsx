@@ -74,7 +74,7 @@ export default function SecureQueueBoardPage() {
     const timer = window.setInterval(() => { void check(); }, QUEUE_BOARD_POLL_INTERVAL);
     return () => { active = false; source?.close(); window.clearInterval(timer); };
   }, [boardId, attempt]);
-  if (snapshot) return <PublicQueuePage snapshot={snapshot} />;
+  if (snapshot) return <PublicQueuePage initialSnapshot={snapshot} />;
   return <Card maw={560} mx="auto" my="xl" padding="xl" withBorder>
     <Stack align="center" gap="md">
       <Title order={1} ta="center">Queue board access</Title>

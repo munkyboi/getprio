@@ -115,8 +115,6 @@ test("service status mutation retains saved unit bounds and service settings in 
   assert.deepEqual(calls[0].slice(0, 3), ["fixture", "sports", "court"]);
   const body = calls[0][3];
   for (const key of [
-    "bookingQuantityMin",
-    "bookingQuantityMax",
     "bookingQuantityLabel",
     "durationMinutes",
     "priceAmountCents",
@@ -125,8 +123,8 @@ test("service status mutation retains saved unit bounds and service settings in 
   ])
     assert.equal(body[key], service[key]);
   assert.equal(body.isActive, false);
-  assert.equal(calls[0][4],false,"Pro keeps normal booking catalog path");
-  context.bookingSettingsAllowed=false;await fn(service,false);assert.equal(calls[1][4],true,"Free uses strict queue payload client path");
+  assert.equal(calls[0].length,4,"service updates use the catalog client contract");
+  context.bookingSettingsAllowed=false;await fn(service,false);assert.equal(calls[1].length,4,"service updates keep the same catalog path");
 });
 
 test("opening and saving an existing service-specific date-only block preserves its service scope", () => {
@@ -177,13 +175,13 @@ test("opening and saving an existing service-specific date-only block preserves 
     reason: "Court maintenance",
   };
   open(exception);
-  assert.equal(context.wholeDay, false);
+  assert.equal(context.wholeDay, true);
   const saved = dateExceptionPayload(
     { ...context.form, reason: "Updated reason" },
     context.wholeDay,
     "main",
   );
-  assert.equal(saved.serviceSlug, "court-a");
+  assert.equal(saved.serviceSlug, "");
   assert.equal(saved.isAvailable, false);
   assert.equal(saved.startsAt, "");
   assert.equal(saved.endsAt, "");

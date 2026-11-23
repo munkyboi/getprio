@@ -92,18 +92,21 @@ export function callNextTicket(token: string, tenantSlug: string, locationQuery:
   );
 }
 
-export function recordTicketService(
-  token: string, tenantSlug: string, locationQuery: string, ticketId: string,
-  action: "start" | "complete" | "interrupt"
-) {
+export function recordTicketService(token: string, tenantSlug: string, locationQuery: string, ticketId: string, action: "start" | "complete" | "interrupt") {
   return apiRequest<VendorDashboardActionResponse>(
     `/vendor/tenant/${tenantSlug}/queue/tickets/${ticketId}/service/${action}${locationQuery}`,
     { method: "POST", token }
   );
 }
 
-export function serveCurrentTicket(token: string, tenantSlug: string, locationQuery: string, ticketId: string, counterSlug: string | null) {
-  return apiRequest<VendorDashboardActionResponse>(
+export function serveCurrentTicket(
+  token: string,
+  tenantSlug: string,
+  locationQuery: string,
+  ticketId: string,
+  counterSlug: string | null
+) {
+  return apiRequest<VendorDashboardActionResponse, { ticketId: string; counterSlug: string | null }>(
     `/vendor/tenant/${tenantSlug}/queue/current/serve${locationQuery}`,
     { method: "POST", token, body: { ticketId, counterSlug } }
   );
@@ -116,8 +119,14 @@ export function confirmCurrentTicket(token: string, tenantSlug: string, location
   );
 }
 
-export function skipCurrentTicket(token: string, tenantSlug: string, locationQuery: string, ticketId: string, counterSlug: string | null) {
-  return apiRequest<VendorDashboardActionResponse>(
+export function skipCurrentTicket(
+  token: string,
+  tenantSlug: string,
+  locationQuery: string,
+  ticketId: string,
+  counterSlug: string | null
+) {
+  return apiRequest<VendorDashboardActionResponse, { ticketId: string; counterSlug: string | null }>(
     `/vendor/tenant/${tenantSlug}/queue/current/skip${locationQuery}`,
     { method: "POST", token, body: { ticketId, counterSlug } }
   );
@@ -156,6 +165,7 @@ export function restoreSkippedTicket(
 }
 
 export function getServiceOptions(token: string, tenantSlug: string, locationQuery: string) {
-  return apiRequest<{ services: { id: string; name: string; durationMinutes: number; quantityMin?: number; quantityMax?: number; durationEditable?: boolean; resourceReady?: boolean; resourceLabel?: string|null; unitsPerQuantity?: number|null }[]; catalogRevision?: string }>(
-    `/vendor/tenant/${tenantSlug}/queue/service-options${locationQuery}`, { token });
+  return apiRequest<{ services: { id: string; name: string; durationMinutes: number; quantityMin?: number; quantityMax?: number; durationEditable?: boolean; resourceReady?: boolean; resourceLabel?: string | null; unitsPerQuantity?: number | null }[]; catalogRevision?: string }>(
+    `/vendor/tenant/${tenantSlug}/queue/service-options${locationQuery}`, { token }
+  );
 }

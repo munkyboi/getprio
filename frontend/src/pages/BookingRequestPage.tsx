@@ -161,6 +161,7 @@ function getVendorDecision(booking: CustomerBookingResponse["booking"] | null) {
 
 interface PendingBookingPayload extends CreateCustomerBookingRequest {
   bookingVerificationToken: string;
+  organizerCampaignOptIn?: boolean;
 }
 
 // CUSTOMER PRESENTATION CONTRACT START
