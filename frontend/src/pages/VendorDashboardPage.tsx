@@ -646,6 +646,26 @@ type HistorySort = "updatedDesc" | "updatedAsc" | "ticketAsc" | "ticketDesc" | "
 type BookingStatusFilter = "all" | "pending" | "confirmed" | "rescheduled" | "canceled";
 
 type DashboardSectionRenderers = Partial<Record<DashboardSection, () => ReactNode>>;
+type DashboardSectionResolution =
+  | { kind: "activation" }
+  | { kind: "ratings" }
+  | { kind: "render"; section: DashboardSection };
+
+function resolveDashboardSection({
+  currentSection,
+  hasActiveSubscription
+}: {
+  currentSection: DashboardSection;
+  hasActiveSubscription: boolean;
+}): DashboardSectionResolution {
+  if (!hasActiveSubscription && currentSection !== "settings" && currentSection !== "account") {
+    return { kind: "activation" };
+  }
+  if (currentSection === "ratings") {
+    return { kind: "ratings" };
+  }
+  return { kind: "render", section: currentSection };
+}
 
 function DashboardSectionContent({
   currentSection,
@@ -660,15 +680,14 @@ function DashboardSectionContent({
   renderers: DashboardSectionRenderers;
   ratings: ReactNode;
 }) {
-  if (!hasActiveSubscription && currentSection !== "settings" && currentSection !== "account") {
+  const resolution = resolveDashboardSection({ currentSection, hasActiveSubscription });
+  if (resolution.kind === "activation") {
     return <ActivationPanel onViewPlans={onViewPlans} />;
   }
-
-  if (currentSection === "ratings") {
+  if (resolution.kind === "ratings") {
     return ratings;
   }
-
-  return renderers[currentSection]?.() ?? renderers.settings?.() ?? null;
+  return renderers[resolution.section]?.() ?? renderers.settings?.() ?? null;
 }
 
 const CLIENTS_PAGE_SIZE = 10;
