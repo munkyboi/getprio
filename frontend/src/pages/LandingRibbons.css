@@ -16,7 +16,7 @@
 }
 
 .lp-closing-logo { position: absolute; width: 78%; height: 82%; object-fit: contain; left: 11%; top: 6%; opacity: .22; z-index: 0; pointer-events: none; }
-/* Cover the ribbons throughout the pinned spotlight section. */
+/* Put the pinned section's paint below the ribbons and its content above them. */
 .lp-page .wf-scroll-shell { background: #1c1b18; isolation: isolate; z-index: 3; }
 .lp-page .wf-spotlight { background: transparent; z-index: 3; }
 .lp-orbit-caption, .lp-closing-scene-label, .lp-closing-scene-footer { position: relative; z-index: 3; }

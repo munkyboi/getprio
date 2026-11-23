@@ -4,12 +4,13 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { createTheme, MantineProvider } from "@mantine/core";
 import { Notifications } from "@mantine/notifications";
 import { BrowserRouter } from "react-router-dom";
-import App from "@surface-app";
+import App from "./App";
 import AppErrorBoundary from "./components/AppErrorBoundary";
 import ModalWheelBridge from "./components/ModalWheelBridge";
 import { AuthProvider } from "./context/AuthContext";
 import { queryClient } from "./lib/queryClient";
 import "@mantine/core/styles.css";
+import "@mantine/tiptap/styles.css";
 import "@mantine/notifications/styles.css";
 import "@mantine/dates/styles.css";
 import "@mantine/carousel/styles.css";
@@ -97,7 +98,7 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
       <QueryClientProvider client={queryClient}>
         <BrowserRouter>
           <AppErrorBoundary>
-            <AuthProvider publicOnly={import.meta.env.VITE_APP_SURFACE === "marketing"}>
+            <AuthProvider>
               <App />
             </AuthProvider>
           </AppErrorBoundary>

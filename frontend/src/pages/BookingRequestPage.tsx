@@ -161,6 +161,7 @@ function getVendorDecision(booking: CustomerBookingResponse["booking"] | null) {
 
 interface PendingBookingPayload extends CreateCustomerBookingRequest {
   bookingVerificationToken: string;
+  organizerCampaignOptIn?: boolean;
 }
 
 // CUSTOMER PRESENTATION CONTRACT START
@@ -278,7 +279,8 @@ export default function BookingRequestPage({ renderPresentation, renderResourceS
   const [catalogError,setCatalogError]=useState("");
   const [resourceRequestKey]=useState(()=>crypto.randomUUID());
   const resourceMode=resourceCatalog?.enabled===true&&resourceBooking&&Boolean(resourceCatalog.resourceServiceIds?.length);
-  const resourcePayload=resourceMode?{selectionContractVersion:4 as const,catalogVersion:resourceCatalog.catalogVersion,serviceSelections:resourceSelections,requestKey:resourceRequestKey}:{};
+  const resourceCatalogVersion=resourceCatalog?.catalogVersion;
+  const resourcePayload=useMemo(()=>resourceMode?{selectionContractVersion:4 as const,catalogVersion:resourceCatalogVersion!,serviceSelections:resourceSelections,requestKey:resourceRequestKey}:{} ,[resourceMode,resourceCatalogVersion,resourceSelections,resourceRequestKey]);
   const [slotsLoading, setSlotsLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [proofSubmitting, setProofSubmitting] = useState(false);
@@ -296,7 +298,7 @@ export default function BookingRequestPage({ renderPresentation, renderResourceS
     events.onmessage=refresh;
     const timer=window.setInterval(refresh,15000);
     return()=>{controller.abort();events.close();window.clearInterval(timer);};
-  },[token,vendor?.slug,selectedLocationSlug,bookingId,catalogRetry]);
+  },[token,vendor,selectedLocationSlug,bookingId,catalogRetry]);
   const changeResourceSelections=(next:BookingServiceSelectionV4[])=>{
     setResourceSelections(next);setExecutionMode('parallel');setBookingQuantity(1);
     const slugs=next.map(root=>resourceCatalog?.services.find(service=>service.id===root.serviceId)?.slug||'').filter(Boolean);
@@ -588,7 +590,7 @@ export default function BookingRequestPage({ renderPresentation, renderResourceS
       });
 
     return () => controller.abort();
-  }, [booking, bookingId, bookingDate, executionMode, getBundleItemQuantity, quantityForRequest, selectedBundleServices, selectedLocationSlug, selectedServiceSlug, vendor,resourceMode,resourceSelections,resourceRefresh,token]);
+  }, [booking, bookingId, bookingDate, executionMode, getBundleItemQuantity, quantityForRequest, selectedBundleServices, selectedLocationSlug, selectedServiceSlug, vendor, resourceMode, resourcePayload, resourceSelections, resourceRefresh, token]);
 
   const loadSubmittedBooking = useCallback(async () => {
     if (!token || !booking) {

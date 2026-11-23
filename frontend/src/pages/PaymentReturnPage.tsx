@@ -1,5 +1,5 @@
 import { Button, Container, Loader, Stack, Text, Title } from "@mantine/core";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { apiRequest } from "../api/client";
 import { buildJoinPath, buildJoinedQueuePath } from "../queuePaths";
@@ -13,7 +13,7 @@ function isSafeSlug(value: string | null): value is string {
   return Boolean(value && /^[a-z0-9]+(?:-[a-z0-9]+)*$/i.test(value));
 }
 
-export default function PaymentReturnPage({renderPresentation}:{renderPresentation?:(model:{error:string})=>ReactNode;}={}) {
+export default function PaymentReturnPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [error, setError] = useState("");
@@ -75,10 +75,6 @@ export default function PaymentReturnPage({renderPresentation}:{renderPresentati
       active = false;
     };
   }, [navigate, paymentId, paymentStatus, queryLocationSlug, queryTenantSlug]);
-
-  // CUSTOMER PAYMENT RETURN PRESENTATION INJECTION START
-  if(renderPresentation)return renderPresentation({error});
-  // CUSTOMER PAYMENT RETURN PRESENTATION INJECTION END
 
   return (
     <Container size="sm" py="xl">

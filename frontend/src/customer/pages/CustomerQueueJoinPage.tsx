@@ -1,12 +1,12 @@
 /* eslint-disable react-hooks/refs -- Presentation models forward ref objects to JSX without reading their current values. */
 import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { Info } from "lucide-react";
 import JoinQueuePage, { type JoinQueuePresentationModel } from "../../pages/JoinQueuePage";
 import PaymentReturnPage from "../../pages/PaymentReturnPage";
 import { formatDisplayTime } from "../../utils/dates";
 import { Alert, Button, Input } from "../components/ui";
-import { CustomerError, CustomerPage, StatusBadge } from "../components/account/CustomerPage";
+import { CustomerError, StatusBadge } from "../components/account/CustomerPage";
 import { BusinessMedia } from "../components/details/BusinessMedia";
 import { resolveVendorProfileMedia } from "../../utils/vendorTheme";
 import { ControlledDrawer } from "../components/details/ControlledDrawer";
@@ -70,5 +70,5 @@ export default function CustomerQueueJoinPage() {
 }
 
 export function CustomerPaymentReturnPage() {
-  return <PaymentReturnPage renderPresentation={({ error }) => <CustomerPage title={error ? "Payment return unavailable" : "Returning to your queue"}>{error ? <CustomerError error={error} /> : <p role="status">Checking your payment return…</p>}<Button variant="outline" render={<Link to="/" />}>Back to home</Button></CustomerPage>} />;
+  return <PaymentReturnPage />;
 }

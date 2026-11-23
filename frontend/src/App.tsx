@@ -1,17 +1,12 @@
-import { readPreference, preferenceKey, workspacePath, activeMemberships } from "./vendor/workspace";
-import { VendorNavigationGuard } from "./vendor/navigationGuard";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from "react";
 import { Anchor, Avatar, Box, Burger, Button, Container, Divider, Drawer, Group, Menu, Stack, Text } from "@mantine/core";
 import { Link, Navigate, NavLink, Route, Routes, useLocation, useParams } from "react-router-dom";
 import { IconChevronDown, IconLogout } from "@tabler/icons-react";
 import BrandMark from "./components/BrandMark";
 import { useAuth } from "./context/AuthContext";
+const DeveloperPortalPrototype = lazy(() => import("./pages/prototypes/DeveloperPortalPrototype"));
 import LandingPage from "./pages/LandingPage";
 import LoginPage from "./pages/LoginPage";
-import UniversalAuthPage from "./pages/UniversalAuthPage";
-import { PublicThemeProvider } from "./surfaces/PublicTheme";
-import { publicUniversalAuthEnabled } from "./surfaces/publicAuthEnabled";
-import { needsLegacyRegistration } from "./surfaces/registrationHandoff";
 import OAuthCallbackPage from "./pages/OAuthCallbackPage";
 import PrivacyPolicyPage from "./pages/PrivacyPolicyPage";
 import ContactPage from "./pages/ContactPage";
@@ -26,22 +21,21 @@ import QueueAutoClosePrototype from "./pages/prototypes/QueueAutoClosePrototype"
 import VendorDiscoveryPage from "./pages/VendorDiscoveryPage";
 import VendorProfilePage from "./pages/VendorProfilePage";
 import BookingRequestPage from "./pages/BookingRequestPage";
-
-import SecureQueueBoardPage from "./pages/SecureQueueBoardPage";
+import CampaignControlCenterPage from "./pages/CampaignControlCenterPage";
+import CampaignDiscoveryPage from "./pages/CampaignDiscoveryPage";
+import CampaignPreviewPage from "./pages/CampaignPreviewPage";
+import CampaignCreatePage from "./pages/CampaignCreatePage";
+import PublicQueuePage from "./pages/PublicQueuePage";
 import JoinQueuePage from "./pages/JoinQueuePage";
 import JoinedQueuePage from "./pages/JoinedQueuePage";
 import PaymentReturnPage from "./pages/PaymentReturnPage";
 import TermsPage from "./pages/TermsPage";
 import NotFoundPage from "./pages/NotFoundPage";
-import DeveloperPortalPage from "./pages/DeveloperPortalPage";
-import DeveloperReferencePage from "./pages/DeveloperReferencePage";
-import DeveloperPortalPrototype from "./pages/prototypes/DeveloperPortalPrototype";
 import SiteFooter from "./components/SiteFooter";
-import MaintenanceBoundary from "./components/MaintenanceBoundary";
-import { VendorAuthLayout } from "./vendor/VendorAuthLayout";
-
+import CustomerAccountLayout from "./components/CustomerAccountLayout";
 import {
   JOINED_QUEUE_ROUTE_PATH,
+  buildMonitorPath,
   LEGACY_MONITOR_ROUTE_PATH,
   MONITOR_ROUTE_PATH
 } from "./queuePaths";
@@ -60,8 +54,7 @@ function AppShell({ children }: { children: ReactNode }) {
   const location = useLocation();
   const isDashboardRoute = location.pathname.startsWith("/dashboard");
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const navigationGuard = useRef<(() => boolean) | null>(null);
-  const primaryTenant = activeMemberships(user?.tenants || [])[0] || null;
+  const primaryTenant = user?.tenants?.find((tenant) => tenant.isActive !== false) || user?.tenants?.[0] || null;
   const isVendor = Boolean(primaryTenant);
 
   useEffect(() => {
@@ -69,7 +62,6 @@ function AppShell({ children }: { children: ReactNode }) {
   }, [location.pathname, location.hash]);
 
   const handleLogout = () => {
-    if (navigationGuard.current && !navigationGuard.current()) return;
     setMobileMenuOpen(false);
     logout();
   };
@@ -99,7 +91,7 @@ function AppShell({ children }: { children: ReactNode }) {
         <Menu.Item component={Link} to="/account/dashboard">Dashboard</Menu.Item>
         <Menu.Item component={Link} to="/account/tickets">Queue Tickets</Menu.Item>
         <Menu.Item component={Link} to="/account/bookings">Bookings</Menu.Item>
-
+        <Menu.Item component={Link} to="/account/campaigns">Campaigns</Menu.Item>
         <Menu.Item component={Link} to="/account/settings">Settings</Menu.Item>
         <Menu.Item component={Link} to="/account/security">Security</Menu.Item>
         <Menu.Divider />
@@ -123,7 +115,7 @@ function AppShell({ children }: { children: ReactNode }) {
         <Menu.Label>{primaryTenant.name}</Menu.Label>
         <Menu.Item component={Link} to="/dashboard">Dashboard</Menu.Item>
         <Menu.Item component={Link} to={`/vendors/${primaryTenant.slug}`}>View vendor page</Menu.Item>
-        <Menu.Item component={Link} to="/dashboard/queue">View queue board</Menu.Item>
+        <Menu.Item component={Link} to={buildMonitorPath(primaryTenant.slug)}>View queue board</Menu.Item>
         <Menu.Item component={Link} to="/dashboard/account">Account</Menu.Item>
         <Menu.Divider />
         <Menu.Item color="red" leftSection={<IconLogout size={14} />} onClick={handleLogout}>
@@ -133,24 +125,8 @@ function AppShell({ children }: { children: ReactNode }) {
     </Menu>
   ) : null;
 
-  function guardShellNavigation(event: React.MouseEvent<HTMLElement>) {
-    const link = event.target instanceof Element ? event.target.closest("a[href]") : null;
-    if (!link || link.getAttribute("href") === location.pathname + location.search + location.hash || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || link.getAttribute("target") === "_blank") return;
-    if (navigationGuard.current && !navigationGuard.current()) {
-      event.preventDefault();
-      event.stopPropagation();
-    }
-  }
-
-  if (isDashboardRoute) return (
-    <VendorNavigationGuard.Provider value={navigationGuard}>
-      <div className="vendor-app-frame" onClickCapture={guardShellNavigation}>{children}</div>
-    </VendorNavigationGuard.Provider>
-  );
-
   return (
-    <VendorNavigationGuard.Provider value={navigationGuard}>
-    <Box className={isDashboardRoute ? "app-shell dashboard-app-shell" : "app-shell finazze-app-shell"} onClickCapture={guardShellNavigation}>
+    <Box className={isDashboardRoute ? "app-shell dashboard-app-shell" : "app-shell finazze-app-shell"}>
       <Box className={isDashboardRoute ? "topbar dashboard-topbar" : "finazze-topbar"} component="header">
         <Container size={isDashboardRoute ? "100%" : "xl"} w="100%">
           <Group className="public-topbar-inner" justify="space-between" gap="lg">
@@ -199,7 +175,7 @@ function AppShell({ children }: { children: ReactNode }) {
                   <>
                     <Button component={Link} to="/dashboard" variant="subtle" color="dark">Dashboard</Button>
                     <Button component={Link} to={`/vendors/${primaryTenant?.slug || ""}`} variant="subtle" color="dark">View vendor page</Button>
-                    <Button component={Link} to="/dashboard/queue" variant="subtle" color="dark">View queue board</Button>
+                    <Button component={Link} to={buildMonitorPath(primaryTenant?.slug || "")} variant="subtle" color="dark">View queue board</Button>
                     <Button component={Link} to="/dashboard/account" variant="subtle" color="dark">Account</Button>
                   </>
                 ) : (
@@ -207,7 +183,7 @@ function AppShell({ children }: { children: ReactNode }) {
                     <Button component={Link} to="/account/dashboard" variant="subtle" color="dark">Dashboard</Button>
                     <Button component={Link} to="/account/tickets" variant="subtle" color="dark">Queue Tickets</Button>
                     <Button component={Link} to="/account/bookings" variant="subtle" color="dark">Bookings</Button>
-
+                    <Button component={Link} to="/account/campaigns" variant="subtle" color="dark">Campaigns</Button>
                     <Button component={Link} to="/account/settings" variant="subtle" color="dark">Settings</Button>
                     <Button component={Link} to="/account/security" variant="subtle" color="dark">Security</Button>
                     <Divider my="xs" />
@@ -229,13 +205,14 @@ function AppShell({ children }: { children: ReactNode }) {
         {children}
       </Box>
 
-      {!isDashboardRoute ? <SiteFooter /> : (
-        <Box className="dashboard-copyright" component="footer">
+      {isDashboardRoute ? (
+        <Text component="footer" className="dashboard-copyright" c="dimmed" size="sm">
           © 2026 MNK-Labs Software Development Services
-        </Box>
-      )}
+        </Text>
+      ) : null}
+
+      {!isDashboardRoute ? <SiteFooter /> : null}
     </Box>
-    </VendorNavigationGuard.Provider>
   );
 }
 
@@ -248,28 +225,28 @@ function BarePage({ children }: { children: ReactNode }) {
 }
 
 function LegacyMonitorRedirect() {
-  const { tenantSlug, locationSlug } = useParams();
+  const { tenantSlug } = useParams<{ tenantSlug: string }>();
   const location = useLocation();
-  const ticket = new URLSearchParams(location.search).get("ticket");
-  if (tenantSlug && (ticket || new URLSearchParams(location.search).has("payment"))) {
-    return <Navigate replace to={`/ticket/${tenantSlug}${locationSlug ? `/${locationSlug}` : ""}${location.search}`} />;
-  }
-  return <BarePage><Text ta="center" my="xl">This queue board link has been retired. Ask the vendor for their new queue board URL.</Text></BarePage>;
-}
 
-function DashboardRedirect() {
-  const location = useLocation();
-  const { user, loading } = useAuth();
-  const tenant = activeMemberships(user?.tenants || [])[0];
-  const role = tenant?.role;
-  const saved = user?.id && tenant?.slug ? readPreference(preferenceKey(user.id, tenant.slug)) : null;
-  const workspace = (role === "owner" || role === "admin") && saved === "administration" ? "administration" : "operations";
-  if (loading) return <Text>Loading vendor workspace...</Text>;
+  if (!tenantSlug) {
+    return <Navigate to="/" replace />;
+  }
 
   return (
     <Navigate
       replace
-      to={workspacePath(workspace === "administration" ? "settings" : "overview", workspace, location.search, location.hash)}
+      to={`${buildMonitorPath(tenantSlug)}${location.search}${location.hash}`}
+    />
+  );
+}
+
+function DashboardRedirect() {
+  const location = useLocation();
+
+  return (
+    <Navigate
+      replace
+      to={`/dashboard/queue${location.search}${location.hash}`}
     />
   );
 }
@@ -284,33 +261,9 @@ function VendorDashboardRoute() {
   return prototypeEnabled ? <QueueAutoClosePrototype /> : <VendorDashboardPage />;
 }
 
-function VendorEntryRoute() {
-  const { user, loading } = useAuth();
-  const hasVendorMembership = activeMemberships(user?.tenants || []).length > 0;
-
-  if (loading) {
-    return (
-      <VendorAuthLayout>
-        <p className="ops-muted" role="status" aria-busy="true">
-          Loading workspace...
-        </p>
-      </VendorAuthLayout>
-    );
-  }
-
-  if (hasVendorMembership) {
-    return <Navigate replace to="/dashboard" />;
-  }
-
-  return user ? (
-    <Navigate replace to="/register/vendor" />
-  ) : (
-    <Navigate replace to="/login?next=%2Fdashboard" />
-  );
-}
-
 function getVendorBookingTabRoute(pathname: string) {
-  const match = pathname.match(/^\/vendors\/([^/]+)$/);
+  const routePattern = /^\/vendors\/([^/]+)$/;
+  const match = routePattern.exec(pathname);
   if (!match) {
     return null;
   }
@@ -374,83 +327,49 @@ function ScrollToTop() {
   return null;
 }
 
-function UniversalOrLegacyRegistration({ surface }: { surface: "customer" | "vendor" }) {
-  const location = useLocation();
-  const { user, loading } = useAuth();
-  const params = new URLSearchParams(location.search);
-  const selectedSurface = location.pathname === "/register" && params.get("app") === "vendor" ? "vendor" : surface;
-  if (selectedSurface === "vendor" && loading) return <p role="status">Loading session…</p>;
-  const preserveLegacy = !publicUniversalAuthEnabled || needsLegacyRegistration(selectedSurface, Boolean(user), params.has("oauth"), Boolean(location.state));
-  if (preserveLegacy) return selectedSurface === "vendor" ? <RegisterVendorPage /> : <RegisterCustomerPage />;
-  return <PublicThemeProvider><UniversalAuthPage /></PublicThemeProvider>;
-}
-
 export default function App() {
-  const isVendorSurface = import.meta.env.VITE_APP_SURFACE === "vendor";
-  const isDeveloperHostname = typeof window !== "undefined" && ["developers.getprio.online"].includes(window.location.hostname);
-  const isLocalPrototypePreview = import.meta.env.DEV && typeof window !== "undefined" && window.location.pathname === "/prototype";
-
-  if (isDeveloperHostname || isLocalPrototypePreview) {
-    if (typeof window !== "undefined" && window.location.pathname === "/prototype") {
-      return <DeveloperPortalPrototype />;
-    }
-    if (
-      typeof window !== "undefined" &&
-      (window.location.pathname === "/reference" ||
-        ["/docs/reference", "/reference/", "/docs/reference/"].includes(window.location.pathname))
-    ) {
-      return <DeveloperReferencePage />;
-    }
-    return <DeveloperPortalPage />;
-  }
-
   return (
     <>
       <ScrollToTop />
-      <MaintenanceBoundary>
       <Routes>
-        <Route path="/queue-board/:boardId" element={<BarePage><SecureQueueBoardPage /></BarePage>} />
-        <Route path={MONITOR_ROUTE_PATH} element={<LegacyMonitorRedirect />} />
+        {import.meta.env.DEV && <Route path="/prototype/developer-api" element={<Suspense fallback={<div>Loading prototype…</div>}><DeveloperPortalPrototype /></Suspense>} />}
+        <Route path={MONITOR_ROUTE_PATH} element={<BarePage><PublicQueuePage /></BarePage>} />
         <Route path={JOINED_QUEUE_ROUTE_PATH} element={<AppShell><JoinedQueuePage /></AppShell>} />
         <Route path={LEGACY_MONITOR_ROUTE_PATH} element={<LegacyMonitorRedirect />} />
-        <Route path="/" element={isVendorSurface ? <VendorEntryRoute /> : <AppShell><LandingPage /></AppShell>} />
-        <Route path="/login" element={isVendorSurface ? <LoginPage /> : <AppShell>{publicUniversalAuthEnabled && !new URLSearchParams(window.location.search).has("resetToken") ? <PublicThemeProvider><UniversalAuthPage /></PublicThemeProvider> : <LoginPage />}</AppShell>} />
-        <Route path="/register" element={isVendorSurface ? <RegisterVendorPage /> : <AppShell><UniversalOrLegacyRegistration surface="customer" /></AppShell>} />
-        <Route path="/oauth/callback" element={isVendorSurface ? <OAuthCallbackPage /> : <AppShell><OAuthCallbackPage /></AppShell>} />
+        <Route path="/" element={<AppShell><LandingPage /></AppShell>} />
+        <Route path="/login" element={<AppShell><LoginPage /></AppShell>} />
+        <Route path="/oauth/callback" element={<AppShell><OAuthCallbackPage /></AppShell>} />
         <Route path="/payment/return" element={<AppShell><PaymentReturnPage /></AppShell>} />
         <Route path="/privacy-policy" element={<AppShell><PrivacyPolicyPage /></AppShell>} />
         <Route path="/help" element={<AppShell><HelpPage /></AppShell>} />
         <Route path="/contact" element={<AppShell><ContactPage /></AppShell>} />
         <Route path="/terms" element={<AppShell><TermsPage /></AppShell>} />
-        <Route path="/register/vendor" element={isVendorSurface ? <RegisterVendorPage /> : <AppShell><UniversalOrLegacyRegistration surface="vendor" /></AppShell>} />
-        <Route path="/register/customer" element={<AppShell><UniversalOrLegacyRegistration surface="customer" /></AppShell>} />
+        <Route path="/register/vendor" element={<AppShell><RegisterVendorPage /></AppShell>} />
+        <Route path="/register/customer" element={<AppShell><RegisterCustomerPage /></AppShell>} />
         <Route path="/account" element={<Navigate to="/account/dashboard" replace />} />
         <Route path="/account/dashboard" element={<AppShell><CustomerDashboardPage /></AppShell>} />
         <Route path="/account/dashboard-prototype" element={<Navigate to="/account/dashboard" replace />} />
         <Route path="/account/profile" element={<Navigate to="/account/settings" replace />} />
         <Route path="/account/tickets" element={<AppShell><CustomerAccountPage /></AppShell>} />
-        <Route path="/lists" element={<Navigate to="/account/tickets" replace />} />
         <Route path="/account/bookings" element={<AppShell><CustomerAccountPage /></AppShell>} />
-
+        <Route path="/account/campaigns" element={<AppShell><CustomerAccountLayout activeSection="campaigns"><CampaignControlCenterPage /></CustomerAccountLayout></AppShell>} />
+        <Route path="/account/campaigns/discover" element={<AppShell><CustomerAccountLayout activeSection="campaigns"><CampaignDiscoveryPage /></CustomerAccountLayout></AppShell>} />
+        <Route path="/account/campaigns/:campaignId/manage" element={<AppShell><CustomerAccountLayout activeSection="campaigns"><CampaignControlCenterPage /></CustomerAccountLayout></AppShell>} />
         <Route path="/account/settings" element={<AppShell><CustomerAccountPage /></AppShell>} />
         <Route path="/account/notifications" element={<AppShell><CustomerAccountPage /></AppShell>} />
         <Route path="/account/security" element={<AppShell><CustomerAccountPage /></AppShell>} />
         <Route path="/account/bookings/:bookingId" element={<AppShell><CustomerBookingDetailPage /></AppShell>} />
-
+        <Route path="/account/bookings/:bookingId/campaign/new" element={<AppShell><CustomerAccountLayout activeSection="campaigns"><CampaignCreatePage /></CustomerAccountLayout></AppShell>} />
+        <Route path="/campaign/:publicToken" element={<AppShell><CampaignPreviewPage /></AppShell>} />
         <Route path="/vendors" element={<AppShell><VendorDiscoveryPage /></AppShell>} />
         <Route path="/vendors/:tenantSlug/book" element={<AppShell><BookingRequestPage /></AppShell>} />
         <Route path="/vendors/:tenantSlug/book/:serviceSlug" element={<AppShell><BookingRequestPage /></AppShell>} />
-        <Route path="/vendors/:tenantSlug/bookings/:bookingId" element={<AppShell><BookingRequestPage /></AppShell>} />
-
         <Route path="/vendors/:tenantSlug" element={<AppShell><VendorProfilePage /></AppShell>} />
         <Route path="/dashboard" element={<DashboardRedirect />} />
-        <Route path="/dashboard/services/:routeServiceSlug/edit" element={<AppShell><VendorDashboardRoute /></AppShell>} />
-        <Route path="/dashboard/locations/:locationSlug/edit" element={<AppShell><VendorDashboardRoute /></AppShell>} />
         <Route path="/dashboard/:section" element={<AppShell><VendorDashboardRoute /></AppShell>} />
         <Route path="/join/:tenantSlug/:locationSlug?" element={<AppShell><JoinQueuePage /></AppShell>} />
         <Route path="*" element={<AppShell><NotFoundPage /></AppShell>} />
       </Routes>
-      </MaintenanceBoundary>
     </>
   );
 }

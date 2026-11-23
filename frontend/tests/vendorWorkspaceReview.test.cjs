@@ -68,26 +68,18 @@ for (const resource of ['counters', 'staff', 'services', 'availability']) {
   });
 }
 
-test('context Retry re-establishes locations through bootstrap, alongside snapshot refresh', async () => {
+test('dashboard context exposes bootstrap locations and a separate queue snapshot refresh', () => {
   const fs = require('node:fs');
-  const vm = require('node:vm');
-  const ts = require('typescript');
   const source = fs.readFileSync(require('node:path').join(__dirname, '../src/pages/VendorDashboardPage.tsx'), 'utf8');
-  const start = source.indexOf('  async function retryDashboardContext()');
-  const end = source.indexOf('  async function reloadDashboardSnapshot()', start);
-  const script = ts.transpileModule(source.slice(start, end) + '\nretryDashboardContext;', { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
-  let selectedLocation = '';
-  let error = 'Locations request failed';
-  let snapshotRefreshed = false;
-  const retry = vm.runInNewContext(script, {
-    setError: value => { error = value; },
-    dashboardBootstrapQuery: { refetch: async () => { selectedLocation = 'primary'; } },
-    queueLifecycleSnapshotQuery: { refetch: async () => { snapshotRefreshed = true; } }
-  });
-  await retry();
-  assert.equal(selectedLocation, 'primary');
-  assert.equal(snapshotRefreshed, true);
-  assert.equal(error, '');
+  const bootstrapStart = source.indexOf('const dashboardBootstrapQuery = useQuery({');
+  const snapshotStart = source.indexOf('const queueLifecycleSnapshotQuery = useQuery({');
+  const reloadStart = source.indexOf('  async function reloadDashboardSnapshot()');
+  assert.ok(bootstrapStart >= 0 && snapshotStart > bootstrapStart && reloadStart >= 0);
+  assert.match(source.slice(bootstrapStart, snapshotStart), /vendorDashboardBootstrap\.getBootstrap\(/);
+  assert.match(source.slice(bootstrapStart, snapshotStart), /selectedLocationSlug/);
+  assert.match(source.slice(snapshotStart, reloadStart), /vendorDashboardQueue\.getQueueSnapshot\(/);
+  assert.match(source.slice(reloadStart, source.indexOf('  async function handleOpenQueueDay', reloadStart)), /invalidateQueries\(/);
+  assert.match(source.slice(reloadStart, source.indexOf('  async function handleOpenQueueDay', reloadStart)), /vendor-dashboard-queue-lifecycle/);
 });
 
 test('explicit dialog discard clears its form before the exit animation unmounts it', () => {

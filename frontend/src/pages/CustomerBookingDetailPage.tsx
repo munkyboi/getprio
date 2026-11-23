@@ -256,7 +256,7 @@ function OwnedBookingDetail({renderPresentation,renderUnavailable,renderLoading}
         setLoading(false);
       }
     }
-  }, [bookingId, token]);
+  }, [bookingId, gate, token]);
 
   async function submitVendorRating() {
     if (!token || !booking || !ratingStars) return;
@@ -275,7 +275,7 @@ function OwnedBookingDetail({renderPresentation,renderUnavailable,renderLoading}
     if (!token || !bookingId) return undefined;
     void loadBooking({ showLoading: true });
     return () => { gate.invalidate(); };
-  }, [bookingId, loadBooking, token]);
+  }, [bookingId, gate, loadBooking, token]);
 
   useEffect(() => {
     if (!token || !booking?.tenantSlug || !booking.locationSlug) {
