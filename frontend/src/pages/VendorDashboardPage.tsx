@@ -1,5 +1,4 @@
 import { VendorRatingsPanel } from "../components/VendorRatingsPanel";
-import VendorGroupFundedPage from "../components/VendorGroupFundedPage";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -111,11 +110,6 @@ import type {
   UpdateVendorBookingStatusRequest,
   PaginationMetadata,
   PasswordChangeRequest,
-  GroupFundedLocationServiceSettings,
-  GroupFundedCampaignSummary,
-  VendorGroupFundedContributionSummary,
-  VendorGroupFundedRefundSummary,
-  GroupFundedRefundStatus
 } from "@shared";
 import { DEFAULT_TIMEZONE, getTimeZoneOptions } from "../../../shared/timezones";
 import { BusinessCategorySelect } from "../components/BusinessCategorySelect";
@@ -403,125 +397,6 @@ const emptyServiceForm: SaveVendorServiceRequest = {
   locationServices: []
 };
 
-const defaultGroupFundedSettings: GroupFundedLocationServiceSettings = {
-  enabled: false,
-  minRequiredContributors: 2,
-  maxRequiredContributors: 12,
-  defaultRequiredContributors: 4,
-  minContributionAmountCents: null,
-  maxContributionAmountCents: null,
-  minDeadlineHours: 24,
-  maxDeadlineDays: 14,
-  allowPublicCampaigns: false
-};
-
-const groupFundedCampaignRejectionReasons = [
-  {
-    label: "Schedule no longer available",
-    value: "schedule_unavailable",
-    reason: "The requested schedule is no longer available for this group-funded booking. Please contact the vendor or start a new campaign with another available slot."
-  },
-  {
-    label: "Capacity cannot be reserved",
-    value: "capacity_unavailable",
-    reason: "The branch cannot reserve enough capacity for this group-funded booking at the selected schedule. Verified contributions will be marked refund-eligible."
-  },
-  {
-    label: "Payment proof issue",
-    value: "payment_proof_issue",
-    reason: "One or more verified contribution proofs require additional review before this campaign can be accepted. Verified contributions will be marked refund-eligible for this campaign."
-  },
-  {
-    label: "Service unavailable",
-    value: "service_unavailable",
-    reason: "The selected service is not available for group-funded booking at this time. Verified contributions will be marked refund-eligible."
-  },
-  {
-    label: "Vendor cannot fulfill request",
-    value: "vendor_unavailable",
-    reason: "The vendor cannot fulfill this group-funded booking request at the selected date and time. Verified contributions will be marked refund-eligible."
-  }
-];
-
-const groupFundedContributionRejectionReasons = [
-  {
-    label: "Payment reference cannot be matched",
-    value: "reference_unmatched",
-    reason: "The payment reference could not be matched to a received payment. Please verify the reference and submit a new proof if needed."
-  },
-  {
-    label: "Proof is unreadable or incomplete",
-    value: "proof_unreadable",
-    reason: "The payment proof is unreadable or does not show enough information to verify the payment. Please submit a clearer proof."
-  },
-  {
-    label: "Payment amount does not match",
-    value: "amount_mismatch",
-    reason: "The payment amount does not match the required contribution for this campaign."
-  },
-  {
-    label: "Duplicate payment proof",
-    value: "duplicate_proof",
-    reason: "This payment proof duplicates a contribution that has already been submitted for this campaign."
-  },
-  {
-    label: "Campaign contributor positions are full",
-    value: "campaign_full",
-    reason: "The campaign has already filled all contributor positions, so this contribution cannot be accepted."
-  }
-];
-
-function normalizeGroupFundedSettings(
-  settings?: Partial<GroupFundedLocationServiceSettings> | null
-): GroupFundedLocationServiceSettings {
-  const minRequiredContributors =
-    settings?.minRequiredContributors ??
-    defaultGroupFundedSettings.minRequiredContributors ??
-    2;
-  const maxRequiredContributors = Math.max(
-    minRequiredContributors,
-    settings?.maxRequiredContributors ??
-      defaultGroupFundedSettings.maxRequiredContributors ??
-      12
-  );
-  const defaultRequiredContributors = Math.min(
-    maxRequiredContributors,
-    Math.max(
-      minRequiredContributors,
-      defaultGroupFundedSettings.defaultRequiredContributors ?? 4
-    )
-  );
-
-  return {
-    enabled: settings?.enabled === true,
-    minRequiredContributors,
-    maxRequiredContributors,
-    defaultRequiredContributors,
-    minContributionAmountCents: null,
-    maxContributionAmountCents: null,
-    minDeadlineHours:
-      settings?.minDeadlineHours ?? defaultGroupFundedSettings.minDeadlineHours,
-    maxDeadlineDays:
-      settings?.maxDeadlineDays ?? defaultGroupFundedSettings.maxDeadlineDays,
-    allowPublicCampaigns: settings?.allowPublicCampaigns === true
-  };
-}
-
-function updateGroupFundedContributorBounds(
-  settings: Partial<GroupFundedLocationServiceSettings> | null | undefined,
-  changes: Partial<
-    Pick<
-      GroupFundedLocationServiceSettings,
-      "minRequiredContributors" | "maxRequiredContributors"
-    >
-  >
-): GroupFundedLocationServiceSettings {
-  return normalizeGroupFundedSettings({
-    ...normalizeGroupFundedSettings(settings),
-    ...changes
-  });
-}
-
 type ServiceLocationFormEntry = NonNullable<SaveVendorServiceRequest["locationServices"]>[number];
 
 function buildDefaultServiceLocationEntry(locationSlug: string): ServiceLocationFormEntry {
@@ -532,7 +407,6 @@ function buildDefaultServiceLocationEntry(locationSlug: string): ServiceLocation
     sortOrder: 0,
     priceAmountCents: null,
     priceDisplay: null,
-    groupFunded: normalizeGroupFundedSettings()
   };
 }
 
@@ -763,14 +637,13 @@ const presetBackgroundImageUrls = new Set(
     .filter(Boolean)
 );
 
-type DashboardSection = "queue" | "tenants" | "services" | "bookings" | "group-funded" | "staff" | "clients" | "history" | "reports" | "ratings" | "settings" | "account";
+type DashboardSection = "queue" | "tenants" | "services" | "bookings" | "staff" | "clients" | "history" | "reports" | "ratings" | "settings" | "account";
 type AccountTab = "subscription" | "billing" | "profile" | "security";
 type SettingsTab = "contact" | "queue" | "notifications";
 type QueueView = "current" | "overflow" | "recovery";
 type ClientSort = "latestVisitDesc" | "latestVisitAsc" | "nameAsc" | "nameDesc" | "visitsDesc" | "visitsAsc";
 type HistorySort = "updatedDesc" | "updatedAsc" | "ticketAsc" | "ticketDesc" | "customerAsc" | "customerDesc";
 type BookingStatusFilter = "all" | "pending" | "confirmed" | "rescheduled" | "canceled";
-type GroupFundedStatusFilter = "all" | "funding" | "vendor_review" | "slot_recovery" | "replacement_proposed" | "confirmed" | "vendor_rejected" | "funding_failed";
 
 const CLIENTS_PAGE_SIZE = 10;
 const HISTORY_PAGE_SIZE = 10;
@@ -841,24 +714,6 @@ function formatMoney(amountCents: number, currency = "PHP"): string {
   }).format(Number(amountCents || 0) / 100);
 }
 
-function getCampaignFundingTargetAmountCents(campaign: {
-  targetAmountCents?: number;
-  roundingAdjustmentCents?: number;
-}): number {
-  return Number(campaign.targetAmountCents || 0) + Number(campaign.roundingAdjustmentCents || 0);
-}
-
-function isGroupFundedCampaignFullyRefunded(campaign: GroupFundedCampaignSummary) {
-  const refundSummary = campaign.refundSummary;
-  return Boolean(
-    campaign.campaignStatus === "vendor_rejected" &&
-    refundSummary &&
-    refundSummary.totalCount > 0 &&
-    refundSummary.completedCount === refundSummary.totalCount &&
-    refundSummary.totalCount === refundSummary.eligibleContributionCount
-  );
-}
-
 function formatBytes(sizeBytes: number | null): string {
   if (!sizeBytes) {
     return "Unknown size";
@@ -909,22 +764,6 @@ function getBookingCheckInState(booking: VendorBookingSummary) {
     isEligibleStatus: ["confirmed", "rescheduled"].includes(booking.status),
     minutesFromStart
   };
-}
-
-function GroupFundedBookingIndicator({ booking }: { booking: VendorBookingSummary }) {
-  if (!booking.groupFundedBookingId && booking.bookingPaymentSource !== "group_funded") {
-    return null;
-  }
-
-  const campaignId = booking.groupFundedBookingId || booking.groupFundedCampaign?.id;
-  const campaignTitle = booking.groupFundedCampaign?.campaignTitle || "Group-funded campaign";
-  return (
-    <Tooltip label={campaignTitle} withArrow>
-      <Badge color="blue" variant="light" w="fit-content">
-        Group-funded{campaignId ? ` · Campaign #${campaignId}` : ""}
-      </Badge>
-    </Tooltip>
-  );
 }
 
 function QueueIntakeGauge({
@@ -1088,7 +927,6 @@ function updateServiceLocationEntries(
       ? updater({
           ...buildDefaultServiceLocationEntry(locationSlug),
           ...entry,
-          groupFunded: normalizeGroupFundedSettings(entry.groupFunded)
         })
       : entry
   );
@@ -1225,17 +1063,6 @@ export default function VendorDashboardPage() {
   const [organizerRatingSubmitted, setOrganizerRatingSubmitted] = useState(false);
   const [organizerRatingBooking, setOrganizerRatingBooking] = useState<VendorBookingSummary | null>(null);
   const [organizerRatingReason, setOrganizerRatingReason] = useState("");
-  const [groupFundedStatusFilter, setGroupFundedStatusFilter] = useState<GroupFundedStatusFilter>("all");
-  const [groupFundedDetailId, setGroupFundedDetailId] = useState<string | null>(null);
-  const [groupFundedRejectReason, setGroupFundedRejectReason] = useState("");
-  const [groupFundedRejectReasonPreset, setGroupFundedRejectReasonPreset] = useState<string | null>(null);
-  const [groupFundedUseCustomRejectReason, setGroupFundedUseCustomRejectReason] = useState(false);
-  const [groupFundedContributionToReject, setGroupFundedContributionToReject] = useState<VendorGroupFundedContributionSummary | null>(null);
-  const [groupFundedContributionRejectReason, setGroupFundedContributionRejectReason] = useState("");
-  const [groupFundedContributionRejectReasonPreset, setGroupFundedContributionRejectReasonPreset] = useState<string | null>(null);
-  const [groupFundedContributionUseCustomRejectReason, setGroupFundedContributionUseCustomRejectReason] = useState(false);
-  const [groupFundedContributionRefundRequired, setGroupFundedContributionRefundRequired] = useState(false);
-  const [groupFundedRefundNotes, setGroupFundedRefundNotes] = useState<Record<string, string>>({});
   const [confirmAction, setConfirmAction] = useState<null | {
     title: string;
     description: string;
@@ -1299,10 +1126,6 @@ export default function VendorDashboardPage() {
   const [rescheduleSlotsLoading, setRescheduleSlotsLoading] = useState(false);
   const [rescheduleSlotsError, setRescheduleSlotsError] = useState("");
   const [rescheduleBlockModalOpen, setRescheduleBlockModalOpen] = useState(false);
-  const [groupFundedProofModalOpen, setGroupFundedProofModalOpen] = useState(false);
-  const [groupFundedProofContribution, setGroupFundedProofContribution] = useState<VendorGroupFundedContributionSummary | null>(null);
-  const [groupFundedProofAccessUrl, setGroupFundedProofAccessUrl] = useState("");
-  const [groupFundedProofError, setGroupFundedProofError] = useState("");
   const selectedLocation =
     locations.find((locationItem) => locationItem.slug === selectedLocationSlug) ||
     snapshot?.location ||
@@ -1331,8 +1154,7 @@ export default function VendorDashboardPage() {
   const dashboardErrorMessage = [
     error,
     bookingDetailError,
-    rescheduleSlotsError,
-    groupFundedProofError
+    rescheduleSlotsError
   ].find(Boolean) || "";
 
   useEffect(() => {
@@ -1593,54 +1415,6 @@ export default function VendorDashboardPage() {
       hasActiveSubscription &&
       canOperateBookingQueue &&
       canAccessVendorSection("bookings", effectiveEntitlements)
-    )
-  });
-  const groupFundedCampaignsQuery = useQuery({
-    queryKey: [
-      "vendor-dashboard-group-funded-campaigns",
-      token,
-      selectedTenantSlug,
-      selectedLocation?.id,
-      groupFundedStatusFilter
-    ],
-    queryFn: async () => {
-      if (!token || !selectedTenantSlug || !selectedLocation?.id) {
-        throw new Error("Missing dashboard context.");
-      }
-
-      return vendorDashboardBookings.getGroupFundedCampaigns(
-        token,
-        selectedTenantSlug,
-        selectedLocation.id,
-        groupFundedStatusFilter
-      );
-    },
-    enabled: Boolean(
-      canLoadProtectedDashboard &&
-      token &&
-      selectedTenantSlug &&
-      selectedLocation?.id &&
-      currentSection === "group-funded" &&
-      hasActiveSubscription &&
-      canOperateBookingQueue &&
-      canAccessVendorSection("group-funded", effectiveEntitlements)
-    )
-  });
-  const groupFundedDetailQuery = useQuery({
-    queryKey: ["vendor-dashboard-group-funded-detail", token, selectedTenantSlug, groupFundedDetailId],
-    queryFn: async () => {
-      if (!token || !selectedTenantSlug || !groupFundedDetailId) {
-        throw new Error("Missing campaign context.");
-      }
-
-      return vendorDashboardBookings.getGroupFundedCampaignDetail(token, selectedTenantSlug, groupFundedDetailId);
-    },
-    enabled: Boolean(
-      canLoadProtectedDashboard &&
-      token &&
-      selectedTenantSlug &&
-      groupFundedDetailId &&
-      canAccessVendorSection("group-funded", effectiveEntitlements)
     )
   });
   const bookingAlertsQuery = useQuery({
@@ -2216,64 +1990,9 @@ export default function VendorDashboardPage() {
           ]
         });
       }
-      if (
-        token &&
-        hasActiveSubscription &&
-        canOperateBookingQueue &&
-        canAccessVendorSection("group-funded", effectiveEntitlements)
-      ) {
-        void queryClient.invalidateQueries({
-          queryKey: ["vendor-dashboard-group-funded-campaigns", token, selectedTenantSlug]
-        });
-        void queryClient.invalidateQueries({
-          queryKey: ["vendor-dashboard-group-funded-detail", token, selectedTenantSlug]
-        });
-      }
     };
-    eventSource.onerror = () => {
-      // EventSource reconnects automatically after transient network/server hiccups.
-    };
-
     return () => {
       eventSource.close();
-    };
-  }, [
-    canOperateBookingQueue,
-    currentSection,
-    effectiveEntitlements,
-    bookingDateRange,
-    bookingPage,
-    bookingSearch,
-    bookingStatusFilter,
-    hasActiveSubscription,
-    locationQuery,
-    queryClient,
-    selectedLocationSlug,
-    selectedTenantSlug,
-    token
-  ]);
-
-  useEffect(() => {
-    if (!selectedTenantSlug || !selectedLocationSlug || !token || currentSection !== "history" || !hasActiveSubscription) {
-      return undefined;
-    }
-
-    let active = true;
-
-    vendorDashboardOperations.getHistory(token, selectedTenantSlug, selectedLocationSlug)
-      .then((data) => {
-        if (active) {
-          setHistory(data);
-        }
-      })
-      .catch((loadError) => {
-        if (active) {
-          setError(getErrorMessage(loadError));
-        }
-      });
-
-    return () => {
-      active = false;
     };
   }, [currentSection, hasActiveSubscription, selectedLocationSlug, selectedTenantSlug, token]);
 
@@ -2644,19 +2363,7 @@ export default function VendorDashboardPage() {
     persistDismissedAlerts();
   }
 
-  function resetGroupFundedCampaignDecision() {
-    setGroupFundedRejectReason("");
-    setGroupFundedRejectReasonPreset(null);
-    setGroupFundedUseCustomRejectReason(false);
-  }
 
-  function closeGroupFundedContributionRejectModal() {
-    setGroupFundedContributionToReject(null);
-    setGroupFundedContributionRejectReason("");
-    setGroupFundedContributionRejectReasonPreset(null);
-    setGroupFundedContributionUseCustomRejectReason(false);
-    setGroupFundedContributionRefundRequired(false);
-  }
 
   function syncBookingAlerts(bookings: VendorBookingSummary[], options: { detectNew?: boolean } = {}) {
     const nextIds = new Set(bookings.map((booking) => booking.id));
@@ -3091,16 +2798,6 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     });
   }
 
-  async function reloadGroupFundedCampaigns() {
-    await Promise.all([
-      queryClient.invalidateQueries({
-        queryKey: ["vendor-dashboard-group-funded-campaigns", token, selectedTenantSlug]
-      }),
-      queryClient.invalidateQueries({
-        queryKey: ["vendor-dashboard-group-funded-detail", token, selectedTenantSlug]
-      }),
-    ]);
-  }
 
   async function reloadDashboardSnapshot() {
     await queryClient.invalidateQueries({
@@ -3293,30 +2990,6 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     }
   }
 
-  async function handleViewGroupFundedContributionProof(contribution: VendorGroupFundedContributionSummary) {
-    if (!contribution.paymentProof) {
-      return;
-    }
-
-    setGroupFundedProofContribution(contribution);
-    setGroupFundedProofAccessUrl("");
-    setGroupFundedProofError("");
-    setGroupFundedProofModalOpen(true);
-    setBusyAction(`group-funded-proof:${contribution.id}`);
-
-    try {
-      const response = await vendorDashboardBookings.getGroupFundedContributionPaymentProof(
-        token,
-        selectedTenantSlug,
-        contribution.id
-      );
-      setGroupFundedProofAccessUrl(response.access.url);
-    } catch (proofError) {
-      setGroupFundedProofError(getErrorMessage(proofError));
-    } finally {
-      setBusyAction("");
-    }
-  }
 
   async function handleViewBookingPaymentProof(booking: VendorBookingSummary) {
     if (!booking.paymentProof) {
@@ -3412,131 +3085,11 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     }
   }
 
-  async function handleVerifyGroupFundedContribution(contribution: VendorGroupFundedContributionSummary) {
-    setBusyAction(`group-funded-contribution-verify:${contribution.id}`);
-    setError("");
 
-    try {
-      await vendorDashboardBookings.verifyGroupFundedContribution(token, selectedTenantSlug, contribution.id);
-      await reloadGroupFundedCampaigns();
-      showSuccessNotification("Contribution verified", "The campaign funding total was updated.");
-    } catch (verifyError) {
-      setError(getErrorMessage(verifyError));
-    } finally {
-      setBusyAction("");
-    }
-  }
 
-  function openGroupFundedContributionRejectModal(contribution: VendorGroupFundedContributionSummary) {
-    const campaign = groupFundedDetailQuery.data?.campaign;
-    const fundingTargetAmountCents = campaign ? getCampaignFundingTargetAmountCents(campaign) : 0;
-    const fundingReached = Boolean(
-      campaign && (
-        campaign.fundedAmountCents >= fundingTargetAmountCents ||
-        campaign.paidParticipantCount >= campaign.requiredContributors ||
-        campaign.campaignStatus !== "funding"
-      )
-    );
-    setGroupFundedContributionToReject(contribution);
-    setGroupFundedContributionRejectReason("");
-    setGroupFundedContributionRejectReasonPreset(null);
-    setGroupFundedContributionUseCustomRejectReason(false);
-    setGroupFundedContributionRefundRequired(fundingReached);
-  }
 
-  async function handleRejectGroupFundedContribution() {
-    const contribution = groupFundedContributionToReject;
-    if (!contribution) {
-      return;
-    }
-    const reason = groupFundedContributionRejectReason.trim();
-    if (!reason) {
-      setError("A contributor-visible rejection reason is required.");
-      return;
-    }
 
-    setBusyAction(`group-funded-contribution-reject:${contribution.id}`);
-    setError("");
 
-    try {
-      const refundRequired = groupFundedContributionRefundRequired;
-      await vendorDashboardBookings.rejectGroupFundedContribution(token, selectedTenantSlug, contribution.id, {
-        reason,
-        refundDisposition: refundRequired ? "required" : "not_required"
-      });
-      closeGroupFundedContributionRejectModal();
-      await reloadGroupFundedCampaigns();
-      showSuccessNotification(
-        refundRequired ? "Contribution moved to refunds" : "Contribution rejected",
-        refundRequired ? "A refund obligation was created for the contributor." : "The proof was rejected and the contributor can see the reason."
-      );
-    } catch (rejectError) {
-      setError(getErrorMessage(rejectError));
-    } finally {
-      setBusyAction("");
-    }
-  }
-
-  async function handleApproveGroupFundedCampaign(campaign: GroupFundedCampaignSummary) {
-    setBusyAction(`group-funded-approve:${campaign.id}`);
-    setError("");
-
-    try {
-      await vendorDashboardBookings.approveGroupFundedCampaign(token, selectedTenantSlug, campaign.id);
-      setGroupFundedDetailId(null);
-      await reloadGroupFundedCampaigns();
-      await reloadBookings();
-      showSuccessNotification("Group-funded booking approved", "A linked paid booking was created.");
-    } catch (approveError) {
-      setError(getErrorMessage(approveError));
-    } finally {
-      setBusyAction("");
-    }
-  }
-
-  async function handleRejectGroupFundedCampaign(campaign: GroupFundedCampaignSummary) {
-    const reason = groupFundedRejectReason.trim();
-    if (!reason) {
-      setError("A customer-visible rejection reason is required.");
-      return;
-    }
-
-    setBusyAction(`group-funded-reject:${campaign.id}`);
-    setError("");
-
-    try {
-      await vendorDashboardBookings.rejectGroupFundedCampaign(token, selectedTenantSlug, campaign.id, { reason });
-      resetGroupFundedCampaignDecision();
-      setGroupFundedDetailId(null);
-      await reloadGroupFundedCampaigns();
-      showSuccessNotification("Group-funded campaign rejected", "Verified contributions are now refund-eligible.");
-    } catch (rejectError) {
-      setError(getErrorMessage(rejectError));
-    } finally {
-      setBusyAction("");
-    }
-  }
-
-  async function handleUpdateGroupFundedRefund(
-    refund: VendorGroupFundedRefundSummary,
-    refundStatus: Extract<GroupFundedRefundStatus, "in_progress" | "completed" | "policy_review_required">
-  ) {
-    setBusyAction(`group-funded-refund:${refund.id}:${refundStatus}`);
-    setError("");
-
-    try {
-      await vendorDashboardBookings.updateGroupFundedRefund(token, selectedTenantSlug, refund.id, {
-        refundStatus,
-        notes: (groupFundedRefundNotes[refund.id] ?? refund.notes ?? "").trim()
-      });
-      await reloadGroupFundedCampaigns();
-      showSuccessNotification("Refund updated", `Refund marked ${refundStatus.replace(/_/g, " ")}.`);
-    } catch (refundError) {
-      setError(getErrorMessage(refundError));
-    } finally {
-      setBusyAction("");
-    }
-  }
 
   function openServiceDialog(service?: VendorServiceSummary) {
     const locationServices = (locationServicesQuery.data?.locationServices || []).filter(
@@ -3571,7 +3124,6 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
           sortOrder: existing?.sortOrder || 0,
           priceAmountCents: existing?.priceAmountCents ?? null,
           priceDisplay: existing?.priceDisplay ?? null,
-          groupFunded: normalizeGroupFundedSettings(existing?.groupFunded)
         };
       })
     });
@@ -6878,7 +6430,6 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   <Stack gap="sm">
                     {locations.length ? locations.map((location) => {
                       const nextEntry = serviceForm.locationServices?.find((entry) => entry.locationSlug === location.slug);
-                      const groupFunded = normalizeGroupFundedSettings(nextEntry?.groupFunded);
                       const branchEnabled = nextEntry?.isActive !== false;
                       return (
                         <Card key={location.slug} withBorder radius="md" p="sm" className="service-dialog__panel">
@@ -6909,144 +6460,6 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                                 }))
                               }
                             />
-                            <Divider my="xs" />
-                            <Stack gap="sm">
-                              <Group justify="space-between" align="flex-start" gap="md">
-                                <div>
-                                  <Group gap="xs" align="center">
-                                    <Text fw={700}>Group-funded booking</Text>
-                                    <Badge color={groupFunded.enabled ? "orange" : "gray"} variant="light">
-                                      {groupFunded.enabled ? "Enabled" : "Off"}
-                                    </Badge>
-                                  </Group>
-                                  <Text c="dimmed" size="sm">
-                                    Let customers create private-link campaigns for this branch service.
-                                  </Text>
-                                </div>
-                                <Switch
-                                  aria-label={`Enable group-funded booking for ${location.name}`}
-                                  checked={groupFunded.enabled}
-                                  disabled={!branchEnabled}
-                                  onChange={(event) =>
-                                    updateServiceLocationEntry(location.slug, (entry) => ({
-                                      ...entry,
-                                      groupFunded: {
-                                        ...normalizeGroupFundedSettings(entry.groupFunded),
-                                        enabled: event.currentTarget.checked
-                                      }
-                                    }))
-                                  }
-                                />
-                              </Group>
-                              {groupFunded.enabled ? (
-                                <Stack gap="sm">
-                                  <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="sm">
-                                    <NumberInput
-                                      allowDecimal={false}
-                                      allowNegative={false}
-                                      clampBehavior="strict"
-                                      label="Min contributors"
-                                      min={2}
-                                      max={100}
-                                      value={groupFunded.minRequiredContributors || 2}
-                                      onChange={(value) =>
-                                        updateServiceLocationEntry(location.slug, (entry) => ({
-                                          ...entry,
-                                          groupFunded: updateGroupFundedContributorBounds(
-                                            entry.groupFunded,
-                                            {
-                                            minRequiredContributors: Number(value) || 2
-                                            }
-                                          )
-                                        }))
-                                      }
-                                    />
-                                    <NumberInput
-                                      allowDecimal={false}
-                                      allowNegative={false}
-                                      clampBehavior="strict"
-                                      label="Max contributors"
-                                      min={2}
-                                      max={100}
-                                      value={groupFunded.maxRequiredContributors || 12}
-                                      onChange={(value) =>
-                                        updateServiceLocationEntry(location.slug, (entry) => ({
-                                          ...entry,
-                                          groupFunded: updateGroupFundedContributorBounds(
-                                            entry.groupFunded,
-                                            {
-                                            maxRequiredContributors: Number(value) || 12
-                                            }
-                                          )
-                                        }))
-                                      }
-                                    />
-                                  </SimpleGrid>
-                                  <Paper p="sm" radius="md" withBorder>
-                                    <details>
-                                      <summary>
-                                        <Text component="span" fw={700}>Advanced funding window</Text>
-                                      </summary>
-                                      <Text c="dimmed" size="sm" mt="xs">
-                                        Limit how soon or how far ahead customers can set a funding deadline.
-                                      </Text>
-                                      <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="sm" mt="sm">
-                                        <NumberInput
-                                          allowDecimal={false}
-                                          allowNegative={false}
-                                          clampBehavior="strict"
-                                          label="Min deadline hours"
-                                          min={1}
-                                          max={720}
-                                          value={groupFunded.minDeadlineHours || 24}
-                                          onChange={(value) =>
-                                            updateServiceLocationEntry(location.slug, (entry) => ({
-                                              ...entry,
-                                              groupFunded: {
-                                                ...normalizeGroupFundedSettings(entry.groupFunded),
-                                                minDeadlineHours: Number(value) || 24
-                                              }
-                                            }))
-                                          }
-                                        />
-                                        <NumberInput
-                                          allowDecimal={false}
-                                          allowNegative={false}
-                                          clampBehavior="strict"
-                                          label="Max deadline days"
-                                          min={1}
-                                          max={90}
-                                          value={groupFunded.maxDeadlineDays || 14}
-                                          onChange={(value) =>
-                                            updateServiceLocationEntry(location.slug, (entry) => ({
-                                              ...entry,
-                                              groupFunded: {
-                                                ...normalizeGroupFundedSettings(entry.groupFunded),
-                                                maxDeadlineDays: Number(value) || 14
-                                              }
-                                            }))
-                                          }
-                                        />
-                                      </SimpleGrid>
-                                    </details>
-                                  </Paper>
-                                  <Switch
-                                    checked={groupFunded.allowPublicCampaigns}
-                                    label="Allow public campaigns on vendor profile"
-                                    description="Private-link campaigns remain available when group-funded booking is enabled."
-                                    onChange={(event) =>
-                                      updateServiceLocationEntry(location.slug, (entry) => ({
-                                        ...entry,
-                                        groupFunded: {
-                                          ...normalizeGroupFundedSettings(entry.groupFunded),
-                                          allowPublicCampaigns: event.currentTarget.checked
-                                        }
-                                      }))
-                                    }
-                                  />
-                                </Stack>
-                              ) : null}
-                            </Stack>
                           </Stack>
                         </Card>
                       );
@@ -7970,10 +7383,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       const manualPaymentRequired = Boolean(booking.serviceManualPaymentRequired);
                       const checkInState = getBookingCheckInState(booking);
                       const hasExpired = Boolean(booking.expiredAt);
-                      const isGroupFundedBooking = booking.bookingPaymentSource === "group_funded" || Boolean(booking.groupFundedBookingId);
-                      const bookingBundleItems = isGroupFundedBooking && booking.groupFundedCampaign?.bundleItems?.length
-                        ? booking.groupFundedCampaign.bundleItems
-                        : booking.bundleItems || [];
+                      const bookingBundleItems = booking.bundleItems || [];
                       const displayedServiceItems = bookingBundleItems.length
                         ? bookingBundleItems
                         : [{
@@ -7987,9 +7397,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       const primaryServiceItem = displayedServiceItems[0];
                       const additionalServiceCount = Math.max(displayedServiceItems.length - 1, 0);
                       const executionModeLabel = booking.executionMode === "sequential" ? "Back-to-back" : "Together";
-                      const displayedTotalCents = isGroupFundedBooking && booking.groupFundedCampaign
-                        ? Number(booking.groupFundedCampaign.targetAmountCents || 0) + Number(booking.groupFundedCampaign.roundingAdjustmentCents || 0)
-                        : displayedServiceItems.reduce((total, item) => total + Number(item.priceAmountCents || 0), 0);
+                      const displayedTotalCents = displayedServiceItems.reduce((total, item) => total + Number(item.priceAmountCents || 0), 0);
                       const actionButtons = (() => {
                         if (canAdminBookings && paymentReviewPending && booking.paymentProof) {
                           return (
@@ -8222,7 +7630,6 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                                 {booking.reference}
                               </Button>
                               <Text c="dimmed" size="sm">Requested {formatDateTime(booking.createdAt)}</Text>
-                              <GroupFundedBookingIndicator booking={booking} />
                             </Stack>
                           </Table.Td>
                           <Table.Td>
@@ -8235,7 +7642,6 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                             <Stack gap={2}>
                               <Group gap="xs" wrap="nowrap">
                                 <Text fw={700} lineClamp={1}>{primaryServiceItem.serviceName}</Text>
-                                {isGroupFundedBooking ? <Badge color="blue" size="xs" variant="light">Campaign</Badge> : null}
                               </Group>
                               <Text c="dimmed" size="sm">
                                 Quantity {primaryServiceItem.bookingQuantity}
@@ -8271,7 +7677,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                                 {hasExpired ? (
                                   <Badge color="orange" variant="light">Pending timeout</Badge>
                                 ) : null}
-                                {!manualPaymentRequired && !isGroupFundedBooking ? (
+                                {!manualPaymentRequired ? (
                                   <Badge color="gray" variant="light">No manual payment</Badge>
                                 ) : null}
                               </Group>
@@ -8288,14 +7694,12 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                           <Table.Td>
                             <Stack gap={4}>
                               <Badge color={booking.paymentStatus === "paid" ? "teal" : "gray"} variant="light" w="fit-content">
-                                {isGroupFundedBooking ? "Campaign funded" : booking.paymentStatus}
+                                {booking.paymentStatus}
                               </Badge>
                               <Text c="dimmed" size="xs">
-                                {isGroupFundedBooking
-                                  ? "No individual proof"
-                                  : manualPaymentRequired
-                                    ? booking.paymentProof ? "Proof submitted" : "Proof required"
-                                    : "No manual payment"}
+                                {manualPaymentRequired
+                                  ? booking.paymentProof ? "Proof submitted" : "Proof required"
+                                  : "No manual payment"}
                               </Text>
                             </Stack>
                           </Table.Td>
@@ -8336,9 +7740,6 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     );
   }
 
-  function renderGroupFundedPage() {
-    return <VendorGroupFundedPage busyAction={busyAction} canAdminBookings={canAdminBookings} closeGroupFundedContributionRejectModal={closeGroupFundedContributionRejectModal} groupFundedCampaignRejectionReasons={groupFundedCampaignRejectionReasons} groupFundedCampaignsQuery={groupFundedCampaignsQuery} groupFundedContributionRefundRequired={groupFundedContributionRefundRequired} groupFundedContributionRejectReason={groupFundedContributionRejectReason} groupFundedContributionRejectReasonPreset={groupFundedContributionRejectReasonPreset} groupFundedContributionRejectionReasons={groupFundedContributionRejectionReasons} groupFundedContributionToReject={groupFundedContributionToReject} groupFundedContributionUseCustomRejectReason={groupFundedContributionUseCustomRejectReason} groupFundedDetailId={groupFundedDetailId} groupFundedDetailQuery={groupFundedDetailQuery} groupFundedProofAccessUrl={groupFundedProofAccessUrl} groupFundedProofContribution={groupFundedProofContribution} groupFundedProofError={groupFundedProofError} groupFundedProofModalOpen={groupFundedProofModalOpen} groupFundedRefundNotes={groupFundedRefundNotes} groupFundedRejectReason={groupFundedRejectReason} groupFundedRejectReasonPreset={groupFundedRejectReasonPreset} groupFundedStatusFilter={groupFundedStatusFilter} groupFundedUseCustomRejectReason={groupFundedUseCustomRejectReason} handleApproveGroupFundedCampaign={handleApproveGroupFundedCampaign} handleRejectGroupFundedCampaign={handleRejectGroupFundedCampaign} handleRejectGroupFundedContribution={handleRejectGroupFundedContribution} handleUpdateGroupFundedRefund={handleUpdateGroupFundedRefund} handleVerifyGroupFundedContribution={handleVerifyGroupFundedContribution} handleViewGroupFundedContributionProof={handleViewGroupFundedContributionProof} isGroupFundedCampaignFullyRefunded={isGroupFundedCampaignFullyRefunded} openGroupFundedContributionRejectModal={openGroupFundedContributionRejectModal} reloadGroupFundedCampaigns={reloadGroupFundedCampaigns} resetGroupFundedCampaignDecision={resetGroupFundedCampaignDecision} setGroupFundedContributionRefundRequired={setGroupFundedContributionRefundRequired} setGroupFundedContributionRejectReason={setGroupFundedContributionRejectReason} setGroupFundedContributionRejectReasonPreset={setGroupFundedContributionRejectReasonPreset} setGroupFundedContributionUseCustomRejectReason={setGroupFundedContributionUseCustomRejectReason} setGroupFundedDetailId={setGroupFundedDetailId} setGroupFundedProofModalOpen={setGroupFundedProofModalOpen} setGroupFundedRefundNotes={setGroupFundedRefundNotes} setGroupFundedRejectReason={setGroupFundedRejectReason} setGroupFundedRejectReasonPreset={setGroupFundedRejectReasonPreset} setGroupFundedStatusFilter={setGroupFundedStatusFilter} setGroupFundedUseCustomRejectReason={setGroupFundedUseCustomRejectReason} />;
-  }
   function renderRescheduleDialog() {
     const rescheduleSlotOptions = rescheduleSlots.map((slot) => ({
       value: String(slot.startAt),
@@ -9912,17 +9313,9 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     const detailManualPaymentRequired = Boolean(detailBooking?.serviceManualPaymentRequired);
     const detailPaymentGateActive = Boolean(detailBooking && detailManualPaymentRequired && !detailPaymentVerified);
     const detailBookingExpired = Boolean(detailBooking?.expiredAt);
-    const detailCampaignBundleItems = detailBooking?.groupFundedCampaign?.bundleItems || [];
     const detailBookingBundleItems = detailBooking?.bundleItems || [];
-    const detailServiceItems = detailCampaignBundleItems.length
-      ? detailCampaignBundleItems
-      : detailBookingBundleItems;
-    const detailFundingAdjustmentCents = Math.max(0, Number(detailBooking?.groupFundedCampaign?.roundingAdjustmentCents || 0));
-    const detailCampaignTotalCents = Number(detailBooking?.groupFundedCampaign?.targetAmountCents || 0) + detailFundingAdjustmentCents;
-    const detailServiceTotalCents = detailCampaignBundleItems.length
-      ? detailCampaignTotalCents
-      : detailServiceItems.reduce((total, item) => total + Number(item.priceAmountCents || 0), 0);
-    const isGroupFundedDetailBooking = Boolean(detailBooking?.groupFundedBookingId || detailBooking?.bookingPaymentSource === "group_funded");
+    const detailServiceItems = detailBookingBundleItems;
+    const detailServiceTotalCents = detailServiceItems.reduce((total, item) => total + Number(item.priceAmountCents || 0), 0);
     const closeBookingDetailModal = () => {
       setBookingDetailModalId(null);
       setBookingDetailOpen(false);
@@ -10066,9 +9459,9 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     <Group justify="space-between" mb="xs">
                       <Group gap="xs">
                         <IconBriefcase size={16} />
-                        <Text className="neura-label">{detailCampaignBundleItems.length ? "Campaign services" : "Bundled services"}</Text>
+                        <Text className="neura-label">Bundled services</Text>
                       </Group>
-                      <Badge color={detailCampaignBundleItems.length ? "blue" : "violet"} variant="light">{detailServiceItems.length} services</Badge>
+                      <Badge color="violet" variant="light">{detailServiceItems.length} services</Badge>
                     </Group>
                     <Stack gap="xs">
                       {detailServiceItems.map((item) => (
@@ -10085,8 +9478,8 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     </Stack>
                     <Divider my="sm" />
                     <Group justify="space-between">
-                      <Text fw={700}>{detailCampaignBundleItems.length ? "Campaign total" : "Bundle total"}</Text>
-                      <Text fw={800}>{formatMoney(detailServiceTotalCents, detailBooking.groupFundedCampaign?.currency || detailBooking.serviceCurrency)}</Text>
+                      <Text fw={700}>Bundle total</Text>
+                      <Text fw={800}>{formatMoney(detailServiceTotalCents, detailBooking.serviceCurrency)}</Text>
                     </Group>
                   </Paper>
                 ) : (
@@ -10115,25 +9508,8 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   </Group>
                   <Text className="booking-detail__panel-title">{detailBooking.paymentStatus}</Text>
                   <Text c="dimmed" size="sm">
-                    {isGroupFundedDetailBooking
-                      ? "Verified through the group-funded campaign"
-                      : detailBooking.paymentReference || "No reference"}
+                    {detailBooking.paymentReference || "No reference"}
                   </Text>
-                  {detailBooking.groupFundedCampaign?.publicToken ? (
-                    <Button
-                      component="a"
-                      href={`/group-funded/${detailBooking.groupFundedCampaign.publicToken}`}
-                      leftSection={<IconExternalLink size={14} />}
-                      mt="xs"
-                      rel="noreferrer"
-                      size="xs"
-                      target="_blank"
-                      variant="light"
-                      w="fit-content"
-                    >
-                      View campaign
-                    </Button>
-                  ) : null}
                   {detailBooking.paymentVerifiedAt ? (
                     <Badge color="teal" mt="xs" variant="light" w="fit-content">
                       Verified {formatDateTime(detailBooking.paymentVerifiedAt)}
@@ -10165,8 +9541,6 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                         View proof
                       </Button>
                     </Stack>
-                  ) : isGroupFundedDetailBooking ? (
-                    <Text c="dimmed" size="sm">No individual payment proof is required.</Text>
                   ) : (
                     <Text c="dimmed" size="sm">No proof submitted</Text>
                   )}
@@ -10223,7 +9597,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                 </Paper>
               </SimpleGrid>
 
-              {detailBooking.notes && detailBooking.notes !== "Group-funded booking approved by vendor." ? (
+              {detailBooking.notes ? (
                 <Paper withBorder radius="md" p="md" className="booking-detail__panel">
                   <Text className="neura-label">Customer notes</Text>
                   <Text>{detailBooking.notes}</Text>
@@ -10372,10 +9746,6 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
 
     if (currentSection === "bookings") {
       return renderBookingsPage();
-    }
-
-    if (currentSection === "group-funded") {
-      return renderGroupFundedPage();
     }
 
     if (currentSection === "clients") {

@@ -452,7 +452,7 @@ test("vendor queue live updates refetch the authenticated snapshot instead of re
     "utf8"
   );
   const streamEffect = source.match(
-    /const eventSource = new EventSource\([\s\S]*?eventSource\.onerror = \(\) => \{/
+    /const eventSource = new EventSource\([\s\S]*?eventSource\.onmessage = \(event\) => \{[\s\S]*?\n    \};/
   );
 
   assert.ok(streamEffect, "vendor dashboard should subscribe to queue updates");
@@ -461,6 +461,8 @@ test("vendor queue live updates refetch the authenticated snapshot instead of re
     streamEffect[0],
     /invalidateQueries\(\{[\s\S]*?queryKey:\s*\[\s*"vendor-dashboard-queue-lifecycle"/
   );
+  assert.match(streamEffect[0], /JSON\.parse\(event\.data\) as QueueSnapshot/);
+  assert.match(streamEffect[0], /syncQueueAlerts\(payload\.nextUp \|\| \[\], \{ detectNew: true \}\)/);
 });
 
 test("queue day state resolver supports both lifecycle and legacy snapshots", () => {
@@ -1035,7 +1037,6 @@ test("vendor dashboard turns shared and dialog errors into one error toast", () 
   assert.match(source, /const dashboardErrorMessage = \[/);
   assert.match(source, /bookingDetailError/);
   assert.match(source, /rescheduleSlotsError/);
-  assert.match(source, /groupFundedProofError/);
   assert.match(source, /id: "vendor-dashboard-error"/);
   assert.match(source, /title: "Could not complete that action"/);
 });
@@ -1068,38 +1069,7 @@ test("customer booking history summarizes standard and campaign service bundles"
   assert.match(source, /\{executionModeLabel\} bundle/);
 });
 
-test("group-funded contributor count uses a stepped slider within service limits", () => {
-  const source = fs.readFileSync(
-    path.join(path.resolve(__dirname, ".."), "src", "pages", "BookingRequestPage.tsx"),
-    "utf8"
-  );
 
-  assert.match(source, /import \{[\s\S]*?Slider,[\s\S]*?\} from "@mantine\/core"/);
-  assert.match(source, /<Slider[\s\S]*?aria-label=\{`\$\{service\.name\} \$\{quantityLabel\}`\}/);
-  assert.match(source, /min=\{bounds\.min\}/);
-  assert.match(source, /max=\{bounds\.max\}/);
-  assert.match(source, /step=\{1\}/);
-  assert.match(source, /onChange=\{\(value\) => updateServiceQuantity\(service, value\)\}/);
-  assert.match(source, /className="booking-value-slider"/);
-  assert.match(source, /Fixed at \{formatBookingQuantityValue\(bounds\.min, quantityLabel\)\}/);
-});
-
-test("vendor group-funded settings keep policy controls concise", () => {
-  const source = fs.readFileSync(
-    path.join(path.resolve(__dirname, ".."), "src", "pages", "VendorDashboardPage.tsx"),
-    "utf8"
-  );
-
-  assert.match(source, /label="Min contributors"/);
-  assert.match(source, /label="Max contributors"/);
-  assert.match(source, />Advanced funding window</);
-  assert.match(source, /label="Min deadline hours"/);
-  assert.match(source, /label="Max deadline days"/);
-  assert.match(source, /label="Allow public campaigns on vendor profile"/);
-  assert.doesNotMatch(source, /label="Default contributors"/);
-  assert.doesNotMatch(source, /label="Min share"/);
-  assert.doesNotMatch(source, /label="Max share"/);
-});
 
 test("booking services use their own stepped quantity sliders", () => {
   const source = fs.readFileSync(
@@ -1132,19 +1102,6 @@ test("together bookings synchronize matching-duration service quantity sliders",
   assert.match(source, /Matching service durations are linked while this visit is together\./);
 });
 
-test("group-funded slot selection keeps the composed service bundle selected", () => {
-  const frontendRoot = path.resolve(__dirname, "..");
-  const source = fs.readFileSync(
-    path.join(frontendRoot, "src", "pages", "BookingRequestPage.tsx"),
-    "utf8"
-  );
-
-  assert.match(source, /includeGroupFundedHolds: false/);
-  assert.match(source, /setSlots\(data\.slots \|\| \[\]\);/);
-  assert.doesNotMatch(source, /groupFundedSlotsByService/);
-  assert.doesNotMatch(source, /groupFundedServiceEligibility/);
-  assert.doesNotMatch(source, /eligibleSlugs/);
-});
 
 test("booking availability uses a time-slot picker and resolves deadline bounds from the selected instant", () => {
   const frontendRoot = path.resolve(__dirname, "..");
@@ -1208,24 +1165,6 @@ test("group-funded contribution guidance uses customer-friendly payment language
   assert.match(source, /One service selected — choose a date and available start time next/);
 });
 
-test("group-funded booking has a collapsed campaign summary and prominent submit action", () => {
-  const source = fs.readFileSync(
-    path.join(path.resolve(__dirname, ".."), "src", "pages", "BookingRequestPage.tsx"),
-    "utf8"
-  );
-
-  assert.match(source, /<Accordion className="booking-campaign-summary">/);
-  assert.match(source, /<Accordion.Control>/);
-  assert.match(source, /Booking summary/);
-  assert.match(source, /formatBookingScheduleDate\(bookingDate\)/);
-  assert.match(source, /Bundle total:/);
-  assert.match(source, /Choose one service, or combine services for the same visit/);
-  assert.match(source, /<SimpleGrid cols=\{\{ base: 1, md: 2 \}\} spacing="xs">/);
-  assert.match(source, /\/composed-slots/);
-  assert.match(source, /className="booking-campaign-submit customer-primary-action"/);
-  assert.match(source, /className="booking-campaign-submit customer-primary-action"/);
-  assert.doesNotMatch(source, /Funding deadline:/);
-});
 
 test("booking summary lists every selected service with its own quantity and price", () => {
   const source = fs.readFileSync(
@@ -1376,47 +1315,8 @@ test("signup forms use provider icons, helpful labels, and touch-friendly action
   assert.match(styles, /\.onboarding-layout \{\s+display: grid;\s+grid-template-columns: minmax\(0, 3fr\) minmax\(18rem, 2fr\);/);
 });
 
-test("vendor group-funded campaign details render rich descriptions", () => {
-  const source = fs.readFileSync(
-    path.join(path.resolve(__dirname, ".."), "src", "pages", "VendorDashboardPage.tsx"),
-    "utf8"
-  );
-  const groupFundedSource = fs.readFileSync(
-    path.join(path.resolve(__dirname, ".."), "src", "components", "VendorGroupFundedPage.tsx"),
-    "utf8"
-  );
 
-  assert.match(source, /VendorGroupFundedPage/);
-  assert.match(groupFundedSource, /import RichCampaignDescription from "\.\.\/components\/RichCampaignDescription"/);
-  assert.match(groupFundedSource, /\bSpoiler,/);
-  assert.match(groupFundedSource, /<Spoiler hideLabel="Show less" maxHeight=\{72\} showLabel="Show more">/);
-  assert.match(groupFundedSource, /<RichCampaignDescription\s+className="rich-campaign-description"\s+content=\{selectedDetail\.campaign\.description\}/);
-});
 
-test("vendor booking details link group-funded bookings to their campaign", () => {
-  const source = fs.readFileSync(
-    path.join(path.resolve(__dirname, ".."), "src", "pages", "VendorDashboardPage.tsx"),
-    "utf8"
-  );
-
-  assert.match(source, /detailBooking\.groupFundedCampaign\?\.publicToken/);
-  assert.match(source, /href=\{`\/group-funded\/\$\{detailBooking\.groupFundedCampaign\.publicToken\}`\}/);
-  assert.match(source, />\s+View campaign\s+<\/Button>/);
-});
-
-test("vendor booking details render campaign bundles instead of a primary-service snapshot", () => {
-  const source = fs.readFileSync(
-    path.join(path.resolve(__dirname, ".."), "src", "pages", "VendorDashboardPage.tsx"),
-    "utf8"
-  );
-
-  assert.match(source, /const detailCampaignBundleItems = detailBooking\?\.groupFundedCampaign\?\.bundleItems \|\| \[\];/);
-  assert.match(source, /\{detailCampaignBundleItems\.length \? "Campaign services" : "Bundled services"\}/);
-  assert.match(source, /detailServiceItems\.map\(\(item\) =>/);
-  assert.match(source, /\{detailCampaignBundleItems\.length \? "Campaign total" : "Bundle total"\}/);
-  assert.match(source, /Verified through the group-funded campaign/);
-  assert.match(source, /detailBooking\.notes !== "Group-funded booking approved by vendor\."/);
-});
 
 test("vendor booking details render standard service bundles", () => {
   const source = fs.readFileSync(
@@ -1425,26 +1325,13 @@ test("vendor booking details render standard service bundles", () => {
   );
 
   assert.match(source, /const detailBookingBundleItems = detailBooking\?\.bundleItems \|\| \[\];/);
-  assert.match(source, /const detailServiceItems = detailCampaignBundleItems\.length/);
-  assert.match(source, /: detailBookingBundleItems;/);
+  assert.match(source, /const detailServiceItems = detailBookingBundleItems;/);
   assert.match(source, /\{detailServiceItems\.length > 1 \? \(/);
-  assert.match(source, /\{detailCampaignBundleItems\.length \? "Campaign services" : "Bundled services"\}/);
-  assert.match(source, /\{detailCampaignBundleItems\.length \? "Campaign total" : "Bundle total"\}/);
+  assert.match(source, /Bundled services/);
+  assert.match(source, /Bundle total/);
+  assert.doesNotMatch(source, /Campaign services|Campaign total|detailCampaignBundleItems/);
 });
 
-test("vendor booking rows summarize service bundles and campaign payment context", () => {
-  const source = fs.readFileSync(
-    path.join(path.resolve(__dirname, ".."), "src", "pages", "VendorDashboardPage.tsx"),
-    "utf8"
-  );
-
-  assert.match(source, /const bookingBundleItems = isGroupFundedBooking && booking\.groupFundedCampaign\?\.bundleItems\?\.length/);
-  assert.match(source, /const displayedServiceItems = bookingBundleItems\.length/);
-  assert.match(source, /const executionModeLabel = booking\.executionMode === "sequential" \? "Back-to-back" : "Together";/);
-  assert.match(source, /\+\$\{additionalServiceCount\} service/);
-  assert.match(source, /Campaign funded/);
-  assert.match(source, /No individual proof/);
-});
 
 test("vendor booking status chips preserve their complete labels", () => {
   const frontendRoot = path.resolve(__dirname, "..");
@@ -1646,21 +1533,6 @@ test("vendor group-funded discovery uses mobile-first booking controls and filte
   assert.match(styles, /\.vendor-booking-option-tab-content \{\s+display: inline-flex;\s+align-items: center;\s+gap: 0\.45rem;/);
 });
 
-test("vendor dashboard includes rounding adjustments in group-funded targets", () => {
-  const source = fs.readFileSync(
-    path.join(path.resolve(__dirname, ".."), "src", "pages", "VendorDashboardPage.tsx"),
-    "utf8"
-  );
-  const groupFundedSource = fs.readFileSync(
-    path.join(path.resolve(__dirname, ".."), "src", "components", "VendorGroupFundedPage.tsx"),
-    "utf8"
-  );
-
-  assert.match(groupFundedSource, /function getCampaignFundingTargetAmountCents\(campaign:/);
-  assert.match(groupFundedSource, /Number\(campaign\.targetAmountCents \|\| 0\) \+ Number\(campaign\.roundingAdjustmentCents \|\| 0\)/);
-  assert.match(groupFundedSource, /<CampaignFundingProgress[\s\S]*?fundedAmountCents=\{campaign\.fundedAmountCents\}[\s\S]*?targetAmountCents=\{fundingTargetAmountCents\}/);
-  assert.match(groupFundedSource, /Target \{formatMoney\(selectedDetailFundingTargetAmountCents, selectedDetail\.campaign\.currency\)\}/);
-});
 
 test("vendor profile hero uses the booking-ticket information hierarchy", () => {
   const frontendRoot = path.resolve(__dirname, "..");
@@ -1814,6 +1686,11 @@ test("abandoned group-funded campaign surfaces are no longer exposed", () => {
   assert.doesNotMatch(app, /path="\/group-funded\/:publicToken"/);
   assert.doesNotMatch(app, /path="\/vendors\/:tenantSlug\/group-funded"/);
   assert.doesNotMatch(app, /path="\/account\/group-funded"/);
+  const vendorDashboard = fs.readFileSync(path.join(frontendRoot, "src", "pages", "VendorDashboardPage.tsx"), "utf8");
+  const vendorApi = fs.readFileSync(path.join(frontendRoot, "src", "api", "vendorDashboardBookings.ts"), "utf8");
+  assert.equal(fs.existsSync(path.join(frontendRoot, "src", "components", "VendorGroupFundedPage.tsx")), false);
+  assert.doesNotMatch(vendorDashboard, /group[- ]funded|groupFunded/i);
+  assert.doesNotMatch(vendorApi, /group[- ]funded|groupFunded/i);
 });
 
 test("an unknown queue ticket uses the shared not-found recovery state", () => {
