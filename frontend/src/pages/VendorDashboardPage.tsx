@@ -1026,7 +1026,7 @@ function updateServiceLocationEntries(
 
 // NOSONAR: this route-level controller intentionally coordinates the dashboard's
 // independent data/loading/error branches; behavior-preserving extraction is tracked
-// separately so the abandoned Group Funded removal does not alter active flows.
+// separately to avoid altering active dashboard flows.
 export default function VendorDashboardPage() {
   const { token, user, loading, logout, refreshUser, changePassword } = useAuth();
   const { section } = useParams<{ section: string }>();
