@@ -218,6 +218,65 @@ type CampaignParticipationContext = {
   retryReservation: () => void;
 };
 
+type CampaignViewModel = {
+  contributions: NonNullable<OrganizerCampaign["contributions"]>;
+  acceptedContributors: number;
+  reservedContributors: number;
+  underReviewContributors: number;
+  joinedContributors: number;
+  acceptedAmountCents: number;
+  fundingTargetCents: number;
+  remainingToTargetCents: number;
+  isOrganizer: boolean;
+  ownContribution: OrganizerCampaign["contribution"];
+  rejectionContribution: NonNullable<OrganizerCampaign["contributions"]>[number] | undefined;
+  ownReimbursement: OrganizerCampaign["reimbursement"];
+  booking: OrganizerCampaign["booking"];
+  reservationRemainingSeconds: number | null;
+  retryAvailable: boolean;
+};
+
+function buildCampaignViewModel({
+  campaign,
+  userId,
+  rejectionContributionId,
+  reservationClock
+}: {
+  campaign: OrganizerCampaign | null;
+  userId?: string;
+  rejectionContributionId: string | null;
+  reservationClock: number;
+}): CampaignViewModel {
+  const contributions = campaign?.contributions || (campaign?.contribution ? [campaign.contribution] : []);
+  const acceptedContributors = campaign?.acceptedContributors ?? contributions.filter((item) => item.status === "accepted").length;
+  const reservedContributors = campaign?.reservedContributors ?? contributions.filter((item) => item.status === "pending_proof" && (!item.reservationExpiresAt || new Date(item.reservationExpiresAt).getTime() > reservationClock)).length;
+  const underReviewContributors = campaign?.underReviewContributors ?? contributions.filter((item) => ["submitted", "review_overdue"].includes(item.status)).length;
+  const joinedContributors = campaign?.joinedContributors ?? reservedContributors + underReviewContributors + acceptedContributors;
+  const acceptedAmountCents = campaign?.acceptedAmountCents ?? acceptedContributors * (campaign?.contributionFeeCents || 0);
+  const fundingTargetCents = campaign ? campaign.requiredContributors * campaign.contributionFeeCents : 0;
+  const ownContribution = campaign?.contribution;
+  const reservationRemainingSeconds = ownContribution?.status === "pending_proof" && ownContribution.reservationExpiresAt
+    ? Math.max(0, Math.ceil((new Date(ownContribution.reservationExpiresAt).getTime() - reservationClock) / 1000))
+    : null;
+  return {
+    contributions,
+    acceptedContributors,
+    reservedContributors,
+    underReviewContributors,
+    joinedContributors,
+    acceptedAmountCents,
+    fundingTargetCents,
+    remainingToTargetCents: Math.max(0, fundingTargetCents - acceptedAmountCents),
+    isOrganizer: Boolean(campaign && userId && campaign.organizerUserId === userId),
+    ownContribution,
+    rejectionContribution: contributions.find((item) => item.id === rejectionContributionId),
+    ownReimbursement: campaign?.reimbursement,
+    booking: campaign?.booking,
+    reservationRemainingSeconds,
+    retryAvailable: !ownContribution?.retryAvailableAt || new Date(ownContribution.retryAvailableAt).getTime() <= reservationClock
+  };
+}
+
 function renderParticipationSection(context: CampaignParticipationContext) {
   const { isOrganizer, ownContribution, participation } = context;
   return <>    {!isOrganizer && ownContribution && participation ? <Card className={`campaign-participation-card campaign-participation-card--${participation.flavor}`} p="lg"><Stack gap="md">
@@ -342,33 +401,30 @@ export default function CampaignControlCenterPage() {
     dismissedNoticeIdsRef.current = dismissedIds;
     setOverlayNotices(campaign.notices.filter((notice) => !dismissedIds.has(notice.id)));
   }, [campaign?.notices, campaignId, user?.id]);
-  const contributions = campaign?.contributions || (campaign?.contribution ? [campaign.contribution] : []);
-  const acceptedContributors = campaign?.acceptedContributors
-    ?? contributions.filter((item) => item.status === "accepted").length;
-  const reservedContributors = campaign?.reservedContributors
-    ?? contributions.filter((item) => item.status === "pending_proof" && (!item.reservationExpiresAt || new Date(item.reservationExpiresAt).getTime() > reservationClock)).length;
-  const underReviewContributors = campaign?.underReviewContributors
-    ?? contributions.filter((item) => ["submitted", "review_overdue"].includes(item.status)).length;
-  const joinedContributors = campaign?.joinedContributors
-    ?? reservedContributors + underReviewContributors + acceptedContributors;
-  const acceptedAmountCents = campaign?.acceptedAmountCents
-    ?? acceptedContributors * (campaign?.contributionFeeCents || 0);
-  const fundingTargetCents = campaign
-    ? campaign.requiredContributors * campaign.contributionFeeCents
-    : 0;
-  const remainingToTargetCents = Math.max(0, fundingTargetCents - acceptedAmountCents);
-  const isOrganizer = Boolean(campaign && user && campaign.organizerUserId === user.id);
-  const ownContribution = campaign?.contribution;
+  const {
+    contributions,
+    acceptedContributors,
+    reservedContributors,
+    underReviewContributors,
+    joinedContributors,
+    acceptedAmountCents,
+    fundingTargetCents,
+    remainingToTargetCents,
+    isOrganizer,
+    ownContribution,
+    rejectionContribution,
+    ownReimbursement,
+    booking,
+    reservationRemainingSeconds,
+    retryAvailable
+  } = buildCampaignViewModel({
+    campaign,
+    userId: user?.id,
+    rejectionContributionId,
+    reservationClock
+  });
   const participation = ownContribution ? participationPresentation(ownContribution) : null;
-  const rejectionContribution = contributions.find((item) => item.id === rejectionContributionId);
-  const ownReimbursement = campaign?.reimbursement;
   const shareUrl = useMemo(() => campaign ? `${window.location.origin}/campaign/${campaign.publicToken}` : "", [campaign]);
-  const booking = campaign?.booking;
-  const reservationRemainingSeconds = ownContribution?.status === "pending_proof" && ownContribution.reservationExpiresAt
-    ? Math.max(0, Math.ceil((new Date(ownContribution.reservationExpiresAt).getTime() - reservationClock) / 1000))
-    : null;
-  const retryAvailable = !ownContribution?.retryAvailableAt
-    || new Date(ownContribution.retryAvailableAt).getTime() <= reservationClock;
   const filteredCampaigns = useMemo(
     () => campaigns.filter((item) => campaignMatchesFilters(item, appliedCampaignFilters)),
     [appliedCampaignFilters, campaigns]

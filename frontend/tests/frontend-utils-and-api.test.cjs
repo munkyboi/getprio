@@ -2329,7 +2329,7 @@ test("vendor navigation combines tenant role RBAC with effective plan entitlemen
     dashboard,
     /roleVisibleNavItems\.filter\(\(item\) =>\s*canAccessVendorSection\(item\.section, effectiveEntitlements, tenantPlan\)\s*\)/
   );
-  assert.match(dashboard, /!canAccessVendorSection\(currentSection, effectiveEntitlements, tenantPlan\)/);
+  assert.match(dashboard, /resolveVendorDashboardAccess\(/);
   assert.match(dashboard, /canAccessVendorSection\("services", effectiveEntitlements\)/);
   assert.match(dashboard, /canAccessVendorSection\("bookings", effectiveEntitlements\)/);
 });

@@ -94,6 +94,7 @@ import type {
   AddVendorStaffRequest,
   HistoryExportRange,
   SubscriptionPlanSlug,
+  UserSummary,
   TicketMutationResponse,
   UpdateTenantSettingsRequest,
   SaveVendorAvailabilityBlockRequest,
@@ -650,6 +651,52 @@ type DashboardSectionResolution =
   | { kind: "activation" }
   | { kind: "ratings" }
   | { kind: "render"; section: DashboardSection };
+
+type VendorDashboardAccess =
+  | { kind: "loading" }
+  | { kind: "invalid-section" }
+  | { kind: "mfa" }
+  | { kind: "ratings-loading" }
+  | { kind: "ratings-denied" }
+  | { kind: "entitlement-denied" }
+  | { kind: "role-denied" }
+  | { kind: "login" }
+  | { kind: "no-tenant" }
+  | { kind: "ready" };
+
+function resolveVendorDashboardAccess({
+  loading,
+  invalidSection,
+  requiresMfaEnrollment,
+  currentSection,
+  canAccessSection,
+  entitlementsPending,
+  selectedTenantRole,
+  staffAllowed,
+  adminAllowed,
+  user
+}: {
+  loading: boolean;
+  invalidSection: boolean;
+  requiresMfaEnrollment: boolean;
+  currentSection: DashboardSection;
+  canAccessSection: boolean;
+  entitlementsPending: boolean;
+  selectedTenantRole: string;
+  staffAllowed: boolean;
+  adminAllowed: boolean;
+  user: UserSummary | null;
+}): VendorDashboardAccess {
+  if (loading) return { kind: "loading" };
+  if (invalidSection) return { kind: "invalid-section" };
+  if (requiresMfaEnrollment && currentSection !== "account") return { kind: "mfa" };
+  if (currentSection === "ratings" && entitlementsPending) return { kind: "ratings-loading" };
+  if (!canAccessSection) return { kind: currentSection === "ratings" ? "ratings-denied" : "entitlement-denied" };
+  if ((selectedTenantRole === "staff" && !staffAllowed) || (selectedTenantRole === "admin" && !adminAllowed)) return { kind: "role-denied" };
+  if (!user) return { kind: "login" };
+  if (!user.tenants?.length) return { kind: "no-tenant" };
+  return { kind: "ready" };
+}
 
 function resolveDashboardSection({
   currentSection,
@@ -9772,43 +9819,28 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     );
   }
 
-  if (loading) {
-    return <Card className="neura-card">Loading dashboard...</Card>;
-  }
+  const access = resolveVendorDashboardAccess({
+    loading,
+    invalidSection,
+    requiresMfaEnrollment,
+    currentSection,
+    canAccessSection: effectiveEntitlementsQuery.isPending || canAccessVendorSection(currentSection, effectiveEntitlements, tenantPlan),
+    entitlementsPending: effectiveEntitlementsQuery.isPending,
+    selectedTenantRole: selectedTenantRole || "",
+    staffAllowed: staffAllowedSections.has(currentSection),
+    adminAllowed: adminAllowedSections.has(currentSection),
+    user
+  });
 
-  if (invalidSection) {
-    return <Navigate to="/dashboard/queue" replace />;
-  }
-
-  if (requiresMfaEnrollment && currentSection !== "account") {
-    return <Navigate to="/dashboard/account" replace />;
-  }
-
-  if (currentSection === "ratings" && !canAccessVendorSection("ratings", effectiveEntitlements, tenantPlan)) {
-    return effectiveEntitlementsQuery.isPending
-      ? <Card className="neura-card">Loading plan access...</Card>
-      : <Navigate to={defaultDashboardPath} replace />;
-  }
-
-  if (
-    !effectiveEntitlementsQuery.isPending &&
-    !canAccessVendorSection(currentSection, effectiveEntitlements, tenantPlan)
-  ) {
+  if (access.kind === "loading") return <Card className="neura-card">Loading dashboard...</Card>;
+  if (access.kind === "invalid-section") return <Navigate to="/dashboard/queue" replace />;
+  if (access.kind === "mfa") return <Navigate to="/dashboard/account" replace />;
+  if (access.kind === "ratings-loading") return <Card className="neura-card">Loading plan access...</Card>;
+  if (access.kind === "ratings-denied" || access.kind === "entitlement-denied" || access.kind === "role-denied") {
     return <Navigate to={defaultDashboardPath} replace />;
   }
-
-  if (
-    (selectedTenantRole === "staff" && !staffAllowedSections.has(currentSection)) ||
-    (selectedTenantRole === "admin" && !adminAllowedSections.has(currentSection))
-  ) {
-    return <Navigate to={defaultDashboardPath} replace />;
-  }
-
-  if (!user) {
-    return <Navigate to="/login" replace />;
-  }
-
-  if (!user.tenants?.length) {
+  if (access.kind === "login") return <Navigate to="/login" replace />;
+  if (access.kind === "no-tenant") {
     return (
       <Card className="neura-card neura-no-tenant-card" padding="xl">
         <SimpleGrid cols={{ base: 1, md: 2 }} spacing="xl">
