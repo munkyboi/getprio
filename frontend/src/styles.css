@@ -3278,8 +3278,8 @@ button {
 }
 
 .public-theme-toggle:hover {
-  background: var(--primary);
-  color: #fff;
+  background: var(--secondary);
+  color: var(--foreground);
 }
 
 .public-theme-toggle:focus-visible {
