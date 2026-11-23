@@ -3257,7 +3257,7 @@ button {
 
 .marketing-nav-cta {
   background: var(--primary);
-  color: var(--primary-foreground);
+  color: #fff;
 }
 
 .marketing-theme-toggle,
