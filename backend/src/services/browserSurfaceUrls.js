@@ -60,6 +60,25 @@ function publicMarketingRequestAllowed(path, method, requestedMethod) {
   return (verb === "GET" && ["/api/billing/plans", "/api/public/help-center", "/api/v1/billing/plans", "/api/v1/public/help-center"].includes(pathname)) ||
     (verb === "POST" && ["/api/public/enterprise-inquiries", "/api/v1/public/enterprise-inquiries"].includes(pathname));
 }
+const localMarketingAuthOrigins = new Set(["http://localhost:5190", "http://127.0.0.1:5190"]);
+const localMarketingAuthPaths = new Set(["/api/auth/oauth/providers", "/api/auth/me"]);
+
+function createLocalMarketingAuthCors(env, marketing, cors) {
+  if (!["development", "test"].includes(env.nodeEnv) || env.localApiProfile !== "core" || !localMarketingAuthOrigins.has(marketing)) return null;
+  return cors({
+    origin(value, callback) { callback(null, localMarketingAuthOrigins.has(value) ? value : false); },
+    credentials: true,
+    methods: ["GET"],
+    allowedHeaders: ["Content-Type"]
+  });
+}
+
+function isLocalMarketingAuthRead(req) {
+  const path = String(req.originalUrl || req.url || "").split("?")[0];
+  return localMarketingAuthPaths.has(path) &&
+    (req.method === "GET" || (req.method === "OPTIONS" && req.headers?.["access-control-request-method"] === "GET"));
+}
+
 function createBrowserCorsMiddleware(env, cors) {
   const allowed = browserAllowedOrigins(env);
   const marketing = env.marketingUrl ? origin(env.marketingUrl) : "";
@@ -73,12 +92,14 @@ function createBrowserCorsMiddleware(env, cors) {
   }, credentials: true, methods: ["POST", "OPTIONS"], allowedHeaders: ["Content-Type"] });
   const marketingOrigins = marketing ? surfaceOriginSet(env, "marketing") : new Set();
   const publicCors = marketing ? cors({ origin(value, callback) { callback(null, marketingOrigins.has(value) ? value : false); }, credentials: false, methods: ["GET", "POST", "OPTIONS"], allowedHeaders: ["Content-Type", "Idempotency-Key"] }) : null;
+  const localMarketingAuthCors = createLocalMarketingAuthCors(env, marketing, cors);
   return (req, res, next) => {
     const requestPath = String(req.originalUrl || req.url || "").split("?")[0];
     if (/\/api\/auth\/oauth\/apple\/callback$/u.test(requestPath) && String(req.headers?.origin || "").replace(/\/$/, "") === "https://appleid.apple.com") {
       return appleCallbackCors(req, res, next);
     }
     if (marketing && !allowed.has(marketing) && marketingOrigins.has(String(req.headers?.origin || "").replace(/\/$/, ""))) {
+      if (localMarketingAuthCors && isLocalMarketingAuthRead(req)) return localMarketingAuthCors(req, res, next);
       if (!publicMarketingRequestAllowed(req.originalUrl || req.url, req.method, req.headers?.["access-control-request-method"])) return next(Object.assign(new Error("Marketing origin cannot access private API routes."), { statusCode: 403 }));
       return publicCors(req, res, next);
     }

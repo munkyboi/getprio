@@ -63,6 +63,76 @@ test('legacy shared marketing/client origin retains its existing authenticated C
  const {createBrowserCorsMiddleware}=require('../src/services/browserSurfaceUrls');const configs=[];const cors=options=>{configs.push(options);return(req,res,next)=>next();};
  const middleware=createBrowserCorsMiddleware({...config,marketingUrl:config.clientUrl},cors);let next=false;middleware({method:'GET',url:'/api/auth/me',headers:{origin:config.clientUrl}},{},()=>next=true);assert.equal(next,true);assert.equal(configs[0].credentials,true);
 });
+test('canonical local Marketing may make credentialed reads to only the two auth discovery routes', async () => {
+ const express = require('express');
+ const cors = require('cors');
+ const { createBrowserCorsMiddleware } = require('../src/services/browserSurfaceUrls');
+ const app = express();
+ app.use(createBrowserCorsMiddleware({ ...config, localApiProfile: 'core' }, cors));
+ app.use((req, res) => res.sendStatus(req.path === '/api/auth/me' ? 401 : 200));
+ app.use((error, _req, res, _next) => res.sendStatus(error.statusCode || 500));
+ const server = await new Promise(resolve => {
+  const listener = app.listen(0, '127.0.0.1', () => resolve(listener));
+ });
+ const base = `http://127.0.0.1:${server.address().port}`;
+ try {
+  for (const origin of ['http://localhost:5190', 'http://127.0.0.1:5190']) {
+   for (const [path, status] of [['/api/auth/oauth/providers', 200], ['/api/auth/me', 401]]) {
+    const preflight = await fetch(base + path, { method: 'OPTIONS', headers: {
+     Origin: origin, 'Access-Control-Request-Method': 'GET', 'Access-Control-Request-Headers': 'content-type'
+    } });
+    assert.equal(preflight.status, 204);
+    assert.equal(preflight.headers.get('access-control-allow-origin'), origin);
+    assert.equal(preflight.headers.get('access-control-allow-credentials'), 'true');
+    assert.equal(preflight.headers.get('access-control-allow-methods'), 'GET');
+    assert.equal(preflight.headers.get('access-control-allow-headers'), 'Content-Type');
+
+    const actual = await fetch(base + path, { headers: { Origin: origin } });
+    assert.equal(actual.status, status);
+    assert.equal(actual.headers.get('access-control-allow-origin'), origin);
+    assert.equal(actual.headers.get('access-control-allow-credentials'), 'true');
+    assert.match(actual.headers.get('vary'), /Origin/i);
+   }
+  }
+  const rejected = [
+   { path: '/api/auth/me', method: 'POST', origin: config.marketingUrl },
+   { path: '/api/auth/me', method: 'OPTIONS', origin: config.marketingUrl, requested: 'POST' },
+   { path: '/api/auth/login', method: 'POST', origin: config.marketingUrl },
+   { path: '/api/v1/auth/me', method: 'GET', origin: config.marketingUrl },
+   { path: '/api/account/profile', method: 'GET', origin: config.marketingUrl },
+   { path: '/api/auth/me', method: 'GET', origin: 'http://localhost:5195' },
+   { path: '/api/auth/me', method: 'GET', origin: 'https://getprio.online' }
+  ];
+  for (const { path, method, origin, requested } of rejected) {
+   const headers = { Origin: origin, ...(requested ? { 'Access-Control-Request-Method': requested } : {}) };
+   const response = await fetch(base + path, { method, headers });
+   assert.equal(response.status, 403, `${origin} ${method} ${path}`);
+   assert.equal(response.headers.get('access-control-allow-origin'), null);
+   assert.equal(response.headers.get('access-control-allow-credentials'), null);
+  }
+  const publicPlans = await fetch(base + '/api/billing/plans', { headers: { Origin: config.marketingUrl } });
+  assert.equal(publicPlans.status, 200);
+  assert.equal(publicPlans.headers.get('access-control-allow-origin'), config.marketingUrl);
+  assert.equal(publicPlans.headers.get('access-control-allow-credentials'), null);
+ } finally {
+  await new Promise(resolve => server.close(resolve));
+ }
+});
+test('local auth read exception remains off for production, sandbox, and other Marketing ports', () => {
+ const cors = () => (_req, _res, next) => next();
+ const { createBrowserCorsMiddleware } = require('../src/services/browserSurfaceUrls');
+ for (const env of [
+  { ...config, nodeEnv: 'production', localApiProfile: 'core' },
+  { ...config, nodeEnv: 'production', marketingUrl: 'https://getprio.online' },
+  { ...config, localApiProfile: 'sandbox' },
+  { ...config, localApiProfile: 'core', marketingUrl: 'http://127.0.0.1:5290' }
+ ]) {
+  const middleware = createBrowserCorsMiddleware(env, cors);
+  let status;
+  middleware({ method: 'GET', url: '/api/auth/me', headers: { origin: env.marketingUrl } }, {}, error => { status = error?.statusCode; });
+  assert.equal(status, 403, `${env.nodeEnv} ${env.localApiProfile} ${env.marketingUrl}`);
+ }
+});
 test('Apple form-post callback accepts only Apple origin on the callback route', async()=>{
  const express=require('express'),cors=require('cors');const {createBrowserCorsMiddleware}=require('../src/services/browserSurfaceUrls');
  const app=express();app.use(createBrowserCorsMiddleware(config,cors));app.post('/api/auth/oauth/apple/callback',(req,res)=>res.sendStatus(204));app.use((error,req,res,next)=>res.status(error.statusCode||500).json({message:error.message}));
