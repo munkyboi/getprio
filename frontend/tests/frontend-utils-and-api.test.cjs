@@ -1381,11 +1381,16 @@ test("vendor group-funded campaign details render rich descriptions", () => {
     path.join(path.resolve(__dirname, ".."), "src", "pages", "VendorDashboardPage.tsx"),
     "utf8"
   );
+  const groupFundedSource = fs.readFileSync(
+    path.join(path.resolve(__dirname, ".."), "src", "components", "VendorGroupFundedPage.tsx"),
+    "utf8"
+  );
 
-  assert.match(source, /import RichCampaignDescription from "\.\.\/components\/RichCampaignDescription"/);
-  assert.match(source, /\bSpoiler,/);
-  assert.match(source, /<Spoiler hideLabel="Show less" maxHeight=\{72\} showLabel="Show more">/);
-  assert.match(source, /<RichCampaignDescription\s+className="rich-campaign-description"\s+content=\{selectedDetail\.campaign\.description\}/);
+  assert.match(source, /VendorGroupFundedPage/);
+  assert.match(groupFundedSource, /import RichCampaignDescription from "\.\.\/components\/RichCampaignDescription"/);
+  assert.match(groupFundedSource, /\bSpoiler,/);
+  assert.match(groupFundedSource, /<Spoiler hideLabel="Show less" maxHeight=\{72\} showLabel="Show more">/);
+  assert.match(groupFundedSource, /<RichCampaignDescription\s+className="rich-campaign-description"\s+content=\{selectedDetail\.campaign\.description\}/);
 });
 
 test("vendor booking details link group-funded bookings to their campaign", () => {
@@ -1646,11 +1651,15 @@ test("vendor dashboard includes rounding adjustments in group-funded targets", (
     path.join(path.resolve(__dirname, ".."), "src", "pages", "VendorDashboardPage.tsx"),
     "utf8"
   );
+  const groupFundedSource = fs.readFileSync(
+    path.join(path.resolve(__dirname, ".."), "src", "components", "VendorGroupFundedPage.tsx"),
+    "utf8"
+  );
 
-  assert.match(source, /function getCampaignFundingTargetAmountCents\(campaign:/);
-  assert.match(source, /Number\(campaign\.targetAmountCents \|\| 0\) \+ Number\(campaign\.roundingAdjustmentCents \|\| 0\)/);
-  assert.match(source, /<CampaignFundingProgress[\s\S]*?fundedAmountCents=\{campaign\.fundedAmountCents\}[\s\S]*?targetAmountCents=\{fundingTargetAmountCents\}/);
-  assert.match(source, /Target \{formatMoney\(selectedDetailFundingTargetAmountCents, selectedDetail\.campaign\.currency\)\}/);
+  assert.match(groupFundedSource, /function getCampaignFundingTargetAmountCents\(campaign:/);
+  assert.match(groupFundedSource, /Number\(campaign\.targetAmountCents \|\| 0\) \+ Number\(campaign\.roundingAdjustmentCents \|\| 0\)/);
+  assert.match(groupFundedSource, /<CampaignFundingProgress[\s\S]*?fundedAmountCents=\{campaign\.fundedAmountCents\}[\s\S]*?targetAmountCents=\{fundingTargetAmountCents\}/);
+  assert.match(groupFundedSource, /Target \{formatMoney\(selectedDetailFundingTargetAmountCents, selectedDetail\.campaign\.currency\)\}/);
 });
 
 test("vendor profile hero uses the booking-ticket information hierarchy", () => {
