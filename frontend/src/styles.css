@@ -3274,6 +3274,12 @@ button {
 
 .public-theme-toggle {
   border: 0;
+  transition: background 160ms ease, color 160ms ease;
+}
+
+.public-theme-toggle:hover {
+  background: var(--primary);
+  color: #fff;
 }
 
 .public-theme-toggle:focus-visible {
