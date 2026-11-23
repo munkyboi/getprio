@@ -30,10 +30,11 @@ export async function getBootstrap(
   // non-primary location must be selected before the dashboard request, or
   // the initial primary-location request can be rejected with 403.
   const locationsResponse = await apiRequest<StoreLocationsResponse>(`/vendor/tenant/${tenantSlug}/locations`, { token });
+  const visibleLocations = locationsResponse.locations || [];
   const requestedLocation = new URLSearchParams(locationQuery.replace(/^\?/, "")).get("location");
-  const selectedLocation = locationsResponse.locations.find((location) => location.slug === requestedLocation)
-    || locationsResponse.locations.find((location) => location.isPrimary)
-    || locationsResponse.locations[0];
+  const selectedLocation = visibleLocations.find((location) => location.slug === requestedLocation)
+    || visibleLocations.find((location) => location.isPrimary)
+    || visibleLocations[0];
   const scopedLocationQuery = selectedLocation ? `?location=${encodeURIComponent(selectedLocation.slug)}` : "";
   const [snapshotResponse, notificationSettingsResponse] = await Promise.all([
     apiRequest<QueueSnapshot>(`/vendor/tenant/${tenantSlug}/dashboard${scopedLocationQuery}`, { token }),
