@@ -69,6 +69,7 @@ export interface ApiRequestOptions<TBody = unknown> {
   signal?: AbortSignal;
   skipAuthRefresh?: boolean;
   headers?: Record<string, string>;
+  credentials?: RequestCredentials;
 }
 
 export function setAuthHandlers(handlers: {
@@ -83,7 +84,15 @@ export async function apiRequest<TResponse, TBody = unknown>(
   path: string,
   options: ApiRequestOptions<TBody> = {}
 ): Promise<TResponse> {
-  const { method = "GET", body, token, signal, skipAuthRefresh = false, headers = {} } = options;
+  const {
+    method = "GET",
+    body,
+    token,
+    signal,
+    skipAuthRefresh = false,
+    headers = {},
+    credentials = import.meta.env?.VITE_APP_SURFACE === "marketing" ? "omit" : "include",
+  } = options;
   const unsafe = !["GET", "HEAD", "OPTIONS"].includes(method.toUpperCase());
   const idempotencyKey = unsafe && typeof crypto !== "undefined" && "randomUUID" in crypto
     ? crypto.randomUUID()
@@ -92,7 +101,7 @@ export async function apiRequest<TResponse, TBody = unknown>(
   const makeRequest = async (authToken?: string) =>
     fetch(`${API_BASE_URL}${path}`, {
       method,
-      credentials: "include",
+      credentials,
       headers: {
         "Content-Type": "application/json",
         ...(unsafe && readCsrfToken()
