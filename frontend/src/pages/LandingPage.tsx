@@ -302,7 +302,7 @@ export default function LandingPage() {
           </div>
           <div className="lp-feature-list">{services.map((service, index) => {
             const Icon = service.icon;
-            return <article className="lp-feature" key={service.title}><span className="lp-feature-number">0{index + 1}</span><div className="lp-feature-heading"><Icon size={26} stroke={1.5} /><h3>{service.title}</h3></div><p>{service.text}</p></article>;
+            return <article className="lp-feature" key={service.title}><div className="lp-feature-heading"><Icon size={26} stroke={1.5} /><h3>{service.title}</h3></div><p>{service.text}</p></article>;
           })}</div>
         </div>
       </section>
@@ -313,7 +313,6 @@ export default function LandingPage() {
         <Container size="xl">
           <Stack gap="xl">
             <div className="prio-centered-copy" data-reveal>
-              <Text className="prio-label">04 / ROOM TO GROW</Text>
               <Title className="prio-section-title" order={2}>
                 A calmer day. At every scale.
               </Title>
@@ -391,7 +390,6 @@ export default function LandingPage() {
             <img className="lp-closing-logo" src="/logo.svg" alt="" aria-hidden="true" />
             <div className="lp-closing-scene-label"><span className="lp-dot" />LESS WAITING. MORE POSSIBILITY.</div>
             <img className="lp-closing-art" src="/illustrations/generated/cta-queue-scene-transparent.png" alt="Customers enjoying a calm service queue" loading="lazy" />
-            <div className="lp-closing-scene-footer"><span>YOUR PLACE IS KEPT.</span><span>YOUR DAY IS YOURS. <IconArrowUpRight size={12} aria-hidden="true" /></span></div>
           </div>
         </div>
       </section>
