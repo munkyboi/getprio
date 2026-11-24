@@ -128,7 +128,7 @@ html[data-customer-theme="dark"]
   min-height: 44px;
 }
 html[data-customer-theme] :focus-visible {
-  outline: 3px solid #437ad6;
+  outline: 3px solid var(--ring);
   outline-offset: 3px;
 }
 @media (max-width: 768px) {
@@ -183,6 +183,7 @@ html[data-customer-theme="dark"] {
   --customer-error: #ff9c9c;
 }
 .customer-mobile-web {
+  --ring: var(--customer-ring);
   min-height: 100dvh;
   font:
     400 16px/1.5 Inter,

@@ -97,6 +97,9 @@ test("Customer theme maps shadcn ring tokens to the Customer focus colors", () =
   const css = fs.readFileSync(path.resolve(__dirname, "../src/customer/customer-theme.css"), "utf8");
   assert.match(css, /html\[data-customer-theme\] \{[\s\S]*?--customer-ring: #0b5e58;[\s\S]*?--ring: #0b5e58;/);
   assert.match(css, /html\[data-customer-theme="dark"\] \{[\s\S]*?--customer-ring: #79c5b7;[\s\S]*?--ring: #79c5b7;/);
+  assert.match(css, /html\[data-customer-theme\] :focus-visible \{[\s\S]*?outline: 3px solid var\(--ring\);/);
+  assert.match(css, /\.customer-mobile-web \{[\s\S]*?--ring: var\(--customer-ring\);/);
+  assert.doesNotMatch(css, /outline: 3px solid #437ad6/);
 });
 
 test("Customer login keeps password controls seamless and swaps to an inline reset form", () => {
