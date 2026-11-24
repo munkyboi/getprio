@@ -38,6 +38,7 @@ test("vendor cards keep metadata columns from collapsing or overflowing", () => 
 
 test("vendor detail cards use opaque theme surfaces", () => {
   const css = fs.readFileSync(path.resolve(__dirname, "../src/customer/customer-theme.css"), "utf8");
+  assert.match(css, /html\[data-customer-theme\] \.customer-vendor-content \{[\s\S]*isolation: isolate;[\s\S]*background-color: var\(--card\) !important;/);
   assert.match(css, /\.customer-vendor-content \.customer-vendor-queue,[\s\S]*background: var\(--card\);[\s\S]*opacity: 1;/);
-  assert.match(css, /\.customer-vendor-content \.customer-vendor-service > \[data-slot="card-footer"\],[\s\S]*background: var\(--card\);/);
+  assert.match(css, /customer-vendor-service > \[data-slot="card-footer"\],[\s\S]*background-color: var\(--card\) !important;/);
 });

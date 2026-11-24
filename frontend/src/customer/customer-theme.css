@@ -3706,3 +3706,19 @@ html[data-customer-theme] [data-slot="field-label"].customer-switch-row:hover { 
 .customer-mobile-web .customer-record-card.customer-history-row:hover { background: var(--customer-hover); }
 .customer-mobile-web .customer-record-card.customer-history-row:focus-visible { outline: 2px solid var(--customer-ring); outline-offset: -2px; }
 .customer-mobile-web .customer-history-row .customer-record-chevron { inset-inline-end: 0; }
+
+/* Vendor detail content must fully cover the sticky hero at every viewport. */
+html[data-customer-theme] .customer-vendor-content {
+  isolation: isolate;
+  position: relative;
+  z-index: 1;
+  background-color: var(--card) !important;
+}
+html[data-customer-theme] .customer-vendor-content .customer-vendor-service,
+html[data-customer-theme] .customer-vendor-content .customer-vendor-review,
+html[data-customer-theme] .customer-vendor-content .customer-vendor-queue,
+html[data-customer-theme] .customer-vendor-content .customer-vendor-service > [data-slot="card-footer"],
+html[data-customer-theme] .customer-vendor-content .customer-vendor-review > [data-slot="card-footer"] {
+  background-color: var(--card) !important;
+  opacity: 1;
+}
