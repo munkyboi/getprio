@@ -62,4 +62,5 @@ test("Customer entry scopes the initial theme and keeps color-scheme synchronize
   assert.match(main, /document\.documentElement\.style\.colorScheme = initialCustomerTheme/);
   assert.match(theme, /root\.setAttribute\("data-customer-theme", theme\);[\s\S]*root\.style\.colorScheme = theme;/);
   assert.doesNotMatch(theme, /root\.removeAttribute\("data-customer-theme"\)/);
+  assert.match(fs.readFileSync(path.resolve(__dirname, "../src/customer/CustomerShell.tsx"), "utf8"), /onPointerDown=\{toggleTheme\}/);
 });

@@ -130,7 +130,7 @@ export default function CustomerShell({ children }: { children: ReactNode }) {
             size="icon"
             aria-label={themeLabel}
             title={themeLabel}
-            onClick={toggleTheme}
+            onPointerDown={toggleTheme}
           >
             {theme === "dark" ? <IconSun /> : <IconMoon />}
           </Button>
