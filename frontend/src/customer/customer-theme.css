@@ -1407,6 +1407,7 @@ html[data-customer-theme="dark"] {
   }
   .customer-web-navigation {
     border-top: 1px solid var(--line) !important;
+    z-index: 100;
   }
 }
 .customer-booking-title {
