@@ -3730,8 +3730,11 @@ html[data-customer-theme] .customer-vendor-content .customer-vendor-review > [da
 
 /* Vendor detail controls stay lightweight over the cover while retaining clear affordances. */
 html[data-customer-theme] .customer-vendor-hero-tools {
-  background: transparent !important;
-  border: 0;
+  background: var(--card) !important;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  overflow: hidden;
+  gap: 0;
   box-shadow: none;
 }
 html[data-customer-theme] .customer-vendor-hero-tools > .customer-button,
@@ -3747,10 +3750,13 @@ html[data-customer-theme] .customer-vendor-hero-tools > a {
   line-height: 1.35;
   text-decoration: none;
   background: transparent !important;
-  border: 1px solid var(--line);
+  border: 0;
   box-shadow: none;
   color: var(--text);
-  border-radius: 10px;
+  border-radius: 0;
+}
+html[data-customer-theme] .customer-vendor-hero-tools > a {
+  border-inline-start: 1px solid var(--line);
 }
 html[data-customer-theme] .customer-vendor-location[aria-pressed="true"] .customer-location-icon {
   background: var(--customer-soft);

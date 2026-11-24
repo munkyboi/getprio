@@ -54,8 +54,9 @@ test("vendor detail keeps unauthenticated actions minimal and readable", () => {
   const css = fs.readFileSync(path.resolve(__dirname, "../src/customer/customer-theme.css"), "utf8");
   assert.doesNotMatch(page, /Sign in to save/);
   assert.match(page, /\{token \? \([\s\S]*?IconHeart[\s\S]*?\) : null\}/);
-  assert.match(css, /customer-vendor-hero-tools[\s\S]*?background: transparent !important;/);
-  assert.match(css, /customer-vendor-hero-tools > \.customer-button,[\s\S]*?display: inline-flex;[\s\S]*?min-height: 44px;[\s\S]*?background: transparent !important;[\s\S]*?border: 1px solid var\(--line\);/);
+  assert.match(css, /customer-vendor-hero-tools[\s\S]*?background: var\(--card\) !important;[\s\S]*?border: 1px solid var\(--line\);[\s\S]*?border-radius: 999px;[\s\S]*?overflow: hidden;/);
+  assert.match(css, /customer-vendor-hero-tools > \.customer-button,[\s\S]*?background: transparent !important;[\s\S]*?border: 0;[\s\S]*?border-radius: 0;/);
+  assert.match(css, /customer-vendor-hero-tools > a \{[\s\S]*?border-inline-start: 1px solid var\(--line\);/);
   assert.match(css, /customer-vendor-location\[aria-pressed="true"\] \.customer-location-icon[\s\S]*?color: var\(--text\);/);
   assert.match(css, /customer-vendor-heading h1[\s\S]*?font-family: var\(--customer-font-display\);[\s\S]*?font-weight: 700;[\s\S]*?overflow-wrap: anywhere;/);
 });
