@@ -3687,15 +3687,13 @@ html[data-customer-theme] [data-slot="field-label"].customer-switch-row:hover { 
 .customer-detail-hero-actions > .customer-button:last-child::before { content: ""; position: absolute; inset-inline-start: 0; top: 11px; height: 24px; border-inline-start: 1px solid var(--line); }
 .customer-mobile-web .customer-detail-primary-actions { flex-wrap: nowrap; width: 100%; }
 .customer-mobile-web .customer-detail-primary-actions > * { flex: 1 1 0; min-width: 0; }
-.customer-mobile-web .customer-ticket-primary-actions {
-  width: 100vw;
-  margin-inline: calc(50% - 50vw);
-  bottom: calc(70px + env(safe-area-inset-bottom));
-}
-.customer-mobile-web .customer-booking-detail-primary-actions {
-  width: 100vw;
-  margin-inline: calc(50% - 50vw);
-  bottom: calc(70px + env(safe-area-inset-bottom));
+@media (max-width: 959px) {
+  .customer-mobile-web .customer-ticket-primary-actions,
+  .customer-mobile-web .customer-booking-detail-primary-actions {
+    width: 100vw;
+    margin-inline: calc(50% - 50vw);
+    bottom: calc(70px + env(safe-area-inset-bottom));
+  }
 }
 
 .customer-mobile-web .customer-detail-refresh { display: flex; justify-content: safe center; inline-size: 100%; }

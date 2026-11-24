@@ -1193,14 +1193,14 @@ test("mobile Customer booking actions span the viewport above the bordered menu"
 
 test("mobile Customer ticket actions span the viewport above the navigation", () => {
   const css = fs.readFileSync(path.resolve(__dirname, "../src/customer/customer-theme.css"), "utf8");
-  assert.match(css, /\.customer-ticket-primary-actions \{[\s\S]*?width: 100vw;[\s\S]*?margin-inline: calc\(50% - 50vw\);[\s\S]*?bottom: calc\(70px \+ env\(safe-area-inset-bottom\)\);/);
+  assert.match(css, /@media \(max-width: 959px\) \{[\s\S]*?\.customer-mobile-web \.customer-ticket-primary-actions,[\s\S]*?\.customer-mobile-web \.customer-booking-detail-primary-actions \{[\s\S]*?width: 100vw;[\s\S]*?margin-inline: calc\(50% - 50vw\);[\s\S]*?bottom: calc\(70px \+ env\(safe-area-inset-bottom\)\);/);
   const ticket = fs.readFileSync(path.resolve(__dirname, "../src/customer/pages/CustomerTicketDetailsPage.tsx"), "utf8");
   assert.match(ticket, /customer-detail-primary-actions customer-ticket-primary-actions/);
 });
 
 test("mobile Customer booking-detail actions span the viewport above the navigation", () => {
   const css = fs.readFileSync(path.resolve(__dirname, "../src/customer/customer-theme.css"), "utf8");
-  assert.match(css, /\.customer-booking-detail-primary-actions \{[\s\S]*?width: 100vw;[\s\S]*?margin-inline: calc\(50% - 50vw\);[\s\S]*?bottom: calc\(70px \+ env\(safe-area-inset-bottom\)\);/);
+  assert.match(css, /@media \(max-width: 959px\) \{[\s\S]*?\.customer-mobile-web \.customer-booking-detail-primary-actions \{[\s\S]*?width: 100vw;[\s\S]*?margin-inline: calc\(50% - 50vw\);[\s\S]*?bottom: calc\(70px \+ env\(safe-area-inset-bottom\)\);/);
   const booking = fs.readFileSync(path.resolve(__dirname, "../src/customer/pages/CustomerBookingDetailsViewPage.tsx"), "utf8");
   assert.match(booking, /customer-detail-primary-actions customer-booking-detail-primary-actions/);
 });
