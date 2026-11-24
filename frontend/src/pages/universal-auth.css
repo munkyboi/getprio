@@ -49,6 +49,7 @@ html[data-public-theme="dark"] .universal-auth-tabs [data-slot=tabs-trigger][ari
   background-color: #ff7a1a;
   color: #fff;
 }
+.universal-auth-session-primary { color: #fff !important; }
 .universal-auth a,
 .universal-auth .universal-auth-link { color: var(--link); }
 .universal-auth a:focus-visible { outline: 2px solid var(--link); outline-offset: 3px; }

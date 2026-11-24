@@ -44,6 +44,16 @@ export function localizeLoopbackOrigins(values: Partial<Record<AppPurpose, strin
   })) as Partial<Record<AppPurpose, string>>;
 }
 
+export function localPreviewOrigins(values: Partial<Record<AppPurpose, string>>, hostname: string) {
+  if (!(hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]")) return values;
+  const defaults = {
+    marketing: `http://${hostname}:5190`,
+    customer: `http://${hostname}:5191`,
+    vendor: `http://${hostname}:5192`,
+  } satisfies Partial<Record<AppPurpose, string>>;
+  return localizeLoopbackOrigins({ ...defaults, ...values }, hostname);
+}
+
 export function safeSurfaceNext(value: string | null | undefined, surface: "customer" | "vendor", allowOnboarding = false) {
   const fallback = surface === "vendor" ? "/dashboard" : "/account/dashboard";
   if (!value || !value.startsWith("/") || value.startsWith("//") || /[\\\u0000-\u001f\u007f]/.test(value)) return fallback;
@@ -76,8 +86,10 @@ export function appUrl(purpose: AppPurpose, path = "/") {
   const values = { marketing: env.VITE_MARKETING_URL, customer: env.VITE_CUSTOMER_APP_URL,
     vendor: env.VITE_VENDOR_APP_URL, platform: env.VITE_PLATFORM_DASHBOARD_URL,
     developers: env.VITE_DEVELOPER_PORTAL_URL };
-  const localValues = env.VITE_LOCAL_SURFACES === "1" && typeof window !== "undefined"
-    ? localizeLoopbackOrigins(values, window.location.hostname)
+  const hostname = typeof window !== "undefined" ? window.location.hostname : "";
+  const localHost = ["localhost", "127.0.0.1", "[::1]"].includes(hostname);
+  const localValues = localHost
+    ? localPreviewOrigins(values, hostname)
     : values;
-  return createAppUrls(localValues, env.VITE_LOCAL_SURFACES === "1", ["marketing", "customer", "vendor"])(purpose, path);
+  return createAppUrls(localValues, localHost, ["marketing", "customer", "vendor"])(purpose, path);
 }

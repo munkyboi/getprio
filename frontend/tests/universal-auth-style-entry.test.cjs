@@ -35,6 +35,7 @@ test("universal auth submits use the Marketing brand fill and plain white text",
   const primary = authStyles.match(/\.universal-auth-primary\s*\{([^}]+)\}/u)?.[1] || "";
   assert.match(primary, /background-color:\s*#ff7a1a\s*;/u);
   assert.match(primary, /(?:^|\s)color:\s*#fff\s*;/u);
+  assert.match(authStyles, /\.universal-auth-session-primary\s*\{[^}]*color:\s*#fff\s*!important/u);
   for (const [, declarations] of authStyles.matchAll(/\.universal-auth-primary\b[^{}]*\{([^}]+)\}/gu)) {
     assert.doesNotMatch(declarations, /text-shadow|text-stroke|paint-order/u);
   }

@@ -1,7 +1,7 @@
 require("tsx/cjs");
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { safeSurfaceNext, createAppUrls, keepSurfaceReturnPath, initialAuthSurface, localizeLoopbackOrigins } = require("../src/surfaces/surfaceConfig.ts");
+const { safeSurfaceNext, createAppUrls, keepSurfaceReturnPath, initialAuthSurface, localizeLoopbackOrigins, localPreviewOrigins } = require("../src/surfaces/surfaceConfig.ts");
 test("universal login and registration default to customer while preserving vendor intent", () => {
   for (const path of ["/login", "/register"]) {
     assert.equal(initialAuthSurface(path, new URLSearchParams()), "customer");
@@ -38,6 +38,14 @@ test("local app destinations use the browser loopback host", () => {
   const values = localizeLoopbackOrigins({ customer: "http://127.0.0.1:5191", vendor: "http://127.0.0.1:5192" }, "localhost");
   assert.equal(values.customer, "http://localhost:5191");
   assert.equal(values.vendor, "http://localhost:5192");
+});
+
+test("local preview destinations have safe defaults without the build flag", () => {
+  const values = localPreviewOrigins({}, "localhost");
+  assert.equal(values.marketing, "http://localhost:5190");
+  assert.equal(values.customer, "http://localhost:5191");
+  assert.equal(values.vendor, "http://localhost:5192");
+  assert.equal(localPreviewOrigins({}, "getprio.online").customer, undefined);
 });
 
 test("local auth destinations do not require an unrelated platform origin", () => {
