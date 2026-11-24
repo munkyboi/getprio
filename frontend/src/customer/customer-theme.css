@@ -466,10 +466,6 @@ html[data-customer-theme="dark"] {
   outline: 3px solid var(--customer-ring);
   outline-offset: 3px;
 }
-.customer-search-input [data-slot="input"]:focus {
-  outline: none !important;
-  box-shadow: none !important;
-}
 .customer-directory-count {
   color: var(--muted);
   margin-block: 16px !important;
@@ -3558,8 +3554,6 @@ html[data-customer-theme] [data-slot="field-label"].customer-field { align-items
 .customer-password-input[data-slot="input-group"] { display:flex; flex-direction:row; align-items:center; height:48px; min-height:48px; padding:0; }
 .customer-password-input > [data-slot="input-group-control"] { flex:1; min-width:0; height:46px; min-height:46px; padding-block:0; }
 .customer-password-input > [data-slot="input-group-addon"] { display:flex; flex:none; align-items:center; justify-content:center; width:44px; height:44px; padding:0; }
-.customer-password-input > [data-slot="input-group-control"],
-.customer-password-input > [data-slot="input-group-addon"] { border: 0 !important; }
 .customer-password-input > [data-slot="input-group-addon"] > .customer-button { position:static; width:44px; min-width:44px; height:44px; min-height:44px; padding:0; }
 .customer-auth-reset-link { color: var(--customer-primary) !important; text-decoration: underline; text-underline-offset: 3px; }
 .booking-unit-stepper { width:auto; height:44px; }
@@ -3801,18 +3795,3 @@ html[data-customer-theme] .customer-vendor-hero-tools > a:focus-visible {
   color: var(--text);
 }
 
-/* Customer forms use the app focus ring instead of the browser's blue outline. */
-html[data-customer-theme] .customer-mobile-web :where(input, select, textarea):focus {
-  outline: 3px solid var(--customer-ring);
-  outline-offset: 2px;
-  box-shadow: none;
-}
-html[data-customer-theme] .customer-mobile-web .customer-password-input [data-slot="input-group-control"]:focus {
-  outline: none !important;
-  box-shadow: none !important;
-}
-html[data-customer-theme] .customer-mobile-web .customer-password-input:focus-within {
-  outline: 3px solid var(--customer-ring);
-  outline-offset: 2px;
-  box-shadow: none !important;
-}

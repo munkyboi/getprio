@@ -15,7 +15,7 @@ test("vendor search and category filters are bookmarkable and preserve unrelated
 test("vendor search keeps the outer focus ring without an inner native outline", () => {
   const css = fs.readFileSync(path.resolve(__dirname, "../src/customer/customer-theme.css"), "utf8");
   assert.match(css, /\.customer-search-input:focus-within \{[\s\S]*outline: 3px solid var\(--customer-ring\)/);
-  assert.match(css, /\.customer-search-input \[data-slot="input"\]:focus \{[\s\S]*outline: none !important;[\s\S]*box-shadow: none !important;/);
+  assert.doesNotMatch(css, /\.customer-search-input \[data-slot="input"\]:focus/);
 });
 
 test("vendor category filtering composes with the server search result", () => {
@@ -85,10 +85,12 @@ test("Customer entry scopes the initial theme and keeps color-scheme synchronize
 
 test("Customer form fields replace native focus outlines with the accessible theme ring", () => {
   const css = fs.readFileSync(path.resolve(__dirname, "../src/customer/customer-theme.css"), "utf8");
-  assert.match(css, /customer-mobile-web :where\(input, select, textarea\):focus \{[\s\S]*?outline: 3px solid var\(--customer-ring\);[\s\S]*?box-shadow: none;/);
-  assert.match(css, /customer-password-input \[data-slot="input-group-control"\]:focus \{[\s\S]*?outline: none !important;[\s\S]*?box-shadow: none !important;/);
-  assert.match(css, /customer-mobile-web \.customer-password-input:focus-within \{[\s\S]*?outline: 3px solid var\(--customer-ring\);[\s\S]*?outline-offset: 2px;[\s\S]*?box-shadow: none !important;/);
-  assert.doesNotMatch(css, /customer-mobile-web :where\(\.customer-field, \.customer-booking-field, \.customer-booking-verification\):focus-within/);
+  const inputGroup = fs.readFileSync(path.resolve(__dirname, "../src/customer/components/shadcn/input-group.tsx"), "utf8");
+  assert.doesNotMatch(css, /customer-mobile-web :where\(input, select, textarea\):focus/);
+  assert.doesNotMatch(css, /customer-password-input(?:[^\n]*)?:focus-within/);
+  assert.doesNotMatch(css, /customer-search-input \[data-slot="input"\]:focus/);
+  assert.match(inputGroup, /focus-visible:ring-0/);
+  assert.match(inputGroup, /has-\[\[data-slot=input-group-control\]:focus-visible\]:ring-3/);
 });
 
 test("Customer login keeps password controls seamless and swaps to an inline reset form", () => {
@@ -100,6 +102,6 @@ test("Customer login keeps password controls seamless and swaps to an inline res
   assert.match(page, /<a className="customer-auth-reset-link" href=.*Create a customer account/);
   assert.match(css, /customer-fallback-card \[data-slot="card-title"\] \{[\s\S]*?font-size: clamp\(2rem, 5vw, 2\.75rem\);/);
   assert.match(page, /!m\.showResetRequest && !m\.mfaChallengeToken \? <CustomerSocial/);
-  assert.match(css, /customer-password-input > \[data-slot="input-group-control"\],[\s\S]*?border: 0 !important;/);
+  assert.doesNotMatch(css, /customer-password-input > \[data-slot="input-group-control"\],[\s\S]*?border: 0 !important;/);
   assert.match(css, /customer-auth-reset-link \{[\s\S]*?color: var\(--customer-primary\) !important;[\s\S]*?text-decoration: underline;/);
 });
