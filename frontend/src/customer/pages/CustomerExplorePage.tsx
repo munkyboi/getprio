@@ -89,7 +89,7 @@ function VendorCard({ vendor }: { vendor: PublicVendorProfile }) {
               className="customer-default-cover"
               src={
                 theme === "dark"
-                  ? "/illustrations/customer/vendor-default-dark.png"
+                  ? "/illustrations/generated/hero-queue-scene-transparent.png"
                   : "/illustrations/generated/hero-queue-scene-transparent.png"
               }
               alt=""

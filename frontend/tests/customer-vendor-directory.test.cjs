@@ -44,6 +44,20 @@ test("vendor cards keep metadata columns from collapsing or overflowing", () => 
   assert.match(css, /\.customer-directory-card \[data-slot="card-title"\],[\s\S]*overflow-wrap: anywhere;/);
 });
 
+test("vendor image fallbacks use committed assets in both Customer themes", () => {
+  const sourceFiles = [
+    path.resolve(__dirname, "../src/customer/pages/CustomerExplorePage.tsx"),
+    path.resolve(__dirname, "../src/customer/pages/CustomerVendorDetailsPage.tsx"),
+    path.resolve(__dirname, "../src/customer/components/details/BusinessMedia.tsx"),
+  ];
+  for (const file of sourceFiles) {
+    const source = fs.readFileSync(file, "utf8");
+    assert.doesNotMatch(source, /illustrations\/customer\/vendor-default-dark\.png/);
+    assert.match(source, /illustrations\/generated\/hero-queue-scene-transparent\.png/);
+  }
+  assert.ok(fs.existsSync(path.resolve(__dirname, "../public/illustrations/generated/hero-queue-scene-transparent.png")));
+});
+
 test("vendor detail cards use opaque theme surfaces", () => {
   const css = fs.readFileSync(path.resolve(__dirname, "../src/customer/customer-theme.css"), "utf8");
   assert.match(css, /html\[data-customer-theme\] \.customer-vendor-content \{[\s\S]*isolation: isolate;[\s\S]*z-index: 2;[\s\S]*overflow: clip;[\s\S]*background: var\(--card\) !important;[\s\S]*background-image: none !important;/);

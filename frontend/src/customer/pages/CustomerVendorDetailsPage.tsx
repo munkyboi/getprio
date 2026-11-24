@@ -78,7 +78,7 @@ export default function CustomerVendorDetailsPage() {
   const { theme: mode } = useCustomerTheme();
   const fallbackCover =
     mode === "dark"
-      ? "/illustrations/customer/vendor-default-dark.png"
+      ? "/illustrations/generated/hero-queue-scene-transparent.png"
       : defaultCover;
   const fallbackLogo = mode === "dark" ? "/logo-dark.svg" : "/logo.svg";
   const { tenantSlug = "", locationSlug = "" } = useParams();
