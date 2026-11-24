@@ -18,6 +18,8 @@ assert.equal([...entry.matchAll(/<PublicThemeProvider>/gu)].length, 1);
 assert.match(authStyles, /\.universal-auth-card/u);
 assert.match(authStyles, /\[data-slot=input\]/u);
 assert.match(authStyles, /\[data-slot=tabs-trigger\]/u);
+assert.match(authStyles, /tabs-trigger\] \{ flex: 1; border: 1px solid transparent; background: transparent; \}/u);
+assert.match(authStyles, /data-public-theme="dark".*color-mix\(in srgb, var\(--card\) 58%, var\(--secondary\)\)/su);
 assert.match(authPage, /provider === "apple"/u);
 assert.match(customerFallback, /oauthProviders\.apple \?/u);
 assert.match(authEnabled, /VITE_APP_SURFACE === "marketing"/u);

@@ -23,13 +23,17 @@
 .universal-auth-card { --card-spacing: 24px; }
 .universal-auth-title h2 { margin: 0; font-size: 28px; font-family: var(--prio-heading-font), Georgia, serif; }
 .universal-auth-tabs { display: flex; width: 100%; min-height: 52px; margin-bottom: 16px; padding: 4px; background: var(--secondary); border-radius: 10px; }
-.universal-auth-tabs [data-slot=tabs-trigger] { flex: 1; border: 1px solid transparent; }
-.universal-auth-tabs [data-slot=tabs-trigger]:not([aria-selected=true]) { color: var(--muted-foreground); }
+.universal-auth-tabs [data-slot=tabs-trigger] { flex: 1; border: 1px solid transparent; background: transparent; }
+.universal-auth-tabs [data-slot=tabs-trigger]:not([aria-selected=true]) { color: var(--muted-foreground); background: transparent; }
 .universal-auth-tabs [data-slot=tabs-trigger][aria-selected=true] {
   color: var(--auth-tab-text);
   background: var(--card);
   border-color: var(--border);
   box-shadow: none;
+}
+html[data-public-theme="dark"] .universal-auth-tabs [data-slot=tabs-trigger][aria-selected=true] {
+  background: color-mix(in srgb, var(--card) 58%, var(--secondary));
+  border-color: color-mix(in srgb, var(--border) 64%, transparent);
 }
 .universal-auth-tabs [data-slot=tabs-trigger]:focus-visible {
   outline: 2px solid var(--link);
