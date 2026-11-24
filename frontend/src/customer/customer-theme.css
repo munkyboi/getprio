@@ -3796,3 +3796,17 @@ html[data-customer-theme] .customer-vendor-hero-tools > a:focus-visible {
   background: transparent !important;
   color: var(--text);
 }
+
+/* Customer forms use the app focus ring instead of the browser's blue outline. */
+html[data-customer-theme] .customer-mobile-web :where(input, select, textarea):focus {
+  outline: none;
+  box-shadow: none;
+}
+html[data-customer-theme] .customer-mobile-web :where(input, select, textarea):focus-visible {
+  outline: 3px solid var(--customer-ring);
+  outline-offset: 2px;
+}
+html[data-customer-theme] .customer-mobile-web .customer-password-input:focus-within {
+  outline: 3px solid var(--customer-ring);
+  outline-offset: 2px;
+}

@@ -82,3 +82,10 @@ test("Customer entry scopes the initial theme and keeps color-scheme synchronize
   assert.match(customerCss, /html\[data-customer-theme\][\s\S]*--bg: #fbf7f1;[\s\S]*--card: #fffaf4;[\s\S]*--line: #eadfd4;/);
   assert.match(customerCss, /html\[data-customer-theme="dark"\][\s\S]*--bg: #0e1720;[\s\S]*--card: #16212b;[\s\S]*--line: #354654;[\s\S]*--text: #f5f8fa;[\s\S]*--muted: #cdd8de;/);
 });
+
+test("Customer form fields replace native focus outlines with the accessible theme ring", () => {
+  const css = fs.readFileSync(path.resolve(__dirname, "../src/customer/customer-theme.css"), "utf8");
+  assert.match(css, /customer-mobile-web :where\(input, select, textarea\):focus \{[\s\S]*?outline: none;[\s\S]*?box-shadow: none;/);
+  assert.match(css, /customer-mobile-web :where\(input, select, textarea\):focus-visible \{[\s\S]*?outline: 3px solid var\(--customer-ring\);[\s\S]*?outline-offset: 2px;/);
+  assert.match(css, /customer-password-input:focus-within \{[\s\S]*?outline: 3px solid var\(--customer-ring\);/);
+});
