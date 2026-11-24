@@ -127,10 +127,6 @@ html[data-customer-theme="dark"]
 .customer-settings-tabs .mantine-Tabs-tab {
   min-height: 44px;
 }
-html[data-customer-theme] :focus-visible {
-  outline: 3px solid var(--ring);
-  outline-offset: 3px;
-}
 @media (max-width: 768px) {
   .customer-mobile-navigation .customer-avatar-trigger {
     align-self: flex-start;
@@ -165,7 +161,6 @@ html[data-customer-theme] {
   --customer-primary-text: #fff;
   --customer-hover: #ececec;
   --customer-ring: #0b5e58;
-  --ring: #0b5e58;
   --customer-error: #a53535;
   --customer-font-display: Aleo, Georgia, serif;
 }
@@ -179,11 +174,9 @@ html[data-customer-theme="dark"] {
   --customer-soft: #20313e;
   --customer-hover: #333;
   --customer-ring: #79c5b7;
-  --ring: #79c5b7;
   --customer-error: #ff9c9c;
 }
 .customer-mobile-web {
-  --ring: var(--customer-ring);
   min-height: 100dvh;
   font:
     400 16px/1.5 Inter,
@@ -197,7 +190,7 @@ html[data-customer-theme="dark"] {
 .customer-mobile-web a {
   color: inherit;
 }
-.customer-mobile-web :where(a, button, input):focus-visible,
+.customer-mobile-web :where(a, button):focus-visible,
 .customer-menu-popup :focus-visible {
   outline: 3px solid var(--customer-ring);
   outline-offset: 3px;
@@ -464,10 +457,6 @@ html[data-customer-theme="dark"] {
   background: transparent;
   color: var(--text);
   font: inherit;
-}
-.customer-search-input:focus-within {
-  outline: 3px solid var(--customer-ring);
-  outline-offset: 3px;
 }
 .customer-directory-count {
   color: var(--muted);
@@ -3558,11 +3547,6 @@ html[data-customer-theme] [data-slot="field-label"].customer-field { align-items
 .customer-password-input > [data-slot="input-group-control"] { flex:1; min-width:0; height:46px; min-height:46px; padding-block:0; }
 .customer-password-input > [data-slot="input-group-addon"] { display:flex; flex:none; align-items:center; justify-content:center; width:44px; height:44px; padding:0; }
 .customer-password-input > [data-slot="input-group-addon"] > .customer-button { position:static; width:44px; min-width:44px; height:44px; min-height:44px; padding:0; }
-.customer-password-input [data-slot="input-group-control"]:focus-visible {
-  outline: none !important;
-  border-color: transparent !important;
-  box-shadow: none !important;
-}
 .customer-auth-reset-link { color: var(--customer-primary) !important; text-decoration: underline; text-underline-offset: 3px; }
 .booking-unit-stepper { width:auto; height:44px; }
 .booking-unit-stepper [data-slot="input-group-control"] { width:44px; min-width:44px; flex:none; text-align:center; padding:0; }

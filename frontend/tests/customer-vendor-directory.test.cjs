@@ -12,10 +12,12 @@ test("vendor search and category filters are bookmarkable and preserve unrelated
   assert.equal(reset.toString(), "intent=join");
 });
 
-test("vendor search keeps the outer focus ring without an inner native outline", () => {
+test("vendor search leaves focus treatment to the shadcn InputGroup primitive", () => {
   const css = fs.readFileSync(path.resolve(__dirname, "../src/customer/customer-theme.css"), "utf8");
-  assert.match(css, /\.customer-search-input:focus-within \{[\s\S]*outline: 3px solid var\(--customer-ring\)/);
+  const inputGroup = fs.readFileSync(path.resolve(__dirname, "../src/customer/components/shadcn/input-group.tsx"), "utf8");
+  assert.doesNotMatch(css, /\.customer-search-input:focus-within/);
   assert.doesNotMatch(css, /\.customer-search-input \[data-slot="input"\]:focus/);
+  assert.match(inputGroup, /has-\[\[data-slot=input-group-control\]:focus-visible\]:ring-3/);
 });
 
 test("vendor category filtering composes with the server search result", () => {
@@ -93,13 +95,11 @@ test("Customer form fields replace native focus outlines with the accessible the
   assert.match(inputGroup, /has-\[\[data-slot=input-group-control\]:focus-visible\]:ring-3/);
 });
 
-test("Customer theme maps shadcn ring tokens to the Customer focus colors", () => {
+test("Customer form focus treatment remains owned by shadcn primitives", () => {
   const css = fs.readFileSync(path.resolve(__dirname, "../src/customer/customer-theme.css"), "utf8");
-  assert.match(css, /html\[data-customer-theme\] \{[\s\S]*?--customer-ring: #0b5e58;[\s\S]*?--ring: #0b5e58;/);
-  assert.match(css, /html\[data-customer-theme="dark"\] \{[\s\S]*?--customer-ring: #79c5b7;[\s\S]*?--ring: #79c5b7;/);
-  assert.match(css, /html\[data-customer-theme\] :focus-visible \{[\s\S]*?outline: 3px solid var\(--ring\);/);
-  assert.match(css, /\.customer-mobile-web \{[\s\S]*?--ring: var\(--customer-ring\);/);
-  assert.doesNotMatch(css, /outline: 3px solid #437ad6/);
+  assert.doesNotMatch(css, /--ring:/);
+  assert.doesNotMatch(css, /html\[data-customer-theme\] :focus-visible/);
+  assert.doesNotMatch(css, /\.customer-mobile-web \{[\s\S]*?--ring:/);
 });
 
 test("Customer login keeps password controls seamless and swaps to an inline reset form", () => {
@@ -112,6 +112,6 @@ test("Customer login keeps password controls seamless and swaps to an inline res
   assert.match(css, /customer-fallback-card \[data-slot="card-title"\] \{[\s\S]*?font-size: clamp\(2rem, 5vw, 2\.75rem\);/);
   assert.match(page, /!m\.showResetRequest && !m\.mfaChallengeToken \? <CustomerSocial/);
   assert.doesNotMatch(css, /customer-password-input > \[data-slot="input-group-control"\],[\s\S]*?border: 0 !important;/);
-  assert.match(css, /customer-password-input \[data-slot="input-group-control"\]:focus-visible \{[\s\S]*?outline: none !important;[\s\S]*?border-color: transparent !important;[\s\S]*?box-shadow: none !important;/);
+  assert.doesNotMatch(css, /customer-password-input \[data-slot="input-group-control"\]:focus-visible/);
   assert.match(css, /customer-auth-reset-link \{[\s\S]*?color: var\(--customer-primary\) !important;[\s\S]*?text-decoration: underline;/);
 });
