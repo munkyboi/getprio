@@ -23,8 +23,14 @@ export default defineConfig(({ mode }) => {
       ["marketing", "customer"].includes(surface) && tailwindcss(),
       surface === "customer" && {
         name: "customer-entry",
-        transformIndexHtml(html) {
-          return html.replace('/src/main.tsx', '/src/customer/main.tsx');
+        transformIndexHtml: {
+          order: "pre",
+          handler(html) {
+            return html.replace(
+              'src="/src/main.tsx"',
+              'src="/src/customer/main.tsx"',
+            );
+          },
         }
       }
     ],

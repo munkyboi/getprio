@@ -57,10 +57,12 @@ test("vendor detail keeps unauthenticated actions minimal and readable", () => {
 test("Customer entry scopes the initial theme and keeps color-scheme synchronized", () => {
   const main = fs.readFileSync(path.resolve(__dirname, "../src/customer/main.tsx"), "utf8");
   const theme = fs.readFileSync(path.resolve(__dirname, "../src/customer/CustomerTheme.tsx"), "utf8");
+  const vite = fs.readFileSync(path.resolve(__dirname, "../vite.config.ts"), "utf8");
   assert.match(main, /localStorage\.getItem\("getprio\.customer\.theme"\)/);
   assert.match(main, /document\.documentElement\.setAttribute\("data-customer-theme", initialCustomerTheme\)/);
   assert.match(main, /document\.documentElement\.style\.colorScheme = initialCustomerTheme/);
   assert.match(theme, /root\.setAttribute\("data-customer-theme", theme\);[\s\S]*root\.style\.colorScheme = theme;/);
   assert.doesNotMatch(theme, /root\.removeAttribute\("data-customer-theme"\)/);
   assert.match(fs.readFileSync(path.resolve(__dirname, "../src/customer/CustomerShell.tsx"), "utf8"), /onPointerDown=\{toggleTheme\}/);
+  assert.match(vite, /src=\\?"\/src\/main\.tsx\\?"[\s\S]*src=\\?"\/src\/customer\/main\.tsx\\?"/);
 });
