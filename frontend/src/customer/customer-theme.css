@@ -514,7 +514,19 @@ html[data-customer-theme="dark"] {
 }
 .customer-directory-card {
   display: flex;
+  flex-direction: column;
+  min-width: 0;
   box-shadow: 0 8px 28px #00000009;
+}
+.customer-directory-card [data-slot="card-header"],
+.customer-directory-card [data-slot="card-content"],
+.customer-directory-card [data-slot="card-footer"] {
+  min-width: 0;
+}
+.customer-directory-card [data-slot="card-title"],
+.customer-directory-card [data-slot="card-description"] {
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 .customer-directory-link {
   display: flex;
