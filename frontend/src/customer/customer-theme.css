@@ -772,6 +772,16 @@ html[data-customer-theme="dark"] {
   padding: 28px 24px;
   margin-top: -24px;
 }
+.customer-vendor-content .customer-vendor-queue,
+.customer-vendor-content .customer-vendor-service,
+.customer-vendor-content .customer-vendor-review {
+  background: var(--card);
+  opacity: 1;
+}
+.customer-vendor-content .customer-vendor-service > [data-slot="card-footer"],
+.customer-vendor-content .customer-vendor-review > [data-slot="card-footer"] {
+  background: var(--card);
+}
 .customer-vendor-heading {
   display: flex;
   justify-content: space-between;
