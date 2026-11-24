@@ -154,7 +154,7 @@ html[data-customer-theme] :focus-visible {
 }
 html[data-customer-theme] {
   --bg: #fbf7f1;
-  --card: #ffffff;
+  --card: rgba(255, 255, 255, 1);
   --card-strong: #fffaf4;
   --text: #23180f;
   --muted: #735f50;
