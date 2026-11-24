@@ -15,6 +15,10 @@ import "../styles.css";
 import "./shadcn-theme.css";
 import "./customer-theme.css";
 
+// Establish the Customer theme scope before the first paint; CustomerTheme
+// updates this value for persisted light/dark preferences after mount.
+document.documentElement.setAttribute("data-customer-theme", "light");
+
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
       <MantineProvider>
