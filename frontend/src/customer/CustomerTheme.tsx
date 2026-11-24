@@ -54,9 +54,15 @@ export default function CustomerTheme({
     const root = document.documentElement;
     const previous = root.getAttribute("data-customer-theme");
     root.setAttribute("data-customer-theme", theme);
+    root.style.colorScheme = theme;
     return () => {
-      if (previous) root.setAttribute("data-customer-theme", previous);
-      else root.removeAttribute("data-customer-theme");
+      if (previous) {
+        root.setAttribute("data-customer-theme", previous);
+        root.style.colorScheme = previous;
+      } else {
+        root.removeAttribute("data-customer-theme");
+        root.style.removeProperty("color-scheme");
+      }
     };
   }, [theme]);
   useLayoutEffect(() => {

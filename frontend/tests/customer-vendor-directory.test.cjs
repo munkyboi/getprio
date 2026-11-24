@@ -53,3 +53,12 @@ test("vendor detail keeps unauthenticated actions minimal and readable", () => {
   assert.match(css, /customer-vendor-location\[aria-pressed="true"\] \.customer-location-icon[\s\S]*?color: var\(--text\);/);
   assert.match(css, /customer-vendor-heading h1[\s\S]*?font-family: var\(--customer-font-display\);[\s\S]*?font-weight: 700;[\s\S]*?overflow-wrap: anywhere;/);
 });
+
+test("Customer entry scopes the initial theme and keeps color-scheme synchronized", () => {
+  const main = fs.readFileSync(path.resolve(__dirname, "../src/customer/main.tsx"), "utf8");
+  const theme = fs.readFileSync(path.resolve(__dirname, "../src/customer/CustomerTheme.tsx"), "utf8");
+  assert.match(main, /localStorage\.getItem\("getprio\.customer\.theme"\)/);
+  assert.match(main, /document\.documentElement\.setAttribute\("data-customer-theme", initialCustomerTheme\)/);
+  assert.match(main, /document\.documentElement\.style\.colorScheme = initialCustomerTheme/);
+  assert.match(theme, /root\.setAttribute\("data-customer-theme", theme\);[\s\S]*root\.style\.colorScheme = theme;/);
+});
