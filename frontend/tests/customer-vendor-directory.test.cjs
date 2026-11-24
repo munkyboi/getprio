@@ -100,7 +100,7 @@ test("Customer entry scopes the initial theme and keeps color-scheme synchronize
   const customerCss = fs.readFileSync(path.resolve(__dirname, "../src/customer/customer-theme.css"), "utf8");
   const vite = fs.readFileSync(path.resolve(__dirname, "../vite.config.ts"), "utf8");
   assert.match(main, /localStorage\.getItem\("getprio\.customer\.theme"\)/);
-  assert.match(main, /document\.documentElement\.setAttribute\("data-customer-theme", initialCustomerTheme\)/);
+  assert.match(main, /document\.documentElement\.dataset\.customerTheme = initialCustomerTheme/);
   assert.match(main, /document\.documentElement\.style\.colorScheme = initialCustomerTheme/);
   assert.match(theme, /root\.setAttribute\("data-customer-theme", theme\);[\s\S]*root\.style\.colorScheme = theme;/);
   assert.doesNotMatch(theme, /root\.removeAttribute\("data-customer-theme"\)/);

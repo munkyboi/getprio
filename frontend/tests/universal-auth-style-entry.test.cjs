@@ -27,7 +27,8 @@ assert.match(authEnabled, /VITE_APP_SURFACE === "marketing"/u);
 });
 
 test("customer empty dashboard uses a committed illustration asset", () => {
-  assert.match(customerHome, /src="\/illustrations\/generated\/dashboard-empty\.png"/u);
+  assert.match(customerHome, /\/illustrations\/generated\/dashboard-empty-transparent\.png/u);
+  assert.match(customerHome, /\/illustrations\/generated\/dashboard-empty-transparent-dark\.png/u);
   assert.doesNotMatch(customerHome, /illustrations\/customer\/dashboard-empty(?:-dark)?\.png/u);
 });
 
