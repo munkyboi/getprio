@@ -1191,6 +1191,12 @@ test("mobile Customer booking actions span the viewport above the bordered menu"
   assert.match(css, /\.customer-web-navigation \{[\s\S]*?border-top: 1px solid var\(--line\) !important;[\s\S]*?z-index: 100;/);
 });
 
+test("mobile Customer booking page does not double-count bottom navigation clearance", () => {
+  const css = fs.readFileSync(path.resolve(__dirname, "../src/customer/customer-theme.css"), "utf8");
+  assert.match(css, /\.customer-booking-page \{\s*padding-bottom: 0;/);
+  assert.match(css, /\.customer-web-content \{[\s\S]*padding: 16px 20px calc\(110px \+ env\(safe-area-inset-bottom\)\);/);
+});
+
 test("group-funded section labels use a consistent heading size", () => {
   const styles = fs.readFileSync(
     path.join(path.resolve(__dirname, ".."), "src", "styles.css"),

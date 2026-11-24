@@ -1099,7 +1099,7 @@ html[data-customer-theme="dark"] {
 }
 /* Customer booking authoring presentation; existing real controller owns state. */
 .customer-booking-page {
-  padding-bottom: 120px;
+  padding-bottom: 0;
 }
 .customer-booking-title {
   display: flex;
