@@ -61,9 +61,9 @@ test("vendor detail keeps unauthenticated actions minimal and readable", () => {
   assert.match(page, /rating\.average\.toFixed\(1\)[\s\S]*?customer-vendor-rating-count[\s\S]*?rating\.count/);
   assert.match(css, /customer-vendor-rating-count \{[\s\S]*?font-size: 0\.75em;/);
   assert.match(css, /customer-vendor-hero-tools > \.customer-button\[aria-pressed="true"\][\s\S]*?color: var\(--customer-error\);/);
-  assert.match(css, /customer-vendor-location\[aria-pressed="true"\] \.customer-location-icon[\s\S]*?background: var\(--customer-primary\);[\s\S]*?color: #fff;/);
+  assert.match(css, /customer-vendor-location\[aria-pressed="true"\] \.customer-location-icon[\s\S]*?background: transparent;[\s\S]*?color: var\(--customer-primary\);/);
   assert.match(css, /\.customer-vendor-location\[aria-pressed="true"\] \{[\s\S]*?background: color-mix\(in srgb, var\(--customer-primary\) 10%, var\(--card\)\);[\s\S]*?border-bottom-color: var\(--customer-primary\);/);
-  assert.match(css, /html\[data-customer-theme\] \.customer-vendor-location\[aria-pressed="true"\] \.customer-location-icon[\s\S]*?background: var\(--customer-primary\);[\s\S]*?color: #fff;/);
+  assert.match(css, /html\[data-customer-theme\] \.customer-vendor-location\[aria-pressed="true"\] \.customer-location-icon[\s\S]*?background: transparent;[\s\S]*?color: var\(--customer-primary\);/);
   assert.match(css, /customer-vendor-heading h1[\s\S]*?font-family: var\(--customer-font-display\);[\s\S]*?font-weight: 700;[\s\S]*?overflow-wrap: anywhere;/);
 });
 
