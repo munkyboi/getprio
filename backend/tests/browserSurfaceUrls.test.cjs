@@ -2,6 +2,8 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { origin, surfaceOrigins, browserAllowedOrigins, authSurface, safeReturnPath } = require('../src/services/browserSurfaceUrls');
 const { resolveDeveloperApiEnvironment, localApiRequestGuard } = require('../src/services/developerApiEnvironment');
+const { rateLimit } = require('express-rate-limit');
+const testRateLimiter = rateLimit({ windowMs: 60_000, limit: 120, standardHeaders: true, legacyHeaders: false });
 const config = { nodeEnv: 'development', clientUrl: 'http://127.0.0.1:5191', appBaseUrl: 'http://127.0.0.1:5191', customerAppUrl: 'http://127.0.0.1:5191', vendorAppUrl: 'http://127.0.0.1:5192', marketingUrl: 'http://127.0.0.1:5190', platformDashboardUrl: 'http://127.0.0.1:5193', developerPortalUrl: 'http://127.0.0.1:5194' };
 test('purpose origins and exact browser CORS exclude marketing and unconfigured ports', () => {
   assert.equal(surfaceOrigins(config).vendor, 'http://127.0.0.1:5192');
@@ -50,7 +52,7 @@ test('sandbox permits only key API and health; rejects all browser auth before s
 
 test('distinct marketing receives public CORS only; private reads/writes and wrong preflights deny',async()=>{
  const express=require('express'),cors=require('cors');const {createBrowserCorsMiddleware}=require('../src/services/browserSurfaceUrls');
- const app=express();app.use(createBrowserCorsMiddleware(config,cors));app.use((req,res)=>res.json({ok:true}));app.use((error,req,res,next)=>res.status(error.statusCode||500).json({message:error.message}));
+ const app=express();app.use(testRateLimiter);app.use(createBrowserCorsMiddleware(config,cors));app.use((req,res)=>res.json({ok:true}));app.use((error,req,res,next)=>res.status(error.statusCode||500).json({message:error.message}));
  const server=await new Promise(resolve=>{const s=app.listen(0,'127.0.0.1',()=>resolve(s));});const base=`http://127.0.0.1:${server.address().port}`;
  try{
   for(const [method,path,preflight,status] of [['GET','/api/billing/plans',null,200],['GET','/api/public/help-center',null,200],['POST','/api/public/enterprise-inquiries',null,200],['OPTIONS','/api/public/enterprise-inquiries','POST',204],['GET','/api/auth/me',null,403],['POST','/api/auth/login',null,403],['PATCH','/api/vendor/settings',null,403],['OPTIONS','/api/billing/plans','DELETE',403],['POST','/api/public/help-center',null,403]]){
@@ -68,6 +70,7 @@ test('canonical local Marketing may make only the credentialed reads and submiss
  const cors = require('cors');
  const { createBrowserCorsMiddleware } = require('../src/services/browserSurfaceUrls');
  const app = express();
+ app.use(testRateLimiter);
  app.use(createBrowserCorsMiddleware({ ...config, localApiProfile: 'core' }, cors));
  app.use((req, res) => res.sendStatus(req.method === 'POST' ? 400 : req.path === '/api/auth/me' ? 401 : 200));
  app.use((error, _req, res, _next) => res.sendStatus(error.statusCode || 500));
@@ -156,7 +159,7 @@ test('local auth exception remains off for production, sandbox, and other Market
 });
 test('Apple form-post callback accepts only Apple origin on the callback route', async()=>{
  const express=require('express'),cors=require('cors');const {createBrowserCorsMiddleware}=require('../src/services/browserSurfaceUrls');
- const app=express();app.use(createBrowserCorsMiddleware(config,cors));app.post('/api/auth/oauth/apple/callback',(req,res)=>res.sendStatus(204));app.use((error,req,res,next)=>res.status(error.statusCode||500).json({message:error.message}));
+ const app=express();app.use(testRateLimiter);app.use(createBrowserCorsMiddleware(config,cors));app.post('/api/auth/oauth/apple/callback',(req,res)=>res.sendStatus(204));app.use((error,req,res,next)=>res.status(error.statusCode||500).json({message:error.message}));
  const server=await new Promise(resolve=>{const s=app.listen(0,'127.0.0.1',()=>resolve(s));});const base=`http://127.0.0.1:${server.address().port}`;
  try {
   const apple=await fetch(base+'/api/auth/oauth/apple/callback',{method:'POST',headers:{Origin:'https://appleid.apple.com'}});

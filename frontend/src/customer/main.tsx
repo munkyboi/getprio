@@ -26,7 +26,7 @@ const initialCustomerTheme = (() => {
   }
   return matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
 })();
-document.documentElement.setAttribute("data-customer-theme", initialCustomerTheme);
+document.documentElement.dataset.customerTheme = initialCustomerTheme;
 document.documentElement.style.colorScheme = initialCustomerTheme;
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
