@@ -46,6 +46,10 @@ test("local preview destinations have safe defaults without the build flag", () 
   assert.equal(values.customer, "http://localhost:5191");
   assert.equal(values.vendor, "http://localhost:5192");
   assert.equal(localPreviewOrigins({}, "getprio.online").customer, undefined);
+  const emptyInjectedValues = localPreviewOrigins({ marketing: "", customer: "", vendor: "" }, "localhost");
+  assert.equal(emptyInjectedValues.marketing, "http://localhost:5190");
+  assert.equal(emptyInjectedValues.customer, "http://localhost:5191");
+  assert.equal(emptyInjectedValues.vendor, "http://localhost:5192");
 });
 
 test("local auth destinations do not require an unrelated platform origin", () => {

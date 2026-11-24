@@ -51,7 +51,10 @@ export function localPreviewOrigins(values: Partial<Record<AppPurpose, string>>,
     customer: `http://${hostname}:5191`,
     vendor: `http://${hostname}:5192`,
   } satisfies Partial<Record<AppPurpose, string>>;
-  return localizeLoopbackOrigins({ ...defaults, ...values }, hostname);
+  const configured = Object.fromEntries(
+    Object.entries(values).filter(([, value]) => typeof value === "string" && value.trim().length > 0)
+  ) as Partial<Record<AppPurpose, string>>;
+  return localizeLoopbackOrigins({ ...defaults, ...configured }, hostname);
 }
 
 export function safeSurfaceNext(value: string | null | undefined, surface: "customer" | "vendor", allowOnboarding = false) {
