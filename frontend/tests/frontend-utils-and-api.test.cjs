@@ -5,7 +5,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 
-const { ApiError, apiRequest, apiUpload, setAuthHandlers, API_BASE_URL, localizeApiOrigin } = require("../src/api/client.ts");
+const { ApiError, apiRequest, apiUpload, setAuthHandlers, API_BASE_URL, localizeApiOrigin, runtimeApiBaseUrl } = require("../src/api/client.ts");
 const { getErrorMessage } = require("../src/utils/errors.ts");
 const {
   buildTenantSlugFromName,
@@ -289,6 +289,8 @@ test("local API origin follows the browser loopback host", () => {
   assert.equal(localizeApiOrigin("http://127.0.0.1:5091/api", "localhost"), "http://localhost:5091/api");
   assert.equal(localizeApiOrigin("http://localhost:5091/api", "127.0.0.1"), "http://127.0.0.1:5091/api");
   assert.equal(localizeApiOrigin("https://api.getprio.online/api", "localhost"), "https://api.getprio.online/api");
+  assert.equal(runtimeApiBaseUrl("localhost"), localizeApiOrigin(API_BASE_URL, "localhost"));
+  assert.equal(runtimeApiBaseUrl("127.0.0.1"), localizeApiOrigin(API_BASE_URL, "127.0.0.1"));
 });
 
 test("campaign funding progress uses monetary percentage and a bottom-right label", () => {

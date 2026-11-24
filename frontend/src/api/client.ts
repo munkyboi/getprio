@@ -10,10 +10,14 @@ export function localizeApiOrigin(base: string, hostname: string): string {
   return url.origin + url.pathname.replace(/\/$/u, "");
 }
 
-function runtimeApiBaseUrl(): string {
-  return import.meta.env?.VITE_LOCAL_SURFACES === "1" && typeof window !== "undefined"
-    ? localizeApiOrigin(API_BASE_URL, window.location.hostname)
-    : API_BASE_URL;
+export function runtimeApiBaseUrl(hostname?: string): string {
+  // Keep local browser/API requests same-site even when a preview was built
+  // with the loopback API's other spelling. This is required for credentialed
+  // auth requests: browsers classify localhost and 127.0.0.1 as cross-site,
+  // which causes the strict CSRF middleware to reject an otherwise valid
+  // session. Production API origins are left untouched by localizeApiOrigin.
+  const browserHostname = hostname || (typeof window !== "undefined" ? window.location?.hostname || "" : "");
+  return browserHostname ? localizeApiOrigin(API_BASE_URL, browserHostname) : API_BASE_URL;
 }
 const CSRF_STORAGE_KEY = "prio_csrf";
 
