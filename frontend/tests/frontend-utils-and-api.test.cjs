@@ -1211,6 +1211,18 @@ test("mobile Customer booking page does not double-count bottom navigation clear
   assert.match(css, /\.customer-web-content \{[\s\S]*padding: 16px 20px calc\(110px \+ env\(safe-area-inset-bottom\)\);/);
 });
 
+test("Customer dashboard empty state selects transparent light and dark artwork", () => {
+  const home = fs.readFileSync(path.resolve(__dirname, "../src/customer/pages/CustomerHomePage.tsx"), "utf8");
+  assert.match(home, /theme === "dark"[\s\S]*dashboard-empty-transparent-dark\.png/);
+  assert.match(home, /dashboard-empty-transparent\.png/);
+  for (const asset of [
+    "../public/illustrations/generated/dashboard-empty-transparent.png",
+    "../public/illustrations/generated/dashboard-empty-transparent-dark.png",
+  ]) {
+    assert.ok(fs.existsSync(path.resolve(__dirname, asset)), `missing ${asset}`);
+  }
+});
+
 test("group-funded section labels use a consistent heading size", () => {
   const styles = fs.readFileSync(
     path.join(path.resolve(__dirname, ".."), "src", "styles.css"),
