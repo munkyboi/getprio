@@ -75,6 +75,27 @@ function createCsrfProtection({ allowedOrigins, csrfSecret, authCookieSecure = t
     }
 
     const cookies = parseCookies(req.headers?.cookie);
+    const origin = requestOrigin(req);
+    const fetchSite = String(req.headers?.["sec-fetch-site"] || "").toLowerCase();
+    const contentType = String(req.headers?.["content-type"] || "").toLowerCase();
+    const authRecovery = isAuthRecoveryRequest(req);
+
+    // Pre-auth recovery must work even when a browser retains a stale session
+    // cookie from another local surface. Keep the explicit origin and request
+    // format checks, but do not let cookie/site state block login or signup.
+    if (authRecovery) {
+      if (!origin || !origins.has(origin)) {
+        next(csrfError());
+        return;
+      }
+      if (!ALLOWED_CONTENT_TYPES.some((allowed) => contentType.startsWith(allowed))) {
+        next(csrfError("This request format is not supported. Please refresh and try again."));
+        return;
+      }
+      next();
+      return;
+    }
+
     const appCookieSession = Boolean(getAccessCookie(cookies, authCookieSecure));
     const developerCookieSession = Boolean(getAccessCookie(cookies, authCookieSecure, "developer"));
     const usesCookieSession = Boolean(
@@ -85,9 +106,6 @@ function createCsrfProtection({ allowedOrigins, csrfSecret, authCookieSecure = t
       return;
     }
 
-    const origin = requestOrigin(req);
-    const fetchSite = String(req.headers?.["sec-fetch-site"] || "").toLowerCase();
-    const contentType = String(req.headers?.["content-type"] || "").toLowerCase();
     const headerToken = String(req.headers?.["x-csrf-token"] || "");
     // A browser may hold both an app session and a Developer Portal session.
     // Select the CSRF cookie from the API surface being called; otherwise a
@@ -107,10 +125,6 @@ function createCsrfProtection({ allowedOrigins, csrfSecret, authCookieSecure = t
     }
     if (!ALLOWED_CONTENT_TYPES.some((allowed) => contentType.startsWith(allowed))) {
       next(csrfError("This request format is not supported. Please refresh and try again."));
-      return;
-    }
-    if (isAuthRecoveryRequest(req)) {
-      next();
       return;
     }
     if (!headerToken || headerToken !== cookieToken || !verifyCsrfToken(headerToken, csrfSecret)) {
