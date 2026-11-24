@@ -57,6 +57,7 @@ test("vendor detail keeps unauthenticated actions minimal and readable", () => {
 test("Customer entry scopes the initial theme and keeps color-scheme synchronized", () => {
   const main = fs.readFileSync(path.resolve(__dirname, "../src/customer/main.tsx"), "utf8");
   const theme = fs.readFileSync(path.resolve(__dirname, "../src/customer/CustomerTheme.tsx"), "utf8");
+  const customerCss = fs.readFileSync(path.resolve(__dirname, "../src/customer/customer-theme.css"), "utf8");
   const vite = fs.readFileSync(path.resolve(__dirname, "../vite.config.ts"), "utf8");
   assert.match(main, /localStorage\.getItem\("getprio\.customer\.theme"\)/);
   assert.match(main, /document\.documentElement\.setAttribute\("data-customer-theme", initialCustomerTheme\)/);
@@ -65,4 +66,6 @@ test("Customer entry scopes the initial theme and keeps color-scheme synchronize
   assert.doesNotMatch(theme, /root\.removeAttribute\("data-customer-theme"\)/);
   assert.match(fs.readFileSync(path.resolve(__dirname, "../src/customer/CustomerShell.tsx"), "utf8"), /onPointerDown=\{toggleTheme\}/);
   assert.match(vite, /src=\\?"\/src\/main\.tsx\\?"[\s\S]*src=\\?"\/src\/customer\/main\.tsx\\?"/);
+  assert.match(customerCss, /html\[data-customer-theme\][\s\S]*--bg: #fbf7f1;[\s\S]*--card: #fffaf4;[\s\S]*--line: #eadfd4;/);
+  assert.match(customerCss, /html\[data-customer-theme="dark"\][\s\S]*--bg: #0e1720;[\s\S]*--card: #16212b;[\s\S]*--line: #354654;[\s\S]*--text: #f5f8fa;[\s\S]*--muted: #cdd8de;/);
 });
