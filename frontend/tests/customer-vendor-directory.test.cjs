@@ -89,3 +89,13 @@ test("Customer form fields replace native focus outlines with the accessible the
   assert.match(css, /customer-mobile-web :where\(input, select, textarea\):focus-visible \{[\s\S]*?outline: 3px solid var\(--customer-ring\);[\s\S]*?outline-offset: 2px;/);
   assert.match(css, /customer-password-input:focus-within \{[\s\S]*?outline: 3px solid var\(--customer-ring\);/);
 });
+
+test("Customer login keeps password controls seamless and swaps to an inline reset form", () => {
+  const page = fs.readFileSync(path.resolve(__dirname, "../src/customer/components/CustomerFallbackPresentations.tsx"), "utf8");
+  const css = fs.readFileSync(path.resolve(__dirname, "../src/customer/customer-theme.css"), "utf8");
+  assert.match(page, /m\.showResetRequest \? <form[\s\S]*?handlePasswordResetRequest[\s\S]*?Back to sign in/);
+  assert.match(page, /className="customer-auth-reset-link"[\s\S]*?Forgot password\?/);
+  assert.match(page, /!m\.showResetRequest && !m\.mfaChallengeToken \? <CustomerSocial/);
+  assert.match(css, /customer-password-input > \[data-slot="input-group-control"\],[\s\S]*?border: 0 !important;/);
+  assert.match(css, /customer-auth-reset-link \{[\s\S]*?color: var\(--customer-primary\) !important;[\s\S]*?text-decoration: underline;/);
+});
