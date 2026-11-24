@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { Link, useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import "./customer-theme.css";
 import { appUrl } from "../surfaces/surfaceConfig";
 import { useCustomerTheme } from "./CustomerTheme";
 import {
