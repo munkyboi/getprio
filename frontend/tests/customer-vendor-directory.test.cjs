@@ -12,6 +12,12 @@ test("vendor search and category filters are bookmarkable and preserve unrelated
   assert.equal(reset.toString(), "intent=join");
 });
 
+test("vendor search keeps the outer focus ring without an inner native outline", () => {
+  const css = fs.readFileSync(path.resolve(__dirname, "../src/customer/customer-theme.css"), "utf8");
+  assert.match(css, /\.customer-search-input:focus-within \{[\s\S]*outline: 3px solid var\(--customer-ring\)/);
+  assert.match(css, /\.customer-search-input \[data-slot="input"\]:focus \{[\s\S]*outline: none !important;[\s\S]*box-shadow: none !important;/);
+});
+
 test("vendor category filtering composes with the server search result", () => {
   const vendors = [
     { slug: "a", category: "Dental" },

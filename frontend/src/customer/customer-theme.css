@@ -467,7 +467,8 @@ html[data-customer-theme="dark"] {
   outline-offset: 3px;
 }
 .customer-search-input [data-slot="input"]:focus {
-  outline: none;
+  outline: none !important;
+  box-shadow: none !important;
 }
 .customer-directory-count {
   color: var(--muted);
