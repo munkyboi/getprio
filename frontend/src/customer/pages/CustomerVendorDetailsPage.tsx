@@ -178,18 +178,7 @@ export default function CustomerVendorDetailsPage() {
             >
               <IconHeart fill={data.favorite ? "currentColor" : "none"} />
             </Button>
-          ) : (
-            <Button
-              variant="outline"
-              render={
-                <Link
-                  to={`/login?next=${encodeURIComponent(`/vendors/${vendor.slug}`)}`}
-                />
-              }
-            >
-              Sign in to save
-            </Button>
-          )}
+          ) : null}
           {data.ratings.data ? (
             <a href="#customer-vendor-reviews">
               <IconStar /> {data.ratings.data.rating.average.toFixed(1)} ·{" "}

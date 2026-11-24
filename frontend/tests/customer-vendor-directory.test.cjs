@@ -42,3 +42,14 @@ test("vendor detail cards use opaque theme surfaces", () => {
   assert.match(css, /\.customer-vendor-content \.customer-vendor-queue,[\s\S]*background: var\(--card\);[\s\S]*opacity: 1;/);
   assert.match(css, /customer-vendor-service > \[data-slot="card-footer"\],[\s\S]*background-color: var\(--card\) !important;/);
 });
+
+test("vendor detail keeps unauthenticated actions minimal and readable", () => {
+  const page = fs.readFileSync(path.resolve(__dirname, "../src/customer/pages/CustomerVendorDetailsPage.tsx"), "utf8");
+  const css = fs.readFileSync(path.resolve(__dirname, "../src/customer/customer-theme.css"), "utf8");
+  assert.doesNotMatch(page, /Sign in to save/);
+  assert.match(page, /\{token \? \([\s\S]*?IconHeart[\s\S]*?\) : null\}/);
+  assert.match(css, /customer-vendor-hero-tools[\s\S]*?background: transparent !important;/);
+  assert.match(css, /customer-vendor-hero-tools > \.customer-button,[\s\S]*?background: transparent !important;[\s\S]*?border: 1px solid var\(--line\);/);
+  assert.match(css, /customer-vendor-location\[aria-pressed="true"\] \.customer-location-icon[\s\S]*?color: var\(--text\);/);
+  assert.match(css, /customer-vendor-heading h1[\s\S]*?font-family: var\(--customer-font-display\);[\s\S]*?font-weight: 700;[\s\S]*?overflow-wrap: anywhere;/);
+});

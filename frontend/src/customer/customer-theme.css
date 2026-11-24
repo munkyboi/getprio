@@ -3722,3 +3722,34 @@ html[data-customer-theme] .customer-vendor-content .customer-vendor-review > [da
   background-color: var(--card) !important;
   opacity: 1;
 }
+
+/* Vendor detail controls stay lightweight over the cover while retaining clear affordances. */
+html[data-customer-theme] .customer-vendor-hero-tools {
+  background: transparent !important;
+  border: 0;
+  box-shadow: none;
+}
+html[data-customer-theme] .customer-vendor-hero-tools > .customer-button,
+html[data-customer-theme] .customer-vendor-hero-tools > a {
+  background: transparent !important;
+  border: 1px solid var(--line);
+  box-shadow: none;
+  color: var(--text);
+  border-radius: 10px;
+}
+html[data-customer-theme] .customer-vendor-location[aria-pressed="true"] .customer-location-icon {
+  background: var(--customer-soft);
+  color: var(--text);
+}
+html[data-customer-theme] .customer-vendor-heading > div:first-child {
+  min-width: 0;
+}
+html[data-customer-theme] .customer-vendor-heading h1 {
+  font-family: var(--customer-font-display);
+  font-size: clamp(2.25rem, 6vw, 3.5rem);
+  font-weight: 700;
+  line-height: 1.05;
+  letter-spacing: -0.025em;
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
