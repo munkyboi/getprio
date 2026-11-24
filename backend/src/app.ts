@@ -30,7 +30,10 @@ import requestLogPathModule from "./middleware/requestLogPath";
 import browserSurfaceUrlsModule from "./services/browserSurfaceUrls";
 import developerApiEnvironmentModule from "./services/developerApiEnvironment";
 
-const allowedOrigins = browserSurfaceUrlsModule.browserAllowedOrigins(env);
+const allowedOrigins = new Set([
+  ...browserSurfaceUrlsModule.browserAllowedOrigins(env),
+  ...browserSurfaceUrlsModule.surfaceOriginSet(env, "marketing")
+]);
 const app = express();
 app.use(developerApiEnvironmentModule.localApiRequestGuard());
 const { createRequestContextMiddleware } = requestContextModule;
