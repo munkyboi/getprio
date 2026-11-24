@@ -527,7 +527,7 @@ export default function CustomerVendorDetailsPage() {
         </section>
       </div>
       <footer className="customer-vendor-actions">
-        {vendor.capabilities.booking && selected && selectedServiceSlugs.length ? (
+        {vendor.capabilities.booking && selected ? (
           <Button variant="outline" render={<Link to={bookingPath} />}>
             Book
           </Button>

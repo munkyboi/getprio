@@ -83,6 +83,12 @@ test("vendor detail keeps unauthenticated actions minimal and readable", () => {
   assert.match(css, /customer-vendor-heading h1[\s\S]*?font-family: var\(--customer-font-display\);[\s\S]*?font-weight: 700;[\s\S]*?overflow-wrap: anywhere;/);
 });
 
+test("vendor detail keeps Book available before service selection", () => {
+  const page = fs.readFileSync(path.resolve(__dirname, "../src/customer/pages/CustomerVendorDetailsPage.tsx"), "utf8");
+  assert.match(page, /vendor\.capabilities\.booking && selected \? \(/);
+  assert.doesNotMatch(page, /vendor\.capabilities\.booking && selected && selectedServiceSlugs\.length/);
+});
+
 test("Customer entry scopes the initial theme and keeps color-scheme synchronized", () => {
   const main = fs.readFileSync(path.resolve(__dirname, "../src/customer/main.tsx"), "utf8");
   const theme = fs.readFileSync(path.resolve(__dirname, "../src/customer/CustomerTheme.tsx"), "utf8");
