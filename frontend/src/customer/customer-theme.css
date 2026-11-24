@@ -3808,9 +3808,11 @@ html[data-customer-theme] .customer-mobile-web :where(input, select, textarea):f
   box-shadow: none;
 }
 html[data-customer-theme] .customer-mobile-web .customer-password-input [data-slot="input-group-control"]:focus {
-  outline: none;
+  outline: none !important;
+  box-shadow: none !important;
 }
 html[data-customer-theme] .customer-mobile-web .customer-password-input:focus-within {
   outline: 3px solid var(--customer-ring);
   outline-offset: 2px;
+  box-shadow: none !important;
 }

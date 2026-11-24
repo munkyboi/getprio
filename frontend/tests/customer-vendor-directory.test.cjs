@@ -86,8 +86,8 @@ test("Customer entry scopes the initial theme and keeps color-scheme synchronize
 test("Customer form fields replace native focus outlines with the accessible theme ring", () => {
   const css = fs.readFileSync(path.resolve(__dirname, "../src/customer/customer-theme.css"), "utf8");
   assert.match(css, /customer-mobile-web :where\(input, select, textarea\):focus \{[\s\S]*?outline: 3px solid var\(--customer-ring\);[\s\S]*?box-shadow: none;/);
-  assert.match(css, /customer-password-input \[data-slot="input-group-control"\]:focus \{[\s\S]*?outline: none;/);
-  assert.match(css, /customer-mobile-web \.customer-password-input:focus-within \{[\s\S]*?outline: 3px solid var\(--customer-ring\);[\s\S]*?outline-offset: 2px;/);
+  assert.match(css, /customer-password-input \[data-slot="input-group-control"\]:focus \{[\s\S]*?outline: none !important;[\s\S]*?box-shadow: none !important;/);
+  assert.match(css, /customer-mobile-web \.customer-password-input:focus-within \{[\s\S]*?outline: 3px solid var\(--customer-ring\);[\s\S]*?outline-offset: 2px;[\s\S]*?box-shadow: none !important;/);
   assert.doesNotMatch(css, /customer-mobile-web :where\(\.customer-field, \.customer-booking-field, \.customer-booking-verification\):focus-within/);
 });
 
