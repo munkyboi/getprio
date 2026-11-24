@@ -33,3 +33,9 @@ test("universal auth submits use the Marketing brand fill and plain white text",
     assert.doesNotMatch(declarations, /text-shadow|text-stroke|paint-order/u);
   }
 });
+
+test("universal auth fields use softened theme-aware borders with distinct focus state", () => {
+  assert.match(authStyles, /--auth-input-border:\s*color-mix\(in srgb, var\(--border\) 80%, var\(--background\)\)/u);
+  assert.match(authStyles, /data-theme=dark[\s\S]*--auth-input-border:\s*color-mix\(in srgb, var\(--border\) 68%, var\(--background\)\)/u);
+  assert.match(authStyles, /\[data-slot=input\]:focus-visible[\s\S]*border-color:\s*var\(--link\)/u);
+});

@@ -1,6 +1,6 @@
 .universal-auth {
   --auth-tab-text: #a74c00;
-  --auth-input-border: #73818c;
+  --auth-input-border: color-mix(in srgb, var(--border) 80%, var(--background));
   --auth-field-height: 46px;
   --primary-foreground: #282729;
   --destructive: #a32735;
@@ -12,7 +12,7 @@
 }
 .universal-auth[data-theme=dark] {
   --auth-tab-text: #ffae55;
-  --auth-input-border: #81919c;
+  --auth-input-border: color-mix(in srgb, var(--border) 68%, var(--background));
   --destructive: #ff8e8e;
 }
 .universal-auth-board { display: grid; grid-template-columns: 1fr; gap: 28px; align-items: start; }
