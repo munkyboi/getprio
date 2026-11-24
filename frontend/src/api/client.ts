@@ -2,6 +2,19 @@ import { publicAuthPathAllowed } from "../../../shared/publicAuthPolicy";
 import { publicUniversalAuthEnabled } from "../surfaces/publicAuthEnabled";
 
 const API_BASE_URL = import.meta.env?.VITE_API_URL || "http://localhost:5001/api";
+
+export function localizeApiOrigin(base: string, hostname: string): string {
+  if (!["localhost", "127.0.0.1", "[::1]"].includes(hostname)) return base;
+  const url = new URL(base);
+  if (["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)) url.hostname = hostname;
+  return url.origin + url.pathname.replace(/\/$/u, "");
+}
+
+function runtimeApiBaseUrl(): string {
+  return import.meta.env?.VITE_LOCAL_SURFACES === "1" && typeof window !== "undefined"
+    ? localizeApiOrigin(API_BASE_URL, window.location.hostname)
+    : API_BASE_URL;
+}
 const CSRF_STORAGE_KEY = "prio_csrf";
 
 type RefreshTokenHandler = () => Promise<string | null>;
@@ -100,7 +113,7 @@ export async function apiRequest<TResponse, TBody = unknown>(
     : "";
 
   const makeRequest = async (authToken?: string) =>
-    fetch(`${API_BASE_URL}${path}`, {
+    fetch(`${runtimeApiBaseUrl()}${path}`, {
       method,
       credentials,
       headers: {
@@ -183,7 +196,7 @@ export async function apiUpload<TResponse>(
     }
   }
   const makeRequest = async (authToken?: string) =>
-    fetch(`${API_BASE_URL}${path}`, {
+    fetch(`${runtimeApiBaseUrl()}${path}`, {
       method: "POST",
       credentials: "include",
       headers: {
