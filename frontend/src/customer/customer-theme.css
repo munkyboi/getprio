@@ -3805,11 +3805,7 @@ html[data-customer-theme] .customer-mobile-web :where(input, select, textarea):f
   outline: none;
   box-shadow: none;
 }
-html[data-customer-theme] .customer-mobile-web :where(input, select, textarea):focus-visible {
-  outline: 3px solid var(--customer-ring);
-  outline-offset: 2px;
-}
-html[data-customer-theme] .customer-mobile-web .customer-password-input:focus-within {
+html[data-customer-theme] .customer-mobile-web :where(.customer-field, .customer-booking-field, .customer-booking-verification):focus-within {
   outline: 3px solid var(--customer-ring);
   outline-offset: 2px;
 }
