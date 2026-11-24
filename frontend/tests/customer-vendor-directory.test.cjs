@@ -93,6 +93,12 @@ test("Customer form fields replace native focus outlines with the accessible the
   assert.match(inputGroup, /has-\[\[data-slot=input-group-control\]:focus-visible\]:ring-3/);
 });
 
+test("Customer theme maps shadcn ring tokens to the Customer focus colors", () => {
+  const css = fs.readFileSync(path.resolve(__dirname, "../src/customer/customer-theme.css"), "utf8");
+  assert.match(css, /html\[data-customer-theme\] \{[\s\S]*?--customer-ring: #0b5e58;[\s\S]*?--ring: #0b5e58;/);
+  assert.match(css, /html\[data-customer-theme="dark"\] \{[\s\S]*?--customer-ring: #79c5b7;[\s\S]*?--ring: #79c5b7;/);
+});
+
 test("Customer login keeps password controls seamless and swaps to an inline reset form", () => {
   const page = fs.readFileSync(path.resolve(__dirname, "../src/customer/components/CustomerFallbackPresentations.tsx"), "utf8");
   const css = fs.readFileSync(path.resolve(__dirname, "../src/customer/customer-theme.css"), "utf8");

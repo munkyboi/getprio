@@ -165,6 +165,7 @@ html[data-customer-theme] {
   --customer-primary-text: #fff;
   --customer-hover: #ececec;
   --customer-ring: #0b5e58;
+  --ring: #0b5e58;
   --customer-error: #a53535;
   --customer-font-display: Aleo, Georgia, serif;
 }
@@ -178,6 +179,7 @@ html[data-customer-theme="dark"] {
   --customer-soft: #20313e;
   --customer-hover: #333;
   --customer-ring: #79c5b7;
+  --ring: #79c5b7;
   --customer-error: #ff9c9c;
 }
 .customer-mobile-web {
