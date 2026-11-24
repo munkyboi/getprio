@@ -1060,6 +1060,8 @@ html[data-customer-theme="dark"] {
   }
   .customer-vendor-actions {
     bottom: calc(70px + env(safe-area-inset-bottom));
+    width: 100vw;
+    margin-inline: calc(50% - 50vw);
   }
   .customer-vendor-heading {
     align-items: flex-start;

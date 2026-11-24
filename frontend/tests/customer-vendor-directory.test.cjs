@@ -83,6 +83,11 @@ test("vendor detail keeps unauthenticated actions minimal and readable", () => {
   assert.match(css, /customer-vendor-heading h1[\s\S]*?font-family: var\(--customer-font-display\);[\s\S]*?font-weight: 700;[\s\S]*?overflow-wrap: anywhere;/);
 });
 
+test("mobile vendor actions use a full-bleed bar above bottom navigation", () => {
+  const css = fs.readFileSync(path.resolve(__dirname, "../src/customer/customer-theme.css"), "utf8");
+  assert.match(css, /\.customer-vendor-actions \{[\s\S]*?bottom: calc\(70px \+ env\(safe-area-inset-bottom\)\);[\s\S]*?width: 100vw;[\s\S]*?margin-inline: calc\(50% - 50vw\);/);
+});
+
 test("vendor detail keeps Book available before service selection", () => {
   const page = fs.readFileSync(path.resolve(__dirname, "../src/customer/pages/CustomerVendorDetailsPage.tsx"), "utf8");
   assert.match(page, /vendor\.capabilities\.booking && selected \? \(/);
