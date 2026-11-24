@@ -295,7 +295,7 @@ function BookingDetailsView({
         </section>
       </Card>
       <div className="customer-detail-refresh"><Button variant="outline" onClick={m.refresh}><IconRefresh />Refresh status</Button></div>{!m.cancellationAllowed ? <div className="customer-action-row"><Link to={`/vendors/${encodeURIComponent(b.tenantSlug)}`}>Contact vendor to reschedule</Link></div> : null}
-      <div className="customer-action-row customer-detail-sticky-actions customer-detail-primary-actions">
+      <div className="customer-action-row customer-detail-sticky-actions customer-detail-primary-actions customer-booking-detail-primary-actions">
         {m.cancellationAllowed ? <Button variant="outline" onClick={() => m.setCancelModalOpen(true)}>Cancel booking</Button> : null}
                   {m.linkedQueuePath ? (
             <Button variant="default" render={<Link to={m.linkedQueuePath} />}>

@@ -1198,6 +1198,13 @@ test("mobile Customer ticket actions span the viewport above the navigation", ()
   assert.match(ticket, /customer-detail-primary-actions customer-ticket-primary-actions/);
 });
 
+test("mobile Customer booking-detail actions span the viewport above the navigation", () => {
+  const css = fs.readFileSync(path.resolve(__dirname, "../src/customer/customer-theme.css"), "utf8");
+  assert.match(css, /\.customer-booking-detail-primary-actions \{[\s\S]*?width: 100vw;[\s\S]*?margin-inline: calc\(50% - 50vw\);[\s\S]*?bottom: calc\(70px \+ env\(safe-area-inset-bottom\)\);/);
+  const booking = fs.readFileSync(path.resolve(__dirname, "../src/customer/pages/CustomerBookingDetailsViewPage.tsx"), "utf8");
+  assert.match(booking, /customer-detail-primary-actions customer-booking-detail-primary-actions/);
+});
+
 test("mobile Customer booking page does not double-count bottom navigation clearance", () => {
   const css = fs.readFileSync(path.resolve(__dirname, "../src/customer/customer-theme.css"), "utf8");
   assert.match(css, /\.customer-booking-page \{\s*padding-bottom: 0;/);

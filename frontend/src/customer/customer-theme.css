@@ -3692,6 +3692,11 @@ html[data-customer-theme] [data-slot="field-label"].customer-switch-row:hover { 
   margin-inline: calc(50% - 50vw);
   bottom: calc(70px + env(safe-area-inset-bottom));
 }
+.customer-mobile-web .customer-booking-detail-primary-actions {
+  width: 100vw;
+  margin-inline: calc(50% - 50vw);
+  bottom: calc(70px + env(safe-area-inset-bottom));
+}
 
 .customer-mobile-web .customer-detail-refresh { display: flex; justify-content: safe center; inline-size: 100%; }
 
