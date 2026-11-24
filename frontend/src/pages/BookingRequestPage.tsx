@@ -273,7 +273,7 @@ export default function BookingRequestPage({ renderPresentation, renderResourceS
   const [loading, setLoading] = useState(true);
   const [resourceCatalog,setResourceCatalog]=useState<BookingCatalogV4|null>(null);
   const [resourceSelections,setResourceSelections]=useState<BookingServiceSelectionV4[]>([]);
-  const [resourceBooking,setResourceBooking]=useState(true);
+  const [resourceBooking,setResourceBooking]=useState(false);
   const [resourceRefresh,setResourceRefresh]=useState(0);
   const [catalogRetry,setCatalogRetry]=useState(0);
   const [catalogError,setCatalogError]=useState("");
@@ -281,6 +281,12 @@ export default function BookingRequestPage({ renderPresentation, renderResourceS
   const resourceMode=resourceCatalog?.enabled===true&&resourceBooking&&Boolean(resourceCatalog.resourceServiceIds?.length);
   const resourceCatalogVersion=resourceCatalog?.catalogVersion;
   const resourcePayload=useMemo(()=>resourceMode?{selectionContractVersion:4 as const,catalogVersion:resourceCatalogVersion!,serviceSelections:resourceSelections,requestKey:resourceRequestKey}:{} ,[resourceMode,resourceCatalogVersion,resourceSelections,resourceRequestKey]);
+
+  useEffect(() => {
+    if (serviceSlug && resourceCatalog?.resourceServiceSlugs?.includes(serviceSlug)) {
+      setResourceBooking(true);
+    }
+  }, [resourceCatalog, serviceSlug]);
   const [slotsLoading, setSlotsLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [proofSubmitting, setProofSubmitting] = useState(false);

@@ -1178,6 +1178,13 @@ test("booking summary lists every selected service with its own quantity and pri
   assert.match(source, /getServiceLineAmountCents\(service, getBundleItemQuantity\(service\)\)/);
 });
 
+test("ordinary fixed-price booking links do not default into resource pricing", () => {
+  const source = fs.readFileSync(path.resolve(__dirname, "../src/pages/BookingRequestPage.tsx"), "utf8");
+  assert.match(source, /const \[resourceBooking,setResourceBooking\]=useState\(false\)/);
+  assert.match(source, /resourceCatalog\?\.resourceServiceSlugs\?\.includes\(serviceSlug\)/);
+  assert.match(source, /resourceMode\?"Amount confirmed by vendor":formatPaymentAmount/);
+});
+
 test("group-funded section labels use a consistent heading size", () => {
   const styles = fs.readFileSync(
     path.join(path.resolve(__dirname, ".."), "src", "styles.css"),
