@@ -3757,3 +3757,12 @@ html[data-customer-theme] .customer-vendor-heading h1 {
   overflow-wrap: anywhere;
   min-width: 0;
 }
+html[data-customer-theme] .customer-vendor-back > .customer-button:hover {
+  background: #fff !important;
+  color: var(--text);
+}
+html[data-customer-theme] .customer-vendor-hero-tools > a:hover,
+html[data-customer-theme] .customer-vendor-hero-tools > a:focus-visible {
+  background: transparent !important;
+  color: var(--text);
+}
