@@ -109,5 +109,6 @@ test("Customer login keeps password controls seamless and swaps to an inline res
   assert.match(css, /customer-fallback-card \[data-slot="card-title"\] \{[\s\S]*?font-size: clamp\(2rem, 5vw, 2\.75rem\);/);
   assert.match(page, /!m\.showResetRequest && !m\.mfaChallengeToken \? <CustomerSocial/);
   assert.doesNotMatch(css, /customer-password-input > \[data-slot="input-group-control"\],[\s\S]*?border: 0 !important;/);
+  assert.match(css, /customer-password-input \[data-slot="input-group-control"\]:focus-visible \{[\s\S]*?outline: none !important;[\s\S]*?border-color: transparent !important;[\s\S]*?box-shadow: none !important;/);
   assert.match(css, /customer-auth-reset-link \{[\s\S]*?color: var\(--customer-primary\) !important;[\s\S]*?text-decoration: underline;/);
 });
