@@ -145,7 +145,7 @@ function TicketView({ model: m }: { model: JoinedQueuePresentationModel }) {
             {m.queueRatingStatus?.rating ? <p>Rating submitted</p> : null}
             {!m.customerAuthenticated ? <Button render={<Link to="/register/customer" state={m.registrationState} />}>Create customer account</Button> : null}
           </div>
-          {(served || m.canCancelTicket || (t && ["waiting", "called", "skipped", "pending_carry_over"].includes(t.status))) ? <div className="customer-action-row customer-detail-sticky-actions customer-detail-primary-actions">
+          {(served || m.canCancelTicket || (t && ["waiting", "called", "skipped", "pending_carry_over"].includes(t.status))) ? <div className="customer-action-row customer-detail-sticky-actions customer-detail-primary-actions customer-ticket-primary-actions">
             {skipped ? (m.canJoinAgain ? <Button variant="outline" render={<Link to={m.joinPath} />}>Join again</Button> : <Button variant="outline" disabled>Join again</Button>) : served ? <>
               {m.canJoinAgain ? <Button variant="outline" render={<Link to={m.joinPath} />}>Join again</Button> : <Button variant="outline" disabled>Join again</Button>}
               <Button disabled={!m.customerAuthenticated || !m.queueRatingStatus?.eligible || Boolean(m.queueRatingStatus.rating)} onClick={() => m.setQueueRatingOpen(true)}><IconStar />Rate vendor</Button>

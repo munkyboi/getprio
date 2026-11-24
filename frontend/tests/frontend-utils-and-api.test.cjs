@@ -1191,6 +1191,13 @@ test("mobile Customer booking actions span the viewport above the bordered menu"
   assert.match(css, /\.customer-web-navigation \{[\s\S]*?border-top: 1px solid var\(--line\) !important;[\s\S]*?z-index: 100;/);
 });
 
+test("mobile Customer ticket actions span the viewport above the navigation", () => {
+  const css = fs.readFileSync(path.resolve(__dirname, "../src/customer/customer-theme.css"), "utf8");
+  assert.match(css, /\.customer-ticket-primary-actions \{[\s\S]*?width: 100vw;[\s\S]*?margin-inline: calc\(50% - 50vw\);[\s\S]*?bottom: calc\(70px \+ env\(safe-area-inset-bottom\)\);/);
+  const ticket = fs.readFileSync(path.resolve(__dirname, "../src/customer/pages/CustomerTicketDetailsPage.tsx"), "utf8");
+  assert.match(ticket, /customer-detail-primary-actions customer-ticket-primary-actions/);
+});
+
 test("mobile Customer booking page does not double-count bottom navigation clearance", () => {
   const css = fs.readFileSync(path.resolve(__dirname, "../src/customer/customer-theme.css"), "utf8");
   assert.match(css, /\.customer-booking-page \{\s*padding-bottom: 0;/);
