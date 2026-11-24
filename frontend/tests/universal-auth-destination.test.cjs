@@ -1,7 +1,7 @@
 require("tsx/cjs");
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { safeSurfaceNext, createAppUrls, keepSurfaceReturnPath, initialAuthSurface } = require("../src/surfaces/surfaceConfig.ts");
+const { safeSurfaceNext, createAppUrls, keepSurfaceReturnPath, initialAuthSurface, localizeLoopbackOrigins } = require("../src/surfaces/surfaceConfig.ts");
 test("universal login and registration default to customer while preserving vendor intent", () => {
   for (const path of ["/login", "/register"]) {
     assert.equal(initialAuthSurface(path, new URLSearchParams()), "customer");
@@ -32,4 +32,10 @@ test("unconfigured app destinations use their deployed application origins", () 
   const appUrl = createAppUrls({});
   assert.equal(appUrl("vendor", "/dashboard"), "https://vendor.getprio.online/dashboard");
   assert.equal(appUrl("customer", "/account/dashboard"), "https://app.getprio.online/account/dashboard");
+});
+
+test("local app destinations use the browser loopback host", () => {
+  const values = localizeLoopbackOrigins({ customer: "http://127.0.0.1:5191", vendor: "http://127.0.0.1:5192" }, "localhost");
+  assert.equal(values.customer, "http://localhost:5191");
+  assert.equal(values.vendor, "http://localhost:5192");
 });

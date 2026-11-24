@@ -34,6 +34,16 @@ export function createAppUrls(values: Partial<Record<AppPurpose, string>>, local
   };
 }
 
+export function localizeLoopbackOrigins(values: Partial<Record<AppPurpose, string>>, hostname: string) {
+  if (!(hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]")) return values;
+  return Object.fromEntries(Object.entries(values).map(([purpose, value]) => {
+    if (!value) return [purpose, value];
+    const url = new URL(value);
+    if (["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)) url.hostname = hostname;
+    return [purpose, url.origin];
+  })) as Partial<Record<AppPurpose, string>>;
+}
+
 export function safeSurfaceNext(value: string | null | undefined, surface: "customer" | "vendor", allowOnboarding = false) {
   const fallback = surface === "vendor" ? "/dashboard" : "/account/dashboard";
   if (!value || !value.startsWith("/") || value.startsWith("//") || /[\\\u0000-\u001f\u007f]/.test(value)) return fallback;
@@ -63,7 +73,11 @@ const frontendEnv = import.meta.env || {};
 export const currentSurface = frontendEnv.VITE_APP_SURFACE as BrowserSurface | undefined;
 export function appUrl(purpose: AppPurpose, path = "/") {
   const env = frontendEnv;
-  return createAppUrls({ marketing: env.VITE_MARKETING_URL, customer: env.VITE_CUSTOMER_APP_URL,
+  const values = { marketing: env.VITE_MARKETING_URL, customer: env.VITE_CUSTOMER_APP_URL,
     vendor: env.VITE_VENDOR_APP_URL, platform: env.VITE_PLATFORM_DASHBOARD_URL,
-    developers: env.VITE_DEVELOPER_PORTAL_URL }, env.VITE_LOCAL_SURFACES === "1")(purpose, path);
+    developers: env.VITE_DEVELOPER_PORTAL_URL };
+  const localValues = env.VITE_LOCAL_SURFACES === "1" && typeof window !== "undefined"
+    ? localizeLoopbackOrigins(values, window.location.hostname)
+    : values;
+  return createAppUrls(localValues, env.VITE_LOCAL_SURFACES === "1")(purpose, path);
 }
