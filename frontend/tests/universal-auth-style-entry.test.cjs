@@ -27,11 +27,19 @@ assert.match(authEnabled, /VITE_APP_SURFACE === "marketing"/u);
 
 test("universal auth submits use the Marketing brand fill and plain white text", () => {
   const primary = authStyles.match(/\.universal-auth-primary\s*\{([^}]+)\}/u)?.[1] || "";
-  assert.match(primary, /background-color:\s*var\(--primary\)\s*;/u);
+  assert.match(primary, /background-color:\s*#ff7a1a\s*;/u);
   assert.match(primary, /(?:^|\s)color:\s*#fff\s*;/u);
   for (const [, declarations] of authStyles.matchAll(/\.universal-auth-primary\b[^{}]*\{([^}]+)\}/gu)) {
     assert.doesNotMatch(declarations, /text-shadow|text-stroke|paint-order/u);
   }
+});
+
+test("signed-in universal auth hides signed-out affordances and limits vendor access", () => {
+  assert.match(authPage, /const vendorAccess = !identity \|\| hasVendorAccess\(identity\)/u);
+  assert.match(authPage, /vendorAccess && <TabsTrigger value="vendor"/u);
+  assert.match(authPage, /!identity && <Button variant="link" type="button" className="universal-auth-link"/u);
+  assert.match(authPage, /!challenge && !identity && <CardFooter>/u);
+  assert.match(authPage, /!identity && <p className="universal-auth-intent">/u);
 });
 
 test("universal auth fields use softened theme-aware borders with distinct focus state", () => {

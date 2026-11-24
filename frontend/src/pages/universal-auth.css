@@ -46,7 +46,7 @@ html[data-public-theme="dark"] .universal-auth-tabs [data-slot=tabs-trigger][ari
 .universal-auth-primary {
   width: 100%;
   margin-top: 8px;
-  background-color: var(--primary);
+  background-color: #ff7a1a;
   color: #fff;
 }
 .universal-auth a,

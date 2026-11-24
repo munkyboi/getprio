@@ -39,3 +39,13 @@ test("local app destinations use the browser loopback host", () => {
   assert.equal(values.customer, "http://localhost:5191");
   assert.equal(values.vendor, "http://localhost:5192");
 });
+
+test("local auth destinations do not require an unrelated platform origin", () => {
+  const appUrl = createAppUrls({
+    marketing: "http://127.0.0.1:5190",
+    customer: "http://127.0.0.1:5191",
+    vendor: "http://127.0.0.1:5192",
+  }, true, ["marketing", "customer", "vendor"]);
+  assert.equal(appUrl("customer", "/account/dashboard"), "http://127.0.0.1:5191/account/dashboard");
+  assert.equal(appUrl("vendor", "/dashboard"), "http://127.0.0.1:5192/dashboard");
+});

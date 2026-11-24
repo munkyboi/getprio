@@ -18,12 +18,12 @@ export function validateAppOrigin(value: string): string {
   return url.origin;
 }
 
-export function createAppUrls(values: Partial<Record<AppPurpose, string>>, local = false) {
+export function createAppUrls(values: Partial<Record<AppPurpose, string>>, local = false, requiredPurposes: AppPurpose[] = Object.keys(defaults) as AppPurpose[]) {
   const origins = Object.fromEntries(Object.entries(defaults).map(([purpose, fallback]) => {
     const value = values[purpose as AppPurpose];
-    if (local && !value) throw new Error(`Missing local ${purpose} application origin.`);
+    if (local && requiredPurposes.includes(purpose as AppPurpose) && !value) throw new Error(`Missing local ${purpose} application origin.`);
     const canonical = validateAppOrigin(value || fallback);
-    if (local && !["localhost", "127.0.0.1", "[::1]"].includes(new URL(canonical).hostname)) throw new Error("Local application origins must stay on loopback.");
+    if (local && requiredPurposes.includes(purpose as AppPurpose) && !["localhost", "127.0.0.1", "[::1]"].includes(new URL(canonical).hostname)) throw new Error("Local application origins must stay on loopback.");
     return [purpose, canonical];
   })) as Record<AppPurpose, string>;
   return (purpose: AppPurpose, path = "/") => {
@@ -79,5 +79,5 @@ export function appUrl(purpose: AppPurpose, path = "/") {
   const localValues = env.VITE_LOCAL_SURFACES === "1" && typeof window !== "undefined"
     ? localizeLoopbackOrigins(values, window.location.hostname)
     : values;
-  return createAppUrls(localValues, env.VITE_LOCAL_SURFACES === "1")(purpose, path);
+  return createAppUrls(localValues, env.VITE_LOCAL_SURFACES === "1", ["marketing", "customer", "vendor"])(purpose, path);
 }

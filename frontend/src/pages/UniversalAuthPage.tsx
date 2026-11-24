@@ -30,6 +30,10 @@ type CategoryRequest =
   | { status: "ready"; items: BusinessCategory[] }
   | { status: "error"; message: string };
 
+export function hasVendorAccess(user: UserSummary) {
+  return user.roles.includes("vendor") || user.tenants.some(tenant => tenant.isActive !== false);
+}
+
 export function authDestination(surface: "customer" | "vendor", user: UserSummary, next?: string | null) {
   if (surface === "vendor" && !user.tenants?.some(tenant => tenant.isActive !== false)) return null;
   if (user.mfaRequired && !user.mfaEnabled) {
@@ -59,6 +63,7 @@ export default function UniversalAuthPage() {
   const [recoveryMethod, setRecoveryMethod] = useState(false);
   const [providers, setProviders] = useState<OAuthProvidersResponse["providers"]>({ google: false, facebook: false, apple: false });
   const identity = auth.user;
+  const vendorAccess = !identity || hasVendorAccess(identity);
   const [categoryRequest, setCategoryRequest] = useState<CategoryRequest>({ status: "loading" });
   const [categoryRetry, setCategoryRetry] = useState(0);
   const localCustomerOAuth = import.meta.env.VITE_LOCAL_SURFACES === "1" && app === "customer" && typeof window !== "undefined" && window.location.hostname === "localhost" && window.location.port === "5190";
@@ -96,6 +101,12 @@ export default function UniversalAuthPage() {
   const categoryUnavailable = vendorRegistration && categoryRequest.status !== "ready";
   const categories = categoryRequest.status === "ready" ? categoryRequest.items : [];
   const next = safeSurfaceNext(params.get("next"), app);
+  useEffect(() => {
+    if (!identity || vendorAccess || app !== "vendor") return;
+    const updated = new URLSearchParams(params);
+    updated.set("app", "customer");
+    setParams(updated, { replace: true });
+  }, [app, identity, params, setParams, vendorAccess]);
   function finish(user: UserSummary) {
     const destination = authDestination(app, user, next);
     if (!destination) { setError("Your account does not have a Vendor workspace. Choose Customer, or contact your business administrator."); return; }
@@ -142,7 +153,7 @@ export default function UniversalAuthPage() {
   if (!publicUniversalAuthEnabled) return <section className="universal-auth"><h1>Sign in to GetPrio</h1><p>Choose your application.</p><a href={appUrl("vendor", "/login")}>Vendor login</a> <a href={appUrl("customer", "/login")}>Customer login</a></section>;
   const title = challenge ? "Verify your sign-in" : recovery ? "Reset your password" : register ? "Create your GetPrio account" : "Welcome back";
   const panel = <>
-      <p className="universal-auth-intent">{app === "vendor" ? "Continue to your Vendor workspace" : "Continue to your Customer dashboard"}</p>
+      {!identity && <p className="universal-auth-intent">{app === "vendor" ? "Continue to your Vendor workspace" : "Continue to your Customer dashboard"}</p>}
       {identity && !register && !challenge && !recovery ? <div className="universal-auth-session"><p>Signed in as {identity.name}.</p><Button type="button" disabled={busy} onClick={() => finish(identity)}>Continue to {app === "vendor" ? "Vendor" : "Customer"}</Button><Button variant="outline" type="button" disabled={busy} onClick={async () => { commandVersion.current += 1; setBusy(true); try { await auth.logout(); setError(""); } catch (failure) { setError(getErrorMessage(failure)); } finally { setBusy(false); } }}>Use another account</Button><p>Signing out also ends this shared session in your other GetPrio apps.</p></div> : <form method="post" onSubmit={submit} aria-busy={busy}>
       <fieldset disabled={busy}><legend className="universal-auth-sr">{title}</legend><FieldGroup>
         {challenge ? <><Field><FieldLabel htmlFor="auth-code">{recoveryMethod ? "Recovery code" : emailMethod ? "Email code" : "Authenticator code"}</FieldLabel><Input key={`${emailMethod}-${recoveryMethod}`} id="auth-code" name="code" autoComplete={recoveryMethod ? "off" : "one-time-code"} inputMode={recoveryMethod ? "text" : "numeric"} required autoFocus /></Field></> : recovery ? <><Field><FieldLabel htmlFor="auth-email">Account email</FieldLabel><Input id="auth-email" name="email" type="email" autoComplete="email" required /></Field></> : <>
@@ -197,7 +208,7 @@ export default function UniversalAuthPage() {
       </FieldGroup></fieldset></form>}
       {error && <Alert variant="destructive" role="alert"><AlertDescription>{error}</AlertDescription></Alert>}{message && <Alert role="status"><AlertDescription>{message}</AlertDescription></Alert>}
       {challenge ? <div className="universal-auth-actions">{methods.includes("email") && <Button variant="outline" type="button" disabled={busy} onClick={() => void sendEmail()}>Send a new email code</Button>}{methods.includes("recovery") && <Button variant="outline" type="button" disabled={busy} onClick={() => { setRecoveryMethod(true); setEmailMethod(false); setChallenge(originalChallenge); setMessage(""); }}>Use a recovery code</Button>}{methods.includes("totp") && <Button variant="outline" type="button" disabled={busy} onClick={() => { setRecoveryMethod(false); setEmailMethod(false); setChallenge(originalChallenge); setMessage(""); }}>Use authenticator</Button>}<Button variant="outline" type="button" disabled={busy} onClick={restart}>Start over</Button></div> : <>
-      <Button variant="link" type="button" className="universal-auth-link" disabled={busy} onClick={() => { setRecovery(!recovery); setError(""); setMessage(""); }}>{recovery ? "Back to sign in" : "Forgot your password?"}</Button>
+      {!identity && <Button variant="link" type="button" className="universal-auth-link" disabled={busy} onClick={() => { setRecovery(!recovery); setError(""); setMessage(""); }}>{recovery ? "Back to sign in" : "Forgot your password?"}</Button>}
       {!recovery && !identity && Object.values(providers).some(Boolean) && <div style={{ display: "flex", alignItems: "center", gap: 12, color: "var(--muted-foreground)", fontSize: 14, marginTop: 20 }}><span aria-hidden="true" style={{ flex: 1, height: 1, backgroundColor: "currentColor", opacity: 0.35 }} /><span>or continue with</span><span aria-hidden="true" style={{ flex: 1, height: 1, backgroundColor: "currentColor", opacity: 0.35 }} /></div>}
       {!recovery && !identity && <div className="universal-auth-actions" style={{ display: "flex", justifyContent: "center", flexWrap: "wrap" }}>{Object.entries(providers).filter(([, enabled]) => enabled).map(([provider]) => { const icon = provider === "google" ? googleIcon : provider === "facebook" ? facebookIcon : provider === "apple" ? (dark ? appleDarkIcon : appleLightIcon) : undefined; const label = `Continue with ${provider.charAt(0).toUpperCase()}${provider.slice(1)}`; return <Button variant="outline" key={provider} type="button" disabled={busy} aria-label={icon ? label : undefined} title={icon ? label : undefined} style={icon ? { width: 48, height: 48, padding: 8, flex: "0 0 48px" } : undefined} onClick={() => { const url = new URL(`${oauthApiBase}/auth/oauth/${provider}/start`); url.searchParams.set("surface", app); url.searchParams.set("intent", register ? `register_${app}` : "login"); url.searchParams.set("next", next); window.location.assign(url.href); }}>{icon ? <img src={icon} alt="" width={32} height={32} style={provider === "facebook" ? { transform: "scale(1.5)" } : undefined} /> : <>Continue with {provider}</>}</Button>; })}</div>}
       </>}
@@ -220,13 +231,13 @@ export default function UniversalAuthPage() {
           <Tabs value={app} onValueChange={value => { if (value === "customer" || value === "vendor") choose(value); }}>
             <TabsList className="universal-auth-tabs" aria-label="Choose Customer or Vendor">
               <TabsTrigger value="customer" disabled={busy || !!challenge}><IconUser aria-hidden="true" />Customer</TabsTrigger>
-              <TabsTrigger value="vendor" disabled={busy || !!challenge}><IconBuildingStore aria-hidden="true" />Vendor</TabsTrigger>
+              {vendorAccess && <TabsTrigger value="vendor" disabled={busy || !!challenge}><IconBuildingStore aria-hidden="true" />Vendor</TabsTrigger>}
             </TabsList>
             <TabsContent value="customer" keepMounted>{app === "customer" && panel}</TabsContent>
             <TabsContent value="vendor" keepMounted>{app === "vendor" && panel}</TabsContent>
           </Tabs>
         </CardContent>
-        {!challenge && <CardFooter>
+        {!challenge && !identity && <CardFooter>
           <p>{register ? "Already have an account?" : "New to GetPrio?"} <Link aria-disabled={busy} onClick={event => { if (busy) event.preventDefault(); }} to={`/${register ? "login" : "register"}?app=${app}&next=${encodeURIComponent(next)}`}>{register ? "Sign in" : "Create an account"}</Link></p>
         </CardFooter>}
       </Card>
