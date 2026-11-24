@@ -1397,9 +1397,14 @@ html[data-customer-theme="dark"] {
   .customer-booking-footer {
     bottom: calc(70px + env(safe-area-inset-bottom));
     flex-wrap: wrap;
+    width: 100vw;
+    margin-inline: calc(50% - 50vw);
   }
   .customer-booking-footer > * {
     width: 100%;
+  }
+  .customer-web-navigation {
+    border-top: 1px solid var(--line) !important;
   }
 }
 .customer-booking-title {

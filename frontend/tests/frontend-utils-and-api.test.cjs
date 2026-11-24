@@ -1185,6 +1185,12 @@ test("ordinary fixed-price booking links do not default into resource pricing", 
   assert.match(source, /resourceMode\?"Amount confirmed by vendor":formatPaymentAmount/);
 });
 
+test("mobile Customer booking actions span the viewport above the bordered menu", () => {
+  const css = fs.readFileSync(path.resolve(__dirname, "../src/customer/customer-theme.css"), "utf8");
+  assert.match(css, /@media \(max-width: 959px\) \{[\s\S]*?\.customer-booking-footer \{[\s\S]*?width: 100vw;[\s\S]*?margin-inline: calc\(50% - 50vw\);/);
+  assert.match(css, /\.customer-web-navigation \{[\s\S]*?border-top: 1px solid var\(--line\) !important;/);
+});
+
 test("group-funded section labels use a consistent heading size", () => {
   const styles = fs.readFileSync(
     path.join(path.resolve(__dirname, ".."), "src", "styles.css"),
