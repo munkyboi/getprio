@@ -95,6 +95,9 @@ test("Customer login keeps password controls seamless and swaps to an inline res
   const css = fs.readFileSync(path.resolve(__dirname, "../src/customer/customer-theme.css"), "utf8");
   assert.match(page, /m\.showResetRequest \? <form[\s\S]*?handlePasswordResetRequest[\s\S]*?Back to sign in/);
   assert.match(page, /className="customer-auth-reset-link"[\s\S]*?Forgot password\?/);
+  assert.match(page, /<a href="#customer-reset" className="customer-auth-reset-link"[\s\S]*?Forgot password\?/);
+  assert.match(page, /<a className="customer-auth-reset-link" href=.*Create a customer account/);
+  assert.match(css, /customer-fallback-card \[data-slot="card-title"\] \{[\s\S]*?font-size: clamp\(2rem, 5vw, 2\.75rem\);/);
   assert.match(page, /!m\.showResetRequest && !m\.mfaChallengeToken \? <CustomerSocial/);
   assert.match(css, /customer-password-input > \[data-slot="input-group-control"\],[\s\S]*?border: 0 !important;/);
   assert.match(css, /customer-auth-reset-link \{[\s\S]*?color: var\(--customer-primary\) !important;[\s\S]*?text-decoration: underline;/);

@@ -3569,6 +3569,7 @@ html[data-customer-theme] [data-slot="field-label"].customer-field { align-items
 .customer-verified-change > [data-slot="collapsible-content"] { padding-top:16px; }
 
 .customer-fallback-card { width:min(100%,560px); margin:24px auto; }
+.customer-fallback-card [data-slot="card-title"] { font-size: clamp(2rem, 5vw, 2.75rem); }
 .customer-fallback-actions { display:flex; gap:12px; flex-wrap:wrap; }
 .customer-fallback-card [data-slot="field-error"] { color:var(--customer-error); }
 
