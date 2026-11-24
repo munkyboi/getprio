@@ -8,6 +8,7 @@ const entry = fs.readFileSync(path.join(root, "src/surfaces/MarketingApp.tsx"), 
 const authStyles = fs.readFileSync(path.join(root, "src/pages/universal-auth.css"), "utf8");
 const authPage = fs.readFileSync(path.join(root, "src/pages/UniversalAuthPage.tsx"), "utf8");
 const customerFallback = fs.readFileSync(path.join(root, "src/customer/components/CustomerFallbackPresentations.tsx"), "utf8");
+const customerHome = fs.readFileSync(path.join(root, "src/customer/pages/CustomerHomePage.tsx"), "utf8");
 const authEnabled = fs.readFileSync(path.join(root, "src/surfaces/publicAuthEnabled.ts"), "utf8");
 
 test("universal auth keeps its complete style and provider entry contract", () => {
@@ -23,6 +24,11 @@ assert.match(authStyles, /data-public-theme="dark".*color-mix\(in srgb, var\(--c
 assert.match(authPage, /provider === "apple"/u);
 assert.match(customerFallback, /oauthProviders\.apple \?/u);
 assert.match(authEnabled, /VITE_APP_SURFACE === "marketing"/u);
+});
+
+test("customer empty dashboard uses a committed illustration asset", () => {
+  assert.match(customerHome, /src="\/illustrations\/generated\/dashboard-empty\.png"/u);
+  assert.doesNotMatch(customerHome, /illustrations\/customer\/dashboard-empty(?:-dark)?\.png/u);
 });
 
 test("universal auth submits use the Marketing brand fill and plain white text", () => {
