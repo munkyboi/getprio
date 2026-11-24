@@ -181,8 +181,10 @@ export default function CustomerVendorDetailsPage() {
           ) : null}
           {data.ratings.data ? (
             <a href="#customer-vendor-reviews">
-              <IconStar /> {data.ratings.data.rating.average.toFixed(1)} ·{" "}
-              {data.ratings.data.rating.count} reviews
+              <IconStar /> {data.ratings.data.rating.average.toFixed(1)}{" "}
+              <span className="customer-vendor-rating-count">
+                ({data.ratings.data.rating.count} reviews)
+              </span>
             </a>
           ) : null}
         </div>
