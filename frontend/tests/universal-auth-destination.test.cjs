@@ -16,7 +16,7 @@ test("universal auth keeps destinations on the selected application", () => {
   assert.equal(safeSurfaceNext("/account/bookings?tab=upcoming#today", "customer"), "/account/bookings?tab=upcoming#today");
   assert.equal(safeSurfaceNext("/dashboard/settings?x=1#queue", "vendor"), "/dashboard/settings?x=1#queue");
   for (const bad of ["https://evil.invalid/account", "//evil.invalid", "/%2f%2fevil.invalid", "/account/%2e%2e/dashboard", "/dashboard\\evil"]) {
-    assert.equal(safeSurfaceNext(bad, "customer"), "/account/dashboard");
+    assert.equal(safeSurfaceNext(bad, "customer"), "/dashboard");
   }
   assert.equal(safeSurfaceNext("/account/security", "vendor"), "/dashboard");
   assert.throws(() => createAppUrls({ customer: "https://user:pass@example.com" }));
@@ -31,7 +31,7 @@ test("switching surfaces retains only a return path valid for the new app", () =
 test("unconfigured app destinations use their deployed application origins", () => {
   const appUrl = createAppUrls({});
   assert.equal(appUrl("vendor", "/dashboard"), "https://vendor.getprio.online/dashboard");
-  assert.equal(appUrl("customer", "/account/dashboard"), "https://app.getprio.online/account/dashboard");
+  assert.equal(appUrl("customer", "/dashboard"), "https://app.getprio.online/dashboard");
 });
 
 test("local app destinations use the browser loopback host", () => {
@@ -58,6 +58,6 @@ test("local auth destinations do not require an unrelated platform origin", () =
     customer: "http://127.0.0.1:5191",
     vendor: "http://127.0.0.1:5192",
   }, true, ["marketing", "customer", "vendor"]);
-  assert.equal(appUrl("customer", "/account/dashboard"), "http://127.0.0.1:5191/account/dashboard");
+  assert.equal(appUrl("customer", "/dashboard"), "http://127.0.0.1:5191/dashboard");
   assert.equal(appUrl("vendor", "/dashboard"), "http://127.0.0.1:5192/dashboard");
 });

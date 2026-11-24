@@ -58,14 +58,14 @@ export function localPreviewOrigins(values: Partial<Record<AppPurpose, string>>,
 }
 
 export function safeSurfaceNext(value: string | null | undefined, surface: "customer" | "vendor", allowOnboarding = false) {
-  const fallback = surface === "vendor" ? "/dashboard" : "/account/dashboard";
+  const fallback = "/dashboard";
   if (!value || !value.startsWith("/") || value.startsWith("//") || /[\\\u0000-\u001f\u007f]/.test(value)) return fallback;
   try {
     const url = new URL(value, "https://return.invalid");
     let decoded = url.pathname;
     for (let i = 0; i < 4; i++) { const next = decodeURIComponent(decoded); if (next === decoded) break; decoded = next; }
     if (url.origin !== "https://return.invalid" || /[\\\u0000-\u001f\u007f]/.test(decoded) || decoded.includes("//") || /(?:^|\/)\.\.?(?:\/|$)/.test(decoded)) return fallback;
-    const permitted = surface === "vendor" ? /^\/(?:dashboard|queue-board)(?:[/?#]|$)/ : /^\/(?:account|vendors|join|ticket|payment)(?:[/?#]|$)/;
+    const permitted = surface === "vendor" ? /^\/(?:dashboard|queue-board)(?:[/?#]|$)/ : /^\/(?:dashboard(?:[?#]|$)|lists(?:\/tickets|\/bookings)?|settings(?:\/notification)?|inbox|account|vendors|join|ticket|payment)(?:[/?#]|$)/;
     if (!permitted.test(decoded) && !(surface === "vendor" && allowOnboarding && /^\/register(?:\/vendor)?$/.test(decoded))) return fallback;
     return `${url.pathname}${url.search}${url.hash}`;
   } catch { return fallback; }

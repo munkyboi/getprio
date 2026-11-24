@@ -34,18 +34,18 @@ import {
   DropdownMenuTrigger,
 } from "./components/ui";
 const navigation = [
-  { label: "Home", path: "/account/dashboard", icon: IconHome },
+  { label: "Home", path: "/dashboard", icon: IconHome },
   { label: "Explore", path: "/vendors", icon: IconSearch },
   { label: "Join Queue", path: "/join", icon: IconScan },
-  { label: "Lists", path: "/account/lists", icon: IconList },
-  { label: "Profile", path: "/account/settings", icon: IconUser },
+  { label: "Lists", path: "/lists", icon: IconList },
+  { label: "Profile", path: "/settings", icon: IconUser },
 ] as const;
 const accountLinks = [
-  ["Dashboard", "/account/dashboard"],
-  ["Queue Tickets", "/account/tickets"],
-  ["Bookings", "/account/bookings"],
-  ["Settings", "/account/settings"],
-  ["Notifications", "/account/notifications"],
+  ["Dashboard", "/dashboard"],
+  ["Queue Tickets", "/lists/tickets"],
+  ["Bookings", "/lists/bookings"],
+  ["Settings", "/settings"],
+  ["Notifications", "/inbox"],
 ] as const;
 export default function CustomerShell({ children }: { children: ReactNode }) {
   const { user, token, logout } = useAuth();
@@ -85,13 +85,13 @@ export default function CustomerShell({ children }: { children: ReactNode }) {
           location.pathname.startsWith("/vendors")) &&
         !joinIntent
       );
-    if (label === "Home") return location.pathname === "/account/dashboard";
+    if (label === "Home") return location.pathname === "/dashboard";
     if (label === "Lists")
       return (
-        /^\/account\/(lists|tickets|bookings)(\/|$)/.test(location.pathname) ||
+        /^\/(?:lists(?:\/|$)|account\/(?:lists|tickets|bookings)(?:\/|$))/.test(location.pathname) ||
         location.pathname.startsWith("/ticket/")
       );
-    return /^\/account\/(settings|security|notification-settings|favorites|profile)(\/|$)/.test(
+    return /^\/(?:settings(?:\/|$)|account\/(?:settings|security|notification-settings|favorites|profile)(?:\/|$))/.test(
       location.pathname,
     );
   }
@@ -141,7 +141,7 @@ export default function CustomerShell({ children }: { children: ReactNode }) {
                 size="icon"
                 aria-label="Notifications"
                 title="Notifications"
-                render={<Link to="/account/notifications" />}
+                render={<Link to="/inbox" />}
               >
                 <IconBell />
                 {typeof inbox.data?.unreadCount === "number" &&

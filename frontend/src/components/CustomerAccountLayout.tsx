@@ -31,9 +31,9 @@ const ACCOUNT_SECTIONS: Array<{
     path: string;
   }>;
 }> = [
-  { key: "dashboard", label: "Dashboard", path: "/account/dashboard", icon: IconLayoutDashboard },
-  { key: "tickets", label: "Queue Tickets", path: "/account/tickets", icon: IconListDetails },
-  { key: "bookings", label: "Bookings", path: "/account/bookings", icon: IconCalendarEvent },
+  { key: "dashboard", label: "Dashboard", path: "/dashboard", icon: IconLayoutDashboard },
+  { key: "tickets", label: "Queue Tickets", path: "/lists/tickets", icon: IconListDetails },
+  { key: "bookings", label: "Bookings", path: "/lists/bookings", icon: IconCalendarEvent },
   {
     key: "campaigns",
     label: "Campaigns",
@@ -44,8 +44,8 @@ const ACCOUNT_SECTIONS: Array<{
       { label: "Discover campaigns", path: "/account/campaigns/discover" }
     ]
   },
-  { key: "settings", label: "Settings", path: "/account/settings", icon: IconSettings },
-  { key: "notifications", label: "Notifications", path: "/account/notifications", icon: IconSettings },
+  { key: "settings", label: "Settings", path: "/settings", icon: IconSettings },
+  { key: "notifications", label: "Notifications", path: "/inbox", icon: IconSettings },
   { key: "security", label: "Security", path: "/account/security", icon: IconLock }
 ];
 
