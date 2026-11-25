@@ -3,7 +3,6 @@ import { FieldLabel } from "../components/shadcn/field";
 import { useQuery } from "@tanstack/react-query";
 import type { VendorRatings } from "../components/vendor/useVendorDetails";
 import { CustomerPage } from "../components/account/CustomerPage";
-import { useCustomerTheme } from "../CustomerTheme";
 import { RefreshCw, Star } from "lucide-react";
 import { useEffect, useState, type FormEvent } from "react";
 import { Link, useSearchParams } from "react-router-dom";
@@ -50,7 +49,6 @@ export function filterVendorProfiles(vendors: PublicVendorProfile[], category: s
 }
 
 function VendorCard({ vendor }: { vendor: PublicVendorProfile }) {
-  const { theme } = useCustomerTheme();
   const ratings = useQuery({
     queryKey: ["customer-directory-rating", vendor.slug],
     queryFn: ({ signal }) =>
