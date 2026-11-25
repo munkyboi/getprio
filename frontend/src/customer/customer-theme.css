@@ -515,7 +515,6 @@ html[data-customer-theme="dark"] {
 .customer-directory-card [data-slot="card-title"],
 .customer-directory-card [data-slot="card-description"] {
   overflow-wrap: anywhere;
-  word-break: break-word;
 }
 .customer-directory-link {
   display: flex;

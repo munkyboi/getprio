@@ -90,7 +90,7 @@ export default function UniversalAuthPage() {
           ? { status: "ready", items }
           : { status: "error", message: "No business categories are available. Please try again." });
       })
-      .catch(failure => {
+      .catch((failure: unknown) => {
         if (!controller.signal.aborted) {
           setCategoryRequest({ status: "error", message: getErrorMessage(failure) });
         }
@@ -152,9 +152,19 @@ export default function UniversalAuthPage() {
   }
   if (!publicUniversalAuthEnabled) return <section className="universal-auth"><h1>Sign in to GetPrio</h1><p>Choose your application.</p><a href={appUrl("vendor", "/login")}>Vendor login</a> <a href={appUrl("customer", "/login")}>Customer login</a></section>;
   const title = challenge ? "Verify your sign-in" : recovery ? "Reset your password" : register ? "Create your GetPrio account" : "Welcome back";
+  const showSession = Boolean(identity && !register && !challenge && !recovery);
+  const submitLabel = busy
+    ? "Please wait…"
+    : challenge
+      ? "Verify and continue"
+      : recovery
+        ? "Send reset instructions"
+        : register
+          ? `Create ${app === "vendor" ? "Vendor" : "Customer"} account`
+          : `Continue to ${app === "vendor" ? "Vendor" : "Customer"}`;
   const panel = <>
       {!identity && <p className="universal-auth-intent">{app === "vendor" ? "Continue to your Vendor workspace" : "Continue to your Customer dashboard"}</p>}
-      {identity && !register && !challenge && !recovery ? <div className="universal-auth-session"><p>Signed in as {identity.name}.</p><Button className="universal-auth-primary universal-auth-session-primary" type="button" disabled={busy} onClick={() => finish(identity)}>Continue to {app === "vendor" ? "Vendor" : "Customer"}</Button><Button variant="outline" type="button" disabled={busy} onClick={async () => { commandVersion.current += 1; setBusy(true); try { await auth.logout(); setError(""); } catch (failure) { setError(getErrorMessage(failure)); } finally { setBusy(false); } }}>Use another account</Button><p>Signing out also ends this shared session in your other GetPrio apps.</p></div> : <form method="post" onSubmit={submit} aria-busy={busy}>
+      {showSession ? <div className="universal-auth-session"><p>Signed in as {identity?.name}.</p><Button className="universal-auth-primary universal-auth-session-primary" type="button" disabled={busy} onClick={() => identity && finish(identity)}>Continue to {app === "vendor" ? "Vendor" : "Customer"}</Button><Button variant="outline" type="button" disabled={busy} onClick={async () => { commandVersion.current += 1; setBusy(true); try { await auth.logout(); setError(""); } catch (failure) { setError(getErrorMessage(failure)); } finally { setBusy(false); } }}>Use another account</Button><p>Signing out also ends this shared session in your other GetPrio apps.</p></div> : <form method="post" onSubmit={submit} aria-busy={busy}>
       <fieldset disabled={busy}><legend className="universal-auth-sr">{title}</legend><FieldGroup>
         {challenge ? <><Field><FieldLabel htmlFor="auth-code">{recoveryMethod ? "Recovery code" : emailMethod ? "Email code" : "Authenticator code"}</FieldLabel><Input key={`${emailMethod}-${recoveryMethod}`} id="auth-code" name="code" autoComplete={recoveryMethod ? "off" : "one-time-code"} inputMode={recoveryMethod ? "text" : "numeric"} required autoFocus /></Field></> : recovery ? <><Field><FieldLabel htmlFor="auth-email">Account email</FieldLabel><Input id="auth-email" name="email" type="email" autoComplete="email" required /></Field></> : <>
           {register && <>
@@ -204,7 +214,7 @@ export default function UniversalAuthPage() {
           {!register && <><Field><FieldLabel htmlFor="auth-identifier">Email or username</FieldLabel><Input id="auth-identifier" name="identifier" autoComplete="username" autoCapitalize="none" spellCheck={false} required /></Field></>}
           <Field><FieldLabel htmlFor="auth-password">Password</FieldLabel><PasswordField id="auth-password" name="password" autoComplete={register ? "new-password" : "current-password"} minLength={register ? 8 : undefined} required /></Field>
         </>}
-        <Button className="universal-auth-primary" type="submit" disabled={categoryUnavailable}>{busy ? "Please wait…" : challenge ? "Verify and continue" : recovery ? "Send reset instructions" : register ? `Create ${app === "vendor" ? "Vendor" : "Customer"} account` : `Continue to ${app === "vendor" ? "Vendor" : "Customer"}`}</Button>
+        <Button className="universal-auth-primary" type="submit" disabled={categoryUnavailable}>{submitLabel}</Button>
       </FieldGroup></fieldset></form>}
       {error && <Alert variant="destructive" role="alert"><AlertDescription>{error}</AlertDescription></Alert>}{message && <Alert role="status"><AlertDescription>{message}</AlertDescription></Alert>}
       {challenge ? <div className="universal-auth-actions">{methods.includes("email") && <Button variant="outline" type="button" disabled={busy} onClick={() => void sendEmail()}>Send a new email code</Button>}{methods.includes("recovery") && <Button variant="outline" type="button" disabled={busy} onClick={() => { setRecoveryMethod(true); setEmailMethod(false); setChallenge(originalChallenge); setMessage(""); }}>Use a recovery code</Button>}{methods.includes("totp") && <Button variant="outline" type="button" disabled={busy} onClick={() => { setRecoveryMethod(false); setEmailMethod(false); setChallenge(originalChallenge); setMessage(""); }}>Use authenticator</Button>}<Button variant="outline" type="button" disabled={busy} onClick={restart}>Start over</Button></div> : <>

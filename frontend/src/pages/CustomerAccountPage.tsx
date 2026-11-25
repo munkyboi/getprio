@@ -118,7 +118,9 @@ function formatBookingBundleTotal(amountCents: number, currency = "PHP") {
 
 function getActiveSection(pathname: string): CustomerAccountSection {
   const [, first, second] = pathname.split("/");
-  const section = first === "account" ? second : first === "lists" ? second : first === "settings" && second === "notification" ? "notifications" : first;
+  let section = first;
+  if (first === "account" || first === "lists") section = second;
+  if (first === "settings" && second === "notification") section = "notifications";
   if (section === "tickets" || section === "bookings" || section === "settings" || section === "notifications" || section === "security") return section;
 
   return "settings";

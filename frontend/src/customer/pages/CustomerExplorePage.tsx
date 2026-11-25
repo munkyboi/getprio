@@ -87,11 +87,7 @@ function VendorCard({ vendor }: { vendor: PublicVendorProfile }) {
           ) : (
             <img
               className="customer-default-cover"
-              src={
-                theme === "dark"
-                  ? "/illustrations/generated/hero-queue-scene-transparent.png"
-                  : "/illustrations/generated/hero-queue-scene-transparent.png"
-              }
+              src="/illustrations/generated/hero-queue-scene-transparent.png"
               alt=""
               loading="lazy"
             />

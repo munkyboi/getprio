@@ -13,10 +13,7 @@ export function BusinessMedia({
   const [failedCover, setFailedCover] = useState("");
   const [failedLogo, setFailedLogo] = useState("");
   const { theme: mode } = useCustomerTheme();
-  const fallback =
-    mode === "dark"
-      ? "/illustrations/generated/hero-queue-scene-transparent.png"
-      : "/illustrations/generated/hero-queue-scene-transparent.png";
+  const fallback = "/illustrations/generated/hero-queue-scene-transparent.png";
   const cover = theme?.backgroundImageUrl || fallback;
   const defaultLogo = mode === "dark" ? "/logo-dark.svg" : "/logo.svg";
   const logo = theme?.logoUrl || defaultLogo;
