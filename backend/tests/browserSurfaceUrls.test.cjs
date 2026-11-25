@@ -22,7 +22,6 @@ test('production Customer surface is allowed for credentialed auth CORS', async 
   const production = { ...config, nodeEnv: 'production', customerAppUrl: 'https://app.getprio.online' };
   const app = express();
   app.use(createBrowserCorsMiddleware(production, cors));
-  app.post('/api/auth/login', (_req, res) => res.sendStatus(204));
   const server = await new Promise(resolve => {
     const listener = app.listen(0, '127.0.0.1', () => resolve(listener));
   });
