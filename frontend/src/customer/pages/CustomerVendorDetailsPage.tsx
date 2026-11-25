@@ -78,7 +78,7 @@ export default function CustomerVendorDetailsPage() {
   const { theme: mode } = useCustomerTheme();
   const fallbackCover =
     mode === "dark"
-      ? "/illustrations/customer/vendor-default-dark.png"
+      ? "/illustrations/generated/hero-queue-scene-transparent.png"
       : defaultCover;
   const fallbackLogo = mode === "dark" ? "/logo-dark.svg" : "/logo.svg";
   const { tenantSlug = "", locationSlug = "" } = useParams();
@@ -178,22 +178,13 @@ export default function CustomerVendorDetailsPage() {
             >
               <IconHeart fill={data.favorite ? "currentColor" : "none"} />
             </Button>
-          ) : (
-            <Button
-              variant="outline"
-              render={
-                <Link
-                  to={`/login?next=${encodeURIComponent(`/vendors/${vendor.slug}`)}`}
-                />
-              }
-            >
-              Sign in to save
-            </Button>
-          )}
+          ) : null}
           {data.ratings.data ? (
             <a href="#customer-vendor-reviews">
-              <IconStar /> {data.ratings.data.rating.average.toFixed(1)} ·{" "}
-              {data.ratings.data.rating.count} reviews
+              <IconStar /> {data.ratings.data.rating.average.toFixed(1)}{" "}
+              <span className="customer-vendor-rating-count">
+                ({data.ratings.data.rating.count} reviews)
+              </span>
             </a>
           ) : null}
         </div>
@@ -536,7 +527,7 @@ export default function CustomerVendorDetailsPage() {
         </section>
       </div>
       <footer className="customer-vendor-actions">
-        {vendor.capabilities.booking && selected && selectedServiceSlugs.length ? (
+        {vendor.capabilities.booking && selected ? (
           <Button variant="outline" render={<Link to={bookingPath} />}>
             Book
           </Button>

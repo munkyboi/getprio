@@ -7,6 +7,7 @@ import { useAuth } from "../context/AuthContext";
 import { appUrl } from "./surfaceConfig";
 import { publicUniversalAuthEnabled } from "./publicAuthEnabled";
 import { usePublicTheme } from "./PublicTheme";
+import { IconMoon, IconSun } from "@tabler/icons-react";
 
 export default function PublicShell({ children, marketing = false }: { children: ReactNode; marketing?: boolean }) {
   if (marketing) return <MarketingPublicShell>{children}</MarketingPublicShell>;
@@ -37,15 +38,16 @@ function MarketingPublicShell({ children }: { children: ReactNode }) {
           <span>GetPrio</span>
         </a>
         <div className="marketing-header-actions">
-          <nav className="marketing-desktop-nav" aria-label="Main navigation">{links}</nav>
           <button
             className="public-theme-toggle"
             type="button"
             onClick={publicTheme.toggleTheme}
             aria-label={publicTheme.theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+            title={publicTheme.theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
           >
-            {dark ? "☀" : "☾"}
+            {dark ? <IconSun aria-hidden="true" size={18} stroke={1.8} /> : <IconMoon aria-hidden="true" size={18} stroke={1.8} />}
           </button>
+          <nav className="marketing-desktop-nav" aria-label="Main navigation">{links}</nav>
           <button
             className="marketing-menu-trigger"
             type="button"

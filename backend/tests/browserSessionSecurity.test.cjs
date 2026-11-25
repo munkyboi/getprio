@@ -325,7 +325,7 @@ test("public vendor registration is not blocked by an unrelated stale cookie ses
   }
 });
 
-test("customer registration recovers from stale sessions while retaining origin and request-format checks", async () => {
+test("customer auth recovery ignores stale cookie/site state while retaining origin and request-format checks", async () => {
   const protect = createCsrfProtection({ allowedOrigins: ["https://getprio.online"], csrfSecret: "test-secret" });
   const baseHeaders = {
     cookie: `${REFRESH_COOKIE}=expired-session`, origin: "https://getprio.online", "sec-fetch-site": "same-site", "content-type": "application/json"
@@ -338,12 +338,16 @@ test("customer registration recovers from stale sessions while retaining origin 
   for (const headers of [
     { ...baseHeaders, origin: "https://evil.example" },
     { ...baseHeaders, origin: "" },
-    { ...baseHeaders, "sec-fetch-site": "cross-site" },
     { ...baseHeaders, "content-type": "text/plain" }
   ]) {
     const error = await run(headers);
     assert.equal(error?.code, "CSRF_VALIDATION_FAILED");
   }
+  assert.equal(await run({ ...baseHeaders, "sec-fetch-site": "cross-site" }), undefined);
+  const loginError = await new Promise(resolve => protect({
+    method: "POST", originalUrl: "/api/auth/login", headers: { ...baseHeaders, "sec-fetch-site": "cross-site" }
+  }, buildResponse(), resolve));
+  assert.equal(loginError, undefined);
 });
 
 test("developer password recovery is not blocked by a stale developer session", async () => {
@@ -375,8 +379,13 @@ test("vendor registration recovery retains origin, request-format and authentica
     { headers, originalUrl: "/api/account/profile" },
     { headers, method: "PATCH" }
   ]) {
-    const error = await new Promise(resolve => protect({ method: "POST", originalUrl: "/api/auth/register/vendor", ...request }, buildResponse(), resolve));
-    assert.equal(error?.code, "CSRF_VALIDATION_FAILED");
+    const originalUrl = request.originalUrl || "/api/auth/register/vendor";
+    const error = await new Promise(resolve => protect({ method: "POST", originalUrl, ...request }, buildResponse(), resolve));
+    if (request.headers["sec-fetch-site"] === "cross-site" && originalUrl === "/api/auth/register/vendor") {
+      assert.equal(error, undefined);
+    } else {
+      assert.equal(error?.code, "CSRF_VALIDATION_FAILED");
+    }
   }
 });
 

@@ -1,6 +1,24 @@
 import { publicAuthPathAllowed } from "../../../shared/publicAuthPolicy";
+import { publicUniversalAuthEnabled } from "../surfaces/publicAuthEnabled";
 
 const API_BASE_URL = import.meta.env?.VITE_API_URL || "http://localhost:5001/api";
+
+export function localizeApiOrigin(base: string, hostname: string): string {
+  if (!["localhost", "127.0.0.1", "[::1]"].includes(hostname)) return base;
+  const url = new URL(base);
+  if (["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)) url.hostname = hostname;
+  return url.origin + url.pathname.replace(/\/$/u, "");
+}
+
+export function runtimeApiBaseUrl(hostname?: string): string {
+  // Keep local browser/API requests same-site even when a preview was built
+  // with the loopback API's other spelling. This is required for credentialed
+  // auth requests: browsers classify localhost and 127.0.0.1 as cross-site,
+  // which causes the strict CSRF middleware to reject an otherwise valid
+  // session. Production API origins are left untouched by localizeApiOrigin.
+  const browserHostname = hostname || (typeof window !== "undefined" ? window.location?.hostname || "" : "");
+  return browserHostname ? localizeApiOrigin(API_BASE_URL, browserHostname) : API_BASE_URL;
+}
 const CSRF_STORAGE_KEY = "prio_csrf";
 
 type RefreshTokenHandler = () => Promise<string | null>;
@@ -69,6 +87,7 @@ export interface ApiRequestOptions<TBody = unknown> {
   signal?: AbortSignal;
   skipAuthRefresh?: boolean;
   headers?: Record<string, string>;
+  credentials?: RequestCredentials;
 }
 
 export function setAuthHandlers(handlers: {
@@ -83,16 +102,24 @@ export async function apiRequest<TResponse, TBody = unknown>(
   path: string,
   options: ApiRequestOptions<TBody> = {}
 ): Promise<TResponse> {
-  const { method = "GET", body, token, signal, skipAuthRefresh = false, headers = {} } = options;
+  const {
+    method = "GET",
+    body,
+    token,
+    signal,
+    skipAuthRefresh = false,
+    headers = {},
+    credentials = import.meta.env?.VITE_APP_SURFACE === "marketing" ? "omit" : "include",
+  } = options;
   const unsafe = !["GET", "HEAD", "OPTIONS"].includes(method.toUpperCase());
   const idempotencyKey = unsafe && typeof crypto !== "undefined" && "randomUUID" in crypto
     ? crypto.randomUUID()
     : "";
 
   const makeRequest = async (authToken?: string) =>
-    fetch(`${API_BASE_URL}${path}`, {
+    fetch(`${runtimeApiBaseUrl()}${path}`, {
       method,
-      credentials: "include",
+      credentials,
       headers: {
         "Content-Type": "application/json",
         ...(unsafe && readCsrfToken()
@@ -148,10 +175,10 @@ export async function publicAuthRequest<TResponse, TBody = unknown>(
   path: string,
   options: ApiRequestOptions<TBody> = {}
 ): Promise<TResponse> {
-  if (!publicAuthPathAllowed(path, options.method) || import.meta.env?.VITE_PUBLIC_UNIVERSAL_AUTH !== "1") {
+  if (!publicAuthPathAllowed(path, options.method) || !publicUniversalAuthEnabled) {
     throw new ApiError("This authentication action is unavailable.", 403);
   }
-  return apiRequest<TResponse, TBody>(path, { ...options, skipAuthRefresh: true });
+  return apiRequest<TResponse, TBody>(path, { ...options, credentials: "include", skipAuthRefresh: true });
 }
 
 export async function apiUpload<TResponse>(
@@ -173,7 +200,7 @@ export async function apiUpload<TResponse>(
     }
   }
   const makeRequest = async (authToken?: string) =>
-    fetch(`${API_BASE_URL}${path}`, {
+    fetch(`${runtimeApiBaseUrl()}${path}`, {
       method: "POST",
       credentials: "include",
       headers: {

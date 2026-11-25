@@ -117,10 +117,11 @@ function formatBookingBundleTotal(amountCents: number, currency = "PHP") {
 }
 
 function getActiveSection(pathname: string): CustomerAccountSection {
-  const [, , section] = pathname.split("/");
-  if (section === "tickets" || section === "bookings" || section === "settings" || section === "notifications" || section === "security") {
-    return section;
-  }
+  const [, first, second] = pathname.split("/");
+  let section = first;
+  if (first === "account" || first === "lists") section = second;
+  if (first === "settings" && second === "notification") section = "notifications";
+  if (section === "tickets" || section === "bookings" || section === "settings" || section === "notifications" || section === "security") return section;
 
   return "settings";
 }

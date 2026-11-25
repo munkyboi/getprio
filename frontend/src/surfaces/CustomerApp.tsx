@@ -24,6 +24,26 @@ function LegacyTicketRedirect() {
   const { tenantSlug, locationSlug } = useParams(); const { search } = useLocation();
   return <Navigate replace to={`/ticket/${tenantSlug}${locationSlug ? `/${locationSlug}` : ""}${search}`} />;
 }
+const customerLegacyRoutes: Record<string, string> = {
+  "/account": "/dashboard",
+  "/account/dashboard": "/dashboard",
+  "/account/lists": "/lists",
+  "/account/tickets": "/lists/tickets",
+  "/account/bookings": "/lists/bookings",
+  "/account/settings": "/settings",
+  "/account/notification-settings": "/settings/notification",
+  "/account/notifications": "/inbox",
+};
+function CustomerLegacyRedirect() {
+  const location = useLocation();
+  const destination = customerLegacyRoutes[location.pathname] || "/dashboard";
+  return <Navigate replace to={{ pathname: destination, search: location.search, hash: location.hash }} />;
+}
+function CustomerLegacyBookingRedirect() {
+  const { bookingId } = useParams();
+  const location = useLocation();
+  return <Navigate replace to={{ pathname: `/lists/bookings/${bookingId}`, search: location.search, hash: location.hash }} />;
+}
 export default function CustomerApp() {
   return <MaintenanceBoundary renderPresentation={CustomerMaintenance}><CustomerShell><Routes>
     <Route path="/" element={<CustomerHome />} />
@@ -31,16 +51,19 @@ export default function CustomerApp() {
     <Route path="/register" element={<RegisterCustomerPage renderPresentation={CustomerRegistrationFallback} renderLoading={CustomerLoading} />} />
     <Route path="/register/customer" element={<RegisterCustomerPage renderPresentation={CustomerRegistrationFallback} renderLoading={CustomerLoading} />} />
     <Route path="/oauth/callback" element={<OAuthCallbackPage renderPresentation={CustomerOAuthCallback} />} />
-    <Route path="/account" element={<Navigate replace to="/account/dashboard" />} />
-    <Route path="/account/dashboard" element={<CustomerHomePage />} />
-    <Route path="/account/dashboard-prototype" element={<Navigate replace to="/account/dashboard" />} />
-    <Route path="/account/profile" element={<Navigate replace to="/account/settings" />} />
-    <Route path="/account/bookings/:bookingId" element={<CustomerBookingDetailsViewPage />} />
-    <Route path="/account/lists" element={<CustomerListsPage />} />
+    <Route path="/dashboard" element={<CustomerHomePage />} />
     <Route path="/lists" element={<CustomerListsPage />} />
+    <Route path="/lists/tickets" element={<CustomerAccountViewPage />} />
+    <Route path="/lists/bookings" element={<CustomerAccountViewPage />} />
+    <Route path="/settings" element={<CustomerAccountViewPage />} />
+    <Route path="/settings/notification" element={<CustomerAccountViewPage />} />
+    <Route path="/inbox" element={<CustomerNotificationsPage />} />
+    <Route path="/lists/bookings/:bookingId" element={<CustomerBookingDetailsViewPage />} />
+    {Object.keys(customerLegacyRoutes).map(path => <Route key={path} path={path} element={<CustomerLegacyRedirect />} />)}
+    <Route path="/account/dashboard-prototype" element={<Navigate replace to="/dashboard" />} />
+    <Route path="/account/profile" element={<Navigate replace to="/settings" />} />
+    <Route path="/account/bookings/:bookingId" element={<CustomerLegacyBookingRedirect />} />
     <Route path="/account/favorites" element={<CustomerFavoritesPage />} />
-    <Route path="/account/notifications" element={<CustomerNotificationsPage />} />
-    <Route path="/account/notification-settings" element={<CustomerAccountViewPage />} />
     {["tickets", "bookings", "settings", "security"].map(section => <Route key={section} path={`/account/${section}`} element={<CustomerAccountViewPage />} />)}
     <Route path="/vendors" element={<CustomerExplorePage />} />
     <Route path="/vendors/:tenantSlug" element={<CustomerVendorDetailsPage />} />

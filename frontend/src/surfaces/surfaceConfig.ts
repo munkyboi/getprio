@@ -18,12 +18,12 @@ export function validateAppOrigin(value: string): string {
   return url.origin;
 }
 
-export function createAppUrls(values: Partial<Record<AppPurpose, string>>, local = false) {
+export function createAppUrls(values: Partial<Record<AppPurpose, string>>, local = false, requiredPurposes: AppPurpose[] = Object.keys(defaults) as AppPurpose[]) {
   const origins = Object.fromEntries(Object.entries(defaults).map(([purpose, fallback]) => {
     const value = values[purpose as AppPurpose];
-    if (local && !value) throw new Error(`Missing local ${purpose} application origin.`);
+    if (local && requiredPurposes.includes(purpose as AppPurpose) && !value) throw new Error(`Missing local ${purpose} application origin.`);
     const canonical = validateAppOrigin(value || fallback);
-    if (local && !["localhost", "127.0.0.1", "[::1]"].includes(new URL(canonical).hostname)) throw new Error("Local application origins must stay on loopback.");
+    if (local && requiredPurposes.includes(purpose as AppPurpose) && !["localhost", "127.0.0.1", "[::1]"].includes(new URL(canonical).hostname)) throw new Error("Local application origins must stay on loopback.");
     return [purpose, canonical];
   })) as Record<AppPurpose, string>;
   return (purpose: AppPurpose, path = "/") => {
@@ -34,15 +34,38 @@ export function createAppUrls(values: Partial<Record<AppPurpose, string>>, local
   };
 }
 
+export function localizeLoopbackOrigins(values: Partial<Record<AppPurpose, string>>, hostname: string) {
+  if (!(hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]")) return values;
+  return Object.fromEntries(Object.entries(values).map(([purpose, value]) => {
+    if (!value) return [purpose, value];
+    const url = new URL(value);
+    if (["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)) url.hostname = hostname;
+    return [purpose, url.origin];
+  })) as Partial<Record<AppPurpose, string>>;
+}
+
+export function localPreviewOrigins(values: Partial<Record<AppPurpose, string>>, hostname: string) {
+  if (!(hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]")) return values;
+  const defaults = {
+    marketing: `http://${hostname}:5190`,
+    customer: `http://${hostname}:5191`,
+    vendor: `http://${hostname}:5192`,
+  } satisfies Partial<Record<AppPurpose, string>>;
+  const configured = Object.fromEntries(
+    Object.entries(values).filter(([, value]) => typeof value === "string" && value.trim().length > 0)
+  ) as Partial<Record<AppPurpose, string>>;
+  return localizeLoopbackOrigins({ ...defaults, ...configured }, hostname);
+}
+
 export function safeSurfaceNext(value: string | null | undefined, surface: "customer" | "vendor", allowOnboarding = false) {
-  const fallback = surface === "vendor" ? "/dashboard" : "/account/dashboard";
+  const fallback = "/dashboard";
   if (!value || !value.startsWith("/") || value.startsWith("//") || /[\\\u0000-\u001f\u007f]/.test(value)) return fallback;
   try {
     const url = new URL(value, "https://return.invalid");
     let decoded = url.pathname;
     for (let i = 0; i < 4; i++) { const next = decodeURIComponent(decoded); if (next === decoded) break; decoded = next; }
     if (url.origin !== "https://return.invalid" || /[\\\u0000-\u001f\u007f]/.test(decoded) || decoded.includes("//") || /(?:^|\/)\.\.?(?:\/|$)/.test(decoded)) return fallback;
-    const permitted = surface === "vendor" ? /^\/(?:dashboard|queue-board)(?:[/?#]|$)/ : /^\/(?:account|vendors|join|ticket|payment)(?:[/?#]|$)/;
+    const permitted = surface === "vendor" ? /^\/(?:dashboard|queue-board)(?:[/?#]|$)/ : /^\/(?:dashboard(?:[?#]|$)|lists(?:\/tickets|\/bookings)?|settings(?:\/notification)?|inbox|account|vendors|join|ticket|payment)(?:[/?#]|$)/;
     if (!permitted.test(decoded) && !(surface === "vendor" && allowOnboarding && /^\/register(?:\/vendor)?$/.test(decoded))) return fallback;
     return `${url.pathname}${url.search}${url.hash}`;
   } catch { return fallback; }
@@ -63,7 +86,13 @@ const frontendEnv = import.meta.env || {};
 export const currentSurface = frontendEnv.VITE_APP_SURFACE as BrowserSurface | undefined;
 export function appUrl(purpose: AppPurpose, path = "/") {
   const env = frontendEnv;
-  return createAppUrls({ marketing: env.VITE_MARKETING_URL, customer: env.VITE_CUSTOMER_APP_URL,
+  const values = { marketing: env.VITE_MARKETING_URL, customer: env.VITE_CUSTOMER_APP_URL,
     vendor: env.VITE_VENDOR_APP_URL, platform: env.VITE_PLATFORM_DASHBOARD_URL,
-    developers: env.VITE_DEVELOPER_PORTAL_URL }, env.VITE_LOCAL_SURFACES === "1")(purpose, path);
+    developers: env.VITE_DEVELOPER_PORTAL_URL };
+  const hostname = typeof window !== "undefined" ? window.location.hostname : "";
+  const localHost = ["localhost", "127.0.0.1", "[::1]"].includes(hostname);
+  const localValues = localHost
+    ? localPreviewOrigins(values, hostname)
+    : values;
+  return createAppUrls(localValues, localHost, ["marketing", "customer", "vendor"])(purpose, path);
 }

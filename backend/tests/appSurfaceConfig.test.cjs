@@ -30,7 +30,8 @@ test('actual tsx app keeps guarded JS and TypeScript purpose origins and middlew
  const browser=require('./src/services/browserSessionService.js'),token=browser.signCsrfToken('offline-session',js.csrfSecret),cookie='local_surfaces_prio_access=test; local_surfaces_prio_csrf='+token;
  const valid=await request('/api/offline-missing','http://127.0.0.1:5192',{method:'POST',headers:{cookie,'content-type':'application/json','x-csrf-token':token},body:'{}'});assert.equal(valid.status,404,'valid Vendor CSRF reaches routing');
  const invalid=await request('/api/offline-missing','http://127.0.0.1:5192',{method:'POST',headers:{cookie,'content-type':'application/json'},body:'{}'});assert.equal(invalid.status,403);
- for(const [route,method] of [['/api/auth/me','GET'],['/api/auth/login','POST']])assert.equal((await request(route,'http://127.0.0.1:5190',{method})).status,403);
+ assert.equal((await request('/api/auth/me','http://127.0.0.1:5190')).status,401);
+ assert.equal((await request('/api/auth/login','http://127.0.0.1:5190',{method:'POST'})).status,403);
  const pre=await request('/api/public/enterprise-inquiries','http://127.0.0.1:5190',{method:'OPTIONS',headers:{'Access-Control-Request-Method':'POST'}});assert.equal(pre.status,204);assert.equal(pre.headers.get('access-control-allow-origin'),'http://127.0.0.1:5190');assert.equal(pre.headers.get('access-control-allow-credentials'),null);
  assert.equal((await request('/api/health','http://127.0.0.1:5199')).status,403);
  }finally{await new Promise(resolve=>server.close(resolve));await require('./src/config/db.js').pool.end();}
