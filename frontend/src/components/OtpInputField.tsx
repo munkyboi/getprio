@@ -1,9 +1,20 @@
-import { useEffect, useId, useRef, type ReactNode } from "react";
+import React, { useEffect, useId, useRef, type ReactNode } from "react";
 import { Input, PinInput } from "@mantine/core";
 import { useVendorAccount } from "../vendor/AccountPresentation";
-import { ConfigurationInput } from "../vendor/ConfigurationUi";
+import { Field, FieldDescription, FieldLabel } from "../vendor/components/ui/field";
+import { InputOTP, InputOTPGroup, InputOTPSlot } from "../vendor/components/ui/input-otp";
+import { REGEXP_ONLY_DIGITS } from "input-otp";
 
 export type OtpPresentationModel = {label:string;value:string;onChange:(value:string)=>void;disabled:boolean;autoFocus?:boolean;description?:string;name?:string;required?:boolean;};
+
+export function otpVerificationDecision(value: string, verificationKey: string, lastAttempt: string, canVerify: boolean, verifying: boolean) {
+  const attempt = /^\d{6}$/.test(value) ? `${verificationKey}:${value}` : "";
+  return {
+    attempt,
+    complete: Boolean(attempt),
+    shouldVerify: Boolean(attempt) && attempt !== lastAttempt && canVerify && !verifying,
+  };
+}
 
 type OtpInputFieldProps = {
   renderPresentation?: (model:OtpPresentationModel)=>ReactNode;
@@ -45,16 +56,13 @@ export function OtpInputField({
   );
 
   useEffect(() => {
-    if (!/^\d{6}$/.test(value)) {
+    const decision = otpVerificationDecision(value, verificationKey, lastAttempt.current, Boolean(onVerify && autoVerifyEnabled && !disabled), verifying.current);
+    if (!decision.complete) {
       lastAttempt.current = "";
       return;
     }
-    const attempt = `${verificationKey}:${value}`;
-    if (lastAttempt.current === attempt) return;
-    lastAttempt.current = attempt;
-    // Completing prerequisites later must not submit a partially typed password.
-    if (!onVerify || disabled || !autoVerifyEnabled || verifying.current)
-      return;
+    if (!decision.shouldVerify) return;
+    lastAttempt.current = decision.attempt;
     verifying.current = true;
     // Wait for controlled state to commit so verification reads all six digits.
     void onVerify().finally(() => {
@@ -65,26 +73,37 @@ export function OtpInputField({
   // CUSTOMER PRESENTATION INJECTION START
   if(renderPresentation)return renderPresentation({label,value,onChange,disabled,autoFocus,description,name,required});
   // CUSTOMER PRESENTATION INJECTION END
-  if (vendor)
+  if (vendor) {
+    const inputId = `${id}-input`;
+    const descriptionId = description ? `${id}-description` : undefined;
     return (
-      <ConfigurationInput
-        label={label}
-        description={description}
-        type="password"
-        inputMode="numeric"
-        autoComplete="one-time-code"
-        maxLength={6}
-        pattern="[0-9]{6}"
-        autoFocus={autoFocus}
-        name={name}
-        required={required}
-        value={value}
-        disabled={disabled}
-        onChange={(event) =>
-          onChange(event.currentTarget.value.replace(/\D/g, "").slice(0, 6))
-        }
-      />
+      <Field data-disabled={disabled}>
+        <FieldLabel htmlFor={inputId}>{label}</FieldLabel>
+        <InputOTP
+          id={inputId}
+          name={name}
+          value={value}
+          onChange={(nextValue) => onChange(nextValue.replace(/\D/g, "").slice(0, 6))}
+          maxLength={6}
+          pattern={REGEXP_ONLY_DIGITS}
+          inputMode="numeric"
+          autoComplete="one-time-code"
+          autoFocus={autoFocus}
+          disabled={disabled}
+          required={required}
+          aria-label={label}
+          aria-describedby={descriptionId}
+          pasteTransformer={(pasted) => pasted.replace(/\D/g, "").slice(0, 6)}
+          containerClassName="vendor-otp-input"
+        >
+          <InputOTPGroup className="vendor-otp-group">
+            {Array.from({ length: 6 }, (_, index) => <InputOTPSlot key={index} index={index} />)}
+          </InputOTPGroup>
+        </InputOTP>
+        {description ? <FieldDescription id={descriptionId}>{description}</FieldDescription> : null}
+      </Field>
     );
+  }
   return (
     <Input.Wrapper
       label={label}
