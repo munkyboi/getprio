@@ -61,8 +61,13 @@ export function OtpInputField({
       lastAttempt.current = "";
       return;
     }
-    if (!decision.shouldVerify) return;
+    // Consume every complete code once. If verification is currently guarded
+    // (for example while another prerequisite is incomplete), enabling it
+    // later must not submit the stale code without a fresh code commit or
+    // challenge key.
+    if (lastAttempt.current === decision.attempt) return;
     lastAttempt.current = decision.attempt;
+    if (!decision.shouldVerify) return;
     verifying.current = true;
     // Wait for controlled state to commit so verification reads all six digits.
     void onVerify().finally(() => {

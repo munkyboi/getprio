@@ -41,3 +41,11 @@ test("OTP auto-validation does not start for partial or guarded input", () => {
   assert.equal(otpVerificationDecision("012345", "challenge-1", "", false, false).shouldVerify, false);
   assert.equal(otpVerificationDecision("012345", "challenge-1", "", true, true).shouldVerify, false);
 });
+
+test("OTP does not re-submit a complete code when verification becomes enabled later", () => {
+  const complete = otpVerificationDecision("012345", "challenge-1", "", false, false);
+  assert.equal(complete.complete, true);
+  assert.equal(complete.shouldVerify, false);
+  const enabledLater = otpVerificationDecision("012345", "challenge-1", complete.attempt, true, false);
+  assert.equal(enabledLater.shouldVerify, false);
+});
