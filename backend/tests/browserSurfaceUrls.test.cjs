@@ -21,6 +21,7 @@ test('production Customer surface is allowed for credentialed auth CORS', async 
   const { createBrowserCorsMiddleware } = require('../src/services/browserSurfaceUrls');
   const production = { ...config, nodeEnv: 'production', customerAppUrl: 'https://app.getprio.online' };
   const app = express();
+  app.use(testRateLimiter);
   app.use(createBrowserCorsMiddleware(production, cors));
   const server = await new Promise(resolve => {
     const listener = app.listen(0, '127.0.0.1', () => resolve(listener));
