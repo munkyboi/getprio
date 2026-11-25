@@ -15,6 +15,34 @@ test('purpose origins and exact browser CORS exclude marketing and unconfigured 
   const prod = browserAllowedOrigins({...config, nodeEnv:'production', vendorAppUrl:'https://vendor.getprio.online:443'});
   assert.ok(!prod.has('https://localhost:443'));
 });
+test('production Customer surface is allowed for credentialed auth CORS', async () => {
+  const express = require('express');
+  const cors = require('cors');
+  const { createBrowserCorsMiddleware } = require('../src/services/browserSurfaceUrls');
+  const production = { ...config, nodeEnv: 'production', customerAppUrl: 'https://app.getprio.online' };
+  const app = express();
+  app.use(testRateLimiter);
+  app.use(createBrowserCorsMiddleware(production, cors));
+  const server = await new Promise(resolve => {
+    const listener = app.listen(0, '127.0.0.1', () => resolve(listener));
+  });
+  const base = `http://127.0.0.1:${server.address().port}`;
+  try {
+    const response = await fetch(`${base}/api/auth/login`, {
+      method: 'OPTIONS',
+      headers: {
+        Origin: production.customerAppUrl,
+        'Access-Control-Request-Method': 'POST',
+        'Access-Control-Request-Headers': 'content-type'
+      }
+    });
+    assert.equal(response.status, 204);
+    assert.equal(response.headers.get('access-control-allow-origin'), production.customerAppUrl);
+    assert.equal(response.headers.get('access-control-allow-credentials'), 'true');
+  } finally {
+    await new Promise(resolve => server.close(resolve));
+  }
+});
 test('reject malformed configured origins and dangerous auth return paths', () => {
   for (const url of ['https://user:pass@example.com','https://example.com/path','https://example.com?next=x','http://example.com','javascript:alert(1)']) assert.throws(()=>origin(url));
   assert.equal(safeReturnPath('/account/bookings/4?q=50%25#details','customer'),'/account/bookings/4?q=50%25#details');
