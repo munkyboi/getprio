@@ -69,10 +69,38 @@
 .vendor-auth-surface .vendor-auth-actions > button {
   width: 100%;
 }
+.vendor-auth-surface .auth-primary-action {
+  background: #ff8500;
+  border-color: #ff8500;
+  color: #fff;
+  font-weight: 650;
+}
+.vendor-auth-surface .auth-primary-action:hover:not(:disabled) {
+  background: #e97800;
+  border-color: #e97800;
+}
+.vendor-auth-surface .vendor-auth-link {
+  color: #ff8500;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.vendor-auth-surface .vendor-auth-link:hover {
+  color: #e97800;
+}
 .vendor-auth-surface .vendor-auth-text-action {
   align-self: flex-end;
   white-space: normal;
   text-align: end;
+  color: #ff8500;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.vendor-auth-surface .vendor-auth-text-action:hover:not(:disabled) {
+  color: #e97800;
+}
+.vendor-auth-surface .auth-social-icon-action {
+  background: transparent;
+  border-color: var(--border);
 }
 .vendor-auth-surface .queue-stack > button[aria-pressed] {
   align-self: flex-end;

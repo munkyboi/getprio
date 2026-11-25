@@ -20,7 +20,7 @@ export default defineConfig(({ mode }) => {
     cacheDir: `../.cache/vite-${surface}`,
     plugins: [
       react(),
-      ["marketing", "customer"].includes(surface) && tailwindcss(),
+      ["marketing", "customer", "vendor"].includes(surface) && tailwindcss(),
       surface === "customer" && {
         name: "customer-entry",
         transformIndexHtml: {
