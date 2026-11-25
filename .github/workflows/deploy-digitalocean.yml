@@ -139,6 +139,10 @@ jobs:
           production_env_file="$(mktemp)"
           trap 'rm -f "${production_env_file}"' EXIT
           {
+            # Keep the canonical Customer surface explicit in production. The
+            # API's credentialed browser CORS policy derives its allowlist from
+            # this value; omitting it silently falls back to the marketing URL.
+            printf 'CUSTOMER_APP_URL=%s\n' "https://app.getprio.online"
             printf 'PAYMONGO_MODE=%s\n' "${PAYMONGO_MODE}"
             printf 'PAYMONGO_SANDBOX_SECRET_KEY=%s\n' "${PAYMONGO_SANDBOX_SECRET_KEY}"
             printf 'PAYMONGO_SANDBOX_WEBHOOK_SECRET=%s\n' "${PAYMONGO_SANDBOX_WEBHOOK_SECRET}"
