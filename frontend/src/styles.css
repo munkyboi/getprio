@@ -2,7 +2,7 @@
   color-scheme: light;
   --bg: #fbf7f1;
   --bg-accent: #f2dfc9;
-  --card: rgba(255, 250, 244, 0.92);
+  --card: rgba(255, 250, 244, 1);
   --card-strong: #fff7ef;
   --text: #23180f;
   --muted: #735f50;
@@ -3257,7 +3257,7 @@ button {
 
 .marketing-nav-cta {
   background: var(--primary);
-  color: var(--primary-foreground);
+  color: #fff;
 }
 
 .marketing-theme-toggle,
@@ -3270,6 +3270,21 @@ button {
   border: 1px solid var(--border);
   background: var(--card);
   color: var(--foreground);
+}
+
+.public-theme-toggle {
+  border: 0;
+  transition: background 160ms ease, color 160ms ease;
+}
+
+.public-theme-toggle:hover {
+  background: var(--secondary);
+  color: var(--foreground);
+}
+
+.public-theme-toggle:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 3px;
 }
 
 .marketing-menu-trigger {

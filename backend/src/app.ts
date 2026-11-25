@@ -30,7 +30,10 @@ import requestLogPathModule from "./middleware/requestLogPath";
 import browserSurfaceUrlsModule from "./services/browserSurfaceUrls";
 import developerApiEnvironmentModule from "./services/developerApiEnvironment";
 
-const allowedOrigins = browserSurfaceUrlsModule.browserAllowedOrigins(env);
+const allowedOrigins = new Set([
+  ...browserSurfaceUrlsModule.browserAllowedOrigins(env),
+  ...browserSurfaceUrlsModule.surfaceOriginSet(env, "marketing")
+]);
 const app = express();
 app.use(developerApiEnvironmentModule.localApiRequestGuard());
 const { createRequestContextMiddleware } = requestContextModule;
@@ -46,9 +49,22 @@ const apiRateLimiter = rateLimit({
   keyGenerator: (req) => ipKeyGenerator(req.ip || req.socket.remoteAddress || "unknown"),
   message: { message: "Too many requests. Please try again later." }
 });
+// Keep every non-/api route behind a bounded request budget before any public
+// surface middleware runs. The dedicated /api limiter below retains its
+// existing quota; preflights are excluded so CORS behavior is unchanged.
+const globalRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 1_000,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => ipKeyGenerator(req.ip || req.socket.remoteAddress || "unknown"),
+  skip: (req) => req.method === "OPTIONS" || req.path.startsWith("/api"),
+  message: { message: "Too many requests. Please try again later." }
+});
 
 app.use(createRequestContextMiddleware({ rolloutCohort: env.rolloutCohort }));
 
+app.use(globalRateLimiter);
 app.use(browserSurfaceUrlsModule.createBrowserCorsMiddleware(env, cors));
 // Allowed browser clients must be able to read throttling responses and honor
 // Retry-After. CORS also completes preflights without consuming API quota.

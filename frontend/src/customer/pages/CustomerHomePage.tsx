@@ -190,7 +190,9 @@ function HomeView({ model: m }: { model: CustomerDashboardPresentationModel }) {
           ) : (
             <Card className="customer-home-empty"><CardHeader><CardTitle>Active ticket</CardTitle></CardHeader><CardContent>
               <div className="customer-home-empty-art">
-                <img src={theme === "dark" ? "/illustrations/customer/dashboard-empty-dark.png" : "/illustrations/customer/dashboard-empty.png"} alt="" />
+                <img src={theme === "dark"
+                  ? "/illustrations/generated/dashboard-empty-transparent-dark.png"
+                  : "/illustrations/generated/dashboard-empty-transparent.png"} alt="" />
               </div>
               <h2>No active tickets</h2>
               <p>Scan a vendor QR code when you are ready to join.</p>

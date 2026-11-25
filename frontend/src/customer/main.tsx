@@ -15,6 +15,20 @@ import "../styles.css";
 import "./shadcn-theme.css";
 import "./customer-theme.css";
 
+// Establish the Customer theme scope before the first paint; CustomerTheme
+// keeps this value synchronized after mount and on preference changes.
+const initialCustomerTheme = (() => {
+  try {
+    const stored = localStorage.getItem("getprio.customer.theme");
+    if (stored === "light" || stored === "dark") return stored;
+  } catch {
+    /* Use the system preference when storage is unavailable. */
+  }
+  return matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+})();
+document.documentElement.dataset.customerTheme = initialCustomerTheme;
+document.documentElement.style.colorScheme = initialCustomerTheme;
+
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
       <MantineProvider>

@@ -52,12 +52,8 @@ export default function CustomerTheme({
   );
   useLayoutEffect(() => {
     const root = document.documentElement;
-    const previous = root.getAttribute("data-customer-theme");
     root.setAttribute("data-customer-theme", theme);
-    return () => {
-      if (previous) root.setAttribute("data-customer-theme", previous);
-      else root.removeAttribute("data-customer-theme");
-    };
+    root.style.colorScheme = theme;
   }, [theme]);
   useLayoutEffect(() => {
     const media = matchMedia("(prefers-color-scheme: dark)");

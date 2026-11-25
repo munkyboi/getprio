@@ -3,7 +3,6 @@ import { FieldLabel } from "../components/shadcn/field";
 import { useQuery } from "@tanstack/react-query";
 import type { VendorRatings } from "../components/vendor/useVendorDetails";
 import { CustomerPage } from "../components/account/CustomerPage";
-import { useCustomerTheme } from "../CustomerTheme";
 import { RefreshCw, Star } from "lucide-react";
 import { useEffect, useState, type FormEvent } from "react";
 import { Link, useSearchParams } from "react-router-dom";
@@ -34,8 +33,22 @@ import {
   CardTitle,
   Skeleton,
 } from "../components/ui";
+
+export function buildVendorFilterParams(current: URLSearchParams, search: string, category: string) {
+  const params = new URLSearchParams(current);
+  const normalizedSearch = search.trim();
+  if (normalizedSearch) params.set("search", normalizedSearch);
+  else params.delete("search");
+  if (category && category !== "All") params.set("category", category);
+  else params.delete("category");
+  return params;
+}
+
+export function filterVendorProfiles(vendors: PublicVendorProfile[], category: string) {
+  return category === "All" ? vendors : vendors.filter((vendor) => vendor.category === category);
+}
+
 function VendorCard({ vendor }: { vendor: PublicVendorProfile }) {
-  const { theme } = useCustomerTheme();
   const ratings = useQuery({
     queryKey: ["customer-directory-rating", vendor.slug],
     queryFn: ({ signal }) =>
@@ -72,11 +85,7 @@ function VendorCard({ vendor }: { vendor: PublicVendorProfile }) {
           ) : (
             <img
               className="customer-default-cover"
-              src={
-                theme === "dark"
-                  ? "/illustrations/customer/vendor-default-dark.png"
-                  : "/illustrations/generated/hero-queue-scene-transparent.png"
-              }
+              src="/illustrations/generated/hero-queue-scene-transparent.png"
               alt=""
               loading="lazy"
             />
@@ -131,14 +140,27 @@ function VendorCard({ vendor }: { vendor: PublicVendorProfile }) {
 export default function CustomerExplorePage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const query = searchParams.get("search") || "";
+  const categoryQuery = searchParams.get("category") || "All";
   const joinIntent = searchParams.get("intent") === "join";
   const [search, setSearch] = useState(query);
   const [vendors, setVendors] = useState<PublicVendorProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [retry, setRetry] = useState(0);
-  const [category, setCategory] = useState("All");
-  useEffect(() => setSearch(query), [query]);
+  const [category, setCategory] = useState(categoryQuery);
+  useEffect(() => {
+    setSearch(query);
+    setCategory(categoryQuery);
+  }, [categoryQuery, query]);
+  useEffect(() => {
+    const normalized = search.trim();
+    if (normalized === query) return;
+    const timer = window.setTimeout(() => {
+      const params = buildVendorFilterParams(searchParams, normalized, category);
+      setSearchParams(params, { replace: true });
+    }, 350);
+    return () => window.clearTimeout(timer);
+  }, [query, search, searchParams, setSearchParams]);
   useEffect(() => {
     const controller = new AbortController();
     setLoading(true);
@@ -167,9 +189,12 @@ export default function CustomerExplorePage() {
   }, [query, retry]);
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const params = new URLSearchParams(searchParams);
-    if (search.trim()) params.set("search", search.trim());
-    else params.delete("search");
+    const params = buildVendorFilterParams(searchParams, search, category);
+    setSearchParams(params);
+  }
+  function selectCategory(value: string) {
+    setCategory(value);
+    const params = buildVendorFilterParams(searchParams, search, value);
     setSearchParams(params);
   }
   return (
@@ -211,7 +236,7 @@ export default function CustomerExplorePage() {
               key={label}
               variant="ghost"
               aria-pressed={category === label}
-              onClick={() => setCategory(label)}
+              onClick={() => selectCategory(label)}
             >
               {label}
             </Button>
@@ -261,10 +286,7 @@ export default function CustomerExplorePage() {
         </div>
       ) : error ? null : vendors.length ? (
         <div className="customer-directory-grid">
-          {vendors
-            .filter(
-              (vendor) => category === "All" || vendor.category === category,
-            )
+          {filterVendorProfiles(vendors, category)
             .map((vendor) => (
               <VendorCard vendor={vendor} key={vendor.slug} />
             ))}

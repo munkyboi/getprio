@@ -12,7 +12,7 @@ test('cross-app origin registry keeps all local links local and rejects malforme
 });
 test('same-app next keeps legitimate query and fragment and rejects other app / hostile targets',()=>{
  assert.equal(config.safeSurfaceNext('/account/bookings?search=50%25#details','customer'),'/account/bookings?search=50%25#details');
- for(const value of ['/dashboard','//evil.example','https://evil.example','/account/../dashboard','/account/%252e%252e/dashboard','/account/%255c%255cevil']) assert.equal(config.safeSurfaceNext(value,'customer'),'/account/dashboard');
+ for(const value of ['/dashboard/queue','//evil.example','https://evil.example','/account/../dashboard','/account/%252e%252e/dashboard','/account/%255c%255cevil']) assert.equal(config.safeSurfaceNext(value,'customer'),'/dashboard');
  assert.equal(config.safeSurfaceNext('/dashboard/queue?boardPairing=ABC#today','vendor'),'/dashboard/queue?boardPairing=ABC#today');
 });
 test('customer and vendor auth navigation each include other login/register and public home without token transfer',()=>{
@@ -59,8 +59,8 @@ function routeApp(file) {
 }
 test('separate real route registries own their auth aliases and never mount other application dashboards',()=>{
  for(const [file,cases] of [
-  ['MarketingApp.tsx',[['/','LandingPage'],['/dashboard/queue','NotFoundPage'],['/account/dashboard','NotFoundPage'],['/login','UniversalAuthPage']]],
-  ['CustomerApp.tsx',[['/','CustomerExplorePage'],['/login','LoginPage'],['/register','RegisterCustomerPage'],['/register/customer','RegisterCustomerPage'],['/dashboard/queue','NotFoundPage'],['/account/dashboard','CustomerHomePage']]],
+  ['MarketingApp.tsx',[['/','LandingPage'],['/dashboard/queue','NotFoundPage'],['/account/dashboard','NotFoundPage'],['/login','UniversalAuthPage'],['/register','UniversalAuthPage'],['/register/customer','UniversalAuthPage'],['/register/vendor','UniversalAuthPage']]],
+  ['CustomerApp.tsx',[['/','CustomerExplorePage'],['/login','LoginPage'],['/register','RegisterCustomerPage'],['/register/customer','RegisterCustomerPage'],['/dashboard/queue','NotFoundPage'],['/dashboard','CustomerHomePage'],['/lists','CustomerListsPage']]],
   ['VendorApp.tsx',[['/login','LoginPage'],['/register','RegisterVendorPage'],['/register/vendor','RegisterVendorPage'],['/account/dashboard','NotFoundPage'],['/vendors','NotFoundPage']]],
  ]) {
   const App=routeApp(file);for(const [route,page] of cases){const html=renderToStaticMarkup(React.createElement(MemoryRouter,{initialEntries:[route]},React.createElement(App)));assert.ok(html.includes(page),`${file} ${route} -> ${page}`);}
@@ -72,8 +72,28 @@ test('marketing auth provider skips both session and OAuth discovery bootstrap e
  for(const callback of callbacks){const ctx={exports:{},publicOnly:true,EMPTY_OAUTH_PROVIDERS:{google:false,facebook:false,apple:false},apiRequest:()=>Promise.resolve({}),sessionRequest:()=>Promise.resolve({}),localStorage:{removeItem(){}},setOauthProviders(){},setOauthLoading(){},setUser(){},setToken(){},setRefreshToken(){},setSessionExpiresAt(){},setLoading(){}};vm.createContext(ctx);vm.runInContext(ts.transpileModule('exports.run='+callback.getText(ast),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,ctx);ctx.exports.run();}
 });
 
-test('marketing real API client omits identity and caller-supplied auth/CSRF headers',async()=>{
+test('marketing real API client omits cookies for regular public requests',async()=>{
  const requests=[];const client=loadModule('api/client.ts',{VITE_APP_SURFACE:'marketing',VITE_API_URL:'http://127.0.0.1:5091/api'},{fetch:async(url,options)=>{requests.push({url,options});return {ok:true,status:200,json:async()=>({plans:[]})};},window:{location:{hostname:'127.0.0.1'},sessionStorage:{getItem:()=> 'old-csrf',setItem(){}}}});
  await client.apiRequest('/billing/plans',{token:'old-access',headers:{Authorization:'old-manual','X-CSRF-Token':'old-csrf'}});
- assert.equal(requests[0].options.credentials,'include');assert.equal(requests[0].options.headers.Authorization,'old-manual');
+ assert.equal(requests[0].options.credentials,'omit');assert.equal(requests[0].options.headers.Authorization,'old-manual');
+});
+
+test('marketing public auth includes cookies without the feature flag and rejects requests outside its allowlist', async () => {
+ const requests = [];
+ const {publicAuthRequest} = loadModule('api/client.ts', {
+  VITE_APP_SURFACE: 'marketing',
+  VITE_PUBLIC_UNIVERSAL_AUTH: '0',
+  VITE_API_URL: 'http://127.0.0.1:5091/api',
+ }, {fetch: async (url, options) => {
+  requests.push({url, options});
+  return {ok: true, status: 200, json: async () => ({})};
+ }});
+ await publicAuthRequest('/public/business-categories');
+ await publicAuthRequest('/auth/login', {method: 'POST', body: {identifier: 'local-test'}});
+ await assert.rejects(publicAuthRequest('/auth/login'), {status: 403});
+ await assert.rejects(publicAuthRequest('/billing/plans'), {status: 403});
+ assert.deepEqual(requests.map(({url, options}) => [url, options.method, options.credentials]), [
+  ['http://127.0.0.1:5091/api/public/business-categories', 'GET', 'include'],
+  ['http://127.0.0.1:5091/api/auth/login', 'POST', 'include'],
+ ]);
 });

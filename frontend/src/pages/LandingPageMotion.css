@@ -1,5 +1,30 @@
 @import url("/fonts/aleo/aleo.css");
 .lp-page { color: #25241f; background: #f7f4ec; min-width: 0; }
+.lp-scroll-top {
+  position: fixed;
+  inset-inline-end: calc(16px + env(safe-area-inset-right, 0px));
+  inset-block-end: calc(16px + env(safe-area-inset-bottom, 0px));
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  padding: 0;
+  border: 1px solid var(--border, #dce0e3);
+  border-radius: 50%;
+  color: var(--foreground, #25241f);
+  background: var(--card, #fff);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 18%);
+  cursor: pointer;
+}
+.lp-scroll-top:hover { background: var(--secondary, #f0ede8); }
+.lp-scroll-top:focus-visible {
+  outline: 2px solid var(--link, #3159bd);
+  outline-offset: 3px;
+}
+.public-marketing-shell:has(.lp-page) .site-footer {
+  padding-block-end: calc(80px + env(safe-area-inset-bottom, 0px));
+}
 .lp-container { width: min(1288px, calc(100% - 40px)); margin: 0 auto; }
 .lp-eyebrow { font-size: 10px; font-weight: 700; letter-spacing: .18em; margin: 0 0 24px; color: #92562d; }
 .lp-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #f68128; margin-right: 9px; }
@@ -9,6 +34,7 @@
 .lp-hero-line { display: block; overflow: hidden; padding: 0 0 .13em; margin-bottom: -.1em; }
 .lp-hero-line > span { display: block; }
 .lp-title em, .lp-section-head em { color: #b95a20; font-weight: 400; }
+.lp-title em { text-decoration: underline; text-decoration-color: #f68128; text-decoration-thickness: .08em; text-underline-offset: .08em; }
 .lp-hero-copy { max-width: 390px; font-size: 16px; line-height: 1.75; color: #6d6459; margin: 0 0 25px; }
 .lp-hero-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 15px 25px; }
 .lp-hero-actions .mantine-Button-label { gap: 20px; }
@@ -49,10 +75,11 @@
 .lp-stage-foot { display: flex; justify-content: space-around; gap: 8px; border-top: 1px solid #d2c4b0; padding-top: 15px; font-size: 7px; letter-spacing: .1em; color: #826d55; }
 .lp-feature-list { display: grid; gap: 0 28px; margin-top: 30px; }
 .lp-feature { position: relative; border-bottom: 1px solid #d8cebc; padding: 25px 0; }
-.lp-feature-heading { display: flex; align-items: baseline; gap: 12px; }
-.lp-feature-heading > svg { color: #ba6026; flex: 0 0 auto; }
+.lp-feature-heading { display: flex; align-items: center; gap: 12px; }
+.lp-feature-heading > svg { color: #ba6026; flex: 0 0 auto; align-self: center; }
 .lp-feature-number { position: absolute; right: 0; top: 25px; color: #a89a88; font-size: 10px; }
 .lp-feature h3 { font-family: "Aleo", Georgia, serif; font-weight: 400; font-size: 23px; line-height: 1.15; margin: 0 0 10px; }
+.lp-feature-heading h3 { margin: 0; }
 .lp-feature p { color: #796e60; line-height: 1.7; font-size: 13px; max-width: 270px; }
 .lp-page .lp-pricing { background: #f4efe4; padding: 75px 0; }
 .lp-page .lp-pricing .prio-centered-copy > .prio-section-title { display: block; max-width: 760px; margin: 0; font-weight: 400; font-size: clamp(40px, 5vw, 64px); line-height: 1.03; letter-spacing: -.045em; }
@@ -69,6 +96,29 @@
 }
 .lp-page .prio-plan-art { height: 110px; }
 .lp-page .prio-pricing-card .mantine-Button-root { width: 100%; }
+
+html[data-public-theme="dark"] .lp-page {
+  color: #f5f8fa;
+  background: #0e1720;
+}
+html[data-public-theme="dark"] .lp-hero,
+html[data-public-theme="dark"] .lp-features,
+html[data-public-theme="dark"] .lp-pricing { background: #0e1720; }
+html[data-public-theme="dark"] .lp-hero { background: radial-gradient(ellipse at 80% 45%, #3c2b1d 0, transparent 55%), #0e1720; }
+html[data-public-theme="dark"] .lp-title em,
+html[data-public-theme="dark"] .lp-section-head em { color: #ffb477; }
+html[data-public-theme="dark"] .lp-hero-copy,
+html[data-public-theme="dark"] .lp-section-head > p:last-child,
+html[data-public-theme="dark"] .lp-feature p,
+html[data-public-theme="dark"] .lp-manifesto-bottom p { color: #cdd8de; }
+html[data-public-theme="dark"] .lp-hero-footer,
+html[data-public-theme="dark"] .lp-feature { border-color: #354654; color: #cdd8de; }
+html[data-public-theme="dark"] .lp-manifesto { background: #16212b; }
+html[data-public-theme="dark"] .lp-feature-stage { background: #202f3b; }
+html[data-public-theme="dark"] .lp-page .lp-pricing { background: #16212b; }
+html[data-public-theme="dark"] .lp-page .prio-pricing-card { background: #16212b; color: #f5f8fa; border-color: #354654; }
+html[data-public-theme="dark"] .lp-page .prio-pricing-card-featured { background: #3c2b1d; border-color: #d48c44; }
+html[data-public-theme="dark"] .lp-closing { background: #0e1720; }
 .lp-closing { color: #fff3df; background: #24251e; overflow: clip; padding: 64px 0; }
 .lp-closing .lp-eyebrow { color: #efa668; }
 .lp-closing-grid { display: grid; gap: 38px; align-items: center; }
@@ -100,7 +150,7 @@
   .lp-hero-footer { font-size: 9px; margin-top: 35px; }
   .lp-manifesto { padding: 110px 0; }
   .lp-features { padding: 85px 0 110px; }
-  .lp-section-head { grid-template-columns: .65fr 1.25fr .8fr; align-items: end; gap: 25px; }
+  .lp-section-head { grid-template-columns: 1fr 1fr; align-items: end; gap: 25px; }
   .lp-section-head .lp-eyebrow { align-self: start; }
   .lp-feature-stage { padding: 35px 40px 20px; }
   .lp-scene-art { width: min(100%, 920px); }

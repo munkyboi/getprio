@@ -5,7 +5,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 
-const { ApiError, apiRequest, apiUpload, setAuthHandlers, API_BASE_URL } = require("../src/api/client.ts");
+const { ApiError, apiRequest, apiUpload, setAuthHandlers, API_BASE_URL, localizeApiOrigin, runtimeApiBaseUrl } = require("../src/api/client.ts");
 const { getErrorMessage } = require("../src/utils/errors.ts");
 const {
   buildTenantSlugFromName,
@@ -283,6 +283,14 @@ test("utility formatters and validators cover common cases", () => {
   assert.equal(formatDateTimeInputValue(localDate), "2026-06-30T08:30");
   assert.equal(toDate("bad value"), null);
   assert.equal(Number.isNaN(toTimestamp("bad value")), true);
+});
+
+test("local API origin follows the browser loopback host", () => {
+  assert.equal(localizeApiOrigin("http://127.0.0.1:5091/api", "localhost"), "http://localhost:5091/api");
+  assert.equal(localizeApiOrigin("http://localhost:5091/api", "127.0.0.1"), "http://127.0.0.1:5091/api");
+  assert.equal(localizeApiOrigin("https://api.getprio.online/api", "localhost"), "https://api.getprio.online/api");
+  assert.equal(runtimeApiBaseUrl("localhost"), localizeApiOrigin(API_BASE_URL, "localhost"));
+  assert.equal(runtimeApiBaseUrl("127.0.0.1"), localizeApiOrigin(API_BASE_URL, "127.0.0.1"));
 });
 
 test("campaign funding progress uses monetary percentage and a bottom-right label", () => {
@@ -1168,6 +1176,51 @@ test("booking summary lists every selected service with its own quantity and pri
   assert.match(source, /selectedBundleServices\.map\(\(service\) => \(/);
   assert.match(source, /formatDuration\(service\.durationMinutes \* getBundleItemQuantity\(service\)\)/);
   assert.match(source, /getServiceLineAmountCents\(service, getBundleItemQuantity\(service\)\)/);
+});
+
+test("ordinary fixed-price booking links do not default into resource pricing", () => {
+  const source = fs.readFileSync(path.resolve(__dirname, "../src/pages/BookingRequestPage.tsx"), "utf8");
+  assert.match(source, /const \[resourceBooking,setResourceBooking\]=useState\(false\)/);
+  assert.match(source, /resourceCatalog\?\.resourceServiceSlugs\?\.includes\(serviceSlug\)/);
+  assert.match(source, /resourceMode\?"Amount confirmed by vendor":formatPaymentAmount/);
+});
+
+test("mobile Customer booking actions span the viewport above the bordered menu", () => {
+  const css = fs.readFileSync(path.resolve(__dirname, "../src/customer/customer-theme.css"), "utf8");
+  assert.match(css, /@media \(max-width: 959px\) \{[\s\S]*?\.customer-booking-footer \{[\s\S]*?width: 100vw;[\s\S]*?margin-inline: calc\(50% - 50vw\);/);
+  assert.match(css, /\.customer-web-navigation \{[\s\S]*?border-top: 1px solid var\(--line\) !important;[\s\S]*?z-index: 100;/);
+});
+
+test("mobile Customer ticket actions span the viewport above the navigation", () => {
+  const css = fs.readFileSync(path.resolve(__dirname, "../src/customer/customer-theme.css"), "utf8");
+  assert.match(css, /@media \(max-width: 959px\) \{[\s\S]*?\.customer-mobile-web \.customer-ticket-primary-actions,[\s\S]*?\.customer-mobile-web \.customer-booking-detail-primary-actions \{[\s\S]*?width: 100vw;[\s\S]*?margin-inline: calc\(50% - 50vw\);[\s\S]*?bottom: calc\(70px \+ env\(safe-area-inset-bottom\)\);/);
+  const ticket = fs.readFileSync(path.resolve(__dirname, "../src/customer/pages/CustomerTicketDetailsPage.tsx"), "utf8");
+  assert.match(ticket, /customer-detail-primary-actions customer-ticket-primary-actions/);
+});
+
+test("mobile Customer booking-detail actions span the viewport above the navigation", () => {
+  const css = fs.readFileSync(path.resolve(__dirname, "../src/customer/customer-theme.css"), "utf8");
+  assert.match(css, /@media \(max-width: 959px\) \{[\s\S]*?\.customer-mobile-web \.customer-booking-detail-primary-actions \{[\s\S]*?width: 100vw;[\s\S]*?margin-inline: calc\(50% - 50vw\);[\s\S]*?bottom: calc\(70px \+ env\(safe-area-inset-bottom\)\);/);
+  const booking = fs.readFileSync(path.resolve(__dirname, "../src/customer/pages/CustomerBookingDetailsViewPage.tsx"), "utf8");
+  assert.match(booking, /customer-detail-primary-actions customer-booking-detail-primary-actions/);
+});
+
+test("mobile Customer booking page does not double-count bottom navigation clearance", () => {
+  const css = fs.readFileSync(path.resolve(__dirname, "../src/customer/customer-theme.css"), "utf8");
+  assert.match(css, /\.customer-booking-page \{\s*padding-bottom: 0;/);
+  assert.match(css, /\.customer-web-content \{[\s\S]*padding: 16px 20px calc\(110px \+ env\(safe-area-inset-bottom\)\);/);
+});
+
+test("Customer dashboard empty state selects transparent light and dark artwork", () => {
+  const home = fs.readFileSync(path.resolve(__dirname, "../src/customer/pages/CustomerHomePage.tsx"), "utf8");
+  assert.match(home, /theme === "dark"[\s\S]*dashboard-empty-transparent-dark\.png/);
+  assert.match(home, /dashboard-empty-transparent\.png/);
+  for (const asset of [
+    "../public/illustrations/generated/dashboard-empty-transparent.png",
+    "../public/illustrations/generated/dashboard-empty-transparent-dark.png",
+  ]) {
+    assert.ok(fs.existsSync(path.resolve(__dirname, asset)), `missing ${asset}`);
+  }
 });
 
 test("group-funded section labels use a consistent heading size", () => {

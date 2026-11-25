@@ -22,7 +22,7 @@ import "../pages/universal-auth.css";
 export default function MarketingApp() {
   return <PublicThemeProvider><PublicShell marketing><Routes>
     <Route path="/" element={<LandingPage />} />
-    {["/login", "/register", "/register/customer", "/register/vendor"].map(path => <Route key={path} path={path} element={<PublicThemeProvider><UniversalAuthPage /></PublicThemeProvider>} />)}
+    {["/login", "/register", "/register/customer", "/register/vendor"].map(path => <Route key={path} path={path} element={<UniversalAuthPage />} />)}
     <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
     <Route path="/terms" element={<TermsPage />} />
     <Route path="/help" element={<HelpPage />} />
