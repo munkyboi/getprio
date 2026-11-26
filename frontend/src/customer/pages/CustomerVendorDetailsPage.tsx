@@ -531,7 +531,7 @@ export default function CustomerVendorDetailsPage() {
       <footer className="customer-vendor-actions">
         {vendor.capabilities.booking && selected ? (
           <Button variant="outline" render={<Link to={bookingPath} />}>
-            Book
+            {queueType === "simple" ? "Book" : "Book services"}
           </Button>
         ) : (
           <Button variant="outline" disabled>
@@ -554,11 +554,9 @@ export default function CustomerVendorDetailsPage() {
           >
             Join queue
           </Button>
-        ) : queueType !== "simple" && vendor.capabilities.booking && selected ? (
-          <Button data-booking-flow-trigger render={<Link to={bookingPath} />}>Book services</Button>
-        ) : (
+        ) : queueType === "simple" ? (
           <Button disabled>Join queue</Button>
-        )}
+        ) : null}
       </footer>
     </section>
   );
