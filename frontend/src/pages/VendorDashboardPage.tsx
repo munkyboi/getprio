@@ -3852,7 +3852,11 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     event.preventDefault();
     const submittedForm = event.currentTarget;
     if (busyAction) return;
-    const success = await runAction("settings", () => vendorDashboardOperations.updateSettings(token, selectedTenantSlug, queueSettingsPayload(settings)));
+    const success = await runAction("settings", () => vendorDashboardOperations.updateSettings(
+      token,
+      selectedTenantSlug,
+      { ...savedSettings.current, ...queueSettingsPayload(settings) }
+    ));
 
     if (success) {
       unsavedForm.current.clear(submittedForm);
@@ -10582,7 +10586,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
   }
 
   const canLeaveFeature = (discardApproved = false) => {
-    if (resourceConfigurationBusy || busyAction || boardScannerBusy || boardSettingsBusy || savingNotificationSettings || requestingBrowserPermission || accountProfileBusy || passwordBusy || mfaBusy || accountPanelBusy || ratingsBusy) return false;
+    if (resourceConfigurationBusy || busyAction || boardScannerBusy || boardSettingsBusy || savingNotificationSettings || requestingBrowserPermission || accountProfileBusy || passwordBusy || mfaBusy || accountPanelBusy) return false;
     const editing = unsavedForm.current.hasEdits() || themeDialogOpen || accountDraftRef.current;
     if (editing && !discardApproved && !window.confirm("You have unsaved edits. Leave this view?")) return false;
     if (currentSection === "account" && accountTab === "security") {
@@ -10702,7 +10706,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       onWorkspace={switchWorkspace} onLogout={() => { if (canLeaveFeature()) void logout(); }} search={location.search} hash={location.hash}
       context={!requiresMfaEnrollment ? <>
         <ContextPicker label="Business" data={activeTenants.map((tenant) => ({ value: tenant.slug, label: tenant.name }))}
-          value={selectedTenantSlug} disabled={Boolean(busyAction) || boardScannerBusy || boardSettingsBusy || savingNotificationSettings || requestingBrowserPermission || accountPanelBusy || accountProfileBusy || passwordBusy || mfaBusy || ratingsBusy} onChange={(value) => {
+          value={selectedTenantSlug} disabled={Boolean(busyAction) || boardScannerBusy || boardSettingsBusy || savingNotificationSettings || requestingBrowserPermission || accountPanelBusy || accountProfileBusy || passwordBusy || mfaBusy} onChange={(value) => {
             if (!value || value === selectedTenantSlug || !canLeaveFeature()) return;
             setSnapshot(null); setLocations([]); setSelectedLocationSlug(""); setSelectedCounterSlug("");
             setServices([]); setStaff([]); setServiceCounters([]); setVendorBookings([]); setClients(null); setHistory(null); setBilling(null);
@@ -10718,7 +10722,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
             navigate(workspacePath(currentSection === "account" ? "account" : nextWorkspace === "administration" ? "settings" : "overview",
               nextWorkspace, clearQueueReview(location.search), location.hash));
           }} />
-        <ContextPicker data={locationOptions} label="Location" value={selectedLocationSlug} disabled={Boolean(busyAction) || boardScannerBusy || boardSettingsBusy || savingNotificationSettings || requestingBrowserPermission || accountPanelBusy || accountProfileBusy || passwordBusy || mfaBusy || ratingsBusy}
+        <ContextPicker data={locationOptions} label="Location" value={selectedLocationSlug} disabled={Boolean(busyAction) || boardScannerBusy || boardSettingsBusy || savingNotificationSettings || requestingBrowserPermission || accountPanelBusy || accountProfileBusy || passwordBusy || mfaBusy}
           onChange={(value) => { if (value && value !== selectedLocationSlug && canLeaveFeature()) { setSnapshot(null); setServiceCounters([]); setVendorBookings([]); setBookingPagination(null); setClients(null); setHistory(null); setBookingDetailOpen(false); setBookingDetailBooking(null); setBookingDetailModalId(null); setAvailabilityBlocks([]); setAvailabilityExceptions([]); setAvailabilitySummary(null); setSelectedCounterSlug(""); setSelectedLocationSlug(value); if(locationSlug)navigate(workspacePath("tenants","administration",clearQueueReview(location.search))); else navigate({pathname:location.pathname,search:clearQueueReview(location.search),hash:location.hash},{replace:true}); } }} />
       </> : <QueueBadge variant="warning">MFA setup required</QueueBadge>}
       dialogs={<>
