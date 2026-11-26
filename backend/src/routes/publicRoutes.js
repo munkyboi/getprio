@@ -695,6 +695,7 @@ router.post(
   asyncHandler(async (req, res) => {
     const tenant = await getTenantOrThrow(req.params.tenantSlug);
     const location = await getLocationOrPrimary(tenant, req.params.locationSlug);
+    assertPublicJoinFlowSupported(location);
     const payload = buildJoinPayload(req, tenant, location);
 
     await entitlementAdmissionService.admit({ tenantId: tenant._id, featureKey: "queue" });
