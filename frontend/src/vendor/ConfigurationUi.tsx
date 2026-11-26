@@ -58,6 +58,9 @@ export function ConfigurationScope({
     </Draft.Provider>
   );
 }
+export function useConfigurationBusy() {
+  return useContext(Busy);
+}
 type Guidance = {
   label: ReactNode;
   description?: ReactNode;
