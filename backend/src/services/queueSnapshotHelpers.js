@@ -316,6 +316,7 @@ async function buildQueueSnapshot(tenant, options = {}, getTenantUsage) {
             country: locationToUse.country,
             timezone: locationToUse.timezone,
             serviceTimingEnabled: locationToUse.serviceTimingEnabled === true,
+            queueType: locationToUse.queueType || "simple",
             isPrimary: locationToUse.isPrimary,
             isActive: locationToUse.isActive,
             joinUrl: buildJoinUrl(surfaceOrigins(env).customer, tenant.slug, locationToUse.slug),
