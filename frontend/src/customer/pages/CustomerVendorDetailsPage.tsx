@@ -132,6 +132,8 @@ export default function CustomerVendorDetailsPage() {
   const cover = media?.backgroundImageUrl || fallbackCover;
   const logo = media?.logoUrl || vendor.imageUrl || fallbackLogo;
   const currentQueue = data.queue.data;
+  const queueType = currentQueue?.location?.queueType || "simple";
+  const simpleQueueAvailable = queueType === "simple";
   const queueSummary = currentQueue ? getQueueStateSummary(currentQueue) : null;
   const bookingQuery = new URLSearchParams();
   if (selected) bookingQuery.set("location", selected.slug);
@@ -540,6 +542,7 @@ export default function CustomerVendorDetailsPage() {
         selected &&
         currentQueue &&
         !data.queue.error &&
+        simpleQueueAvailable &&
         isQueueAcceptingJoins(currentQueue) ? (
           <Button
             data-join-queue-trigger
@@ -551,6 +554,8 @@ export default function CustomerVendorDetailsPage() {
           >
             Join queue
           </Button>
+        ) : queueType !== "simple" && vendor.capabilities.booking && selected ? (
+          <Button data-booking-flow-trigger render={<Link to={bookingPath} />}>Book services</Button>
         ) : (
           <Button disabled>Join queue</Button>
         )}
