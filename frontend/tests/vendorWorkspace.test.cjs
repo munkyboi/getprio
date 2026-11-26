@@ -32,3 +32,11 @@ test('Dashboard belongs to Operations for staff and appears before Live queue', 
   assert.deepEqual(workspaceItems(items, 'operations'), items.slice(0,2));
   assert.equal(workspacePath('overview','operations','?next=keep','#pool'), '/dashboard/overview?next=keep&workspace=operations#pool');
 });
+
+test('workspace switch items invoke navigation directly for reliable route changes', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const source = fs.readFileSync(path.resolve(__dirname, '../src/vendor/VendorWorkspaceShell.tsx'), 'utf8');
+  assert.match(source, /multiple=\{false\}/);
+  assert.match(source, /value="administration" onClick=\{\(\) => \{ if \(props\.workspace !== "administration"\) props\.onWorkspace\("administration"\); \}\}/);
+});
