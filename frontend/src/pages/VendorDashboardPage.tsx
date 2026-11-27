@@ -395,6 +395,16 @@ function renderVendorTenantsRoute({ locationSlug, isOwner, isAdmin, bootstrapLoc
   return renderLocationDialog();
 }
 
+function renderVendorServicesRoute({ routeServiceSlug, isOwner, isAdmin, bootstrapPending, servicesPending, assignmentsPending, bootstrapError, servicesError, assignmentsError, servicesData, services, locations, renderServiceDialog, renderServicesPage, refetch }: { routeServiceSlug?: string; isOwner: boolean; isAdmin: boolean; bootstrapPending: boolean; servicesPending: boolean; assignmentsPending: boolean; bootstrapError: unknown; servicesError: unknown; assignmentsError: unknown; servicesData?: { services: Array<{ id: string }> }; services: VendorServiceSummary[]; locations: StoreLocationWithHours[]; renderServiceDialog: () => React.ReactNode; renderServicesPage: () => React.ReactNode; refetch: () => void }) {
+  if (!routeServiceSlug) return renderServicesPage();
+  if (!isOwner && !isAdmin) return <OperationAlert color="red" title="Service access required">You do not have permission to edit this service.</OperationAlert>;
+  if (bootstrapPending || servicesPending || assignmentsPending) return <OperationQueryState loading error={null} onRetry={refetch} />;
+  const queryError = bootstrapError || servicesError || assignmentsError;
+  if (bootstrapError || servicesError || assignmentsError) return <OperationQueryState loading={false} error={queryError} onRetry={refetch} />;
+  if (!servicesData || !resolveServiceEditor(routeServiceSlug, services, new Set(servicesData.services.map((item) => item.id)))) return <OperationAlert color="red" title="Service unavailable">This service is unavailable in the selected business.</OperationAlert>;
+  return renderServiceDialog();
+}
+
 function canLeaveVendorFeature({ busy, hasEdits, discardApproved, confirm, accountSecurity, recoveryCodes, mfaSecret, accountPanelDraft, reset }: { busy: boolean; hasEdits: boolean; discardApproved: boolean; confirm: (message: string) => boolean; accountSecurity: boolean; recoveryCodes: number; mfaSecret: string; accountPanelDraft: boolean; reset: () => void }) {
   if (busy) return false;
   if (hasEdits && !discardApproved && !confirm("You have unsaved edits. Leave this view?")) return false;
@@ -10789,15 +10799,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
   }
 
   function renderServicesSection() {
-    if (!routeServiceSlug) return renderServicesPage();
-    if (!isOwner && !isAdmin) return <OperationAlert color="red" title="Service access required">You do not have permission to edit this service.</OperationAlert>;
-    const loading = dashboardBootstrapQuery.isPending || servicesQuery.isPending || locationServicesQuery.isPending;
-    if (loading) return <OperationQueryState loading error={null} onRetry={() => { void servicesQuery.refetch(); void locationServicesQuery.refetch(); void dashboardBootstrapQuery.refetch(); }} />;
-    const queryError = dashboardBootstrapQuery.error || servicesQuery.error || locationServicesQuery.error;
-    if (dashboardBootstrapQuery.isError || servicesQuery.isError || locationServicesQuery.isError) return <OperationQueryState loading={false} error={queryError} onRetry={() => { void servicesQuery.refetch(); void locationServicesQuery.refetch(); void dashboardBootstrapQuery.refetch(); }} />;
-    const serviceIds = new Set(servicesQuery.data?.services.map((item) => item.id) || []);
-    if (!servicesQuery.data || !resolveServiceEditor(routeServiceSlug, services, serviceIds)) return <OperationAlert color="red" title="Service unavailable">This service is unavailable in the selected business.</OperationAlert>;
-    return renderServiceDialog();
+    return renderVendorServicesRoute({ routeServiceSlug, isOwner, isAdmin, bootstrapPending: dashboardBootstrapQuery.isPending, servicesPending: servicesQuery.isPending, assignmentsPending: locationServicesQuery.isPending, bootstrapError: dashboardBootstrapQuery.error, servicesError: servicesQuery.error, assignmentsError: locationServicesQuery.error, servicesData: servicesQuery.data, services, locations, renderServiceDialog, renderServicesPage, refetch: () => { void servicesQuery.refetch(); void locationServicesQuery.refetch(); void dashboardBootstrapQuery.refetch(); } });
   }
 
   function renderCurrentSection() {
