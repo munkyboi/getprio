@@ -532,6 +532,17 @@ function getLinearRecovery(actionName: string, error: unknown) {
     : null;
 }
 
+async function refreshStaleQueueConfiguration(queryClient: ReturnType<typeof useQueryClient>) {
+  await Promise.all([
+    queryClient.invalidateQueries({ queryKey: ["named-queue-options"] }),
+    queryClient.invalidateQueries({ queryKey: ["queue-options-v4"] }),
+    queryClient.invalidateQueries({ queryKey: ["named-queue-active"] }),
+    queryClient.invalidateQueries({ queryKey: ["vendor-dashboard-queue-lifecycle"] }),
+    queryClient.invalidateQueries({ queryKey: ["vendor-linear-ticket"] }),
+  ]);
+  window.dispatchEvent(new Event("queue-plans-updated"));
+}
+
 const emptyServiceForm: SaveVendorServiceRequest = {
   name: "",
   slug: "",
@@ -2802,14 +2813,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         // revision. Refresh dependent catalogs and queue views so the next
         // attempt is based on authoritative state; never retry or call
         // another ticket implicitly.
-        await Promise.all([
-          queryClient.invalidateQueries({ queryKey: ["named-queue-options"] }),
-          queryClient.invalidateQueries({ queryKey: ["queue-options-v4"] }),
-          queryClient.invalidateQueries({ queryKey: ["named-queue-active"] }),
-          queryClient.invalidateQueries({ queryKey: ["vendor-dashboard-queue-lifecycle"] }),
-          queryClient.invalidateQueries({ queryKey: ["vendor-linear-ticket"] })
-        ]);
-        window.dispatchEvent(new Event("queue-plans-updated"));
+        await refreshStaleQueueConfiguration(queryClient);
       }
       if (isServicePlanRequired(actionName, actionError)) {
         setStartPlanErrorScope(`${selectedTenantSlug}:${selectedLocationSlug}`);
