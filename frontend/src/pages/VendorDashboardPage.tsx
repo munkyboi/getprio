@@ -424,6 +424,36 @@ const emptyLocationForm = {
   hours: defaultHours
 };
 
+type LocationForm = typeof emptyLocationForm;
+type ServiceLocationAssignment = NonNullable<SaveVendorServiceRequest["locationServices"]>[number];
+
+function updateLocationHour(
+  form: LocationForm,
+  index: number,
+  field: "opensAt" | "closesAt",
+  value: string,
+): LocationForm {
+  return {
+    ...form,
+    hours: form.hours.map((item, itemIndex) =>
+      itemIndex === index ? { ...item, [field]: value } : item,
+    ),
+  };
+}
+
+function updateServiceLocationAssignment(
+  form: SaveVendorServiceRequest,
+  index: number,
+  changes: Partial<ServiceLocationAssignment>,
+): SaveVendorServiceRequest {
+  return {
+    ...form,
+    locationServices: form.locationServices?.map((entry, entryIndex) =>
+      entryIndex === index ? { ...entry, ...changes } : entry,
+    ),
+  };
+}
+
 const emptyServiceForm: SaveVendorServiceRequest = {
   name: "",
   slug: "",
@@ -4669,14 +4699,9 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                             required
                             value={hour.opensAt}
                             onChange={(event) =>
-                              setLocationForm((current) => ({
-                                ...current,
-                                hours: current.hours.map((item, i) =>
-                                  i === index
-                                    ? { ...item, opensAt: event.target.value }
-                                    : item,
-                                ),
-                              }))
+                              setLocationForm((current) =>
+                                updateLocationHour(current, index, "opensAt", event.target.value),
+                              )
                             }
                           />
                           <ConfigurationInput
@@ -4686,14 +4711,9 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                             required
                             value={hour.closesAt}
                             onChange={(event) =>
-                              setLocationForm((current) => ({
-                                ...current,
-                                hours: current.hours.map((item, i) =>
-                                  i === index
-                                    ? { ...item, closesAt: event.target.value }
-                                    : item,
-                                ),
-                              }))
+                              setLocationForm((current) =>
+                                updateLocationHour(current, index, "closesAt", event.target.value),
+                              )
                             }
                           />
                         </div>
@@ -6961,15 +6981,9 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                           checked={assignment.isActive !== false}
                           onChange={(event) => {
                             const isActive = event.currentTarget.checked;
-                            setServiceForm((current) => ({
-                              ...current,
-                              locationServices: current.locationServices?.map(
-                                (entry, entryIndex) =>
-                                  entryIndex === index
-                                    ? { ...entry, isActive }
-                                    : entry,
-                              ),
-                            }));
+                            setServiceForm((current) =>
+                              updateServiceLocationAssignment(current, index, { isActive }),
+                            );
                           }}
                         />
                         {bookingSettingsAllowed && (!bookingConfigurationReady?<p className="ops-muted">Booking configuration is unavailable until location settings finish loading. Retry above to review limits.</p>:resourceSettings.some(setting=>setting.locationSlug===assignment.locationSlug&&setting.capabilityEnabled&&setting.ready)?<p className="ops-muted">Pool capacity controls resource bookings at this location.</p>:<>                        <ConfigurationNumber
@@ -6980,15 +6994,11 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                           disabled={assignment.isActive === false}
                           value={assignment.capacity}
                           onChange={(value) =>
-                            setServiceForm((current) => ({
-                              ...current,
-                              locationServices: current.locationServices?.map(
-                                (entry, entryIndex) =>
-                                  entryIndex === index
-                                    ? { ...entry, capacity: Number(value) || 1 }
-                                    : entry,
-                              ),
-                            }))
+                            setServiceForm((current) =>
+                              updateServiceLocationAssignment(current, index, {
+                                capacity: Number(value) || 1,
+                              }),
+                            )
                           }
                         />
                         </>)}
@@ -7004,26 +7014,14 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                               : assignment.priceAmountCents / 100
                           }
                           onChange={(value) =>
-                            setServiceForm((current) => ({
-                              ...current,
-                              locationServices: current.locationServices?.map(
-                                (entry, entryIndex) =>
-                                  entryIndex === index
-                                    ? {
-                                        ...entry,
-                                        priceAmountCents:
-                                          value === ""
-                                            ? null
-                                            : Math.max(
-                                                0,
-                                                Math.round(
-                                                  (Number(value) || 0) * 100,
-                                                ),
-                                              ),
-                                      }
-                                    : entry,
-                              ),
-                            }))
+                            setServiceForm((current) =>
+                              updateServiceLocationAssignment(current, index, {
+                                priceAmountCents:
+                                  value === ""
+                                    ? null
+                                    : Math.max(0, Math.round((Number(value) || 0) * 100)),
+                              }),
+                            )
                           }
                         />
                         <details data-service-advanced><summary>Advanced price display</summary>                        <ConfigurationInput
