@@ -367,6 +367,10 @@ function VendorAdministrationRenderer({ render }: VendorAdministrationRendererCo
   return <>{render()}</>;
 }
 
+function shouldShowVendorActivation(hasActiveSubscription: boolean, section: DashboardSection): boolean {
+  return !hasActiveSubscription && section !== "settings" && section !== "account";
+}
+
 function canLeaveVendorFeature({ busy, hasEdits, discardApproved, confirm, accountSecurity, recoveryCodes, mfaSecret, accountPanelDraft, reset }: { busy: boolean; hasEdits: boolean; discardApproved: boolean; confirm: (message: string) => boolean; accountSecurity: boolean; recoveryCodes: number; mfaSecret: string; accountPanelDraft: boolean; reset: () => void }) {
   if (busy) return false;
   if (hasEdits && !discardApproved && !confirm("You have unsaved edits. Leave this view?")) return false;
@@ -10778,7 +10782,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
   }
 
   function renderCurrentSection() {
-    if (!hasActiveSubscription && currentSection !== "settings" && currentSection !== "account") {
+    if (shouldShowVendorActivation(hasActiveSubscription, currentSection)) {
       return <ActivationPanel onViewPlans={() => openPlanDialog()} />;
     }
     const simpleSections: Record<string, () => React.ReactNode> = {
