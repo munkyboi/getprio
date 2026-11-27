@@ -386,6 +386,10 @@ function useVendorDashboardRouteState(section?: string, locationSlug?: string, r
   };
 }
 
+function useVendorDashboardMemberships(user: ReturnType<typeof useAuth>["user"]) {
+  return useMemo(() => activeMemberships(user?.tenants || []), [user?.tenants]);
+}
+
 function resolveVendorEditors(locationSlug: string | undefined, routeServiceSlug: string | undefined, locations: StoreLocationWithHours[], services: VendorServiceSummary[], bootstrapLocations: string[], catalogServices: string[]) {
   return {
     location: locationSlug ? resolveLocationEditor(locationSlug, locations, new Set(bootstrapLocations)) : undefined,
@@ -1271,7 +1275,7 @@ function VendorDashboardContent() {
   const accountDraftRef = useRef(false);
   const securityUnloadRef = useRef(false);
   const navigationGuard = useContext(VendorNavigationGuard);
-  const activeTenants = useMemo(() => activeMemberships(user?.tenants || []), [user?.tenants]);
+  const activeTenants = useVendorDashboardMemberships(user);
   useEffect(() => {
     const warn = draftUnloadHandler(() => unsavedForm.current.hasEdits() || accountDraftRef.current || securityUnloadRef.current);
     window.addEventListener("beforeunload", warn);
