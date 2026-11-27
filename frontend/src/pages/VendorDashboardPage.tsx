@@ -451,6 +451,22 @@ function VendorQueueDayStatus({
   );
 }
 
+function VendorQueueIntakeStatus({ intakeState }: Pick<VendorQueueStatusColumnsProps, "intakeState">) {
+  if (!intakeState?.autoPauseEnabled || !intakeState.autoPauseThreshold) return null;
+  return (
+    <div className="vendor-queue-status-column">
+      <LiveQueueIntake
+        waitingCount={intakeState.currentWaitingCount}
+        threshold={intakeState.autoPauseThreshold}
+        resumeWaitingCount={intakeState.resumeWaitingCount}
+        autoResumeEnabled={intakeState.autoResumeEnabled}
+        state={intakeState.state === "paused" ? "paused" : intakeState.state === "near_limit" ? "near_limit" : "open"}
+        stateLabel={intakeState.stateLabel}
+      />
+    </div>
+  );
+}
+
 function VendorQueueStatusColumns({
   activeTicket,
   intakeState,
@@ -477,24 +493,7 @@ function VendorQueueStatusColumns({
         queueDayExtended={queueDayExtended}
         snapshot={snapshot}
       />
-      {intakeState?.autoPauseEnabled && intakeState.autoPauseThreshold ? (
-        <div className="vendor-queue-status-column">
-          <LiveQueueIntake
-            waitingCount={intakeState.currentWaitingCount}
-            threshold={intakeState.autoPauseThreshold}
-            resumeWaitingCount={intakeState.resumeWaitingCount}
-            autoResumeEnabled={intakeState.autoResumeEnabled}
-            state={
-              intakeState.state === "paused"
-                ? "paused"
-                : intakeState.state === "near_limit"
-                  ? "near_limit"
-                  : "open"
-            }
-            stateLabel={intakeState.stateLabel}
-          />
-        </div>
-      ) : null}
+      <VendorQueueIntakeStatus intakeState={intakeState} />
     </div>
   );
 }
