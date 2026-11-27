@@ -44,7 +44,7 @@ function VendorDashboardRoute() {
     location.pathname === "/dashboard/queue" &&
     new URLSearchParams(location.search).get("queueClosePrototype") === "1";
 
-  return prototypeEnabled ? <QueueAutoClosePrototype /> : <VendorDashboardPage />;
+  return prototypeEnabled ? <QueueAutoClosePrototype /> : <VendorDashboardPage key={`${location.pathname}${location.search}${location.hash}`} />;
 }
 
 function VendorEntryRoute() {
