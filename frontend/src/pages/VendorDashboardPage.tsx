@@ -375,6 +375,10 @@ function resolveVendorDashboardSection({ routeServiceSlug, locationSlug, section
   return "queue";
 }
 
+function isInvalidVendorDashboardSection(section?: string): boolean {
+  return Boolean(section && section !== "locations" && !dashboardSections.has(section));
+}
+
 function renderVendorDashboardMainContent({ requiresMfaEnrollment, currentSection, snapshot, selectedTenantSlug, selectedLocationSlug, renderCurrentSection, queryError, retry }: { requiresMfaEnrollment: boolean; currentSection: DashboardSection; snapshot: QueueSnapshot | null; selectedTenantSlug: string; selectedLocationSlug: string; renderCurrentSection: () => React.ReactNode; queryError: unknown; retry: () => void }) {
   const ready = requiresMfaEnrollment || currentSection === "account" || (snapshot?.tenant.slug === selectedTenantSlug && snapshot?.location?.slug === selectedLocationSlug);
   return ready ? renderCurrentSection() : <OperationQueryState loading={!queryError} error={queryError} onRetry={retry} />;
@@ -1226,7 +1230,7 @@ function VendorDashboardContent() {
   // `/dashboard/locations` is the public route alias for the internal
   // `tenants` section. Keep it valid long enough for currentSection to render
   // the Administration view instead of falling back to Live queue.
-  const invalidSection = Boolean(section && section !== "locations" && !dashboardSections.has(section));
+  const invalidSection = isInvalidVendorDashboardSection(section);
   const [selectedTenantSlug, setSelectedTenantSlug] = useState("");
   const [selectedLocationSlug, setSelectedLocationSlug] = useState("");
   const [editingQueueTicket, setEditingQueueTicket] = useState<{id:string;tenant:string;location:string}|null>(null);
