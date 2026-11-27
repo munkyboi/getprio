@@ -332,6 +332,13 @@ function handleVendorLocationChange({ value, current, canLeaveFeature, reset, se
   else navigate({ pathname, search: clearQueueReview(search), hash }, { replace: true });
 }
 
+function requestVendorEditorLeave({ hasEdits, saveDraft, setLeaveAction, proceed, canLeaveFeature }: { hasEdits: boolean; saveDraft: () => void; setLeaveAction: (action: () => void) => void; proceed: () => void; canLeaveFeature: (discardApproved?: boolean) => boolean }) {
+  if (hasEdits) {
+    saveDraft();
+    setLeaveAction(() => proceed);
+  } else if (canLeaveFeature(true)) proceed();
+}
+
 function ModalSection({
   title,
   description,
@@ -10694,16 +10701,11 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     return true;
   };
   const requestLocationLeave = (proceed: () => void) => {
-    if (unsavedForm.current.hasEdits()) {
-      locationLeaveDraft.current = locationForm;
-      setLocationLeaveAction(() => proceed);
-    }
-    else if (canLeaveFeature(true)) proceed();
+    requestVendorEditorLeave({ hasEdits: unsavedForm.current.hasEdits(), saveDraft: () => { locationLeaveDraft.current = locationForm; }, setLeaveAction: setLocationLeaveAction, proceed, canLeaveFeature });
   };
   useLocationPageBackGuard(Boolean(locationSlug), location.key, requestLocationLeave);
   const requestServiceLeave = (proceed:()=>void)=>{
-    if(unsavedForm.current.hasEdits()){serviceLeaveDraft.current=serviceForm;setServiceLeaveAction(()=>proceed);}
-    else if(canLeaveFeature(true))proceed();
+    requestVendorEditorLeave({ hasEdits: unsavedForm.current.hasEdits(), saveDraft: () => { serviceLeaveDraft.current = serviceForm; }, setLeaveAction: setServiceLeaveAction, proceed, canLeaveFeature });
   };
   useLocationPageBackGuard(Boolean(routeServiceSlug),location.key,requestServiceLeave);
   useEffect(() => {
