@@ -378,6 +378,11 @@ function VendorDashboardServiceConfirmation({ opened, draft, setDraft, setAction
   return <QueueConfirmation opened={opened} title="Discard service changes?" description="Your unsaved service changes will be discarded." confirmLabel="Discard changes" cancelLabel="Keep editing" confirmColor="red" loading={busy} onClose={() => { setDraft(draft); setAction(null); }} onConfirm={() => { if (!canLeaveFeature(true)) return; const proceed = action; setAction(null); proceed?.(); }} />;
 }
 
+function VendorDashboardQueueTray({ visible, currentSection, busyAction, canOperate, locationName, onCloseNow, onExtend, onRefresh, snapshot }: { visible: boolean; currentSection: DashboardSection; busyAction: string; canOperate: boolean; locationName: string; onCloseNow: () => Promise<boolean>; onExtend: () => Promise<boolean>; onRefresh: () => Promise<void>; snapshot: QueueSnapshot | null }) {
+  if (!visible || currentSection === "overview") return null;
+  return <VendorQueueLifecycleTray busyAction={busyAction} canOperate={canOperate} locationName={locationName} onCloseNow={onCloseNow} onExtend={onExtend} onRefresh={onRefresh} snapshot={snapshot} />;
+}
+
 function ModalSection({
   title,
   description,
@@ -10818,15 +10823,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       />
       </>}
     >
-        {!requiresMfaEnrollment && currentSection !== "overview" ? <VendorQueueLifecycleTray
-          busyAction={busyAction}
-          canOperate={canOperateQueueDay}
-          locationName={selectedLocation?.name || "This queue"}
-          onCloseNow={handleCloseQueueDay}
-          onExtend={handleExtendQueueDay}
-          onRefresh={reloadDashboardSnapshot}
-          snapshot={snapshot}
-        /> : null}
+        <VendorDashboardQueueTray visible={!requiresMfaEnrollment} currentSection={currentSection} busyAction={busyAction} canOperate={canOperateQueueDay} locationName={selectedLocation?.name || "This queue"} onCloseNow={handleCloseQueueDay} onExtend={handleExtendQueueDay} onRefresh={reloadDashboardSnapshot} snapshot={snapshot} />
         {error ? <Text c="red" fw={700}>{error}</Text> : null}
         {renderVendorDashboardMainContent({ requiresMfaEnrollment, currentSection, snapshot, selectedTenantSlug, selectedLocationSlug, renderCurrentSection, queryError: dashboardBootstrapQuery.error, retry: () => void retryDashboardContext() })}
     </VendorWorkspaceShell>
