@@ -383,6 +383,10 @@ function VendorDashboardQueueTray({ visible, currentSection, busyAction, canOper
   return <VendorQueueLifecycleTray busyAction={busyAction} canOperate={canOperate} locationName={locationName} onCloseNow={onCloseNow} onExtend={onExtend} onRefresh={onRefresh} snapshot={snapshot} />;
 }
 
+function VendorDashboardErrorMessage({ error }: { error: string }) {
+  return error ? <Text c="red" fw={700}>{error}</Text> : null;
+}
+
 function ModalSection({
   title,
   description,
@@ -10824,7 +10828,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       </>}
     >
         <VendorDashboardQueueTray visible={!requiresMfaEnrollment} currentSection={currentSection} busyAction={busyAction} canOperate={canOperateQueueDay} locationName={selectedLocation?.name || "This queue"} onCloseNow={handleCloseQueueDay} onExtend={handleExtendQueueDay} onRefresh={reloadDashboardSnapshot} snapshot={snapshot} />
-        {error ? <Text c="red" fw={700}>{error}</Text> : null}
+        <VendorDashboardErrorMessage error={error} />
         {renderVendorDashboardMainContent({ requiresMfaEnrollment, currentSection, snapshot, selectedTenantSlug, selectedLocationSlug, renderCurrentSection, queryError: dashboardBootstrapQuery.error, retry: () => void retryDashboardContext() })}
     </VendorWorkspaceShell>
   );
