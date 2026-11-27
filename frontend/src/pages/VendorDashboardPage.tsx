@@ -399,6 +399,10 @@ function useVendorDashboardRouting() {
   return { ...auth, ...params, location, navigate, queryClient };
 }
 
+function getInitialVendorBrowserPermission(): NotificationPermission {
+  return typeof window !== "undefined" && typeof window.Notification !== "undefined" ? window.Notification.permission : "default";
+}
+
 function resolveVendorEditors(locationSlug: string | undefined, routeServiceSlug: string | undefined, locations: StoreLocationWithHours[], services: VendorServiceSummary[], bootstrapLocations: string[], catalogServices: string[]) {
   return {
     location: locationSlug ? resolveLocationEditor(locationSlug, locations, new Set(bootstrapLocations)) : undefined,
@@ -1370,11 +1374,7 @@ function VendorDashboardContent() {
   accountDraftRef.current = accountPanelDraft || Boolean(replacementPassword || replacementCode || removalPassword || removalCode || removalRecoveryCode || removalAcknowledged);
   securityUnloadRef.current = Boolean(mfaSecret || mfaCode || mfaRecoveryCodes.length);
   const [vendorNotificationSettings, setVendorNotificationSettings] = useState<TenantNotificationSettings>(defaultNotificationSettings);
-  const [browserPermission, setBrowserPermission] = useState<NotificationPermission>(
-    typeof window !== "undefined" && typeof window.Notification !== "undefined"
-      ? window.Notification.permission
-      : "default"
-  );
+  const [browserPermission, setBrowserPermission] = useState<NotificationPermission>(getInitialVendorBrowserPermission);
   const [requestingBrowserPermission, setRequestingBrowserPermission] = useState(false);
   const [browserPushSubscribed, setBrowserPushSubscribed] = useState(false);
   const [savingNotificationSettings, setSavingNotificationSettings] = useState(false);
