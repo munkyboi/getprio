@@ -893,7 +893,10 @@ function VendorDashboardContent() {
   const currentSection = (
     routeServiceSlug ? "services" : locationSlug || section === "locations" ? "tenants" : section && dashboardSections.has(section) ? section : "queue"
   ) as DashboardSection;
-  const invalidSection = Boolean(section && !dashboardSections.has(section));
+  // `/dashboard/locations` is the public route alias for the internal
+  // `tenants` section. Keep it valid long enough for currentSection to render
+  // the Administration view instead of falling back to Live queue.
+  const invalidSection = Boolean(section && section !== "locations" && !dashboardSections.has(section));
   const [selectedTenantSlug, setSelectedTenantSlug] = useState("");
   const [selectedLocationSlug, setSelectedLocationSlug] = useState("");
   const [editingQueueTicket, setEditingQueueTicket] = useState<{id:string;tenant:string;location:string}|null>(null);
@@ -10679,7 +10682,11 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     const candidates = workspaceItems(visibleNavItems, next);
     const destination = candidates.find((item) => item.section !== "account")?.section || "account";
     savePreference(preferenceKey(user.id, selectedTenantSlug), next);
-    navigate(workspacePath(destination, next, location.search, location.hash));
+    // Workspace changes cross the route alias boundary (`tenants` →
+    // `locations`). Reloading this transition keeps the router params and the
+    // rendered workspace synchronized; a history-only update can leave the
+    // previous section mounted while the address bar changes.
+    window.location.assign(workspacePath(destination, next, location.search, location.hash));
   };
   const routedLocation = locationSlug && dashboardBootstrapQuery.data
     ? resolveLocationEditor(locationSlug, locations, new Set(dashboardBootstrapQuery.data.locationsResponse.locations.map(item => item.id))) : undefined;

@@ -40,3 +40,17 @@ test('workspace switch items invoke navigation directly for reliable route chang
   assert.match(source, /multiple=\{false\}/);
   assert.match(source, /value="administration" onClick=\{\(\) => \{ if \(props\.workspace !== "administration"\) props\.onWorkspace\("administration"\); \}\}/);
 });
+
+test('locations route alias is not treated as an invalid dashboard section', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const source = fs.readFileSync(path.resolve(__dirname, '../src/pages/VendorDashboardPage.tsx'), 'utf8');
+  assert.match(source, /section !== "locations" && !dashboardSections\.has\(section\)/);
+});
+
+test('workspace changes perform a full transition across route aliases', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const source = fs.readFileSync(path.resolve(__dirname, '../src/pages/VendorDashboardPage.tsx'), 'utf8');
+  assert.match(source, /window\.location\.assign\(workspacePath\(destination, next, location\.search, location\.hash\)\)/);
+});
