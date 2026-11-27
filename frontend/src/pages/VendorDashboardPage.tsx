@@ -387,6 +387,14 @@ function renderVendorAdministrationBranch(section: "tenants" | "services", rende
   return section === "tenants" ? renderTenants() : renderServices();
 }
 
+function renderVendorTenantsRoute({ locationSlug, isOwner, isAdmin, bootstrapLocations, locations, navigate, search, renderLocationDialog, renderTenantsPage }: { locationSlug?: string; isOwner: boolean; isAdmin: boolean; bootstrapLocations?: string[]; locations: StoreLocationWithHours[]; navigate: ReturnType<typeof useNavigate>; search: string; renderLocationDialog: () => React.ReactNode; renderTenantsPage: () => React.ReactNode }) {
+  if (!locationSlug) return renderTenantsPage();
+  if (!isOwner && !isAdmin) return <OperationAlert color="red" title="Location access required">You do not have permission to edit this location.</OperationAlert>;
+  if (!bootstrapLocations) return <OperationAlert color="blue" title="Loading location">Loading authorized locations for this business.</OperationAlert>;
+  if (!resolveLocationEditor(locationSlug, locations, new Set(bootstrapLocations))) return <OperationAlert color="red" title="Location unavailable">This location is unavailable in the selected business.<OperationButton variant="outline" onClick={() => navigate(workspacePath("tenants", "administration", search))}>Back to locations</OperationButton></OperationAlert>;
+  return renderLocationDialog();
+}
+
 function canLeaveVendorFeature({ busy, hasEdits, discardApproved, confirm, accountSecurity, recoveryCodes, mfaSecret, accountPanelDraft, reset }: { busy: boolean; hasEdits: boolean; discardApproved: boolean; confirm: (message: string) => boolean; accountSecurity: boolean; recoveryCodes: number; mfaSecret: string; accountPanelDraft: boolean; reset: () => void }) {
   if (busy) return false;
   if (hasEdits && !discardApproved && !confirm("You have unsaved edits. Leave this view?")) return false;
@@ -10777,12 +10785,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
   }
 
   function renderTenantsSection() {
-    if (!locationSlug) return renderTenantsPage();
-    if (!isOwner && !isAdmin) return <OperationAlert color="red" title="Location access required">You do not have permission to edit this location.</OperationAlert>;
-    if (!dashboardBootstrapQuery.data) return <OperationAlert color="blue" title="Loading location">Loading authorized locations for this business.</OperationAlert>;
-    const locationIds = new Set(dashboardBootstrapQuery.data.locationsResponse.locations.map((item) => item.id));
-    if (!resolveLocationEditor(locationSlug, locations, locationIds)) return <OperationAlert color="red" title="Location unavailable">This location is unavailable in the selected business.<OperationButton variant="outline" onClick={() => navigate(workspacePath("tenants", "administration", location.search))}>Back to locations</OperationButton></OperationAlert>;
-    return renderLocationDialog();
+    return renderVendorTenantsRoute({ locationSlug, isOwner, isAdmin, bootstrapLocations: dashboardBootstrapQuery.data?.locationsResponse.locations.map((item) => item.id), locations, navigate, search: location.search, renderLocationDialog, renderTenantsPage });
   }
 
   function renderServicesSection() {
