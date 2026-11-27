@@ -505,6 +505,20 @@ type VendorQueueDayBadgeProps = {
   extended: boolean;
 };
 
+function vendorQueueBadgeVariant({ actuallyClosed, reconciling, paused, unopened }: VendorQueueDayBadgeProps) {
+  if (actuallyClosed) return "destructive" as const;
+  if (reconciling || paused) return "warning" as const;
+  return unopened ? "info" as const : "success" as const;
+}
+
+function vendorQueueBadgeLabel({ reconciling, unopened, actuallyClosed, paused, extended }: VendorQueueDayBadgeProps) {
+  if (reconciling) return "Queue closing";
+  if (unopened) return "Queue not opened";
+  if (actuallyClosed) return "Queue day closed";
+  if (paused) return "Queue intake paused";
+  return extended ? "Queue day extended" : "Queue day open";
+}
+
 function VendorQueueDayBadge({
   reconciling,
   unopened,
@@ -512,26 +526,8 @@ function VendorQueueDayBadge({
   paused,
   extended,
 }: VendorQueueDayBadgeProps) {
-  const variant = actuallyClosed
-    ? "destructive"
-    : reconciling || paused
-      ? "warning"
-      : unopened
-        ? "info"
-        : "success";
-  const label = reconciling
-    ? "Queue closing"
-    : unopened
-      ? "Queue not opened"
-      : actuallyClosed
-        ? "Queue day closed"
-        : paused
-          ? "Queue intake paused"
-          : extended
-            ? "Queue day extended"
-            : "Queue day open";
-
-  return <QueueBadge variant={variant}>{label}</QueueBadge>;
+  const props = { reconciling, unopened, actuallyClosed, paused, extended };
+  return <QueueBadge variant={vendorQueueBadgeVariant(props)}>{vendorQueueBadgeLabel(props)}</QueueBadge>;
 }
 
 type VendorQueueControlActionsProps = {
