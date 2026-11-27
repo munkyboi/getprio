@@ -404,6 +404,35 @@ function vendorQueueDayDescription({
   return "Customers can continue joining this queue";
 }
 
+function VendorQueueActiveTicketStatus({
+  activeTicket,
+  snapshot,
+}: Pick<VendorQueueStatusColumnsProps, "activeTicket" | "snapshot">) {
+  return (
+    <div className="vendor-queue-status-column">
+      <p className="queue-text vendor-eyebrow">
+        {activeTicket?.serviceStartedAt
+          ? "In service"
+          : snapshot?.location?.serviceTimingEnabled
+            ? "Called ticket"
+            : "Now serving"}
+      </p>
+      <div className="queue-row">
+        <h3 className="queue-heading">{activeTicket?.ticketNumber || "--"}</h3>
+        {activeTicket && isCheckedInBookingTicket(activeTicket) ? <QueueBadge variant="outline">Booking</QueueBadge> : null}
+        {activeTicket?.customerConfirmedAt ? <QueueBadge variant="outline">Customer confirmed</QueueBadge> : null}
+      </div>
+      <p className="queue-text queue-muted queue-small">{activeTicket?.customerName || "No active ticket"}</p>
+      {activeTicket?.serviceStartedAt ? (
+        <p className="queue-text queue-muted queue-small">Service started {formatDateTime(activeTicket.serviceStartedAt)}</p>
+      ) : snapshot?.location?.serviceTimingEnabled && activeTicket ? (
+        <p className="queue-text queue-muted queue-small">Called · service has not started</p>
+      ) : null}
+      {activeTicket?.linkedBookingReference ? <p className="queue-text queue-muted queue-small">Booking {activeTicket.linkedBookingReference}</p> : null}
+    </div>
+  );
+}
+
 function VendorQueueStatusColumns({
   activeTicket,
   intakeState,
@@ -420,41 +449,7 @@ function VendorQueueStatusColumns({
       className="vendor-queue-status-columns"
       data-columns={intakeState?.autoPauseEnabled ? 3 : 2}
     >
-      <div className="vendor-queue-status-column">
-        <p className="queue-text vendor-eyebrow">
-          {activeTicket?.serviceStartedAt
-            ? "In service"
-            : snapshot?.location?.serviceTimingEnabled
-              ? "Called ticket"
-              : "Now serving"}
-        </p>
-        <div className="queue-row">
-          <h3 className="queue-heading">{activeTicket?.ticketNumber || "--"}</h3>
-          {activeTicket && isCheckedInBookingTicket(activeTicket) ? (
-            <QueueBadge variant="outline">Booking</QueueBadge>
-          ) : null}
-          {activeTicket?.customerConfirmedAt ? (
-            <QueueBadge variant="outline">Customer confirmed</QueueBadge>
-          ) : null}
-        </div>
-        <p className="queue-text queue-muted queue-small">
-          {activeTicket?.customerName || "No active ticket"}
-        </p>
-        {activeTicket?.serviceStartedAt ? (
-          <p className="queue-text queue-muted queue-small">
-            Service started {formatDateTime(activeTicket.serviceStartedAt)}
-          </p>
-        ) : snapshot?.location?.serviceTimingEnabled && activeTicket ? (
-          <p className="queue-text queue-muted queue-small">
-            Called · service has not started
-          </p>
-        ) : null}
-        {activeTicket?.linkedBookingReference ? (
-          <p className="queue-text queue-muted queue-small">
-            Booking {activeTicket.linkedBookingReference}
-          </p>
-        ) : null}
-      </div>
+      <VendorQueueActiveTicketStatus activeTicket={activeTicket} snapshot={snapshot} />
       <div className="vendor-queue-status-column">
         <p className="queue-text vendor-eyebrow">Queue day</p>
         <h3 className="queue-heading">{vendorQueueDayTitle({
