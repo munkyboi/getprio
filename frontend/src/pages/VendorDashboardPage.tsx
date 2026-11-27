@@ -351,6 +351,10 @@ function getVendorDashboardHeaderAction({ routeServiceSlug, locationSlug, requir
   return undefined;
 }
 
+function renderVendorOverviewSection({ token, effectiveEntitlements, tenantPlan, selectedTenantSlug, selectedLocationSlug, snapshot, canLeaveFeature, navigate, search }: { token: string | null; effectiveEntitlements: Parameters<typeof canAccessVendorSection>[1]; tenantPlan: Parameters<typeof canAccessVendorSection>[2] | null; selectedTenantSlug: string; selectedLocationSlug: string; snapshot: QueueSnapshot | null; canLeaveFeature: () => boolean; navigate: ReturnType<typeof useNavigate>; search: string }) {
+  return <ResourceDashboard token={token} canOpenQueue={canAccessVendorSection("queue", effectiveEntitlements, tenantPlan)} scope={{ tenantSlug: selectedTenantSlug, locationSlug: selectedLocationSlug, tenantId: snapshot?.tenant.id || "", locationId: snapshot?.location?.id || "" }} onOpenQueue={() => { if (canLeaveFeature()) navigate(workspacePath("queue", "operations", search)); }} />;
+}
+
 function canLeaveVendorFeature({ busy, hasEdits, discardApproved, confirm, accountSecurity, recoveryCodes, mfaSecret, accountPanelDraft, reset }: { busy: boolean; hasEdits: boolean; discardApproved: boolean; confirm: (message: string) => boolean; accountSecurity: boolean; recoveryCodes: number; mfaSecret: string; accountPanelDraft: boolean; reset: () => void }) {
   if (busy) return false;
   if (hasEdits && !discardApproved && !confirm("You have unsaved edits. Leave this view?")) return false;
@@ -10775,7 +10779,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       settings: renderSettingsPage,
     };
     if (currentSection === "overview") {
-      return <ResourceDashboard token={token} canOpenQueue={canAccessVendorSection("queue", effectiveEntitlements, tenantPlan)} scope={{tenantSlug: selectedTenantSlug, locationSlug: selectedLocationSlug, tenantId: snapshot?.tenant.id || "", locationId: snapshot?.location?.id || ""}} onOpenQueue={() => { if (canLeaveFeature()) navigate(workspacePath("queue", "operations", location.search)); }} />;
+      return renderVendorOverviewSection({ token, effectiveEntitlements, tenantPlan, selectedTenantSlug, selectedLocationSlug, snapshot, canLeaveFeature, navigate, search: location.search });
     }
     if (currentSection === "tenants") return renderTenantsSection();
     if (currentSection === "services") return renderServicesSection();
