@@ -152,6 +152,7 @@ import type {
   BillingOverviewResponse,
   CreateWalkInTicketRequest,
   QueueHistoryTicket,
+  QueueCurrentTicket,
   QueueListTicket,
   PublicBoardThemeSettings,
   QueueSnapshot,
@@ -359,6 +360,120 @@ type VendorQueueRendererContext = { render: () => React.ReactNode };
 
 function VendorQueueRenderer({ render }: VendorQueueRendererContext) {
   return <>{render()}</>;
+}
+
+type VendorQueueStatusColumnsProps = {
+  activeTicket: QueueCurrentTicket | null | undefined;
+  intakeState: QueueSnapshot["queueIntake"] | null | undefined;
+  queueDayReconciling: boolean;
+  queueDayUnopened: boolean;
+  queueDayActuallyClosed: boolean;
+  queueDayClosed: boolean;
+  queueDayPaused: boolean;
+  queueDayExtended: boolean;
+  snapshot: QueueSnapshot | null | undefined;
+};
+
+function VendorQueueStatusColumns({
+  activeTicket,
+  intakeState,
+  queueDayReconciling,
+  queueDayUnopened,
+  queueDayActuallyClosed,
+  queueDayClosed,
+  queueDayPaused,
+  queueDayExtended,
+  snapshot,
+}: VendorQueueStatusColumnsProps) {
+  return (
+    <div
+      className="vendor-queue-status-columns"
+      data-columns={intakeState?.autoPauseEnabled ? 3 : 2}
+    >
+      <div className="vendor-queue-status-column">
+        <p className="queue-text vendor-eyebrow">
+          {activeTicket?.serviceStartedAt
+            ? "In service"
+            : snapshot?.location?.serviceTimingEnabled
+              ? "Called ticket"
+              : "Now serving"}
+        </p>
+        <div className="queue-row">
+          <h3 className="queue-heading">{activeTicket?.ticketNumber || "--"}</h3>
+          {activeTicket && isCheckedInBookingTicket(activeTicket) ? (
+            <QueueBadge variant="outline">Booking</QueueBadge>
+          ) : null}
+          {activeTicket?.customerConfirmedAt ? (
+            <QueueBadge variant="outline">Customer confirmed</QueueBadge>
+          ) : null}
+        </div>
+        <p className="queue-text queue-muted queue-small">
+          {activeTicket?.customerName || "No active ticket"}
+        </p>
+        {activeTicket?.serviceStartedAt ? (
+          <p className="queue-text queue-muted queue-small">
+            Service started {formatDateTime(activeTicket.serviceStartedAt)}
+          </p>
+        ) : snapshot?.location?.serviceTimingEnabled && activeTicket ? (
+          <p className="queue-text queue-muted queue-small">
+            Called · service has not started
+          </p>
+        ) : null}
+        {activeTicket?.linkedBookingReference ? (
+          <p className="queue-text queue-muted queue-small">
+            Booking {activeTicket.linkedBookingReference}
+          </p>
+        ) : null}
+      </div>
+      <div className="vendor-queue-status-column">
+        <p className="queue-text vendor-eyebrow">Queue day</p>
+        <h3 className="queue-heading">
+          {queueDayReconciling
+            ? "Closing"
+            : queueDayUnopened
+              ? "Not opened"
+              : queueDayActuallyClosed
+                ? "Closed"
+                : queueDayPaused
+                  ? "Paused"
+                  : queueDayExtended
+                    ? "Extended"
+                    : "Open"}
+        </h3>
+        <p className="queue-text queue-muted queue-small">
+          {queueDayReconciling
+            ? "Ticket outcomes are being reconciled"
+            : queueDayUnopened
+              ? "Waiting for an authorized operator to open the Queue Day"
+              : queueDayClosed && snapshot?.queueDay?.closedAt
+                ? `Closed ${formatDateTime(snapshot.queueDay.closedAt)}`
+                : queueDayPaused && snapshot?.queueDay?.pausedAt
+                  ? `Paused ${formatDateTime(snapshot.queueDay.pausedAt)}`
+                  : snapshot?.queueDay?.currentClosesAt
+                    ? `Scheduled close ${formatDateTime(snapshot.queueDay.currentClosesAt)}`
+                    : "Customers can continue joining this queue"}
+        </p>
+      </div>
+      {intakeState?.autoPauseEnabled && intakeState.autoPauseThreshold ? (
+        <div className="vendor-queue-status-column">
+          <LiveQueueIntake
+            waitingCount={intakeState.currentWaitingCount}
+            threshold={intakeState.autoPauseThreshold}
+            resumeWaitingCount={intakeState.resumeWaitingCount}
+            autoResumeEnabled={intakeState.autoResumeEnabled}
+            state={
+              intakeState.state === "paused"
+                ? "paused"
+                : intakeState.state === "near_limit"
+                  ? "near_limit"
+                  : "open"
+            }
+            stateLabel={intakeState.stateLabel}
+          />
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 type VendorAdministrationRendererContext = { render: () => React.ReactNode };
@@ -5717,96 +5832,17 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
               </p>
             ) : null}
             {!resourceQueueEnabled ? (
-            <div
-              className="vendor-queue-status-columns"
-              data-columns={intakeState?.autoPauseEnabled ? 3 : 2}
-            >
-              <div className="vendor-queue-status-column">
-                <p className="queue-text vendor-eyebrow">
-                  {activeTicket?.serviceStartedAt
-                    ? "In service"
-                    : snapshot?.location?.serviceTimingEnabled
-                      ? "Called ticket"
-                      : "Now serving"}
-                </p>
-                <div className="queue-row">
-                  <h3 className="queue-heading">
-                    {activeTicket?.ticketNumber || "--"}
-                  </h3>
-                  {activeTicket && isCheckedInBookingTicket(activeTicket) ? (
-                    <QueueBadge variant="outline">Booking</QueueBadge>
-                  ) : null}
-                  {activeTicket?.customerConfirmedAt ? (
-                    <QueueBadge variant="outline">Customer confirmed</QueueBadge>
-                  ) : null}
-                </div>
-                <p className="queue-text queue-muted queue-small">
-                  {activeTicket?.customerName || "No active ticket"}
-                </p>
-                {activeTicket?.serviceStartedAt ? (
-                  <p className="queue-text queue-muted queue-small">
-                    Service started{" "}
-                    {formatDateTime(activeTicket.serviceStartedAt)}
-                  </p>
-                ) : snapshot?.location?.serviceTimingEnabled && activeTicket ? (
-                  <p className="queue-text queue-muted queue-small">
-                    Called · service has not started
-                  </p>
-                ) : null}
-                {activeTicket?.linkedBookingReference ? (
-                  <p className="queue-text queue-muted queue-small">
-                    Booking {activeTicket.linkedBookingReference}
-                  </p>
-                ) : null}
-              </div>
-              <div className="vendor-queue-status-column">
-                <p className="queue-text vendor-eyebrow">Queue day</p>
-                <h3 className="queue-heading">
-                  {queueDayReconciling
-                    ? "Closing"
-                    : queueDayUnopened
-                      ? "Not opened"
-                      : queueDayActuallyClosed
-                        ? "Closed"
-                        : queueDayPaused
-                          ? "Paused"
-                          : queueDayExtended
-                            ? "Extended"
-                            : "Open"}
-                </h3>
-                <p className="queue-text queue-muted queue-small">
-                  {queueDayReconciling
-                    ? "Ticket outcomes are being reconciled"
-                    : queueDayUnopened
-                      ? "Waiting for an authorized operator to open the Queue Day"
-                      : queueDayClosed && snapshot?.queueDay?.closedAt
-                        ? `Closed ${formatDateTime(snapshot.queueDay.closedAt)}`
-                        : queueDayPaused && snapshot?.queueDay?.pausedAt
-                          ? `Paused ${formatDateTime(snapshot.queueDay.pausedAt)}`
-                          : snapshot?.queueDay?.currentClosesAt
-                            ? `Scheduled close ${formatDateTime(snapshot.queueDay.currentClosesAt)}`
-                            : "Customers can continue joining this queue"}
-                </p>
-              </div>
-              {intakeState?.autoPauseEnabled && intakeState.autoPauseThreshold ? (
-                <div className="vendor-queue-status-column">
-                  <LiveQueueIntake
-                    waitingCount={intakeState.currentWaitingCount}
-                    threshold={intakeState.autoPauseThreshold}
-                    resumeWaitingCount={intakeState.resumeWaitingCount}
-                    autoResumeEnabled={intakeState.autoResumeEnabled}
-                    state={
-                      intakeState.state === "paused"
-                        ? "paused"
-                        : intakeState.state === "near_limit"
-                          ? "near_limit"
-                          : "open"
-                    }
-                    stateLabel={intakeState.stateLabel}
-                  />
-                </div>
-              ) : null}
-            </div>
+              <VendorQueueStatusColumns
+                activeTicket={activeTicket}
+                intakeState={intakeState}
+                queueDayReconciling={queueDayReconciling}
+                queueDayUnopened={queueDayUnopened}
+                queueDayActuallyClosed={queueDayActuallyClosed}
+                queueDayClosed={queueDayClosed}
+                queueDayPaused={queueDayPaused}
+                queueDayExtended={queueDayExtended}
+                snapshot={snapshot}
+              />
             ) : null}
           </QueueCardContent>
         </QueueCard>
