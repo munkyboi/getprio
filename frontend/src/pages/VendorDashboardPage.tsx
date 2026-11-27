@@ -252,6 +252,31 @@ function QueueQrUnavailable() {
   );
 }
 
+function getVendorDashboardAccessRedirect({
+  loading, user, location, section, invalidSection, requiresMfaEnrollment,
+  currentSection, boardApprovalReturn, effectiveEntitlementsQuery,
+  effectiveEntitlements, tenantPlan, defaultDashboardPath, selectedTenantRole,
+  staffAllowedSections, adminAllowedSections, activeTenants, logout,
+}: {
+  loading: boolean; user: ReturnType<typeof useAuth>["user"]; location: ReturnType<typeof useLocation>;
+  section?: string; invalidSection: boolean; requiresMfaEnrollment: boolean;
+  currentSection: DashboardSection; boardApprovalReturn: string | null;
+  effectiveEntitlementsQuery: { isPending: boolean };
+  effectiveEntitlements: Parameters<typeof canAccessVendorSection>[1]; tenantPlan: Parameters<typeof canAccessVendorSection>[2] | null; defaultDashboardPath: string;
+  selectedTenantRole: string | null; staffAllowedSections: Set<string>; adminAllowedSections: Set<string>; activeTenants: unknown[]; logout: () => Promise<void>;
+}) {
+  if (loading) return <VendorAuthLayout><WorkspaceLoading message="Loading dashboard…" /></VendorAuthLayout>;
+  if (!user) return <Navigate to={`/login?next=${encodeURIComponent(location.pathname + location.search)}`} replace />;
+  if (section === "tenants") return <Navigate to={`/dashboard/locations${location.search}${location.hash}`} replace />;
+  if (invalidSection) return <Navigate to="/dashboard/queue" replace />;
+  if (requiresMfaEnrollment && currentSection !== "account") return <Navigate to={boardApprovalReturn ? `/dashboard/account?next=${encodeURIComponent(boardApprovalReturn)}` : "/dashboard/account"} replace />;
+  if (currentSection === "ratings" && !canAccessVendorSection("ratings", effectiveEntitlements, tenantPlan)) return effectiveEntitlementsQuery.isPending ? <VendorAuthLayout><WorkspaceLoading message="Loading plan access…" /></VendorAuthLayout> : <Navigate to={defaultDashboardPath} replace />;
+  if (!effectiveEntitlementsQuery.isPending && !canAccessVendorSection(currentSection, effectiveEntitlements, tenantPlan)) return <Navigate to={defaultDashboardPath} replace />;
+  if ((selectedTenantRole === "staff" && !staffAllowedSections.has(currentSection)) || (selectedTenantRole === "admin" && !adminAllowedSections.has(currentSection))) return <Navigate to={defaultDashboardPath} replace />;
+  if (!activeTenants.length) return <VendorAuthLayout><WorkspaceUnavailable onSignOut={() => void logout()} /></VendorAuthLayout>;
+  return null;
+}
+
 function ModalSection({
   title,
   description,
@@ -10632,48 +10657,14 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     return () => { if (navigationGuard.current === canLeaveFeature) navigationGuard.current = null; };
   });
 
-  if (loading) {
-    return <VendorAuthLayout><WorkspaceLoading message="Loading dashboard…" /></VendorAuthLayout>;
-  }
-
-  if (!user) {
-    return <Navigate to={`/login?next=${encodeURIComponent(location.pathname + location.search)}`} replace />;
-  }
-
-  if (section === "tenants") return <Navigate to={`/dashboard/locations${location.search}${location.hash}`} replace />;
-
-  if (invalidSection) {
-    return <Navigate to="/dashboard/queue" replace />;
-  }
-
-  if (requiresMfaEnrollment && currentSection !== "account") {
-    return <Navigate to={boardApprovalReturn ? `/dashboard/account?next=${encodeURIComponent(boardApprovalReturn)}` : "/dashboard/account"} replace />;
-  }
-
-  if (currentSection === "ratings" && !canAccessVendorSection("ratings", effectiveEntitlements, tenantPlan)) {
-    return effectiveEntitlementsQuery.isPending
-      ? <VendorAuthLayout><WorkspaceLoading message="Loading plan access…" /></VendorAuthLayout>
-      : <Navigate to={defaultDashboardPath} replace />;
-  }
-
-  if (
-    !effectiveEntitlementsQuery.isPending &&
-    !canAccessVendorSection(currentSection, effectiveEntitlements, tenantPlan)
-  ) {
-    return <Navigate to={defaultDashboardPath} replace />;
-  }
-
-  if (
-    (selectedTenantRole === "staff" && !staffAllowedSections.has(currentSection)) ||
-    (selectedTenantRole === "admin" && !adminAllowedSections.has(currentSection))
-  ) {
-    return <Navigate to={defaultDashboardPath} replace />;
-  }
-
-
-  if (!activeTenants.length) {
-    return <VendorAuthLayout><WorkspaceUnavailable onSignOut={() => void logout()} /></VendorAuthLayout>;
-  }
+  const accessRedirect = getVendorDashboardAccessRedirect({
+    loading, user, location, section, invalidSection, requiresMfaEnrollment,
+    currentSection, boardApprovalReturn, effectiveEntitlementsQuery,
+    effectiveEntitlements, tenantPlan, defaultDashboardPath, selectedTenantRole,
+    staffAllowedSections, adminAllowedSections, activeTenants, logout,
+  });
+  if (accessRedirect) return accessRedirect;
+  if (!user) return null;
 
   const ContextPicker = QueueCounterPicker;
   const canSwitchWorkspace = (isOwner || isAdmin) && !requiresMfaEnrollment;
