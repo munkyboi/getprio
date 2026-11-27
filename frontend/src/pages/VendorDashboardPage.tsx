@@ -355,6 +355,12 @@ function renderVendorOverviewSection({ token, effectiveEntitlements, tenantPlan,
   return <ResourceDashboard token={token} canOpenQueue={canAccessVendorSection("queue", effectiveEntitlements, tenantPlan)} scope={{ tenantSlug: selectedTenantSlug, locationSlug: selectedLocationSlug, tenantId: snapshot?.tenant.id || "", locationId: snapshot?.location?.id || "" }} onOpenQueue={() => { if (canLeaveFeature()) navigate(workspacePath("queue", "operations", search)); }} />;
 }
 
+type VendorQueueRendererContext = { render: () => React.ReactNode };
+
+function VendorQueueRenderer({ render }: VendorQueueRendererContext) {
+  return <>{render()}</>;
+}
+
 function canLeaveVendorFeature({ busy, hasEdits, discardApproved, confirm, accountSecurity, recoveryCodes, mfaSecret, accountPanelDraft, reset }: { busy: boolean; hasEdits: boolean; discardApproved: boolean; confirm: (message: string) => boolean; accountSecurity: boolean; recoveryCodes: number; mfaSecret: string; accountPanelDraft: boolean; reset: () => void }) {
   if (busy) return false;
   if (hasEdits && !discardApproved && !confirm("You have unsaved edits. Leave this view?")) return false;
@@ -10770,7 +10776,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       return <ActivationPanel onViewPlans={() => openPlanDialog()} />;
     }
     const simpleSections: Record<string, () => React.ReactNode> = {
-      queue: renderQueuePage,
+      queue: () => <VendorQueueRenderer render={renderQueuePage} />,
       bookings: renderBookingsPage,
       clients: renderClientsPage,
       staff: renderStaffPage,
