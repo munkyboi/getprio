@@ -322,6 +322,16 @@ function handleVendorTenantChange({ value, current, canLeaveFeature, target, res
   navigate(workspacePath(currentSection === "account" ? "account" : nextWorkspace === "administration" ? "settings" : "overview", nextWorkspace, clearQueueReview(search), hash));
 }
 
+function handleVendorLocationChange({ value, current, canLeaveFeature, reset, setSelectedLocationSlug, locationSlug, navigate, pathname, search, hash }: {
+  value: string | null; current: string; canLeaveFeature: () => boolean; reset: () => void; setSelectedLocationSlug: (value: string) => void; locationSlug?: string; navigate: ReturnType<typeof useNavigate>; pathname: string; search: string; hash: string;
+}) {
+  if (!value || value === current || !canLeaveFeature()) return;
+  reset();
+  setSelectedLocationSlug(value);
+  if (locationSlug) navigate(workspacePath("tenants", "administration", clearQueueReview(search)));
+  else navigate({ pathname, search: clearQueueReview(search), hash }, { replace: true });
+}
+
 function ModalSection({
   title,
   description,
@@ -10746,7 +10756,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
             setTicketScannerOpen(false); setScannerTarget(null); setBookingDetailOpen(false); setBookingDetailBooking(null); setBookingDetailModalId(null); setAvailabilityBlocks([]); setAvailabilityExceptions([]); setAvailabilitySummary(null); setBusinessProfileTheme(defaultPublicBoardTheme); setPlanDialogOpen(false); setThemeLocation(null); setConfirmAction(null); setWalkInDialogOpen(false);
           }, userId: user.id, currentSection, navigate, search: location.search, hash: location.hash, setSelectedTenantSlug })} />
         <ContextPicker data={locationOptions} label="Location" value={selectedLocationSlug} disabled={Boolean(busyAction) || boardScannerBusy || boardSettingsBusy || savingNotificationSettings || requestingBrowserPermission || accountPanelBusy || accountProfileBusy || passwordBusy || mfaBusy}
-          onChange={(value) => { if (value && value !== selectedLocationSlug && canLeaveFeature()) { setSnapshot(null); setServiceCounters([]); setVendorBookings([]); setBookingPagination(null); setClients(null); setHistory(null); setBookingDetailOpen(false); setBookingDetailBooking(null); setBookingDetailModalId(null); setAvailabilityBlocks([]); setAvailabilityExceptions([]); setAvailabilitySummary(null); setSelectedCounterSlug(""); setSelectedLocationSlug(value); if(locationSlug)navigate(workspacePath("tenants","administration",clearQueueReview(location.search))); else navigate({pathname:location.pathname,search:clearQueueReview(location.search),hash:location.hash},{replace:true}); } }} />
+          onChange={(value) => handleVendorLocationChange({ value, current: selectedLocationSlug, canLeaveFeature, reset: () => { setSnapshot(null); setServiceCounters([]); setVendorBookings([]); setBookingPagination(null); setClients(null); setHistory(null); setBookingDetailOpen(false); setBookingDetailBooking(null); setBookingDetailModalId(null); setAvailabilityBlocks([]); setAvailabilityExceptions([]); setAvailabilitySummary(null); setSelectedCounterSlug(""); }, setSelectedLocationSlug, locationSlug, navigate, pathname: location.pathname, search: location.search, hash: location.hash })} />
       </> : <QueueBadge variant="warning">MFA setup required</QueueBadge>}
       dialogs={<>
       {renderPlanDialog()}
