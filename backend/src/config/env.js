@@ -37,7 +37,11 @@ const serverUrl = process.env.SERVER_URL || `http://localhost:${port}`;
 const clientUrl = process.env.CLIENT_URL || `http://localhost:${frontendPort}`;
 const appBaseUrl = process.env.APP_BASE_URL || `http://localhost:${frontendPort}`;
 const customerAppUrl = process.env.CUSTOMER_APP_URL || "";
-const vendorAppUrl = process.env.VENDOR_APP_URL || "";
+// Keep the first-party Vendor origin available for production CORS even when
+// the deployment environment omits the optional per-surface override.
+const vendorAppUrl = process.env.VENDOR_APP_URL || (
+  nodeEnv === "production" ? "https://vendor.getprio.online" : ""
+);
 const marketingUrl = process.env.MARKETING_URL || "";
 const localApiProfile = process.env.LOCAL_API_PROFILE || "";
 const localApiOrigin = process.env.LOCAL_API_ORIGIN || "";

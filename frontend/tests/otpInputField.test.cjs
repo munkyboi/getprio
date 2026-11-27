@@ -4,7 +4,7 @@ const assert = require("node:assert/strict");
 const React = require("react");
 const { renderToStaticMarkup } = require("react-dom/server");
 const { MantineProvider } = require("@mantine/core");
-const { OtpInputField } = require("../src/components/OtpInputField.tsx");
+const { OtpInputField, otpVerificationDecision } = require("../src/components/OtpInputField.tsx");
 
 function markup(props = {}) {
   return renderToStaticMarkup(React.createElement(MantineProvider, null,
@@ -26,4 +26,26 @@ test("OTP keeps verification inputs disabled while a request is pending", () => 
   const fields = markup({ disabled: true }).match(/<input[^>]*type="password"[^>]*>/g);
   assert.equal(fields.length, 6);
   fields.forEach((field) => assert.match(field, /disabled=""/));
+});
+
+test("OTP auto-validation starts once for a complete code and ignores duplicate commits", () => {
+  const first = otpVerificationDecision("012345", "challenge-1", "", true, false);
+  assert.deepEqual(first, { attempt: "challenge-1:012345", complete: true, shouldVerify: true });
+  const duplicate = otpVerificationDecision("012345", "challenge-1", first.attempt, true, false);
+  assert.equal(duplicate.shouldVerify, false);
+  assert.equal(duplicate.complete, true);
+});
+
+test("OTP auto-validation does not start for partial or guarded input", () => {
+  assert.equal(otpVerificationDecision("01234", "challenge-1", "", true, false).shouldVerify, false);
+  assert.equal(otpVerificationDecision("012345", "challenge-1", "", false, false).shouldVerify, false);
+  assert.equal(otpVerificationDecision("012345", "challenge-1", "", true, true).shouldVerify, false);
+});
+
+test("OTP does not re-submit a complete code when verification becomes enabled later", () => {
+  const complete = otpVerificationDecision("012345", "challenge-1", "", false, false);
+  assert.equal(complete.complete, true);
+  assert.equal(complete.shouldVerify, false);
+  const enabledLater = otpVerificationDecision("012345", "challenge-1", complete.attempt, true, false);
+  assert.equal(enabledLater.shouldVerify, false);
 });
