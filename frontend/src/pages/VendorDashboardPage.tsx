@@ -370,6 +370,10 @@ function VendorDashboardContextPicker({ requiresMfaEnrollment, ContextPicker, ac
   return <><ContextPicker label="Business" data={activeTenants.map((tenant) => ({ value: tenant.slug, label: tenant.name }))} value={selectedTenantSlug} disabled={disabled} onChange={onTenantChange} /><ContextPicker data={locationOptions} label="Location" value={selectedLocationSlug} disabled={disabled} onChange={onLocationChange} /></>;
 }
 
+function VendorDashboardLocationConfirmation({ opened, draft, setDraft, setAction, action, canLeaveFeature }: { opened: boolean; draft: typeof emptyLocationForm; setDraft: (draft: typeof emptyLocationForm) => void; setAction: (action: (() => void) | null) => void; action: (() => void) | null; canLeaveFeature: (discardApproved?: boolean) => boolean }) {
+  return <QueueConfirmation opened={opened} title="Discard location changes?" description="Your unsaved location changes will be discarded." confirmLabel="Discard changes" cancelLabel="Keep editing" onClose={() => { setDraft(draft); setAction(null); }} onConfirm={() => { if (!canLeaveFeature(true)) return; const proceed = action; setAction(null); proceed?.(); }} />;
+}
+
 function ModalSection({
   title,
   description,
@@ -10781,16 +10785,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       dialogs={<>
       {renderPlanDialog()}
       {!locationSlug ? renderLocationDialog() : null}
-          <QueueConfirmation opened={Boolean(locationLeaveAction)} title="Discard location changes?"
-            description="Your unsaved location changes will be discarded."
-            confirmLabel="Discard changes" cancelLabel="Keep editing"
-            onClose={() => { setLocationForm(locationLeaveDraft.current); setLocationLeaveAction(null); }}
-            onConfirm={() => {
-              if (!canLeaveFeature(true)) return;
-              const proceed = locationLeaveAction;
-              setLocationLeaveAction(null);
-              proceed?.();
-            }} />
+          <VendorDashboardLocationConfirmation opened={Boolean(locationLeaveAction)} draft={locationLeaveDraft.current} setDraft={setLocationForm} setAction={setLocationLeaveAction} action={locationLeaveAction} canLeaveFeature={canLeaveFeature} />
       {serviceLeaveAction ? <QueueConfirmation opened title="Discard service changes?" description="Your unsaved service changes will be discarded." confirmLabel="Discard changes" cancelLabel="Keep editing" confirmColor="red" loading={Boolean(busyAction)} onClose={()=>{setServiceForm(serviceLeaveDraft.current);setServiceLeaveAction(null);}} onConfirm={()=>{if(!canLeaveFeature(true))return;const proceed=serviceLeaveAction;setServiceLeaveAction(null);proceed();}}/> : null}
       {!routeServiceSlug && !serviceEditorScopeRef.current ? renderServiceDialog() : null}
       {renderAvailabilityBlockDialog()}
