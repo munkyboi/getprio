@@ -285,6 +285,14 @@ function getVendorDashboardWorkspaceRedirect({ currentSection, effectiveEntitlem
   return null;
 }
 
+function getVendorDashboardPageMetadata({ requiresMfaEnrollment, routeServiceSlug, routedService, serviceDialogOpen, serviceForm, servicesQuery, locationSlug, routedLocation, currentSection, navItems, dashboardSectionDescriptions }: {
+  requiresMfaEnrollment: boolean; routeServiceSlug?: string; routedService?: { name: string }; serviceDialogOpen: boolean; serviceForm: { name?: string }; servicesQuery: { isPending: boolean }; locationSlug?: string; routedLocation?: { name: string }; currentSection: DashboardSection; navItems: ReadonlyArray<{ section: string; label: string }>; dashboardSectionDescriptions: Record<string, string>;
+}) {
+  const title = requiresMfaEnrollment ? "Secure your account" : routeServiceSlug ? routedService ? `Service: ${serviceDialogOpen ? serviceForm.name || "New service" : routedService.name}` : servicesQuery.isPending ? "Loading service" : "Service unavailable" : locationSlug ? routedLocation ? `Edit ${routedLocation.name}` : "Location unavailable" : currentSection === "queue" ? "Live queue" : navItems.find((item) => item.section === currentSection)?.label || "Account";
+  const description = requiresMfaEnrollment ? "Set up an authenticator to continue to your vendor workspace. Your sign-in session remains active during setup." : routeServiceSlug ? "Set the service details, duration and locations." : locationSlug ? "Set the branch details, payment options and operating hours customers see." : dashboardSectionDescriptions[currentSection] || "Manage your vendor workspace.";
+  return { title, description };
+}
+
 function ModalSection({
   title,
   description,
@@ -10691,8 +10699,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
   const routedLocation = locationSlug && dashboardBootstrapQuery.data
     ? resolveLocationEditor(locationSlug, locations, new Set(dashboardBootstrapQuery.data.locationsResponse.locations.map(item => item.id))) : undefined;
   const routedService = routeServiceSlug && servicesQuery.data ? resolveServiceEditor(routeServiceSlug,services,new Set(servicesQuery.data.services.map(item=>item.id))) : undefined;
-  const pageTitle = requiresMfaEnrollment ? "Secure your account" : routeServiceSlug ? routedService ? `Service: ${serviceDialogOpen ? serviceForm.name || "New service" : routedService.name}` : servicesQuery.isPending ? "Loading service" : "Service unavailable" : locationSlug ? routedLocation ? `Edit ${routedLocation.name}` : "Location unavailable" : currentSection === "queue" ? "Live queue" : navItems.find(item => item.section === currentSection)?.label || "Account";
-  const pageDescription = requiresMfaEnrollment ? "Set up an authenticator to continue to your vendor workspace. Your sign-in session remains active during setup." : routeServiceSlug ? "Set the service details, duration and locations." : locationSlug ? "Set the branch details, payment options and operating hours customers see." : dashboardSectionDescriptions[currentSection] || "Manage your vendor workspace.";
+  const { title: pageTitle, description: pageDescription } = getVendorDashboardPageMetadata({ requiresMfaEnrollment, routeServiceSlug, routedService, serviceDialogOpen, serviceForm, servicesQuery, locationSlug, routedLocation, currentSection, navItems, dashboardSectionDescriptions });
   return (
     <VendorWorkspaceShell
       workspace={workspace} canAdmin={canSwitchWorkspace} items={workspaceNavItems}
