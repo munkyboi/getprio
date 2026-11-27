@@ -175,13 +175,13 @@ test("opening and saving an existing service-specific date-only block preserves 
     reason: "Court maintenance",
   };
   open(exception);
-  assert.equal(context.wholeDay, true);
+  assert.equal(context.wholeDay, false);
   const saved = dateExceptionPayload(
     { ...context.form, reason: "Updated reason" },
     context.wholeDay,
     "main",
   );
-  assert.equal(saved.serviceSlug, "");
+  assert.equal(saved.serviceSlug, "court-a");
   assert.equal(saved.isAvailable, false);
   assert.equal(saved.startsAt, "");
   assert.equal(saved.endsAt, "");

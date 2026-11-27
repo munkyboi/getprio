@@ -1,3 +1,4 @@
+import React from "react";
 import { ManagedCollection } from "./ManagedCollection";
 import type { ServiceCounterSummary, VendorStaffSummary } from "@shared";
 import { ConfigurationSelect } from "./ConfigurationUi";
