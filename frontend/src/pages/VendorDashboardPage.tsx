@@ -379,6 +379,13 @@ function isInvalidVendorDashboardSection(section?: string): boolean {
   return Boolean(section && section !== "locations" && !dashboardSections.has(section));
 }
 
+function useVendorDashboardRouteState(section?: string, locationSlug?: string, routeServiceSlug?: string) {
+  return {
+    currentSection: resolveVendorDashboardSection({ routeServiceSlug, locationSlug, section }),
+    invalidSection: isInvalidVendorDashboardSection(section),
+  };
+}
+
 function resolveVendorEditors(locationSlug: string | undefined, routeServiceSlug: string | undefined, locations: StoreLocationWithHours[], services: VendorServiceSummary[], bootstrapLocations: string[], catalogServices: string[]) {
   return {
     location: locationSlug ? resolveLocationEditor(locationSlug, locations, new Set(bootstrapLocations)) : undefined,
@@ -1248,11 +1255,10 @@ function VendorDashboardContent() {
   const boardApprovalReturn = queueBoardReturnPath(location.search);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const currentSection = resolveVendorDashboardSection({ routeServiceSlug, locationSlug, section });
+  const { currentSection, invalidSection } = useVendorDashboardRouteState(section, locationSlug, routeServiceSlug);
   // `/dashboard/locations` is the public route alias for the internal
   // `tenants` section. Keep it valid long enough for currentSection to render
   // the Administration view instead of falling back to Live queue.
-  const invalidSection = isInvalidVendorDashboardSection(section);
   const [selectedTenantSlug, setSelectedTenantSlug] = useState("");
   const [selectedLocationSlug, setSelectedLocationSlug] = useState("");
   const [editingQueueTicket, setEditingQueueTicket] = useState<{id:string;tenant:string;location:string}|null>(null);
