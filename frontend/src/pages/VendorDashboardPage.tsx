@@ -3231,6 +3231,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     event.preventDefault();
     const submittedForm = event.currentTarget;
     if(!dashboardBootstrapQuery.data||dashboardBootstrapQuery.isError||!locationServicesQuery.data||locationServicesQuery.isError||servicesQuery.isError||!serviceForm.locationServices||serviceForm.locationServices.length!==dashboardBootstrapQuery.data.locationsResponse.locations.length||dashboardBootstrapQuery.data.locationsResponse.locations.some(location=>!serviceForm.locationServices?.some(assignment=>assignment.locationSlug===location.slug))){setError('Location settings are not ready. Retry loading locations before saving.');return;}
+    if (!serviceSlugAvailable) { setError(serviceSlugMessage || "Choose an available service slug before saving."); return; }
     const validationError = validateServiceEditor(submittedForm, {
       quantityError: bookingSettingsAllowed ? serviceQuantityError(serviceForm) : "", checkingSlug: checkingServiceSlug,
       slugAvailable: serviceSlugAvailable, slugMessage: serviceSlugMessage,
