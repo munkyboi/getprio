@@ -441,6 +441,15 @@ function updateLocationHour(
   };
 }
 
+function updateLocationHourClosed(form: LocationForm, index: number, isClosed: boolean): LocationForm {
+  return {
+    ...form,
+    hours: form.hours.map((item, itemIndex) =>
+      itemIndex === index ? { ...item, isClosed } : item,
+    ),
+  };
+}
+
 function updateServiceLocationAssignment(
   form: SaveVendorServiceRequest,
   index: number,
@@ -4755,14 +4764,9 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                           checked={hour.isClosed}
                           label="Closed"
                           onChange={(event) =>
-                            setLocationForm((current) => ({
-                              ...current,
-                              hours: current.hours.map((item, i) =>
-                                i === index
-                                  ? { ...item, isClosed: event.target.checked }
-                                  : item,
-                              ),
-                            }))
+                            setLocationForm((current) =>
+                              updateLocationHourClosed(current, index, event.target.checked),
+                            )
                           }
                         />
                       </div>
@@ -7093,15 +7097,9 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                           value={assignment.priceDisplay || ""}
                           onChange={(event) => {
                             const priceDisplay = event.currentTarget.value;
-                            setServiceForm((current) => ({
-                              ...current,
-                              locationServices: current.locationServices?.map(
-                                (entry, entryIndex) =>
-                                  entryIndex === index
-                                    ? { ...entry, priceDisplay }
-                                    : entry,
-                              ),
-                            }));
+                            setServiceForm((current) =>
+                              updateServiceLocationAssignment(current, index, { priceDisplay }),
+                            );
                           }}
                         />
 </details></>}
