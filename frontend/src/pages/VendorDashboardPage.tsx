@@ -454,6 +454,74 @@ function updateServiceLocationAssignment(
   };
 }
 
+type StaffChangeKind = "role" | "status" | "remove";
+type StaffChangeValue = "admin" | "staff" | boolean | undefined;
+type ConfirmActionConfig = {
+  title: string;
+  description: string;
+  confirmLabel: string;
+  confirmColor: "red" | "blue" | "orange";
+  onConfirm: () => Promise<void>;
+};
+
+function staffChangeConfirmation(
+  member: VendorStaffSummary,
+  kind: StaffChangeKind,
+  value: StaffChangeValue,
+  onConfirm: () => Promise<void>,
+): ConfirmActionConfig {
+  const role = value === "admin" ? "admin" : "staff";
+  const enabled = value === true;
+  const title = kind === "role"
+    ? `Change ${member.name}'s role?`
+    : kind === "remove"
+      ? `Remove ${member.name}?`
+      : `${enabled ? "Enable" : "Disable"} ${member.name}'s access?`;
+  const description = kind === "role"
+    ? `Their role in this business will become ${role === "admin" ? "Admin" : "Staff"}. Their existing location and counter assignments are retained.`
+    : kind === "remove"
+      ? "This revokes their access to this business. Their GetPrio account remains available for other businesses and customer bookings."
+      : enabled
+        ? "Allow this member to access this business again, subject to their role and assignments."
+        : "This disables their access to this business. Their account and membership remain saved; you can enable access again.";
+  const confirmLabel = kind === "role"
+    ? "Change role"
+    : kind === "remove"
+      ? "Remove staff"
+      : enabled
+        ? "Enable access"
+        : "Disable access";
+  return {
+    title,
+    description,
+    confirmLabel,
+    confirmColor: kind === "remove" || (kind === "status" && !enabled) ? "red" : "blue",
+    onConfirm,
+  };
+}
+
+function serviceRecordConfirmation(
+  action: "complete" | "interrupt",
+  recordId: string,
+  token: string,
+  tenantSlug: string,
+  locationQuery: string,
+  runAction: (name: string, request: () => Promise<DashboardActionResponse>) => Promise<boolean>,
+): ConfirmActionConfig {
+  const completed = action === "complete";
+  return {
+    title: completed ? "Record service completion?" : "Record interrupted service?",
+    description: "The current time will be recorded as the service end. The existing queue and booking outcome will be preserved.",
+    confirmLabel: completed ? "Record completion" : "Record interruption",
+    confirmColor: "orange",
+    onConfirm: async () => {
+      await runAction(`service-${action}`, () =>
+        vendorDashboardQueue.recordTicketService(token, tenantSlug, locationQuery, recordId, action),
+      );
+    },
+  };
+}
+
 const emptyServiceForm: SaveVendorServiceRequest = {
   name: "",
   slug: "",
@@ -5806,30 +5874,16 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                               disabled={queueActionBusy}
                               key={action}
                               onClick={() =>
-                                setConfirmAction({
-                                  title:
-                                    action === "complete"
-                                      ? "Record service completion?"
-                                      : "Record interrupted service?",
-                                  description:
-                                    "The current time will be recorded as the service end. The existing queue and booking outcome will be preserved.",
-                                  confirmLabel:
-                                    action === "complete"
-                                      ? "Record completion"
-                                      : "Record interruption",
-                                  confirmColor: "orange",
-                                  onConfirm: async () => {
-                                    await runAction(`service-${action}`, () =>
-                                      vendorDashboardQueue.recordTicketService(
-                                        token,
-                                        selectedTenantSlug,
-                                        locationQuery,
-                                        record.id,
-                                        action,
-                                      ),
-                                    );
-                                  },
-                                })
+                                setConfirmAction(
+                                  serviceRecordConfirmation(
+                                    action,
+                                    record.id,
+                                    token,
+                                    selectedTenantSlug,
+                                    locationQuery,
+                                    runAction,
+                                  ),
+                                )
                               }
                             >
                               {action === "complete"
@@ -8320,44 +8374,18 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       );
     const confirmStaffChange = (
       member: VendorStaffSummary,
-      kind: "role" | "status" | "remove",
-      value?: "admin" | "staff" | boolean,
+      kind: StaffChangeKind,
+      value?: StaffChangeValue,
     ) => {
       setError("");
       const role = value === "admin" ? "admin" : "staff";
       const enabled = value === true;
-      openConfirmAction({
-        title:
-          kind === "role"
-            ? `Change ${member.name}'s role?`
-            : kind === "remove"
-              ? `Remove ${member.name}?`
-              : `${enabled ? "Enable" : "Disable"} ${member.name}'s access?`,
-        description:
-          kind === "role"
-            ? `Their role in this business will become ${role === "admin" ? "Admin" : "Staff"}. Their existing location and counter assignments are retained.`
-            : kind === "remove"
-              ? "This revokes their access to this business. Their GetPrio account remains available for other businesses and customer bookings."
-              : enabled
-                ? "Allow this member to access this business again, subject to their role and assignments."
-                : "This disables their access to this business. Their account and membership remain saved; you can enable access again.",
-        confirmLabel:
-          kind === "role"
-            ? "Change role"
-            : kind === "remove"
-              ? "Remove staff"
-              : enabled
-                ? "Enable access"
-                : "Disable access",
-        confirmColor:
-          kind === "remove" || (kind === "status" && !enabled) ? "red" : "blue",
-        onConfirm: async () => {
-          if (kind === "role") await handleUpdateStaffRole(member, role);
-          else if (kind === "status")
-            await handleUpdateStaffStatus(member, enabled);
-          else await handleRemoveStaff(member);
-        },
-      });
+      const onConfirm = async () => {
+        if (kind === "role") await handleUpdateStaffRole(member, role);
+        else if (kind === "status") await handleUpdateStaffStatus(member, enabled);
+        else await handleRemoveStaff(member);
+      };
+      openConfirmAction(staffChangeConfirmation(member, kind, value, onConfirm));
     };
     return (
       <ConfigurationScope busy={Boolean(busyAction)}>
