@@ -371,6 +371,14 @@ function shouldShowVendorActivation(hasActiveSubscription: boolean, section: Das
   return !hasActiveSubscription && section !== "settings" && section !== "account";
 }
 
+function renderVendorRatingsSection(selectedTenantSlug: string, token: string | null) {
+  return <VendorRatingsPanel key={selectedTenantSlug} token={token!} tenantSlug={selectedTenantSlug} />;
+}
+
+function renderVendorAccountSection(requiresMfaEnrollment: boolean, boardApprovalReturn: string | null, renderAccountPage: () => React.ReactNode) {
+  return <Stack gap="md">{!requiresMfaEnrollment && boardApprovalReturn ? <Button component={NavLink} to={boardApprovalReturn} mih={44}>Continue to display approval</Button> : null}{renderAccountPage()}</Stack>;
+}
+
 function canLeaveVendorFeature({ busy, hasEdits, discardApproved, confirm, accountSecurity, recoveryCodes, mfaSecret, accountPanelDraft, reset }: { busy: boolean; hasEdits: boolean; discardApproved: boolean; confirm: (message: string) => boolean; accountSecurity: boolean; recoveryCodes: number; mfaSecret: string; accountPanelDraft: boolean; reset: () => void }) {
   if (busy) return false;
   if (hasEdits && !discardApproved && !confirm("You have unsaved edits. Leave this view?")) return false;
@@ -10799,8 +10807,8 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     }
     if (currentSection === "tenants") return <VendorAdministrationRenderer render={renderTenantsSection} />;
     if (currentSection === "services") return <VendorAdministrationRenderer render={renderServicesSection} />;
-    if (currentSection === "ratings") return <VendorRatingsPanel key={selectedTenantSlug} token={token!} tenantSlug={selectedTenantSlug} />;
-    if (currentSection === "account") return <Stack gap="md">{!requiresMfaEnrollment && boardApprovalReturn ? <Button component={NavLink} to={boardApprovalReturn} mih={44}>Continue to display approval</Button> : null}{renderAccountPage()}</Stack>;
+    if (currentSection === "ratings") return renderVendorRatingsSection(selectedTenantSlug, token);
+    if (currentSection === "account") return renderVendorAccountSection(requiresMfaEnrollment, boardApprovalReturn, renderAccountPage);
     return simpleSections[currentSection]?.() ?? renderSettingsPage();
   }
 
