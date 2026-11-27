@@ -386,6 +386,11 @@ function resolveVendorEditors(locationSlug: string | undefined, routeServiceSlug
   };
 }
 
+function buildVendorWorkspaceContext(currentSection: DashboardSection, requested: string | null, canAdmin: boolean, items: Array<{ section: string; label: string; icon: ElementType }>) {
+  const workspace = sectionWorkspace(currentSection, requested, canAdmin);
+  return { workspace, items: workspaceItems(items, workspace) };
+}
+
 function renderVendorDashboardMainContent({ requiresMfaEnrollment, currentSection, snapshot, selectedTenantSlug, selectedLocationSlug, renderCurrentSection, queryError, retry }: { requiresMfaEnrollment: boolean; currentSection: DashboardSection; snapshot: QueueSnapshot | null; selectedTenantSlug: string; selectedLocationSlug: string; renderCurrentSection: () => React.ReactNode; queryError: unknown; retry: () => void }) {
   const ready = requiresMfaEnrollment || currentSection === "account" || (snapshot?.tenant.slug === selectedTenantSlug && snapshot?.location?.slug === selectedLocationSlug);
   return ready ? renderCurrentSection() : <OperationQueryState loading={!queryError} error={queryError} onRetry={retry} />;
@@ -10807,8 +10812,9 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
 
   const ContextPicker = QueueCounterPicker;
   const canSwitchWorkspace = (isOwner || isAdmin) && !requiresMfaEnrollment;
-  const workspace = sectionWorkspace(currentSection, new URLSearchParams(location.search).get("workspace"), canSwitchWorkspace);
-  const workspaceNavItems = workspaceItems(visibleNavItems, workspace);
+  const workspaceContext = buildVendorWorkspaceContext(currentSection, new URLSearchParams(location.search).get("workspace"), canSwitchWorkspace, visibleNavItems);
+  const workspace = workspaceContext.workspace;
+  const workspaceNavItems = workspaceContext.items;
   const switchWorkspace = (next: "operations" | "administration") => navigateVendorWorkspace({ canSwitchWorkspace, canLeaveFeature, next, visibleNavItems, userId: user.id, tenantSlug: selectedTenantSlug, search: location.search, hash: location.hash, navigate });
   const routedEditors = resolveVendorEditors(locationSlug, routeServiceSlug, locations, services, dashboardBootstrapQuery.data?.locationsResponse.locations.map(item => item.id) || [], servicesQuery.data?.services.map(item => item.id) || []);
   const routedLocation = routedEditors.location;
