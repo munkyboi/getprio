@@ -351,6 +351,15 @@ function getVendorDashboardHeaderAction({ routeServiceSlug, locationSlug, requir
   return undefined;
 }
 
+function canLeaveVendorFeature({ busy, hasEdits, discardApproved, confirm, accountSecurity, recoveryCodes, mfaSecret, accountPanelDraft, reset }: { busy: boolean; hasEdits: boolean; discardApproved: boolean; confirm: (message: string) => boolean; accountSecurity: boolean; recoveryCodes: number; mfaSecret: string; accountPanelDraft: boolean; reset: () => void }) {
+  if (busy) return false;
+  if (hasEdits && !discardApproved && !confirm("You have unsaved edits. Leave this view?")) return false;
+  if (accountSecurity && recoveryCodes && !confirm("Save your recovery codes before leaving Security. They remain visible only in this dashboard session. Leave Security?")) return false;
+  if (accountSecurity && mfaSecret && !confirm("Your authenticator setup will stay pending. Return to Security to finish or cancel it. Leave Security?")) return false;
+  if (accountPanelDraft) reset();
+  return true;
+}
+
 function ModalSection({
   title,
   description,
@@ -10690,17 +10699,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
   }
 
   const canLeaveFeature = (discardApproved = false) => {
-    if (resourceConfigurationBusy || busyAction || boardScannerBusy || boardSettingsBusy || savingNotificationSettings || requestingBrowserPermission || accountProfileBusy || passwordBusy || mfaBusy || accountPanelBusy) return false;
-    const editing = unsavedForm.current.hasEdits() || themeDialogOpen || accountDraftRef.current;
-    if (editing && !discardApproved && !window.confirm("You have unsaved edits. Leave this view?")) return false;
-    if (currentSection === "account" && accountTab === "security") {
-      if (mfaRecoveryCodes.length && !window.confirm("Save your recovery codes before leaving Security. They remain visible only in this dashboard session. Leave Security?")) return false;
-      if (mfaSecret && !window.confirm("Your authenticator setup will stay pending. Return to Security to finish or cancel it. Leave Security?")) return false;
-    }
-    if (accountPanelDraft) {
-      setAccountTaskRevision((revision) => revision + 1);
-      setAccountPanelDraft(false);
-    }
+    if (!canLeaveVendorFeature({ busy: resourceConfigurationBusy || Boolean(busyAction) || boardScannerBusy || boardSettingsBusy || savingNotificationSettings || requestingBrowserPermission || accountProfileBusy || passwordBusy || mfaBusy || accountPanelBusy, hasEdits: unsavedForm.current.hasEdits() || themeDialogOpen || accountDraftRef.current, discardApproved, confirm: window.confirm, accountSecurity: currentSection === "account" && accountTab === "security", recoveryCodes: mfaRecoveryCodes.length, mfaSecret, accountPanelDraft, reset: () => { setAccountTaskRevision((revision) => revision + 1); setAccountPanelDraft(false); } })) return false;
     setEditingQueueTicket(null);
     unsavedForm.current.clear();
     setAccountProfileForm({name:user?.name || "",displayName:user?.displayName || ""});
