@@ -345,6 +345,12 @@ function getVendorDashboardBreadcrumbs(routeServiceSlug: string | undefined, loc
   return undefined;
 }
 
+function getVendorDashboardHeaderAction({ routeServiceSlug, locationSlug, requiresMfaEnrollment, busyAction, requestServiceLeave, requestLocationLeave, navigate, search }: { routeServiceSlug?: string; locationSlug?: string; requiresMfaEnrollment: boolean; busyAction: string; requestServiceLeave: (proceed: () => void) => void; requestLocationLeave: (proceed: () => void) => void; navigate: ReturnType<typeof useNavigate>; search: string }) {
+  if (routeServiceSlug && !requiresMfaEnrollment) return <OperationButton variant="outline" disabled={Boolean(busyAction)} onClick={() => requestServiceLeave(() => navigate(workspacePath("services", "administration", search)))}><IconArrowLeft data-icon="inline-start" aria-hidden="true" />Back to services</OperationButton>;
+  if (locationSlug && !requiresMfaEnrollment) return <OperationButton variant="outline" disabled={Boolean(busyAction)} onClick={() => requestLocationLeave(() => navigate(workspacePath("tenants", "administration", search)))}><IconArrowLeft data-icon="inline-start" aria-hidden="true" />Back to locations</OperationButton>;
+  return undefined;
+}
+
 function ModalSection({
   title,
   description,
@@ -10748,7 +10754,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       eyebrow={routeServiceSlug && !requiresMfaEnrollment ? "SERVICE EDITOR" : undefined}
       description={pageDescription}
       breadcrumbs={getVendorDashboardBreadcrumbs(routeServiceSlug, locationSlug, requiresMfaEnrollment, pageTitle, location.search)}
-      headerAction={routeServiceSlug && !requiresMfaEnrollment ? <OperationButton variant="outline" disabled={Boolean(busyAction)} onClick={()=>requestServiceLeave(()=>navigate(workspacePath("services","administration",location.search)))}><IconArrowLeft data-icon="inline-start" aria-hidden="true"/>Back to services</OperationButton> : locationSlug && !requiresMfaEnrollment ? <OperationButton variant="outline" disabled={Boolean(busyAction)} onClick={() => requestLocationLeave(() => navigate(workspacePath("tenants", "administration", location.search)))}><IconArrowLeft data-icon="inline-start" aria-hidden="true" />Back to locations</OperationButton> : undefined}
+      headerAction={getVendorDashboardHeaderAction({ routeServiceSlug, locationSlug, requiresMfaEnrollment, busyAction, requestServiceLeave, requestLocationLeave, navigate, search: location.search })}
       name={user.name || "Vendor"} role={selectedTenantRole || "Vendor"} plan={activeSubscription?.planName || tenantPlan?.planName || "No active plan"}
       onBeforeNavigate={canLeaveFeature} onEdit={(form) => unsavedForm.current.mark(form)}
       onWorkspace={switchWorkspace} onLogout={() => { if (canLeaveFeature()) void logout(); }} search={location.search} hash={location.hash}
