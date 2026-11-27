@@ -472,25 +472,20 @@ function staffChangeConfirmation(
 ): ConfirmActionConfig {
   const role = value === "admin" ? "admin" : "staff";
   const enabled = value === true;
-  const title = kind === "role"
-    ? `Change ${member.name}'s role?`
-    : kind === "remove"
-      ? `Remove ${member.name}?`
-      : `${enabled ? "Enable" : "Disable"} ${member.name}'s access?`;
-  const description = kind === "role"
-    ? `Their role in this business will become ${role === "admin" ? "Admin" : "Staff"}. Their existing location and counter assignments are retained.`
-    : kind === "remove"
-      ? "This revokes their access to this business. Their GetPrio account remains available for other businesses and customer bookings."
-      : enabled
-        ? "Allow this member to access this business again, subject to their role and assignments."
-        : "This disables their access to this business. Their account and membership remain saved; you can enable access again.";
-  const confirmLabel = kind === "role"
-    ? "Change role"
-    : kind === "remove"
-      ? "Remove staff"
-      : enabled
-        ? "Enable access"
-        : "Disable access";
+  let title = `${enabled ? "Enable" : "Disable"} ${member.name}'s access?`;
+  let description = enabled
+    ? "Allow this member to access this business again, subject to their role and assignments."
+    : "This disables their access to this business. Their account and membership remain saved; you can enable access again.";
+  let confirmLabel = enabled ? "Enable access" : "Disable access";
+  if (kind === "role") {
+    title = `Change ${member.name}'s role?`;
+    description = `Their role in this business will become ${role === "admin" ? "Admin" : "Staff"}. Their existing location and counter assignments are retained.`;
+    confirmLabel = "Change role";
+  } else if (kind === "remove") {
+    title = `Remove ${member.name}?`;
+    description = "This revokes their access to this business. Their GetPrio account remains available for other businesses and customer bookings.";
+    confirmLabel = "Remove staff";
+  }
   return {
     title,
     description,
@@ -520,6 +515,21 @@ function serviceRecordConfirmation(
       );
     },
   };
+}
+
+function isStaleResourceConfiguration(actionName: string, error: unknown) {
+  return actionName === "call-next" && error instanceof ApiError &&
+    (error.code === "RESOURCE_CONFIGURATION_CHANGED" || error.code === "STALE_REVISION");
+}
+
+function isServicePlanRequired(actionName: string, error: unknown) {
+  return actionName === "service-start" && error instanceof ApiError && error.code === "SERVICE_PLAN_REQUIRED";
+}
+
+function getLinearRecovery(actionName: string, error: unknown) {
+  return (actionName === "call-next" || actionName.startsWith("service-")) && error instanceof ApiError
+    ? linearQueueRecovery(error.code, error.message)
+    : null;
 }
 
 const emptyServiceForm: SaveVendorServiceRequest = {
@@ -2787,12 +2797,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       setStartPlanErrorScope(null);
       return true;
     } catch (actionError) {
-      const staleResourceConfiguration =
-        actionName === "call-next" &&
-        actionError instanceof ApiError &&
-        (actionError.code === "RESOURCE_CONFIGURATION_CHANGED" ||
-          actionError.code === "STALE_REVISION");
-      if (staleResourceConfiguration) {
+      if (isStaleResourceConfiguration(actionName, actionError)) {
         // The server correctly rejected the call against a changed resource
         // revision. Refresh dependent catalogs and queue views so the next
         // attempt is based on authoritative state; never retry or call
@@ -2806,11 +2811,10 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         ]);
         window.dispatchEvent(new Event("queue-plans-updated"));
       }
-      if (actionName === "service-start" && actionError instanceof ApiError && actionError.code === "SERVICE_PLAN_REQUIRED") {
+      if (isServicePlanRequired(actionName, actionError)) {
         setStartPlanErrorScope(`${selectedTenantSlug}:${selectedLocationSlug}`);
       } else {
-        const recovery = (actionName === "call-next" || actionName.startsWith("service-")) && actionError instanceof ApiError
-          ? linearQueueRecovery(actionError.code, actionError.message) : null;
+        const recovery = getLinearRecovery(actionName, actionError);
         if (recovery) setLinearCommandError({scope:`${selectedTenantSlug}:${selectedLocationSlug}`,message:recovery});
         else setError(getErrorMessage(actionError));
       }
