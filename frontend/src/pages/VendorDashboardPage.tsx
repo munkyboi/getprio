@@ -534,6 +534,58 @@ function VendorQueueDayBadge({
   return <QueueBadge variant={variant}>{label}</QueueBadge>;
 }
 
+type VendorQueueControlActionsProps = {
+  queueDayUnopened: boolean;
+  queueDayActuallyClosed: boolean;
+  queueDayClosed: boolean;
+  queueDayPaused: boolean;
+  canOperateQueueDay: boolean;
+  canReopenQueueDay: boolean;
+  queueActionBusy: boolean;
+  boardScannerBusy: boolean;
+  boardSettingsBusy: boolean;
+  savingNotificationSettings: boolean;
+  requestingBrowserPermission: boolean;
+  busyAction: string | null;
+  onOpen: () => void;
+  onReopen: () => void;
+  onResume: () => void;
+  onPause: () => void;
+  onClose: () => void;
+};
+
+function VendorQueueControlActions({
+  queueDayUnopened,
+  queueDayActuallyClosed,
+  queueDayClosed,
+  queueDayPaused,
+  canOperateQueueDay,
+  canReopenQueueDay,
+  queueActionBusy,
+  boardScannerBusy,
+  boardSettingsBusy,
+  savingNotificationSettings,
+  requestingBrowserPermission,
+  busyAction,
+  onOpen,
+  onReopen,
+  onResume,
+  onPause,
+  onClose,
+}: VendorQueueControlActionsProps) {
+  const disabled = queueActionBusy || boardScannerBusy || boardSettingsBusy || savingNotificationSettings || requestingBrowserPermission;
+  if (queueDayUnopened && canOperateQueueDay) {
+    return <QueueButton variant="default" disabled={disabled} aria-busy={busyAction === "queue-open"} onClick={onOpen}>Open queue</QueueButton>;
+  }
+  if (queueDayActuallyClosed && canReopenQueueDay) {
+    return <QueueButton variant="default" disabled={disabled} onClick={onReopen}>{busyAction === "queue-reopen" ? "Reopening..." : "Reopen queue"}</QueueButton>;
+  }
+  if (!queueDayClosed && queueDayPaused) {
+    return <QueueButton variant="secondary" disabled={disabled} onClick={onResume}>{busyAction === "queue-resume" ? "Resuming..." : "Resume intake"}</QueueButton>;
+  }
+  return !queueDayClosed ? <QueueButton variant="secondary" disabled={disabled} onClick={onPause}><IconPlayerPause aria-hidden="true" data-icon="inline-start" />{busyAction === "queue-pause" ? "Pausing..." : "Pause intake"}</QueueButton> : null;
+}
+
 type VendorAdministrationRendererContext = { render: () => React.ReactNode };
 
 function VendorAdministrationRenderer({ render }: VendorAdministrationRendererContext) {
@@ -5478,113 +5530,43 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
               />
             </div>
             <div className="queue-controls-actions">
-                  {queueDayUnopened && canOperateQueueDay ? (
-                    <QueueButton
-                      variant="default"
-                      disabled={queueActionBusy || boardScannerBusy || boardSettingsBusy || savingNotificationSettings || requestingBrowserPermission}
-                      aria-busy={busyAction === "queue-open"}
-                      onClick={() => void handleOpenQueueDay()}
-                    >
-                      Open queue
-                    </QueueButton>
-                  ) : queueDayActuallyClosed && canReopenQueueDay ? (
-                    <QueueButton
-                      variant="default"
-                      disabled={queueActionBusy || boardScannerBusy || boardSettingsBusy || savingNotificationSettings || requestingBrowserPermission}
-                      onClick={async () => {
-                        const success = await runAction("queue-reopen", () =>
-                          vendorDashboardQueue.reopenQueueDay(
-                            token,
-                            selectedTenantSlug,
-                            locationQuery,
-                          ),
-                        );
-                        if (success) {
-                          showSuccessNotification(
-                            "Queue reopened",
-                            "The Queue Day is accepting joins again. Earlier ticket outcomes were not reversed.",
-                          );
-                          setQueueView("current");
-                        }
-                      }}
-                    >
-                      {busyAction === "queue-reopen"
-                        ? "Reopening..."
-                        : "Reopen queue"}
-                    </QueueButton>
-                  ) : !queueDayClosed && queueDayPaused ? (
-                    <QueueButton
-                      variant="secondary"
-                      disabled={queueActionBusy || boardScannerBusy || boardSettingsBusy || savingNotificationSettings || requestingBrowserPermission}
-                      onClick={async () => {
-                        const success = await runAction("queue-resume", () =>
-                          vendorDashboardQueue.resumeQueueDay(
-                            token,
-                            selectedTenantSlug,
-                            locationQuery,
-                          ),
-                        );
-                        if (success) {
-                          showSuccessNotification(
-                            "Queue resumed",
-                            "Customers can join this queue again.",
-                          );
-                        }
-                      }}
-                    >
-                      {busyAction === "queue-resume"
-                        ? "Resuming..."
-                        : "Resume intake"}
-                    </QueueButton>
-                  ) : !queueDayClosed ? (
-                    <QueueButton
-                      variant="secondary"
-                      disabled={queueActionBusy || boardScannerBusy || boardSettingsBusy || savingNotificationSettings || requestingBrowserPermission}
-                      onClick={async () => {
-                        const success = await runAction("queue-pause", () =>
-                          vendorDashboardQueue.pauseQueueDay(
-                            token,
-                            selectedTenantSlug,
-                            locationQuery,
-                          ),
-                        );
-                        if (success) {
-                          showSuccessNotification(
-                            "Queue paused",
-                            "New joins are paused while staff continues serving the active queue.",
-                          );
-                        }
-                      }}
-                    >
-                      <IconPlayerPause aria-hidden="true" data-icon="inline-start" />
-                      {busyAction === "queue-pause"
-                        ? "Pausing..."
-                        : "Pause intake"}
-                    </QueueButton>
-                  ) : null}
-                  {!queueDayClosed && canOperateQueueDay ? (
-                    <QueueButton
-                      variant="destructive"
-                      disabled={queueActionBusy || boardScannerBusy || boardSettingsBusy || savingNotificationSettings || requestingBrowserPermission}
-                      onClick={() => {
-                        setConfirmAction({
-                          title: `Close ${selectedLocation?.name || "this queue"} now?`,
-                          description:
-                            "Unresolved waiting tickets will carry over once or expire, called tickets become unserved, and skipped recovery ends. Reopening will not reverse these outcomes.",
-                          confirmLabel: "Close queue and reconcile",
-                          confirmColor: "red",
-                          onConfirm: async () => {
-                            await handleCloseQueueDay();
-                          },
-                        });
-                      }}
-                    >
-                      <IconX aria-hidden="true" data-icon="inline-start" />
-                      {busyAction === "queue-close"
-                        ? "Closing..."
-                        : "Close queue"}
-                    </QueueButton>
-                  ) : null}
+              <VendorQueueControlActions
+                queueDayUnopened={queueDayUnopened}
+                queueDayActuallyClosed={queueDayActuallyClosed}
+                queueDayClosed={queueDayClosed}
+                queueDayPaused={queueDayPaused}
+                canOperateQueueDay={canOperateQueueDay}
+                canReopenQueueDay={canReopenQueueDay}
+                queueActionBusy={queueActionBusy}
+                boardScannerBusy={boardScannerBusy}
+                boardSettingsBusy={boardSettingsBusy}
+                savingNotificationSettings={savingNotificationSettings}
+                requestingBrowserPermission={requestingBrowserPermission}
+                busyAction={busyAction}
+                onOpen={() => void handleOpenQueueDay()}
+                onReopen={async () => {
+                  const success = await runAction("queue-reopen", () => vendorDashboardQueue.reopenQueueDay(token, selectedTenantSlug, locationQuery));
+                  if (success) {
+                    showSuccessNotification("Queue reopened", "The Queue Day is accepting joins again. Earlier ticket outcomes were not reversed.");
+                    setQueueView("current");
+                  }
+                }}
+                onResume={async () => {
+                  const success = await runAction("queue-resume", () => vendorDashboardQueue.resumeQueueDay(token, selectedTenantSlug, locationQuery));
+                  if (success) showSuccessNotification("Queue resumed", "Customers can join this queue again.");
+                }}
+                onPause={async () => {
+                  const success = await runAction("queue-pause", () => vendorDashboardQueue.pauseQueueDay(token, selectedTenantSlug, locationQuery));
+                  if (success) showSuccessNotification("Queue paused", "New joins are paused while staff continues serving the active queue.");
+                }}
+                onClose={() => setConfirmAction({
+                  title: `Close ${selectedLocation?.name || "this queue"} now?`,
+                  description: "Unresolved waiting tickets will carry over once or expire, called tickets become unserved, and skipped recovery ends. Reopening will not reverse these outcomes.",
+                  confirmLabel: "Close queue and reconcile",
+                  confirmColor: "red",
+                  onConfirm: async () => { await handleCloseQueueDay(); },
+                })}
+              />
             </div>
           </QueueCardHeader>
           <QueueCardContent className="queue-stack queue-controls-surface">
