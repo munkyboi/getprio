@@ -390,6 +390,15 @@ function useVendorDashboardMemberships(user: ReturnType<typeof useAuth>["user"])
   return useMemo(() => activeMemberships(user?.tenants || []), [user?.tenants]);
 }
 
+function useVendorDashboardRouting() {
+  const auth = useAuth();
+  const params = useParams<{ section: string; locationSlug: string; routeServiceSlug: string }>();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  return { ...auth, ...params, location, navigate, queryClient };
+}
+
 function resolveVendorEditors(locationSlug: string | undefined, routeServiceSlug: string | undefined, locations: StoreLocationWithHours[], services: VendorServiceSummary[], bootstrapLocations: string[], catalogServices: string[]) {
   return {
     location: locationSlug ? resolveLocationEditor(locationSlug, locations, new Set(bootstrapLocations)) : undefined,
@@ -1253,12 +1262,8 @@ function VendorDashboardContent() {
   const showInfoNotification = useCallback((title: string, message: string) => {
     notifications.show({color: "blue", icon: <IconInfoCircle size={18} />, title, message});
   }, [notifications]);
-  const { token, user, loading, logout, refreshUser, changePassword } = useAuth();
-  const { section, locationSlug, routeServiceSlug } = useParams<{ section: string; locationSlug: string; routeServiceSlug: string }>();
-  const location = useLocation();
+  const { token, user, loading, logout, refreshUser, changePassword, section, locationSlug, routeServiceSlug, location, navigate, queryClient } = useVendorDashboardRouting();
   const boardApprovalReturn = queueBoardReturnPath(location.search);
-  const navigate = useNavigate();
-  const queryClient = useQueryClient();
   const { currentSection, invalidSection } = useVendorDashboardRouteState(section, locationSlug, routeServiceSlug);
   // `/dashboard/locations` is the public route alias for the internal
   // `tenants` section. Keep it valid long enough for currentSection to render
