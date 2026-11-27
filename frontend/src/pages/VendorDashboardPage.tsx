@@ -993,6 +993,22 @@ function isCheckedInBookingTicket(ticket: {
   return ticket.servicePriorityBand === "checked_in_booking" || Boolean(ticket.linkedBookingReference);
 }
 
+function canManageResourceSetup(admin: boolean, allowed: boolean): boolean {
+  return admin && allowed;
+}
+
+function hasLocationResourceContext(token: string | null, tenant: string, location: string, admin: boolean, allowed: boolean): boolean {
+  return Boolean(token && tenant && location && admin && allowed);
+}
+
+function hasDualLocationCapacity(summary: { hasSharedLocationCapacity?: boolean; hasServiceSpecificCapacity?: boolean } | null | undefined): boolean {
+  return Boolean(summary?.hasSharedLocationCapacity && summary?.hasServiceSpecificCapacity);
+}
+
+function canShowQueuePolicy(enabled: boolean, tenant: string, location: string): boolean {
+  return enabled && Boolean(tenant && location);
+}
+
 function mergeTheme(theme?: Partial<PublicBoardThemeSettings>): PublicBoardThemeSettings {
   const merged = {
     ...defaultPublicBoardTheme,
@@ -6596,9 +6612,6 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
   }
   function renderTenantsPage() {
     const admin = isOwner || isAdmin;
-    const manageResources = admin && resourceSetupAllowed;
-    const manageCounters = admin && Boolean(selectedLocation) && !countersQuery.isPending && !countersQuery.isError;
-    const showLocationError = Boolean(error && !locationDialogOpen && !counterDialogOpen);
     return (
       <ConfigurationScope
         busy={Boolean(busyAction)}
@@ -6624,7 +6637,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
             >
               Locations
             </ConfigTabsTrigger>
-            {manageResources ? (
+            {canManageResourceSetup(admin, resourceSetupAllowed) ? (
               <ConfigTabsTrigger
                 disabled={Boolean(busyAction) || resourceConfigurationBusy}
                 value="resources"
@@ -6639,7 +6652,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
               Counters
             </ConfigTabsTrigger>
           </ConfigTabsList>
-          {showLocationError ? (
+          {error && !locationDialogOpen && !counterDialogOpen ? (
             <OperationAlert color="red" title="Unable to complete the action">
               {error}
             </OperationAlert>
@@ -6688,7 +6701,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
             </div>
           </ConfigTabsContent>
           <ConfigTabsContent value="resources" keepMounted>
-            {token && selectedTenantSlug && selectedLocationSlug && manageResources ? (
+            {hasLocationResourceContext(token, selectedTenantSlug, selectedLocationSlug, admin, resourceSetupAllowed) ? (
               <VendorResourceConfiguration
                 key={`${selectedTenantSlug}:${selectedLocationSlug}`}
                 token={token}
@@ -7549,8 +7562,6 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     const availabilityReady = Boolean(
       availabilityQuery.data && !availabilityQuery.isError && catalogReady,
     );
-    const showQueuePolicy = resourceManagementEnabled && Boolean(selectedTenantSlug && selectedLocationSlug);
-    const showSharedCapacityWarning = Boolean(availabilitySummary?.hasSharedLocationCapacity && availabilitySummary?.hasServiceSpecificCapacity);
     const activeServices = services.filter((service) => service.isActive).length;
     const changeTab = (value: unknown) => {
       if (value !== servicesTab && canLeaveFeature())
@@ -7672,7 +7683,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       fallback capacity. Disabling a rule does not cancel existing
                       bookings.
                     </OperationAlert>
-                    {showSharedCapacityWarning ? (
+                    {hasDualLocationCapacity(availabilitySummary) ? (
                       <OperationAlert title="Mixed booking limits">
                         This branch has both shared and service-specific limits. A
                         shared rule can make a booking for one service affect
@@ -7752,7 +7763,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
               </div>
             </ConfigTabsContent>
             </>}
-            {showQueuePolicy?<ConfigTabsContent value="queue-policy">
+            {canShowQueuePolicy(resourceManagementEnabled, selectedTenantSlug, selectedLocationSlug)?<ConfigTabsContent value="queue-policy">
               <OperationQueryState loading={servicesQuery.isPending} error={servicesQuery.error} onRetry={()=>void servicesQuery.refetch()}/>
               <OperationQueryState loading={locationServicesQuery.isPending} error={locationServicesQuery.error} onRetry={()=>void locationServicesQuery.refetch()}/>
               <QueueServicePolicyEditor key={`${selectedTenantSlug}:${selectedLocationSlug}`} token={token} tenant={selectedTenantSlug} location={selectedLocationSlug} services={servicesQuery.data?.services || []} assignments={locationServicesQuery.data?.locationServices || []} locations={locations} servicesReady={catalogReady} assignmentsReady={assignmentsReady} canManage={resourceSetupAllowed&&(isOwner||isAdmin)} onBusy={value=>setBusyAction(value?'queue-service-policy':'')} onCloseForm={()=>unsavedForm.current.discardId('queue-service-policy')} onNotice={showSuccessNotification}/>
