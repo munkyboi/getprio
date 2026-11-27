@@ -391,6 +391,11 @@ function buildVendorWorkspaceContext(currentSection: DashboardSection, requested
   return { workspace, items: workspaceItems(items, workspace) };
 }
 
+function recordVendorQueueDayMutation(actionName: string, snapshot: QueueSnapshot, update: React.MutableRefObject<LocalQueueDayUpdate | null>) {
+  if (actionName !== "queue-extend" && actionName !== "queue-close") return;
+  update.current = { kind: actionName === "queue-extend" ? "deadline" : "state", id: snapshot.queueDay.id ? String(snapshot.queueDay.id) : null, state: snapshot.queueDay.state || null, deadlineVersion: snapshot.queueDay.deadlineVersion ?? null };
+}
+
 function renderVendorDashboardMainContent({ requiresMfaEnrollment, currentSection, snapshot, selectedTenantSlug, selectedLocationSlug, renderCurrentSection, queryError, retry }: { requiresMfaEnrollment: boolean; currentSection: DashboardSection; snapshot: QueueSnapshot | null; selectedTenantSlug: string; selectedLocationSlug: string; renderCurrentSection: () => React.ReactNode; queryError: unknown; retry: () => void }) {
   const ready = requiresMfaEnrollment || currentSection === "account" || (snapshot?.tenant.slug === selectedTenantSlug && snapshot?.location?.slug === selectedLocationSlug);
   return ready ? renderCurrentSection() : <OperationQueryState loading={!queryError} error={queryError} onRetry={retry} />;
@@ -3037,14 +3042,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       const data = await request();
       const nextSnapshot = data.snapshot;
       if (nextSnapshot) {
-        if (actionName === "queue-extend" || actionName === "queue-close") {
-          localQueueDayUpdateRef.current = {
-            kind: actionName === "queue-extend" ? "deadline" : "state",
-            id: nextSnapshot.queueDay.id ? String(nextSnapshot.queueDay.id) : null,
-            state: nextSnapshot.queueDay.state || null,
-            deadlineVersion: nextSnapshot.queueDay.deadlineVersion ?? null
-          };
-        }
+        recordVendorQueueDayMutation(actionName, nextSnapshot, localQueueDayUpdateRef);
         setSnapshot((current) => selectFreshestQueueSnapshot(current, nextSnapshot));
       }
       setLinearCommandError(null);
