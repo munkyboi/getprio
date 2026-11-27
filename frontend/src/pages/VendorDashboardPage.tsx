@@ -552,6 +552,30 @@ async function refreshStaleQueueConfiguration(queryClient: ReturnType<typeof use
   window.dispatchEvent(new Event("queue-plans-updated"));
 }
 
+async function handleDashboardActionFailure(
+  actionName: string,
+  actionError: unknown,
+  queryClient: ReturnType<typeof useQueryClient>,
+  scope: string,
+  setStartPlanErrorScope: (scope: string | null) => void,
+  setLinearCommandError: (value: { scope: string; message: string } | null) => void,
+  setError: (value: string) => void,
+) {
+  if (isStaleResourceConfiguration(actionName, actionError)) {
+    await refreshStaleQueueConfiguration(queryClient);
+  }
+  if (isServicePlanRequired(actionName, actionError)) {
+    setStartPlanErrorScope(scope);
+    return;
+  }
+  const recovery = getLinearRecovery(actionName, actionError);
+  if (recovery) {
+    setLinearCommandError({ scope, message: recovery });
+    return;
+  }
+  setError(getErrorMessage(actionError));
+}
+
 const emptyServiceForm: SaveVendorServiceRequest = {
   name: "",
   slug: "",
@@ -2817,20 +2841,15 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       setStartPlanErrorScope(null);
       return true;
     } catch (actionError) {
-      if (isStaleResourceConfiguration(actionName, actionError)) {
-        // The server correctly rejected the call against a changed resource
-        // revision. Refresh dependent catalogs and queue views so the next
-        // attempt is based on authoritative state; never retry or call
-        // another ticket implicitly.
-        await refreshStaleQueueConfiguration(queryClient);
-      }
-      if (isServicePlanRequired(actionName, actionError)) {
-        setStartPlanErrorScope(`${selectedTenantSlug}:${selectedLocationSlug}`);
-      } else {
-        const recovery = getLinearRecovery(actionName, actionError);
-        if (recovery) setLinearCommandError({scope:`${selectedTenantSlug}:${selectedLocationSlug}`,message:recovery});
-        else setError(getErrorMessage(actionError));
-      }
+      await handleDashboardActionFailure(
+        actionName,
+        actionError,
+        queryClient,
+        `${selectedTenantSlug}:${selectedLocationSlug}`,
+        setStartPlanErrorScope,
+        setLinearCommandError,
+        setError,
+      );
       return false;
     } finally {
       if (resourceQueueEnabled && currentSection === "queue") {
