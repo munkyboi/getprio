@@ -13,7 +13,7 @@ const configuredProviderEnvironmentKeys = providerEnvironmentKeys.filter(key => 
 if (configuredProviderKeys.length || configuredProviderEnvironmentKeys.length) {
   throw new Error('Provider credentials must be empty in the local demo.');
 }
-if (options.allowMailTransport && (source.RESEND_API_KEY || source.RESEND_FROM_EMAIL || source.RESEND_API_URL || effective.resendApiKey || effective.resendFromEmail || effective.resendApiUrl || source.SMTP_HOST || source.SMTP_USER || source.SMTP_PASS || effective.smtpHost || effective.smtpUser || effective.smtpPass)) {
+if (options.allowMailTransport && (source.RESEND_API_KEY || source.RESEND_FROM_EMAIL || source.RESEND_API_URL || effective.resendApiKey || effective.resendFromEmail || source.SMTP_HOST || source.SMTP_USER || source.SMTP_PASS || effective.smtpHost || effective.smtpUser || effective.smtpPass)) {
   const apiKey = source.RESEND_API_KEY || effective.resendApiKey;
   const fromEmail = source.RESEND_FROM_EMAIL || effective.resendFromEmail;
   const apiUrl = source.RESEND_API_URL || effective.resendApiUrl || 'https://api.resend.com/emails';

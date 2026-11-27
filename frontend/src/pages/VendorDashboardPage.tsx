@@ -841,22 +841,6 @@ function isCheckedInBookingTicket(ticket: {
   return ticket.servicePriorityBand === "checked_in_booking" || Boolean(ticket.linkedBookingReference);
 }
 
-function GroupFundedBookingIndicator({ booking }: { booking: VendorBookingSummary }) {
-  if (!booking.groupFundedBookingId && booking.bookingPaymentSource !== "group_funded") {
-    return null;
-  }
-
-  const campaignId = booking.groupFundedBookingId || booking.groupFundedCampaign?.id;
-  const campaignTitle = booking.groupFundedCampaign?.campaignTitle || "Group-funded campaign";
-  return (
-    <Tooltip label={campaignTitle} withArrow>
-      <QueueBadge variant="info">
-        Group-funded{campaignId ? ` · Campaign #${campaignId}` : ""}
-      </QueueBadge>
-    </Tooltip>
-  );
-}
-
 function mergeTheme(theme?: Partial<PublicBoardThemeSettings>): PublicBoardThemeSettings {
   const merged = {
     ...defaultPublicBoardTheme,
@@ -3301,6 +3285,11 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       setServices((current) =>
         current.map((item) => (item.id === response.service.id ? response.service : item))
       );
+      if (typeof queryClient !== "undefined") {
+        await queryClient.invalidateQueries({
+          queryKey: ["vendor-dashboard-services", token, selectedTenantSlug, isOwner, isAdmin]
+        });
+      }
       await reloadBookings();
       showSuccessNotification(
         isActive ? "Service enabled" : "Service disabled",
@@ -3320,6 +3309,11 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     try {
       const response = await vendorDashboardCatalog.deactivateService(token, selectedTenantSlug, service.slug, !bookingSettingsAllowed);
       setServices((current) => current.map((item) => item.id === response.service.id ? response.service : item));
+      if (typeof queryClient !== "undefined") {
+        await queryClient.invalidateQueries({
+          queryKey: ["vendor-dashboard-services", token, selectedTenantSlug, isOwner, isAdmin]
+        });
+      }
       await reloadBookings();
       showSuccessNotification("Service removed", `${service.name} is disabled. Existing records are retained.`);
     } catch (deleteError) {
@@ -4889,7 +4883,10 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
   }
 
   function renderQueuePage() {
-    if (intakeMode === "loading") return <OperationQueryState loading={!effectiveEntitlementsQuery.error} error={effectiveEntitlementsQuery.error} onRetry={() => void effectiveEntitlementsQuery.refetch()} />;
+    if (intakeMode === "loading") {
+      const queryError = effectiveEntitlementsQuery.error || queueTypeQuery.error;
+      return <OperationQueryState loading={!queryError} error={queryError} onRetry={() => void Promise.all([effectiveEntitlementsQuery.error ? effectiveEntitlementsQuery.refetch() : Promise.resolve(), queueTypeQuery.error ? queueTypeQuery.refetch() : Promise.resolve()])} />;
+    }
     const queueActionBusy = Boolean(busyAction) || managementReadPending;
     const activeCounters = serviceCounters.filter((counter) => counter.isActive);
     const activeTicket = selectedCalledTicket;
@@ -7692,7 +7689,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     const actionableBookings = vendorBookings.filter((booking) =>
       ["pending", "confirmed", "rescheduled"].includes(booking.status),
     ).length;
-    if (bookingListQuery.isError || bookingListQuery.isPending)
+    if (bookingListQuery.isError || (bookingListQuery.isPending && !bookingListQuery.data && vendorBookings.length === 0))
       return (
         <OperationScope>
           <OperationQueryState
@@ -7794,14 +7791,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                             bookingCheckInNow,
                           );
                           const hasExpired = Boolean(booking.expiredAt);
-                          const isGroupFundedBooking =
-                            booking.bookingPaymentSource === "group_funded" ||
-                            Boolean(booking.groupFundedBookingId);
-                          const bookingBundleItems =
-                            isGroupFundedBooking &&
-                            booking.groupFundedCampaign?.bundleItems?.length
-                              ? booking.groupFundedCampaign.bundleItems
-                              : booking.bundleItems || [];
+                          const bookingBundleItems = booking.bundleItems || [];
                           const displayedServiceItems =
                             bookingBundleItems.length
                               ? bookingBundleItems
@@ -7825,25 +7815,13 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                             booking.executionMode === "sequential"
                               ? "Back-to-back"
                               : "Together";
-                          const displayedTotalCents =
-                            isGroupFundedBooking && booking.groupFundedCampaign
-                              ? Number(
-                                  booking.groupFundedCampaign
-                                    .targetAmountCents || 0,
-                                ) +
-                                Number(
-                                  booking.groupFundedCampaign
-                                    .roundingAdjustmentCents || 0,
-                                )
-                              : displayedServiceItems.reduce(
+                          const displayedTotalCents = displayedServiceItems.reduce(
                                   (total, item) =>
                                     total + Number(item.priceAmountCents || 0),
                                   0,
                                 );
                           let bookingProofLabel = "No manual payment";
-                          if (isGroupFundedBooking) {
-                            bookingProofLabel = "No individual proof";
-                          } else if (manualPaymentRequired) {
+                          if (manualPaymentRequired) {
                             bookingProofLabel =
                               booking.hasPaymentProof || booking.paymentProof
                                 ? "Proof submitted"
@@ -8001,9 +7979,6 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                                     Requested{" "}
                                     {formatDateTime(booking.createdAt)}
                                   </p>
-                                  <GroupFundedBookingIndicator
-                                    booking={booking}
-                                  />
                                 </div>
                               </QueueTableCell>
                               <QueueTableCell role="cell" data-label="Customer">
@@ -8024,11 +7999,6 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                                     <p className="ops-strong">
                                       {primaryServiceItem.serviceName}
                                     </p>
-                                    {isGroupFundedBooking ? (
-                                      <QueueBadge variant="outline">
-                                        Campaign
-                                      </QueueBadge>
-                                    ) : null}
                                   </div>
                                   <p className="ops-muted">
                                     Quantity{" "}
@@ -8092,10 +8062,8 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                                       </QueueBadge>
                                     ) : null}
                                     {!manualPaymentRequired &&
-                                    !isGroupFundedBooking ? (
-                                      <QueueBadge variant="outline">
-                                        No manual payment
-                                      </QueueBadge>
+                                    !manualPaymentRequired ? (
+                                      <QueueBadge variant="outline">No manual payment</QueueBadge>
                                     ) : null}
                                   </div>
                                   {booking.linkedTicket ? (
@@ -8113,9 +8081,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                               <QueueTableCell role="cell" data-label="Payment">
                                 <div className="ops-stack">
                                   <QueueBadge variant="outline">
-                                    {isGroupFundedBooking
-                                      ? "Campaign funded"
-                                      : booking.paymentStatus}
+                                    {booking.paymentStatus}
                                   </QueueBadge>
                                   <p className="ops-muted">
                                     {bookingProofLabel}
@@ -10021,17 +9987,9 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     const detailPaymentGateActive = Boolean(detailBooking && detailManualPaymentRequired && !detailPaymentVerified);
     const detailBookingExpired = Boolean(detailBooking?.expiredAt);
     const detailCheckInState = detailBooking ? getBookingCheckInState(detailBooking, bookingCheckInNow) : null;
-    const detailCampaignBundleItems = detailBooking?.groupFundedCampaign?.bundleItems || [];
     const detailBookingBundleItems = detailBooking?.bundleItems || [];
-    const detailServiceItems = detailCampaignBundleItems.length
-      ? detailCampaignBundleItems
-      : detailBookingBundleItems;
-    const detailFundingAdjustmentCents = Math.max(0, Number(detailBooking?.groupFundedCampaign?.roundingAdjustmentCents || 0));
-    const detailCampaignTotalCents = Number(detailBooking?.groupFundedCampaign?.targetAmountCents || 0) + detailFundingAdjustmentCents;
-    const detailServiceTotalCents = detailCampaignBundleItems.length
-      ? detailCampaignTotalCents
-      : detailServiceItems.reduce((total, item) => total + Number(item.priceAmountCents || 0), 0);
-    const isGroupFundedDetailBooking = Boolean(detailBooking?.groupFundedBookingId || detailBooking?.bookingPaymentSource === "group_funded");
+    const detailServiceItems = detailBookingBundleItems;
+    const detailServiceTotalCents = detailServiceItems.reduce((total, item) => total + Number(item.priceAmountCents || 0), 0);
     const closeBookingDetailModal = () => {
       unsavedForm.current.discardId("vendor-booking-payment");
       setBookingDetailModalId(null);
@@ -10262,9 +10220,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                         <div className="ops-row">
                           <IconBriefcase size={16} />
                           <p className="vendor-eyebrow">
-                            {detailCampaignBundleItems.length
-                              ? "Campaign services"
-                              : "Bundled services"}
+                            Bundled services
                           </p>
                         </div>
                         <QueueBadge variant="outline">
@@ -10296,15 +10252,12 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       <QueueSeparator />
                       <div className="ops-row ops-between">
                         <p className="ops-strong">
-                          {detailCampaignBundleItems.length
-                            ? "Campaign total"
-                            : "Bundle total"}
+                          Bundle total
                         </p>
                         <p className="ops-strong">
                           {formatMoney(
                             detailServiceTotalCents,
-                            detailBooking.groupFundedCampaign?.currency ||
-                              detailBooking.serviceCurrency,
+                            detailBooking.serviceCurrency,
                           )}
                         </p>
                       </div>
@@ -10350,9 +10303,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     {canAdminBookings ? (
                       <>
                         <p className="ops-muted">
-                          {isGroupFundedDetailBooking
-                            ? "Verified through the group-funded campaign"
-                            : detailBooking.paymentReference || "No reference"}
+                          {detailBooking.paymentReference || "No reference"}
                         </p>
 
                         {detailBooking.paymentVerifiedAt ? (
@@ -10398,10 +10349,6 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                               </OperationButton>
                             ) : null}
                           </div>
-                        ) : isGroupFundedDetailBooking ? (
-                          <p className="ops-muted">
-                            No individual payment proof is required.
-                          </p>
                         ) : (
                           <p className="ops-muted">No proof submitted</p>
                         )}
