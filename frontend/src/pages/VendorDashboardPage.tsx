@@ -311,6 +311,17 @@ function navigateVendorWorkspace({ canSwitchWorkspace, canLeaveFeature, next, vi
   navigate(workspacePath(destination, next, search, hash));
 }
 
+function handleVendorTenantChange({ value, current, canLeaveFeature, target, reset, userId, currentSection, navigate, search, hash, setSelectedTenantSlug }: {
+  value: string | null; current: string; canLeaveFeature: () => boolean; target: { slug: string } | undefined; reset: () => void; userId: string; currentSection: DashboardSection; navigate: ReturnType<typeof useNavigate>; search: string; hash: string; setSelectedTenantSlug: (value: string) => void;
+}) {
+  if (!value || value === current || !canLeaveFeature()) return;
+  reset();
+  if (!target) return;
+  const nextWorkspace = rememberedTenantWorkspace(userId, target);
+  setSelectedTenantSlug(value);
+  navigate(workspacePath(currentSection === "account" ? "account" : nextWorkspace === "administration" ? "settings" : "overview", nextWorkspace, clearQueueReview(search), hash));
+}
+
 function ModalSection({
   title,
   description,
@@ -10729,22 +10740,11 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       onWorkspace={switchWorkspace} onLogout={() => { if (canLeaveFeature()) void logout(); }} search={location.search} hash={location.hash}
       context={!requiresMfaEnrollment ? <>
         <ContextPicker label="Business" data={activeTenants.map((tenant) => ({ value: tenant.slug, label: tenant.name }))}
-          value={selectedTenantSlug} disabled={Boolean(busyAction) || boardScannerBusy || boardSettingsBusy || savingNotificationSettings || requestingBrowserPermission || accountPanelBusy || accountProfileBusy || passwordBusy || mfaBusy} onChange={(value) => {
-            if (!value || value === selectedTenantSlug || !canLeaveFeature()) return;
-            setSnapshot(null); setLocations([]); setSelectedLocationSlug(""); setSelectedCounterSlug("");
-            setServices([]); setStaff([]); setServiceCounters([]); setVendorBookings([]); setClients(null); setHistory(null); setBilling(null);
-            setLocationDialogOpen(false); setServiceDialogOpen(false); setAvailabilityBlockDialogOpen(false); setAvailabilityExceptionDialogOpen(false);
-            setCounterDialogOpen(false); setStaffDialogOpen(false); setThemeDialogOpen(false); setRescheduleDialogOpen(false);
-            setTicketScannerOpen(false); setScannerTarget(null); setBookingDetailOpen(false); setBookingDetailBooking(null); setBookingDetailModalId(null);
-            setAvailabilityBlocks([]); setAvailabilityExceptions([]); setAvailabilitySummary(null); setBusinessProfileTheme(defaultPublicBoardTheme);
-            setPlanDialogOpen(false); setThemeLocation(null); setConfirmAction(null); setWalkInDialogOpen(false);
-            const target = activeTenants.find((tenant) => tenant.slug === value);
-            if (!target) return;
-            const nextWorkspace = rememberedTenantWorkspace(user.id, target);
-            setSelectedTenantSlug(value);
-            navigate(workspacePath(currentSection === "account" ? "account" : nextWorkspace === "administration" ? "settings" : "overview",
-              nextWorkspace, clearQueueReview(location.search), location.hash));
-          }} />
+          value={selectedTenantSlug} disabled={Boolean(busyAction) || boardScannerBusy || boardSettingsBusy || savingNotificationSettings || requestingBrowserPermission || accountPanelBusy || accountProfileBusy || passwordBusy || mfaBusy} onChange={(value) => handleVendorTenantChange({ value, current: selectedTenantSlug, canLeaveFeature, target: activeTenants.find((tenant) => tenant.slug === value), reset: () => {
+            setSnapshot(null); setLocations([]); setSelectedLocationSlug(""); setSelectedCounterSlug(""); setServices([]); setStaff([]); setServiceCounters([]); setVendorBookings([]); setClients(null); setHistory(null); setBilling(null);
+            setLocationDialogOpen(false); setServiceDialogOpen(false); setAvailabilityBlockDialogOpen(false); setAvailabilityExceptionDialogOpen(false); setCounterDialogOpen(false); setStaffDialogOpen(false); setThemeDialogOpen(false); setRescheduleDialogOpen(false);
+            setTicketScannerOpen(false); setScannerTarget(null); setBookingDetailOpen(false); setBookingDetailBooking(null); setBookingDetailModalId(null); setAvailabilityBlocks([]); setAvailabilityExceptions([]); setAvailabilitySummary(null); setBusinessProfileTheme(defaultPublicBoardTheme); setPlanDialogOpen(false); setThemeLocation(null); setConfirmAction(null); setWalkInDialogOpen(false);
+          }, userId: user.id, currentSection, navigate, search: location.search, hash: location.hash, setSelectedTenantSlug })} />
         <ContextPicker data={locationOptions} label="Location" value={selectedLocationSlug} disabled={Boolean(busyAction) || boardScannerBusy || boardSettingsBusy || savingNotificationSettings || requestingBrowserPermission || accountPanelBusy || accountProfileBusy || passwordBusy || mfaBusy}
           onChange={(value) => { if (value && value !== selectedLocationSlug && canLeaveFeature()) { setSnapshot(null); setServiceCounters([]); setVendorBookings([]); setBookingPagination(null); setClients(null); setHistory(null); setBookingDetailOpen(false); setBookingDetailBooking(null); setBookingDetailModalId(null); setAvailabilityBlocks([]); setAvailabilityExceptions([]); setAvailabilitySummary(null); setSelectedCounterSlug(""); setSelectedLocationSlug(value); if(locationSlug)navigate(workspacePath("tenants","administration",clearQueueReview(location.search))); else navigate({pathname:location.pathname,search:clearQueueReview(location.search),hash:location.hash},{replace:true}); } }} />
       </> : <QueueBadge variant="warning">MFA setup required</QueueBadge>}
