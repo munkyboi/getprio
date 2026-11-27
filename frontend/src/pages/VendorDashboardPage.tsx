@@ -301,6 +301,16 @@ function getVendorDashboardPageMetadata({ requiresMfaEnrollment, routeServiceSlu
   return { title, description };
 }
 
+function navigateVendorWorkspace({ canSwitchWorkspace, canLeaveFeature, next, visibleNavItems, userId, tenantSlug, search, hash, navigate }: {
+  canSwitchWorkspace: boolean; canLeaveFeature: () => boolean; next: "operations" | "administration"; visibleNavItems: Array<{ section: string }>; userId: string; tenantSlug: string; search: string; hash: string; navigate: ReturnType<typeof useNavigate>;
+}) {
+  if (!canSwitchWorkspace || !canLeaveFeature()) return;
+  const candidates = workspaceItems(visibleNavItems, next);
+  const destination = candidates.find((item) => item.section !== "account")?.section || "account";
+  savePreference(preferenceKey(userId, tenantSlug), next);
+  navigate(workspacePath(destination, next, search, hash));
+}
+
 function ModalSection({
   title,
   description,
@@ -10694,16 +10704,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
   const canSwitchWorkspace = (isOwner || isAdmin) && !requiresMfaEnrollment;
   const workspace = sectionWorkspace(currentSection, new URLSearchParams(location.search).get("workspace"), canSwitchWorkspace);
   const workspaceNavItems = workspaceItems(visibleNavItems, workspace);
-  const switchWorkspace = (next: "operations" | "administration") => {
-    if (!canSwitchWorkspace || !canLeaveFeature()) return;
-    const candidates = workspaceItems(visibleNavItems, next);
-    const destination = candidates.find((item) => item.section !== "account")?.section || "account";
-    savePreference(preferenceKey(user.id, selectedTenantSlug), next);
-    // Workspace changes cross the route alias boundary (`tenants` →
-    // `locations`). Keep the transition inside the router so the dashboard
-    // shell and active section render immediately without a full-page reload.
-    navigate(workspacePath(destination, next, location.search, location.hash));
-  };
+  const switchWorkspace = (next: "operations" | "administration") => navigateVendorWorkspace({ canSwitchWorkspace, canLeaveFeature, next, visibleNavItems, userId: user.id, tenantSlug: selectedTenantSlug, search: location.search, hash: location.hash, navigate });
   const routedLocation = locationSlug && dashboardBootstrapQuery.data
     ? resolveLocationEditor(locationSlug, locations, new Set(dashboardBootstrapQuery.data.locationsResponse.locations.map(item => item.id))) : undefined;
   const routedService = routeServiceSlug && servicesQuery.data ? resolveServiceEditor(routeServiceSlug,services,new Set(servicesQuery.data.services.map(item=>item.id))) : undefined;

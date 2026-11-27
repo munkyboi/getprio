@@ -52,7 +52,7 @@ test('workspace changes use an in-app transition across route aliases', () => {
   const fs = require('node:fs');
   const path = require('node:path');
   const source = fs.readFileSync(path.resolve(__dirname, '../src/pages/VendorDashboardPage.tsx'), 'utf8');
-  assert.match(source, /navigate\(workspacePath\(destination, next, location\.search, location\.hash\)\)/);
+  assert.match(source, /navigate\(workspacePath\(destination, next, (?:location\.search|search), (?:location\.hash|hash)\)\)/);
   assert.doesNotMatch(source, /window\.location\.assign\(workspacePath\(destination, next/);
 });
 
