@@ -1009,6 +1009,23 @@ function canShowQueuePolicy(enabled: boolean, tenant: string, location: string):
   return enabled && Boolean(tenant && location);
 }
 
+function hasReadyAvailability(data: unknown, error: unknown, catalogReady: boolean): boolean {
+  return Boolean(data && !error && catalogReady);
+}
+
+function visibleServicesTab(tab: string, bookingSettingsAllowed: boolean): string {
+  return !bookingSettingsAllowed && (tab === "weekly" || tab === "exceptions") ? "catalog" : tab;
+}
+
+function selectServicesTab(
+  value: unknown,
+  current: string,
+  canLeave: () => boolean,
+  setTab: (value: string) => void,
+) {
+  if (value !== current && canLeave()) setTab(String(value));
+}
+
 function mergeTheme(theme?: Partial<PublicBoardThemeSettings>): PublicBoardThemeSettings {
   const merged = {
     ...defaultPublicBoardTheme,
@@ -7559,14 +7576,9 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     const assignmentsReady = Boolean(
       locationServicesQuery.data && !locationServicesQuery.isError,
     );
-    const availabilityReady = Boolean(
-      availabilityQuery.data && !availabilityQuery.isError && catalogReady,
-    );
+    const availabilityReady = hasReadyAvailability(availabilityQuery.data, availabilityQuery.error, catalogReady);
     const activeServices = services.filter((service) => service.isActive).length;
-    const changeTab = (value: unknown) => {
-      if (value !== servicesTab && canLeaveFeature())
-        setServicesTab(value as typeof servicesTab);
-    };
+    const changeTab = (value: unknown) => selectServicesTab(value, servicesTab, canLeaveFeature, (next) => setServicesTab(next as typeof servicesTab));
     const remove = (
       title: string,
       description: string,
@@ -7603,7 +7615,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
               detail={`Branch time zone: ${selectedLocation?.timezone || "not set"}.`}
             />
           </div>
-          <ConfigTabs value={!bookingSettingsAllowed && (servicesTab === "weekly" || servicesTab === "exceptions") ? "catalog" : servicesTab} onValueChange={changeTab}>
+          <ConfigTabs value={visibleServicesTab(servicesTab, bookingSettingsAllowed)} onValueChange={changeTab}>
             <ConfigTabsList
               className="config-tabs-list"
               activateOnFocus
