@@ -476,6 +476,43 @@ function VendorQueueStatusColumns({
   );
 }
 
+type VendorQueueDayBadgeProps = {
+  reconciling: boolean;
+  unopened: boolean;
+  actuallyClosed: boolean;
+  paused: boolean;
+  extended: boolean;
+};
+
+function VendorQueueDayBadge({
+  reconciling,
+  unopened,
+  actuallyClosed,
+  paused,
+  extended,
+}: VendorQueueDayBadgeProps) {
+  const variant = actuallyClosed
+    ? "destructive"
+    : reconciling || paused
+      ? "warning"
+      : unopened
+        ? "info"
+        : "success";
+  const label = reconciling
+    ? "Queue closing"
+    : unopened
+      ? "Queue not opened"
+      : actuallyClosed
+        ? "Queue day closed"
+        : paused
+          ? "Queue intake paused"
+          : extended
+            ? "Queue day extended"
+            : "Queue day open";
+
+  return <QueueBadge variant={variant}>{label}</QueueBadge>;
+}
+
 type VendorAdministrationRendererContext = { render: () => React.ReactNode };
 
 function VendorAdministrationRenderer({ render }: VendorAdministrationRendererContext) {
@@ -5405,33 +5442,19 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     const queueActionBusy = Boolean(busyAction) || managementReadPending;
     const activeCounters = serviceCounters.filter((counter) => counter.isActive);
     const activeTicket = selectedCalledTicket;
-    const queueDayBadgeVariant = queueDayClosed
-      ? "destructive"
-      : queueDayReconciling || queueDayPaused
-        ? "warning"
-        : queueDayUnopened
-          ? "info"
-          : "success";
-
     return (
       <div className="queue-stack vendor-live-queue">
         <QueueCard>
           <QueueCardHeader className="queue-controls-header">
             <div className="queue-controls-heading">
               <QueueCardTitle>Queue controls</QueueCardTitle>
-              <QueueBadge variant={queueDayBadgeVariant}>
-                {queueDayReconciling
-                  ? "Queue closing"
-                  : queueDayUnopened
-                    ? "Queue not opened"
-                    : queueDayActuallyClosed
-                      ? "Queue day closed"
-                      : queueDayPaused
-                        ? "Queue intake paused"
-                        : queueDayExtended
-                          ? "Queue day extended"
-                          : "Queue day open"}
-              </QueueBadge>
+              <VendorQueueDayBadge
+                reconciling={queueDayReconciling}
+                unopened={queueDayUnopened}
+                actuallyClosed={queueDayActuallyClosed}
+                paused={queueDayPaused}
+                extended={queueDayExtended}
+              />
             </div>
             <div className="queue-controls-actions">
                   {queueDayUnopened && canOperateQueueDay ? (
