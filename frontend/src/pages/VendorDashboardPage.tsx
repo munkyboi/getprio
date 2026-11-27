@@ -360,6 +360,11 @@ function canLeaveVendorFeature({ busy, hasEdits, discardApproved, confirm, accou
   return true;
 }
 
+function renderVendorDashboardMainContent({ requiresMfaEnrollment, currentSection, snapshot, selectedTenantSlug, selectedLocationSlug, renderCurrentSection, queryError, retry }: { requiresMfaEnrollment: boolean; currentSection: DashboardSection; snapshot: QueueSnapshot | null; selectedTenantSlug: string; selectedLocationSlug: string; renderCurrentSection: () => React.ReactNode; queryError: unknown; retry: () => void }) {
+  const ready = requiresMfaEnrollment || currentSection === "account" || (snapshot?.tenant.slug === selectedTenantSlug && snapshot?.location?.slug === selectedLocationSlug);
+  return ready ? renderCurrentSection() : <OperationQueryState loading={!queryError} error={queryError} onRetry={retry} />;
+}
+
 function ModalSection({
   title,
   description,
@@ -10818,9 +10823,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
           snapshot={snapshot}
         /> : null}
         {error ? <Text c="red" fw={700}>{error}</Text> : null}
-        {requiresMfaEnrollment || currentSection === "account" || (snapshot?.tenant.slug === selectedTenantSlug && snapshot?.location?.slug === selectedLocationSlug)
-          ? renderCurrentSection()
-          : <OperationQueryState loading={!dashboardBootstrapQuery.error} error={dashboardBootstrapQuery.error} onRetry={() => void retryDashboardContext()} />}
+        {renderVendorDashboardMainContent({ requiresMfaEnrollment, currentSection, snapshot, selectedTenantSlug, selectedLocationSlug, renderCurrentSection, queryError: dashboardBootstrapQuery.error, retry: () => void retryDashboardContext() })}
     </VendorWorkspaceShell>
   );
 }
