@@ -408,15 +408,10 @@ function VendorQueueActiveTicketStatus({
   activeTicket,
   snapshot,
 }: Pick<VendorQueueStatusColumnsProps, "activeTicket" | "snapshot">) {
+  const label = activeTicket?.serviceStartedAt ? "In service" : snapshot?.location?.serviceTimingEnabled ? "Called ticket" : "Now serving";
   return (
     <div className="vendor-queue-status-column">
-      <p className="queue-text vendor-eyebrow">
-        {activeTicket?.serviceStartedAt
-          ? "In service"
-          : snapshot?.location?.serviceTimingEnabled
-            ? "Called ticket"
-            : "Now serving"}
-      </p>
+      <p className="queue-text vendor-eyebrow">{label}</p>
       <div className="queue-row">
         <h3 className="queue-heading">{activeTicket?.ticketNumber || "--"}</h3>
         {activeTicket && isCheckedInBookingTicket(activeTicket) ? <QueueBadge variant="outline">Booking</QueueBadge> : null}
