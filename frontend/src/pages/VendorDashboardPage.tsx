@@ -288,10 +288,11 @@ function getVendorDashboardWorkspaceRedirect({ currentSection, effectiveEntitlem
 function getVendorDashboardPageMetadata({ requiresMfaEnrollment, routeServiceSlug, routedService, serviceDialogOpen, serviceForm, servicesQuery, locationSlug, routedLocation, currentSection, navItems, dashboardSectionDescriptions }: {
   requiresMfaEnrollment: boolean; routeServiceSlug?: string; routedService?: { name: string }; serviceDialogOpen: boolean; serviceForm: { name?: string }; servicesQuery: { isPending: boolean }; locationSlug?: string; routedLocation?: { name: string }; currentSection: DashboardSection; navItems: ReadonlyArray<{ section: string; label: string }>; dashboardSectionDescriptions: Record<string, string>;
 }) {
+  const serviceTitle = routedService ? `Service: ${serviceDialogOpen ? serviceForm.name || "New service" : routedService.name}` : servicesQuery.isPending ? "Loading service" : "Service unavailable";
   let title = navItems.find((item) => item.section === currentSection)?.label || "Account";
   if (currentSection === "queue") title = "Live queue";
   if (locationSlug) title = routedLocation ? `Edit ${routedLocation.name}` : "Location unavailable";
-  if (routeServiceSlug) title = routedService ? `Service: ${serviceDialogOpen ? serviceForm.name || "New service" : routedService.name}` : servicesQuery.isPending ? "Loading service" : "Service unavailable";
+  if (routeServiceSlug) title = serviceTitle;
   if (requiresMfaEnrollment) title = "Secure your account";
   let description = dashboardSectionDescriptions[currentSection] || "Manage your vendor workspace.";
   if (locationSlug) description = "Set the branch details, payment options and operating hours customers see.";
