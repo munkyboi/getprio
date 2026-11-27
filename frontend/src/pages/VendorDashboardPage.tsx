@@ -10519,71 +10519,48 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     );
   }
 
+  function renderTenantsSection() {
+    if (!locationSlug) return renderTenantsPage();
+    if (!isOwner && !isAdmin) return <OperationAlert color="red" title="Location access required">You do not have permission to edit this location.</OperationAlert>;
+    if (!dashboardBootstrapQuery.data) return <OperationAlert color="blue" title="Loading location">Loading authorized locations for this business.</OperationAlert>;
+    const locationIds = new Set(dashboardBootstrapQuery.data.locationsResponse.locations.map((item) => item.id));
+    if (!resolveLocationEditor(locationSlug, locations, locationIds)) return <OperationAlert color="red" title="Location unavailable">This location is unavailable in the selected business.<OperationButton variant="outline" onClick={() => navigate(workspacePath("tenants", "administration", location.search))}>Back to locations</OperationButton></OperationAlert>;
+    return renderLocationDialog();
+  }
+
+  function renderServicesSection() {
+    if (!routeServiceSlug) return renderServicesPage();
+    if (!isOwner && !isAdmin) return <OperationAlert color="red" title="Service access required">You do not have permission to edit this service.</OperationAlert>;
+    const loading = dashboardBootstrapQuery.isPending || servicesQuery.isPending || locationServicesQuery.isPending;
+    if (loading) return <OperationQueryState loading error={null} onRetry={() => { void servicesQuery.refetch(); void locationServicesQuery.refetch(); void dashboardBootstrapQuery.refetch(); }} />;
+    const queryError = dashboardBootstrapQuery.error || servicesQuery.error || locationServicesQuery.error;
+    if (dashboardBootstrapQuery.isError || servicesQuery.isError || locationServicesQuery.isError) return <OperationQueryState loading={false} error={queryError} onRetry={() => { void servicesQuery.refetch(); void locationServicesQuery.refetch(); void dashboardBootstrapQuery.refetch(); }} />;
+    const serviceIds = new Set(servicesQuery.data?.services.map((item) => item.id) || []);
+    if (!servicesQuery.data || !resolveServiceEditor(routeServiceSlug, services, serviceIds)) return <OperationAlert color="red" title="Service unavailable">This service is unavailable in the selected business.</OperationAlert>;
+    return renderServiceDialog();
+  }
+
   function renderCurrentSection() {
     if (!hasActiveSubscription && currentSection !== "settings" && currentSection !== "account") {
       return <ActivationPanel onViewPlans={() => openPlanDialog()} />;
     }
-
+    const simpleSections: Record<string, () => React.ReactNode> = {
+      queue: renderQueuePage,
+      bookings: renderBookingsPage,
+      clients: renderClientsPage,
+      staff: renderStaffPage,
+      history: renderHistoryPage,
+      reports: renderReportsPage,
+      settings: renderSettingsPage,
+    };
     if (currentSection === "overview") {
-      return <ResourceDashboard token={token} canOpenQueue={canAccessVendorSection("queue", effectiveEntitlements, tenantPlan)} scope={{tenantSlug: selectedTenantSlug, locationSlug: selectedLocationSlug,
-        tenantId: snapshot?.tenant.id || "", locationId: snapshot?.location?.id || ""}}
-        onOpenQueue={() => { if (canLeaveFeature()) navigate(workspacePath("queue", "operations", location.search)); }} />;
+      return <ResourceDashboard token={token} canOpenQueue={canAccessVendorSection("queue", effectiveEntitlements, tenantPlan)} scope={{tenantSlug: selectedTenantSlug, locationSlug: selectedLocationSlug, tenantId: snapshot?.tenant.id || "", locationId: snapshot?.location?.id || ""}} onOpenQueue={() => { if (canLeaveFeature()) navigate(workspacePath("queue", "operations", location.search)); }} />;
     }
-
-    if (currentSection === "queue") {
-      return renderQueuePage();
-    }
-
-    if (currentSection === "tenants") {
-      if (locationSlug) {
-        if (!isOwner && !isAdmin) return <OperationAlert color="red" title="Location access required">You do not have permission to edit this location.</OperationAlert>;
-        if (!dashboardBootstrapQuery.data) return <OperationAlert color="blue" title="Loading location">Loading authorized locations for this business.</OperationAlert>;
-        if (!resolveLocationEditor(locationSlug, locations, new Set(dashboardBootstrapQuery.data.locationsResponse.locations.map(item => item.id)))) return <OperationAlert color="red" title="Location unavailable">This location is unavailable in the selected business.<OperationButton variant="outline" onClick={()=>navigate(workspacePath("tenants","administration",location.search))}>Back to locations</OperationButton></OperationAlert>;
-        return renderLocationDialog();
-      }
-      return renderTenantsPage();
-    }
-
-    if (currentSection === "services") {
-      if(routeServiceSlug) {
-        if(!isOwner && !isAdmin)return <OperationAlert color="red" title="Service access required">You do not have permission to edit this service.</OperationAlert>;
-        if(dashboardBootstrapQuery.isPending || servicesQuery.isPending || locationServicesQuery.isPending)return <OperationQueryState loading error={null} onRetry={()=>{void servicesQuery.refetch();void locationServicesQuery.refetch();void dashboardBootstrapQuery.refetch();}}/>;
-        if(dashboardBootstrapQuery.isError || servicesQuery.isError || locationServicesQuery.isError)return <OperationQueryState loading={false} error={dashboardBootstrapQuery.error || servicesQuery.error || locationServicesQuery.error} onRetry={()=>{void servicesQuery.refetch();void locationServicesQuery.refetch();void dashboardBootstrapQuery.refetch();}}/>;
-        if(!servicesQuery.data || !resolveServiceEditor(routeServiceSlug,services,new Set(servicesQuery.data.services.map(item=>item.id))))return <OperationAlert color="red" title="Service unavailable">This service is unavailable in the selected business.</OperationAlert>;
-        return renderServiceDialog();
-      }
-      return renderServicesPage();
-    }
-
-    if (currentSection === "bookings") {
-      return renderBookingsPage();
-    }
-
-    if (currentSection === "clients") {
-      return renderClientsPage();
-    }
-
-    if (currentSection === "staff") {
-      return renderStaffPage();
-    }
-
-    if (currentSection === "history") {
-      return renderHistoryPage();
-    }
-
-    if (currentSection === "reports") {
-      return renderReportsPage();
-    }
-
-    if (currentSection === "ratings") {
-      return <VendorRatingsPanel key={selectedTenantSlug} token={token!} tenantSlug={selectedTenantSlug} />;
-    }
-
-    if (currentSection === "account") {
-      return <Stack gap="md">{!requiresMfaEnrollment && boardApprovalReturn ? <Button component={NavLink} to={boardApprovalReturn} mih={44}>Continue to display approval</Button> : null}{renderAccountPage()}</Stack>;
-    }
-
-    return renderSettingsPage();
+    if (currentSection === "tenants") return renderTenantsSection();
+    if (currentSection === "services") return renderServicesSection();
+    if (currentSection === "ratings") return <VendorRatingsPanel key={selectedTenantSlug} token={token!} tenantSlug={selectedTenantSlug} />;
+    if (currentSection === "account") return <Stack gap="md">{!requiresMfaEnrollment && boardApprovalReturn ? <Button component={NavLink} to={boardApprovalReturn} mih={44}>Continue to display approval</Button> : null}{renderAccountPage()}</Stack>;
+    return simpleSections[currentSection]?.() ?? renderSettingsPage();
   }
 
   const canLeaveFeature = (discardApproved = false) => {
