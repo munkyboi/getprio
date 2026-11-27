@@ -379,6 +379,10 @@ function renderVendorAccountSection(requiresMfaEnrollment: boolean, boardApprova
   return <Stack gap="md">{!requiresMfaEnrollment && boardApprovalReturn ? <Button component={NavLink} to={boardApprovalReturn} mih={44}>Continue to display approval</Button> : null}{renderAccountPage()}</Stack>;
 }
 
+function renderVendorSimpleSection(section: string, renderers: Record<string, () => React.ReactNode>, fallback: () => React.ReactNode) {
+  return renderers[section]?.() ?? fallback();
+}
+
 function canLeaveVendorFeature({ busy, hasEdits, discardApproved, confirm, accountSecurity, recoveryCodes, mfaSecret, accountPanelDraft, reset }: { busy: boolean; hasEdits: boolean; discardApproved: boolean; confirm: (message: string) => boolean; accountSecurity: boolean; recoveryCodes: number; mfaSecret: string; accountPanelDraft: boolean; reset: () => void }) {
   if (busy) return false;
   if (hasEdits && !discardApproved && !confirm("You have unsaved edits. Leave this view?")) return false;
@@ -10809,7 +10813,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     if (currentSection === "services") return <VendorAdministrationRenderer render={renderServicesSection} />;
     if (currentSection === "ratings") return renderVendorRatingsSection(selectedTenantSlug, token);
     if (currentSection === "account") return renderVendorAccountSection(requiresMfaEnrollment, boardApprovalReturn, renderAccountPage);
-    return simpleSections[currentSection]?.() ?? renderSettingsPage();
+    return renderVendorSimpleSection(currentSection, simpleSections, renderSettingsPage);
   }
 
   const canLeaveFeature = createVendorLeaveGuard({
