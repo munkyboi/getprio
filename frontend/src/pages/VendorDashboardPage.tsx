@@ -392,6 +392,10 @@ function VendorDashboardTicketEditor({ ticket, tenantSlug, locationSlug, token, 
   return <QueueDetailsEditor key={`${ticket.tenant}:${ticket.location}:${ticket.id}`} token={token} tenantSlug={ticket.tenant} locationSlug={ticket.location} ticketId={ticket.id} onClose={discard} onBusy={(busy) => setBusy(busy ? "ticket-details" : "")} onRefresh={refresh} />;
 }
 
+function handleVendorLogout(canLeaveFeature: () => boolean, logout: () => Promise<void>) {
+  if (canLeaveFeature()) void logout();
+}
+
 function ModalSection({
   title,
   description,
@@ -10788,7 +10792,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       headerAction={getVendorDashboardHeaderAction({ routeServiceSlug, locationSlug, requiresMfaEnrollment, busyAction, requestServiceLeave, requestLocationLeave, navigate, search: location.search })}
       name={user.name || "Vendor"} role={selectedTenantRole || "Vendor"} plan={activeSubscription?.planName || tenantPlan?.planName || "No active plan"}
       onBeforeNavigate={canLeaveFeature} onEdit={(form) => unsavedForm.current.mark(form)}
-      onWorkspace={switchWorkspace} onLogout={() => { if (canLeaveFeature()) void logout(); }} search={location.search} hash={location.hash}
+      onWorkspace={switchWorkspace} onLogout={() => handleVendorLogout(canLeaveFeature, logout)} search={location.search} hash={location.hash}
       context={<VendorDashboardContextPicker
         requiresMfaEnrollment={requiresMfaEnrollment}
         ContextPicker={ContextPicker}
