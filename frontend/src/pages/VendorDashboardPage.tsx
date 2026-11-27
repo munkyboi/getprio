@@ -379,6 +379,13 @@ function isInvalidVendorDashboardSection(section?: string): boolean {
   return Boolean(section && section !== "locations" && !dashboardSections.has(section));
 }
 
+function resolveVendorEditors(locationSlug: string | undefined, routeServiceSlug: string | undefined, locations: StoreLocationWithHours[], services: VendorServiceSummary[], bootstrapLocations: string[], catalogServices: string[]) {
+  return {
+    location: locationSlug ? resolveLocationEditor(locationSlug, locations, new Set(bootstrapLocations)) : undefined,
+    service: routeServiceSlug ? resolveServiceEditor(routeServiceSlug, services, new Set(catalogServices)) : undefined,
+  };
+}
+
 function renderVendorDashboardMainContent({ requiresMfaEnrollment, currentSection, snapshot, selectedTenantSlug, selectedLocationSlug, renderCurrentSection, queryError, retry }: { requiresMfaEnrollment: boolean; currentSection: DashboardSection; snapshot: QueueSnapshot | null; selectedTenantSlug: string; selectedLocationSlug: string; renderCurrentSection: () => React.ReactNode; queryError: unknown; retry: () => void }) {
   const ready = requiresMfaEnrollment || currentSection === "account" || (snapshot?.tenant.slug === selectedTenantSlug && snapshot?.location?.slug === selectedLocationSlug);
   return ready ? renderCurrentSection() : <OperationQueryState loading={!queryError} error={queryError} onRetry={retry} />;
@@ -10803,9 +10810,9 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
   const workspace = sectionWorkspace(currentSection, new URLSearchParams(location.search).get("workspace"), canSwitchWorkspace);
   const workspaceNavItems = workspaceItems(visibleNavItems, workspace);
   const switchWorkspace = (next: "operations" | "administration") => navigateVendorWorkspace({ canSwitchWorkspace, canLeaveFeature, next, visibleNavItems, userId: user.id, tenantSlug: selectedTenantSlug, search: location.search, hash: location.hash, navigate });
-  const routedLocation = locationSlug && dashboardBootstrapQuery.data
-    ? resolveLocationEditor(locationSlug, locations, new Set(dashboardBootstrapQuery.data.locationsResponse.locations.map(item => item.id))) : undefined;
-  const routedService = routeServiceSlug && servicesQuery.data ? resolveServiceEditor(routeServiceSlug,services,new Set(servicesQuery.data.services.map(item=>item.id))) : undefined;
+  const routedEditors = resolveVendorEditors(locationSlug, routeServiceSlug, locations, services, dashboardBootstrapQuery.data?.locationsResponse.locations.map(item => item.id) || [], servicesQuery.data?.services.map(item => item.id) || []);
+  const routedLocation = routedEditors.location;
+  const routedService = routedEditors.service;
   const { title: pageTitle, description: pageDescription } = getVendorDashboardPageMetadata({ requiresMfaEnrollment, routeServiceSlug, routedService, serviceDialogOpen, serviceForm, servicesQuery, locationSlug, routedLocation, currentSection, navItems, dashboardSectionDescriptions });
   return (
     <VendorWorkspaceShell
