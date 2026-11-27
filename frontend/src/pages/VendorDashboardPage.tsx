@@ -374,6 +374,10 @@ function VendorDashboardLocationConfirmation({ opened, draft, setDraft, setActio
   return <QueueConfirmation opened={opened} title="Discard location changes?" description="Your unsaved location changes will be discarded." confirmLabel="Discard changes" cancelLabel="Keep editing" onClose={() => { setDraft(draft); setAction(null); }} onConfirm={() => { if (!canLeaveFeature(true)) return; const proceed = action; setAction(null); proceed?.(); }} />;
 }
 
+function VendorDashboardServiceConfirmation({ opened, draft, setDraft, setAction, action, canLeaveFeature, busy }: { opened: boolean; draft: SaveVendorServiceRequest; setDraft: (draft: SaveVendorServiceRequest) => void; setAction: (action: (() => void) | null) => void; action: (() => void) | null; canLeaveFeature: (discardApproved?: boolean) => boolean; busy: boolean }) {
+  return <QueueConfirmation opened={opened} title="Discard service changes?" description="Your unsaved service changes will be discarded." confirmLabel="Discard changes" cancelLabel="Keep editing" confirmColor="red" loading={busy} onClose={() => { setDraft(draft); setAction(null); }} onConfirm={() => { if (!canLeaveFeature(true)) return; const proceed = action; setAction(null); proceed?.(); }} />;
+}
+
 function ModalSection({
   title,
   description,
@@ -10786,7 +10790,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       {renderPlanDialog()}
       {!locationSlug ? renderLocationDialog() : null}
           <VendorDashboardLocationConfirmation opened={Boolean(locationLeaveAction)} draft={locationLeaveDraft.current} setDraft={setLocationForm} setAction={setLocationLeaveAction} action={locationLeaveAction} canLeaveFeature={canLeaveFeature} />
-      {serviceLeaveAction ? <QueueConfirmation opened title="Discard service changes?" description="Your unsaved service changes will be discarded." confirmLabel="Discard changes" cancelLabel="Keep editing" confirmColor="red" loading={Boolean(busyAction)} onClose={()=>{setServiceForm(serviceLeaveDraft.current);setServiceLeaveAction(null);}} onConfirm={()=>{if(!canLeaveFeature(true))return;const proceed=serviceLeaveAction;setServiceLeaveAction(null);proceed();}}/> : null}
+      <VendorDashboardServiceConfirmation opened={Boolean(serviceLeaveAction)} draft={serviceLeaveDraft.current} setDraft={setServiceForm} setAction={setServiceLeaveAction} action={serviceLeaveAction} canLeaveFeature={canLeaveFeature} busy={Boolean(busyAction)} />
       {!routeServiceSlug && !serviceEditorScopeRef.current ? renderServiceDialog() : null}
       {renderAvailabilityBlockDialog()}
       {renderAvailabilityExceptionDialog()}
