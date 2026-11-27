@@ -270,6 +270,14 @@ function getVendorDashboardAccessRedirect({
   if (section === "tenants") return <Navigate to={`/dashboard/locations${location.search}${location.hash}`} replace />;
   if (invalidSection) return <Navigate to="/dashboard/queue" replace />;
   if (requiresMfaEnrollment && currentSection !== "account") return <Navigate to={boardApprovalReturn ? `/dashboard/account?next=${encodeURIComponent(boardApprovalReturn)}` : "/dashboard/account"} replace />;
+  return getVendorDashboardWorkspaceRedirect({ currentSection, effectiveEntitlementsQuery, effectiveEntitlements, tenantPlan, defaultDashboardPath, selectedTenantRole, staffAllowedSections, adminAllowedSections, activeTenants, logout });
+}
+
+function getVendorDashboardWorkspaceRedirect({ currentSection, effectiveEntitlementsQuery, effectiveEntitlements, tenantPlan, defaultDashboardPath, selectedTenantRole, staffAllowedSections, adminAllowedSections, activeTenants, logout }: {
+  currentSection: DashboardSection; effectiveEntitlementsQuery: { isPending: boolean };
+  effectiveEntitlements: Parameters<typeof canAccessVendorSection>[1]; tenantPlan: Parameters<typeof canAccessVendorSection>[2] | null; defaultDashboardPath: string;
+  selectedTenantRole: string | null; staffAllowedSections: Set<string>; adminAllowedSections: Set<string>; activeTenants: unknown[]; logout: () => Promise<void>;
+}) {
   if (currentSection === "ratings" && !canAccessVendorSection("ratings", effectiveEntitlements, tenantPlan)) return effectiveEntitlementsQuery.isPending ? <VendorAuthLayout><WorkspaceLoading message="Loading plan access…" /></VendorAuthLayout> : <Navigate to={defaultDashboardPath} replace />;
   if (!effectiveEntitlementsQuery.isPending && !canAccessVendorSection(currentSection, effectiveEntitlements, tenantPlan)) return <Navigate to={defaultDashboardPath} replace />;
   if ((selectedTenantRole === "staff" && !staffAllowedSections.has(currentSection)) || (selectedTenantRole === "admin" && !adminAllowedSections.has(currentSection))) return <Navigate to={defaultDashboardPath} replace />;
