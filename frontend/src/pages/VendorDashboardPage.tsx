@@ -374,6 +374,36 @@ type VendorQueueStatusColumnsProps = {
   snapshot: QueueSnapshot | null | undefined;
 };
 
+function vendorQueueDayTitle({
+  queueDayReconciling: reconciling,
+  queueDayUnopened: unopened,
+  queueDayActuallyClosed: actuallyClosed,
+  queueDayPaused: paused,
+  queueDayExtended: extended,
+}: Pick<VendorQueueStatusColumnsProps, "queueDayReconciling" | "queueDayUnopened" | "queueDayActuallyClosed" | "queueDayPaused" | "queueDayExtended">) {
+  if (reconciling) return "Closing";
+  if (unopened) return "Not opened";
+  if (actuallyClosed) return "Closed";
+  if (paused) return "Paused";
+  return extended ? "Extended" : "Open";
+}
+
+function vendorQueueDayDescription({
+  queueDayReconciling: reconciling,
+  queueDayUnopened: unopened,
+  queueDayActuallyClosed: actuallyClosed,
+  queueDayPaused: paused,
+  queueDayClosed,
+  snapshot,
+}: Pick<VendorQueueStatusColumnsProps, "queueDayReconciling" | "queueDayUnopened" | "queueDayActuallyClosed" | "queueDayPaused" | "queueDayClosed" | "snapshot">) {
+  if (reconciling) return "Ticket outcomes are being reconciled";
+  if (unopened) return "Waiting for an authorized operator to open the Queue Day";
+  if (queueDayClosed && snapshot?.queueDay?.closedAt) return `Closed ${formatDateTime(snapshot.queueDay.closedAt)}`;
+  if (paused && snapshot?.queueDay?.pausedAt) return `Paused ${formatDateTime(snapshot.queueDay.pausedAt)}`;
+  if (snapshot?.queueDay?.currentClosesAt) return `Scheduled close ${formatDateTime(snapshot.queueDay.currentClosesAt)}`;
+  return "Customers can continue joining this queue";
+}
+
 function VendorQueueStatusColumns({
   activeTicket,
   intakeState,
@@ -427,31 +457,22 @@ function VendorQueueStatusColumns({
       </div>
       <div className="vendor-queue-status-column">
         <p className="queue-text vendor-eyebrow">Queue day</p>
-        <h3 className="queue-heading">
-          {queueDayReconciling
-            ? "Closing"
-            : queueDayUnopened
-              ? "Not opened"
-              : queueDayActuallyClosed
-                ? "Closed"
-                : queueDayPaused
-                  ? "Paused"
-                  : queueDayExtended
-                    ? "Extended"
-                    : "Open"}
-        </h3>
+        <h3 className="queue-heading">{vendorQueueDayTitle({
+          queueDayReconciling,
+          queueDayUnopened,
+          queueDayActuallyClosed,
+          queueDayPaused,
+          queueDayExtended,
+        })}</h3>
         <p className="queue-text queue-muted queue-small">
-          {queueDayReconciling
-            ? "Ticket outcomes are being reconciled"
-            : queueDayUnopened
-              ? "Waiting for an authorized operator to open the Queue Day"
-              : queueDayClosed && snapshot?.queueDay?.closedAt
-                ? `Closed ${formatDateTime(snapshot.queueDay.closedAt)}`
-                : queueDayPaused && snapshot?.queueDay?.pausedAt
-                  ? `Paused ${formatDateTime(snapshot.queueDay.pausedAt)}`
-                  : snapshot?.queueDay?.currentClosesAt
-                    ? `Scheduled close ${formatDateTime(snapshot.queueDay.currentClosesAt)}`
-                    : "Customers can continue joining this queue"}
+          {vendorQueueDayDescription({
+            queueDayReconciling,
+            queueDayUnopened,
+            queueDayActuallyClosed,
+            queueDayPaused,
+            queueDayClosed,
+            snapshot,
+          })}
         </p>
       </div>
       {intakeState?.autoPauseEnabled && intakeState.autoPauseThreshold ? (
