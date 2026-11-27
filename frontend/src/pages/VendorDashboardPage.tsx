@@ -360,6 +360,14 @@ function canLeaveVendorFeature({ busy, hasEdits, discardApproved, confirm, accou
   return true;
 }
 
+function createVendorLeaveGuard(state: { isBusy: () => boolean; hasEdits: () => boolean; accountSecurity: () => boolean; recoveryCodes: () => number; mfaSecret: () => string; accountPanelDraft: () => boolean; resetAccountPanel: () => void; resetForms: () => void }) {
+  return (discardApproved = false) => {
+    if (!canLeaveVendorFeature({ busy: state.isBusy(), hasEdits: state.hasEdits(), discardApproved, confirm: window.confirm, accountSecurity: state.accountSecurity(), recoveryCodes: state.recoveryCodes(), mfaSecret: state.mfaSecret(), accountPanelDraft: state.accountPanelDraft(), reset: state.resetAccountPanel })) return false;
+    state.resetForms();
+    return true;
+  };
+}
+
 function renderVendorDashboardMainContent({ requiresMfaEnrollment, currentSection, snapshot, selectedTenantSlug, selectedLocationSlug, renderCurrentSection, queryError, retry }: { requiresMfaEnrollment: boolean; currentSection: DashboardSection; snapshot: QueueSnapshot | null; selectedTenantSlug: string; selectedLocationSlug: string; renderCurrentSection: () => React.ReactNode; queryError: unknown; retry: () => void }) {
   const ready = requiresMfaEnrollment || currentSection === "account" || (snapshot?.tenant.slug === selectedTenantSlug && snapshot?.location?.slug === selectedLocationSlug);
   return ready ? renderCurrentSection() : <OperationQueryState loading={!queryError} error={queryError} onRetry={retry} />;
@@ -10738,8 +10746,15 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     return simpleSections[currentSection]?.() ?? renderSettingsPage();
   }
 
-  const canLeaveFeature = (discardApproved = false) => {
-    if (!canLeaveVendorFeature({ busy: resourceConfigurationBusy || Boolean(busyAction) || boardScannerBusy || boardSettingsBusy || savingNotificationSettings || requestingBrowserPermission || accountProfileBusy || passwordBusy || mfaBusy || accountPanelBusy, hasEdits: unsavedForm.current.hasEdits() || themeDialogOpen || accountDraftRef.current, discardApproved, confirm: window.confirm, accountSecurity: currentSection === "account" && accountTab === "security", recoveryCodes: mfaRecoveryCodes.length, mfaSecret, accountPanelDraft, reset: () => { setAccountTaskRevision((revision) => revision + 1); setAccountPanelDraft(false); } })) return false;
+  const canLeaveFeature = createVendorLeaveGuard({
+    isBusy: () => resourceConfigurationBusy || Boolean(busyAction) || boardScannerBusy || boardSettingsBusy || savingNotificationSettings || requestingBrowserPermission || accountProfileBusy || passwordBusy || mfaBusy || accountPanelBusy,
+    hasEdits: () => unsavedForm.current.hasEdits() || themeDialogOpen || accountDraftRef.current,
+    accountSecurity: () => currentSection === "account" && accountTab === "security",
+    recoveryCodes: () => mfaRecoveryCodes.length,
+    mfaSecret: () => mfaSecret,
+    accountPanelDraft: () => accountPanelDraft,
+    resetAccountPanel: () => { setAccountTaskRevision((revision) => revision + 1); setAccountPanelDraft(false); },
+    resetForms: () => {
     setEditingQueueTicket(null);
     unsavedForm.current.clear();
     setAccountProfileForm({name:user?.name || "",displayName:user?.displayName || ""});
@@ -10749,8 +10764,8 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     setLocationDialogOpen(false); setServiceDialogOpen(false); setCounterDialogOpen(false);
     setAvailabilityBlockDialogOpen(false); setAvailabilityExceptionDialogOpen(false);
     setStaffDialogOpen(false); setRescheduleDialogOpen(false); setWalkInDialogOpen(false); setThemeDialogOpen(false);
-    return true;
-  };
+    },
+  });
   const requestLocationLeave = (proceed: () => void) => {
     requestVendorEditorLeave({ hasEdits: unsavedForm.current.hasEdits(), saveDraft: () => { locationLeaveDraft.current = locationForm; }, setLeaveAction: setLocationLeaveAction, proceed, canLeaveFeature });
   };
