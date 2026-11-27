@@ -433,6 +433,24 @@ function VendorQueueActiveTicketStatus({
   );
 }
 
+function VendorQueueDayStatus({
+  queueDayReconciling,
+  queueDayUnopened,
+  queueDayActuallyClosed,
+  queueDayClosed,
+  queueDayPaused,
+  queueDayExtended,
+  snapshot,
+}: Pick<VendorQueueStatusColumnsProps, "queueDayReconciling" | "queueDayUnopened" | "queueDayActuallyClosed" | "queueDayClosed" | "queueDayPaused" | "queueDayExtended" | "snapshot">) {
+  return (
+    <div className="vendor-queue-status-column">
+      <p className="queue-text vendor-eyebrow">Queue day</p>
+      <h3 className="queue-heading">{vendorQueueDayTitle({ queueDayReconciling, queueDayUnopened, queueDayActuallyClosed, queueDayPaused, queueDayExtended })}</h3>
+      <p className="queue-text queue-muted queue-small">{vendorQueueDayDescription({ queueDayReconciling, queueDayUnopened, queueDayActuallyClosed, queueDayPaused, queueDayClosed, snapshot })}</p>
+    </div>
+  );
+}
+
 function VendorQueueStatusColumns({
   activeTicket,
   intakeState,
@@ -450,26 +468,15 @@ function VendorQueueStatusColumns({
       data-columns={intakeState?.autoPauseEnabled ? 3 : 2}
     >
       <VendorQueueActiveTicketStatus activeTicket={activeTicket} snapshot={snapshot} />
-      <div className="vendor-queue-status-column">
-        <p className="queue-text vendor-eyebrow">Queue day</p>
-        <h3 className="queue-heading">{vendorQueueDayTitle({
-          queueDayReconciling,
-          queueDayUnopened,
-          queueDayActuallyClosed,
-          queueDayPaused,
-          queueDayExtended,
-        })}</h3>
-        <p className="queue-text queue-muted queue-small">
-          {vendorQueueDayDescription({
-            queueDayReconciling,
-            queueDayUnopened,
-            queueDayActuallyClosed,
-            queueDayPaused,
-            queueDayClosed,
-            snapshot,
-          })}
-        </p>
-      </div>
+      <VendorQueueDayStatus
+        queueDayReconciling={queueDayReconciling}
+        queueDayUnopened={queueDayUnopened}
+        queueDayActuallyClosed={queueDayActuallyClosed}
+        queueDayClosed={queueDayClosed}
+        queueDayPaused={queueDayPaused}
+        queueDayExtended={queueDayExtended}
+        snapshot={snapshot}
+      />
       {intakeState?.autoPauseEnabled && intakeState.autoPauseThreshold ? (
         <div className="vendor-queue-status-column">
           <LiveQueueIntake
