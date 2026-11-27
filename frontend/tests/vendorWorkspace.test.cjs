@@ -48,9 +48,17 @@ test('locations route alias is not treated as an invalid dashboard section', () 
   assert.match(source, /section !== "locations" && !dashboardSections\.has\(section\)/);
 });
 
-test('workspace changes perform a full transition across route aliases', () => {
+test('workspace changes use an in-app transition across route aliases', () => {
   const fs = require('node:fs');
   const path = require('node:path');
   const source = fs.readFileSync(path.resolve(__dirname, '../src/pages/VendorDashboardPage.tsx'), 'utf8');
-  assert.match(source, /window\.location\.assign\(workspacePath\(destination, next, location\.search, location\.hash\)\)/);
+  assert.match(source, /navigate\(workspacePath\(destination, next, location\.search, location\.hash\)\)/);
+  assert.doesNotMatch(source, /window\.location\.assign\(workspacePath\(destination, next/);
+});
+
+test('side-menu items remain router links with the navigation guard', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const source = fs.readFileSync(path.resolve(__dirname, '../src/vendor/VendorWorkspaceShell.tsx'), 'utf8');
+  assert.match(source, /<NavLink key=\{section\}[\s\S]*?to=\{workspacePath\(section, props\.workspace, props\.search, props\.hash\)\}[\s\S]*?onClick=\{guardNavigation\}/);
 });

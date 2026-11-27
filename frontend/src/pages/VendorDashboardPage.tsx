@@ -10683,10 +10683,9 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     const destination = candidates.find((item) => item.section !== "account")?.section || "account";
     savePreference(preferenceKey(user.id, selectedTenantSlug), next);
     // Workspace changes cross the route alias boundary (`tenants` →
-    // `locations`). Reloading this transition keeps the router params and the
-    // rendered workspace synchronized; a history-only update can leave the
-    // previous section mounted while the address bar changes.
-    window.location.assign(workspacePath(destination, next, location.search, location.hash));
+    // `locations`). Keep the transition inside the router so the dashboard
+    // shell and active section render immediately without a full-page reload.
+    navigate(workspacePath(destination, next, location.search, location.hash));
   };
   const routedLocation = locationSlug && dashboardBootstrapQuery.data
     ? resolveLocationEditor(locationSlug, locations, new Set(dashboardBootstrapQuery.data.locationsResponse.locations.map(item => item.id))) : undefined;
