@@ -387,6 +387,11 @@ function VendorDashboardErrorMessage({ error }: { error: string }) {
   return error ? <Text c="red" fw={700}>{error}</Text> : null;
 }
 
+function VendorDashboardTicketEditor({ ticket, tenantSlug, locationSlug, token, discard, setBusy, refresh }: { ticket: { id: string; tenant: string; location: string } | null; tenantSlug: string; locationSlug: string; token: string | null; discard: () => void; setBusy: (busy: string) => void; refresh: () => Promise<void> }) {
+  if (!ticket || ticket.tenant !== tenantSlug || ticket.location !== locationSlug) return null;
+  return <QueueDetailsEditor key={`${ticket.tenant}:${ticket.location}:${ticket.id}`} token={token} tenantSlug={ticket.tenant} locationSlug={ticket.location} ticketId={ticket.id} onClose={discard} onBusy={(busy) => setBusy(busy ? "ticket-details" : "")} onRefresh={refresh} />;
+}
+
 function ModalSection({
   title,
   description,
@@ -10810,7 +10815,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       <VendorToastViewport />
       {renderDashboardAlertOverlay()}
       {renderRescheduleBlockedModal()}
-      {editingQueueTicket && editingQueueTicket.tenant === selectedTenantSlug && editingQueueTicket.location === selectedLocationSlug ? <QueueDetailsEditor key={`${editingQueueTicket.tenant}:${editingQueueTicket.location}:${editingQueueTicket.id}`} token={token} tenantSlug={editingQueueTicket.tenant} locationSlug={editingQueueTicket.location} ticketId={editingQueueTicket.id} onClose={()=>{unsavedForm.current.discardId("queue-details-editor");setEditingQueueTicket(null);}} onBusy={busy=>setBusyAction(busy?"ticket-details":"")} onRefresh={async()=>{await Promise.all([reloadDashboardSnapshot(),...(resourceQueueEnabled?[localPoolQuery.refetch()]:[])]);}}/> : null}
+      <VendorDashboardTicketEditor ticket={editingQueueTicket} tenantSlug={selectedTenantSlug} locationSlug={selectedLocationSlug} token={token} discard={() => { unsavedForm.current.discardId("queue-details-editor"); setEditingQueueTicket(null); }} setBusy={(busy) => setBusyAction(busy)} refresh={async () => { await Promise.all([reloadDashboardSnapshot(), ...(resourceQueueEnabled ? [localPoolQuery.refetch()] : [])]); }} />
       {renderWalkInDialog()}
       <TicketScannerModal
         error={ticketScannerError}
