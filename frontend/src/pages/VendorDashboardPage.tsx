@@ -3660,7 +3660,6 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     event.preventDefault();
     const submittedForm = event.currentTarget;
     if (busyAction || staffQuery.isPending || staffQuery.isError || staff.length >= staffSeatLimit) return;
-    setError("");
     setBusyAction("staff-save");
     try {
       await vendorDashboardOperations.addStaff(token, selectedTenantSlug, staffForm);

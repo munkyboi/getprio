@@ -123,8 +123,8 @@ test("service status mutation retains saved unit bounds and service settings in 
   ])
     assert.equal(body[key], service[key]);
   assert.equal(body.isActive, false);
-  assert.equal(calls[0].length,4,"service updates use the catalog client contract");
-  context.bookingSettingsAllowed=false;await fn(service,false);assert.equal(calls[1].length,4,"service updates keep the same catalog path");
+  assert.equal(calls[0].length,5,"service updates use the catalog client contract");
+  context.bookingSettingsAllowed=false;await fn(service,false);assert.equal(calls[1].length,5,"service updates keep the same catalog path");
 });
 
 test("opening and saving an existing service-specific date-only block preserves its service scope", () => {
