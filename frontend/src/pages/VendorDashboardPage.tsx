@@ -90,7 +90,7 @@ import { BookingCheckInNotice } from "../components/BookingCheckInNotice";
 import { getBookingCheckInState } from "../utils/bookingCheckIn";
 import { VendorResourceConfiguration } from "../components/VendorResourceConfiguration";
 import { VendorRatingsPanel } from "../components/VendorRatingsPanel";
-import { useCallback, useContext, useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from "react";
+import { useCallback, useContext, useEffect, useMemo, useRef, useState, type CSSProperties, type ElementType, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Badge,
@@ -394,6 +394,10 @@ function VendorDashboardTicketEditor({ ticket, tenantSlug, locationSlug, token, 
 
 function handleVendorLogout(canLeaveFeature: () => boolean, logout: () => Promise<void>) {
   if (canLeaveFeature()) void logout();
+}
+
+function buildVendorShellProps({ workspace, canAdmin, items, businessName, locationName, publicVendorUrl, title, eyebrow, description }: { workspace: "operations" | "administration"; canAdmin: boolean; items: Array<{ section: string; label: string; icon: ElementType }>; businessName: string; locationName: string; publicVendorUrl?: string; title: string; eyebrow?: string; description: string }) {
+  return { workspace, canAdmin, items, businessName, locationName, publicVendorUrl, title, eyebrow, description };
 }
 
 function ModalSection({
@@ -10781,13 +10785,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
   const { title: pageTitle, description: pageDescription } = getVendorDashboardPageMetadata({ requiresMfaEnrollment, routeServiceSlug, routedService, serviceDialogOpen, serviceForm, servicesQuery, locationSlug, routedLocation, currentSection, navItems, dashboardSectionDescriptions });
   return (
     <VendorWorkspaceShell
-      workspace={workspace} canAdmin={canSwitchWorkspace} items={workspaceNavItems}
-      businessName={activeTenants.find((tenant) => tenant.slug === selectedTenantSlug)?.name || "Your business"}
-      locationName={selectedLocation?.name || ""}
-      publicVendorUrl={selectedTenantSlug ? appUrl("customer", `/vendors/${selectedTenantSlug}`) : undefined}
-      title={pageTitle}
-      eyebrow={routeServiceSlug && !requiresMfaEnrollment ? "SERVICE EDITOR" : undefined}
-      description={pageDescription}
+      {...buildVendorShellProps({ workspace, canAdmin: canSwitchWorkspace, items: workspaceNavItems, businessName: activeTenants.find((tenant) => tenant.slug === selectedTenantSlug)?.name || "Your business", locationName: selectedLocation?.name || "", publicVendorUrl: selectedTenantSlug ? appUrl("customer", `/vendors/${selectedTenantSlug}`) : undefined, title: pageTitle, eyebrow: routeServiceSlug && !requiresMfaEnrollment ? "SERVICE EDITOR" : undefined, description: pageDescription })}
       breadcrumbs={getVendorDashboardBreadcrumbs(routeServiceSlug, locationSlug, requiresMfaEnrollment, pageTitle, location.search)}
       headerAction={getVendorDashboardHeaderAction({ routeServiceSlug, locationSlug, requiresMfaEnrollment, busyAction, requestServiceLeave, requestLocationLeave, navigate, search: location.search })}
       name={user.name || "Vendor"} role={selectedTenantRole || "Vendor"} plan={activeSubscription?.planName || tenantPlan?.planName || "No active plan"}
