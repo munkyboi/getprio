@@ -361,6 +361,12 @@ function VendorQueueRenderer({ render }: VendorQueueRendererContext) {
   return <>{render()}</>;
 }
 
+type VendorAdministrationRendererContext = { render: () => React.ReactNode };
+
+function VendorAdministrationRenderer({ render }: VendorAdministrationRendererContext) {
+  return <>{render()}</>;
+}
+
 function canLeaveVendorFeature({ busy, hasEdits, discardApproved, confirm, accountSecurity, recoveryCodes, mfaSecret, accountPanelDraft, reset }: { busy: boolean; hasEdits: boolean; discardApproved: boolean; confirm: (message: string) => boolean; accountSecurity: boolean; recoveryCodes: number; mfaSecret: string; accountPanelDraft: boolean; reset: () => void }) {
   if (busy) return false;
   if (hasEdits && !discardApproved && !confirm("You have unsaved edits. Leave this view?")) return false;
@@ -10787,8 +10793,8 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     if (currentSection === "overview") {
       return renderVendorOverviewSection({ token, effectiveEntitlements, tenantPlan, selectedTenantSlug, selectedLocationSlug, snapshot, canLeaveFeature, navigate, search: location.search });
     }
-    if (currentSection === "tenants") return renderTenantsSection();
-    if (currentSection === "services") return renderServicesSection();
+    if (currentSection === "tenants") return <VendorAdministrationRenderer render={renderTenantsSection} />;
+    if (currentSection === "services") return <VendorAdministrationRenderer render={renderServicesSection} />;
     if (currentSection === "ratings") return <VendorRatingsPanel key={selectedTenantSlug} token={token!} tenantSlug={selectedTenantSlug} />;
     if (currentSection === "account") return <Stack gap="md">{!requiresMfaEnrollment && boardApprovalReturn ? <Button component={NavLink} to={boardApprovalReturn} mih={44}>Continue to display approval</Button> : null}{renderAccountPage()}</Stack>;
     return simpleSections[currentSection]?.() ?? renderSettingsPage();
