@@ -368,6 +368,13 @@ function createVendorLeaveGuard(state: { isBusy: () => boolean; hasEdits: () => 
   };
 }
 
+function resolveVendorDashboardSection({ routeServiceSlug, locationSlug, section }: { routeServiceSlug?: string; locationSlug?: string; section?: string }): DashboardSection {
+  if (routeServiceSlug) return "services";
+  if (locationSlug || section === "locations") return "tenants";
+  if (section && dashboardSections.has(section)) return section as DashboardSection;
+  return "queue";
+}
+
 function renderVendorDashboardMainContent({ requiresMfaEnrollment, currentSection, snapshot, selectedTenantSlug, selectedLocationSlug, renderCurrentSection, queryError, retry }: { requiresMfaEnrollment: boolean; currentSection: DashboardSection; snapshot: QueueSnapshot | null; selectedTenantSlug: string; selectedLocationSlug: string; renderCurrentSection: () => React.ReactNode; queryError: unknown; retry: () => void }) {
   const ready = requiresMfaEnrollment || currentSection === "account" || (snapshot?.tenant.slug === selectedTenantSlug && snapshot?.location?.slug === selectedLocationSlug);
   return ready ? renderCurrentSection() : <OperationQueryState loading={!queryError} error={queryError} onRetry={retry} />;
@@ -1215,9 +1222,7 @@ function VendorDashboardContent() {
   const boardApprovalReturn = queueBoardReturnPath(location.search);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const currentSection = (
-    routeServiceSlug ? "services" : locationSlug || section === "locations" ? "tenants" : section && dashboardSections.has(section) ? section : "queue"
-  ) as DashboardSection;
+  const currentSection = resolveVendorDashboardSection({ routeServiceSlug, locationSlug, section });
   // `/dashboard/locations` is the public route alias for the internal
   // `tenants` section. Keep it valid long enough for currentSection to render
   // the Administration view instead of falling back to Live queue.
