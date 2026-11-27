@@ -383,6 +383,10 @@ function renderVendorSimpleSection(section: string, renderers: Record<string, ()
   return renderers[section]?.() ?? fallback();
 }
 
+function renderVendorAdministrationBranch(section: "tenants" | "services", renderTenants: () => React.ReactNode, renderServices: () => React.ReactNode) {
+  return section === "tenants" ? renderTenants() : renderServices();
+}
+
 function canLeaveVendorFeature({ busy, hasEdits, discardApproved, confirm, accountSecurity, recoveryCodes, mfaSecret, accountPanelDraft, reset }: { busy: boolean; hasEdits: boolean; discardApproved: boolean; confirm: (message: string) => boolean; accountSecurity: boolean; recoveryCodes: number; mfaSecret: string; accountPanelDraft: boolean; reset: () => void }) {
   if (busy) return false;
   if (hasEdits && !discardApproved && !confirm("You have unsaved edits. Leave this view?")) return false;
@@ -10809,8 +10813,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     if (currentSection === "overview") {
       return renderVendorOverviewSection({ token, effectiveEntitlements, tenantPlan, selectedTenantSlug, selectedLocationSlug, snapshot, canLeaveFeature, navigate, search: location.search });
     }
-    if (currentSection === "tenants") return <VendorAdministrationRenderer render={renderTenantsSection} />;
-    if (currentSection === "services") return <VendorAdministrationRenderer render={renderServicesSection} />;
+    if (currentSection === "tenants" || currentSection === "services") return <VendorAdministrationRenderer render={() => renderVendorAdministrationBranch(currentSection, renderTenantsSection, renderServicesSection)} />;
     if (currentSection === "ratings") return renderVendorRatingsSection(selectedTenantSlug, token);
     if (currentSection === "account") return renderVendorAccountSection(requiresMfaEnrollment, boardApprovalReturn, renderAccountPage);
     return renderVendorSimpleSection(currentSection, simpleSections, renderSettingsPage);
