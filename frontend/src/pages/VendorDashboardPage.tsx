@@ -635,7 +635,6 @@ function VendorQueueControlActions({
   onReopen,
   onResume,
   onPause,
-  onClose,
 }: VendorQueueControlActionsProps) {
   const disabled = queueActionBusy || boardScannerBusy || boardSettingsBusy || savingNotificationSettings || requestingBrowserPermission;
   if (queueDayUnopened && canOperateQueueDay) {
@@ -684,7 +683,7 @@ function renderVendorTenantsRoute({ locationSlug, isOwner, isAdmin, bootstrapLoc
   return renderLocationDialog();
 }
 
-function renderVendorServicesRoute({ routeServiceSlug, isOwner, isAdmin, bootstrapPending, servicesPending, assignmentsPending, bootstrapError, servicesError, assignmentsError, servicesData, services, locations, renderServiceDialog, renderServicesPage, refetch }: { routeServiceSlug?: string; isOwner: boolean; isAdmin: boolean; bootstrapPending: boolean; servicesPending: boolean; assignmentsPending: boolean; bootstrapError: unknown; servicesError: unknown; assignmentsError: unknown; servicesData?: { services: Array<{ id: string }> }; services: VendorServiceSummary[]; locations: StoreLocationWithHours[]; renderServiceDialog: () => React.ReactNode; renderServicesPage: () => React.ReactNode; refetch: () => void }) {
+function renderVendorServicesRoute({ routeServiceSlug, isOwner, isAdmin, bootstrapPending, servicesPending, assignmentsPending, bootstrapError, servicesError, assignmentsError, servicesData, services, renderServiceDialog, renderServicesPage, refetch }: { routeServiceSlug?: string; isOwner: boolean; isAdmin: boolean; bootstrapPending: boolean; servicesPending: boolean; assignmentsPending: boolean; bootstrapError: unknown; servicesError: unknown; assignmentsError: unknown; servicesData?: { services: Array<{ id: string }> }; services: VendorServiceSummary[]; renderServiceDialog: () => React.ReactNode; renderServicesPage: () => React.ReactNode; refetch: () => void }) {
   if (!routeServiceSlug) return renderServicesPage();
   if (!isOwner && !isAdmin) return <OperationAlert color="red" title="Service access required">You do not have permission to edit this service.</OperationAlert>;
   if (bootstrapPending || servicesPending || assignmentsPending) return <OperationQueryState loading error={null} onRetry={refetch} />;
@@ -10897,7 +10896,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
   }
 
   function renderServicesSection() {
-    return renderVendorServicesRoute({ routeServiceSlug, isOwner, isAdmin, bootstrapPending: dashboardBootstrapQuery.isPending, servicesPending: servicesQuery.isPending, assignmentsPending: locationServicesQuery.isPending, bootstrapError: dashboardBootstrapQuery.error, servicesError: servicesQuery.error, assignmentsError: locationServicesQuery.error, servicesData: servicesQuery.data, services, locations, renderServiceDialog, renderServicesPage, refetch: () => { void servicesQuery.refetch(); void locationServicesQuery.refetch(); void dashboardBootstrapQuery.refetch(); } });
+    return renderVendorServicesRoute({ routeServiceSlug, isOwner, isAdmin, bootstrapPending: dashboardBootstrapQuery.isPending, servicesPending: servicesQuery.isPending, assignmentsPending: locationServicesQuery.isPending, bootstrapError: dashboardBootstrapQuery.error, servicesError: servicesQuery.error, assignmentsError: locationServicesQuery.error, servicesData: servicesQuery.data, services, renderServiceDialog, renderServicesPage, refetch: () => { void servicesQuery.refetch(); void locationServicesQuery.refetch(); void dashboardBootstrapQuery.refetch(); } });
   }
 
   function renderCurrentSection() {
