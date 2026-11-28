@@ -181,6 +181,22 @@ function publicBoardStyle(theme: ReturnType<typeof resolveVendorProfileMedia>): 
   } as CSSProperties;
 }
 
+function PublicBoardAlerts({ paymentSyncing, error, ticket, message }: {
+  paymentSyncing: boolean;
+  error: string;
+  ticket?: QueueSnapshot["focusTicket"];
+  message: string;
+}) {
+  if (!paymentSyncing && !error && !ticket) return null;
+  return (
+    <div className="public-board-tv-alerts">
+      {paymentSyncing && <p>Confirming payment and issuing your queue ticket.</p>}
+      {error && <p>{error}</p>}
+      {ticket && <p>Ticket {ticket.ticketNumber}: {message}</p>}
+    </div>
+  );
+}
+
 export default function PublicQueuePage({ initialSnapshot }: { initialSnapshot?: QueueSnapshot } = {}) {
   const { tenantSlug, locationSlug } = useParams<{ tenantSlug: string; locationSlug?: string }>();
   const navigate = useNavigate();
@@ -314,17 +330,12 @@ export default function PublicQueuePage({ initialSnapshot }: { initialSnapshot?:
                 </div>
               </div>
 
-              {paymentSyncing || error || (lookupCode && snapshot?.focusTicket) ? (
-                <div className="public-board-tv-alerts">
-                  {paymentSyncing ? <p>Confirming payment and issuing your queue ticket.</p> : null}
-                  {error ? <p>{error}</p> : null}
-                  {lookupCode && snapshot?.focusTicket ? (
-                    <p>
-                      Ticket {snapshot.focusTicket.ticketNumber}: {ticketState.message}
-                    </p>
-                  ) : null}
-                </div>
-              ) : null}
+              <PublicBoardAlerts
+                paymentSyncing={paymentSyncing}
+                error={error}
+                ticket={lookupCode ? snapshot?.focusTicket : undefined}
+                message={ticketState.message}
+              />
 
               <div className="public-board-tv-next-strip">
                 {topTickets.length ? (
