@@ -408,6 +408,16 @@ function VendorQueueFeedback({ scope, linearCommandError, startPlanErrorScope, m
   </>;
 }
 
+type VendorQueueManagementPanelsProps = {
+  enabled: boolean;
+  workflowPanel: ReactNode;
+  namedPanel: ReactNode;
+};
+
+function VendorQueueManagementPanels({ enabled, workflowPanel, namedPanel }: VendorQueueManagementPanelsProps) {
+  return enabled ? <>{workflowPanel}{namedPanel}</> : null;
+}
+
 type VendorQueueStatusColumnsProps = {
   activeTicket: QueueCurrentTicket | null | undefined;
   intakeState: QueueSnapshot["queueIntake"] | null | undefined;
@@ -5892,8 +5902,11 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         </QueueCard>
         {!resourceQueueEnabled ? <LiveQueueSummary snapshot={snapshot} /> : null}
         {intakeMode==='blocked'?<OperationAlert color="orange" title="New requests need review">This location’s selected queue type is unavailable or needs setup. Existing requests can still be resolved below.</OperationAlert>:null}
-        {resourceManagementEnabled&&selectedTenantSlug&&selectedLocationSlug?<WorkflowQueuePanel key={`workflow:${localPoolScope}`} token={token} tenant={selectedTenantSlug} location={selectedLocationSlug} counterSlug={selectedCounterSlug} onEditForm={form=>unsavedForm.current.mark(form)} onClean={id=>unsavedForm.current.discardId(id)} onBusy={busy=>setBusyAction(busy?"workflow-command":"")} allowNew={intakeMode==='workflow'} onTicketIds={(ids,scope)=>{if(scope===localPoolScopeRef.current)setWorkflowInventory({scope,ids});}} onManagementReady={(ready,scope)=>{if(scope===localPoolScopeRef.current)setWorkflowManagementRead({scope,ready});}}/>:null}
-        {resourceManagementEnabled && selectedTenantSlug && selectedLocationSlug ? <NamedQueuePanel onSetupReady={(ready,scope)=>{if(scope===localPoolScopeRef.current)setQueueSetupRead(current=>current.scope===scope&&current.ready===ready?current:{scope,ready});}} managementOnly={!resourceQueueEnabled} onManagementReady={(ready,scope)=>{if(scope===localPoolScopeRef.current)setNamedManagementRead({scope,ready});}} hasUnsavedEdits={()=>unsavedForm.current.hasEdits()} key={`named:${selectedTenantSlug}:${selectedLocationSlug}`} token={token} tenant={selectedTenantSlug} location={selectedLocationSlug} counterSlug={selectedCounterSlug} staffMode={selectedTenantRole === "staff"} onReviewQueueSetup={resourceSetupAllowed&&(isOwner||isAdmin)&&visibleNavItems.some(item=>item.section==="services")?()=>{if(!canLeaveFeature())return;setServicesTab("queue-policy");navigate(workspacePath("services","administration",location.search));}:undefined} newRequestSequence={resourceQueueEnabled?serviceRequestSequence:0} onIntakeAvailability={setServiceRequestAvailable} onTicketIds={(ids,scope)=>{if(scope===localPoolScopeRef.current)setNamedInventory({scope,ids});}} onEditForm={form=>unsavedForm.current.mark(form)} onCloseForm={()=>unsavedForm.current.discardId("named-queue-plan")} onBusy={busy=>setBusyAction(busy?"named-queue-plan":"")} onNotice={showSuccessNotification}/>:null}
+        <VendorQueueManagementPanels
+          enabled={Boolean(resourceManagementEnabled && selectedTenantSlug && selectedLocationSlug)}
+          workflowPanel={<WorkflowQueuePanel key={`workflow:${localPoolScope}`} token={token} tenant={selectedTenantSlug} location={selectedLocationSlug} counterSlug={selectedCounterSlug} onEditForm={form=>unsavedForm.current.mark(form)} onClean={id=>unsavedForm.current.discardId(id)} onBusy={busy=>setBusyAction(busy?"workflow-command":"")} allowNew={intakeMode==='workflow'} onTicketIds={(ids,scope)=>{if(scope===localPoolScopeRef.current)setWorkflowInventory({scope,ids});}} onManagementReady={(ready,scope)=>{if(scope===localPoolScopeRef.current)setWorkflowManagementRead({scope,ready});}}/>}
+          namedPanel={<NamedQueuePanel onSetupReady={(ready,scope)=>{if(scope===localPoolScopeRef.current)setQueueSetupRead(current=>current.scope===scope&&current.ready===ready?current:{scope,ready});}} managementOnly={!resourceQueueEnabled} onManagementReady={(ready,scope)=>{if(scope===localPoolScopeRef.current)setNamedManagementRead({scope,ready});}} hasUnsavedEdits={()=>unsavedForm.current.hasEdits()} key={`named:${selectedTenantSlug}:${selectedLocationSlug}`} token={token} tenant={selectedTenantSlug} location={selectedLocationSlug} counterSlug={selectedCounterSlug} staffMode={selectedTenantRole === "staff"} onReviewQueueSetup={resourceSetupAllowed&&(isOwner||isAdmin)&&visibleNavItems.some(item=>item.section==="services")?()=>{if(!canLeaveFeature())return;setServicesTab("queue-policy");navigate(workspacePath("services","administration",location.search));}:undefined} newRequestSequence={resourceQueueEnabled?serviceRequestSequence:0} onIntakeAvailability={setServiceRequestAvailable} onTicketIds={(ids,scope)=>{if(scope===localPoolScopeRef.current)setNamedInventory({scope,ids});}} onEditForm={form=>unsavedForm.current.mark(form)} onCloseForm={()=>unsavedForm.current.discardId("named-queue-plan")} onBusy={busy=>setBusyAction(busy?"named-queue-plan":"")} onNotice={showSuccessNotification}/>}
+        />
 
 
         <VendorQueueFeedback
