@@ -424,6 +424,15 @@ function VendorQueueCounterTickets({ enabled, children }: VendorQueueCounterTick
   return enabled ? <>{children}</> : null;
 }
 
+interface VendorQueueCurrentActionsProps {
+  disabled: boolean;
+  children: ReactNode;
+}
+
+function VendorQueueCurrentActions({ disabled, children }: VendorQueueCurrentActionsProps) {
+  return <ButtonGroup className="vendor-queue-primary-actions" aria-label="Ticket actions" data-disabled={disabled}>{children}</ButtonGroup>;
+}
+
 type VendorQueueStatusColumnsProps = {
   activeTicket: QueueCurrentTicket | null | undefined;
   intakeState: QueueSnapshot["queueIntake"] | null | undefined;
@@ -5676,7 +5685,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   </QueueButton>
                 </> : null}
               </div>
-              {(intakeMode === "workflow" && !rawCounterTicket) || scopedResourceIds(localPoolScope,workflowInventory).includes(rawCounterTicket?.id||"") ? <p className="ops-muted">Use the station actions in Workflow journeys below.</p> : workPresentation.resourceCounters ? <CounterQueueControls token={token} tenant={selectedTenantSlug} location={selectedLocationSlug} counterSlug={selectedCounterSlug} busy={queueActionBusy||ticketScannerOpen} onScan={command=>{setTicketScannerError("");setScannerTarget({ticketId:command.ticketId,ticketNumber:command.ticketNumber,counterSlug:command.counterSlug,tenantSlug:selectedTenantSlug,locationQuery});setTicketScannerOpen(true);}}/> : <ButtonGroup className="vendor-queue-primary-actions" aria-label="Ticket actions">
+              {(intakeMode === "workflow" && !rawCounterTicket) || scopedResourceIds(localPoolScope,workflowInventory).includes(rawCounterTicket?.id||"") ? <p className="ops-muted">Use the station actions in Workflow journeys below.</p> : workPresentation.resourceCounters ? <CounterQueueControls token={token} tenant={selectedTenantSlug} location={selectedLocationSlug} counterSlug={selectedCounterSlug} busy={queueActionBusy||ticketScannerOpen} onScan={command=>{setTicketScannerError("");setScannerTarget({ticketId:command.ticketId,ticketNumber:command.ticketNumber,counterSlug:command.counterSlug,tenantSlug:selectedTenantSlug,locationQuery});setTicketScannerOpen(true);}}/> : <VendorQueueCurrentActions disabled={queueActionBusy}>
                 <ButtonGroupSeparator className="queue-walkin-separator" aria-hidden="true" />
                 <QueueButton
                   variant="default"
@@ -5879,7 +5888,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                         <IconUserPlus data-icon="inline-start" />
                         Add walk-in
                       </QueueButton>}
-              </ButtonGroup>}
+              </VendorQueueCurrentActions>}
             </ButtonGroup>
             {snapshot?.queueDay?.closureReason ? (
               <p className="queue-text queue-muted queue-small">
