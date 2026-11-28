@@ -418,10 +418,115 @@ function VendorQueueManagementPanels({ enabled, workflowPanel, namedPanel }: Ven
   return enabled ? <>{workflowPanel}{namedPanel}</> : null;
 }
 
-type VendorQueueCounterTicketsProps = { enabled: boolean; children: ReactNode };
+interface VendorWaitingTicketsProps {
+  tickets: readonly QueueListTicket[];
+  canManage: boolean;
+  busy: boolean;
+  onEdit: (ticketId: string) => void;
+  onCancel: (ticket: QueueListTicket) => void;
+}
 
-function VendorQueueCounterTickets({ enabled, children }: VendorQueueCounterTicketsProps) {
-  return enabled ? <>{children}</> : null;
+function VendorWaitingTickets({ tickets, canManage, busy, onEdit, onCancel }: VendorWaitingTicketsProps) {
+  return (
+  <div className="queue-table-wrapper">
+    <QueueTable aria-label="Waiting queue" role="table">
+      <QueueTableHeader>
+        <QueueTableRow>
+          <QueueTableHead scope="col">ID</QueueTableHead>
+          <QueueTableHead scope="col">Up next</QueueTableHead>
+          <QueueTableHead scope="col">Channel</QueueTableHead>
+          <QueueTableHead scope="col">Source</QueueTableHead>
+          <QueueTableHead scope="col">Joined</QueueTableHead>
+          <QueueTableHead scope="col">Actions</QueueTableHead>
+        </QueueTableRow>
+      </QueueTableHeader>
+      <QueueTableBody>
+        {tickets.length ? (
+          tickets.map((ticket) => (
+            <QueueTableRow key={ticket.id}>
+              <QueueTableCell data-label="ID">
+                {ticket.id}
+              </QueueTableCell>
+              <QueueTableCell data-label="Ticket">
+                <p className="queue-text queue-strong">
+                  {ticket.ticketNumber}
+                </p>
+                <p className="queue-text queue-muted queue-small">
+                  {getQueueCustomerFullNameLabel(
+                    ticket.customerName,
+                    ticket.customerDisplayName,
+                  )}
+                </p>
+                {ticket.linkedBookingReference ? (
+                  <div className="queue-stack">
+                    <p className="queue-text queue-muted queue-small">
+                      Booking {ticket.linkedBookingReference}
+                    </p>
+                    {ticket.bookingScheduledStartAt ? (
+                      <p className="queue-text queue-muted queue-small">
+                        Earliest call:{" "}
+                        {formatDateTime(
+                          ticket.bookingScheduledStartAt,
+                        )}
+                      </p>
+                    ) : null}
+                  </div>
+                ) : null}
+              </QueueTableCell>
+              <QueueTableCell data-label="Channel">
+                <QueueBadge variant="outline">
+                  {ticket.joinChannel}
+                </QueueBadge>
+              </QueueTableCell>
+              <QueueTableCell data-label="Source">
+                <div className="queue-row">
+                  {isCheckedInBookingTicket(ticket) ? (
+                    <QueueBadge variant="outline">
+                      Booking
+                    </QueueBadge>
+                  ) : null}
+                  <QueueBadge variant="outline">
+                    {ticket.isCarriedOver
+                      ? "Carry-over"
+                      : "Same-day"}
+                  </QueueBadge>
+                </div>
+              </QueueTableCell>
+              <QueueTableCell data-label="Joined">
+                {formatDateTime(ticket.createdAt)}
+              </QueueTableCell>
+              <QueueTableCell data-label="Actions">
+                {canManage && ticket.status === "waiting" ? <QueueButton variant="outline" disabled={busy} onClick={()=>onEdit(ticket.id)} aria-label={`Edit queue details for ${ticket.ticketNumber}`}>Edit queue details</QueueButton> : null}
+                {canManage &&
+                ticket.status === "waiting" ? (
+                  <QueueButton
+                    variant="destructive"
+                    disabled={busy}
+                    aria-label={`Cancel waiting ticket ${ticket.ticketNumber}`}
+                    onClick={() =>
+                      onCancel(ticket)
+                    }
+                  >
+                    Cancel ticket
+                  </QueueButton>
+                ) : null}
+              </QueueTableCell>
+            </QueueTableRow>
+          ))
+        ) : (
+          <QueueTableRow>
+            <QueueTableCell colSpan={6}>
+              <QueueEmptyState
+                title="No one is waiting right now."
+                text="Fresh same-day joins will appear here once the carry-over backlog is cleared."
+              />
+            </QueueTableCell>
+          </QueueTableRow>
+        )}
+      </QueueTableBody>
+    </QueueTable>
+  </div>
+  );
 }
 
 interface VendorQueueCurrentActionsProps {
@@ -6068,8 +6173,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
           onRefresh={() => { void Promise.all([queueLifecycleSnapshotQuery.refetch(), resourceQueueEnabled ? localPoolQuery.refetch() : Promise.resolve()]); }}
         />
         {resourceQueueEnabled && localPoolData?.reconciliation.required ? <OperationAlert color="red" title="Resource records need review">Refresh and reconcile these records before starting more work. Active sessions continue to hold capacity.</OperationAlert> : null}
-        <VendorQueueCounterTickets enabled={!resourceQueueEnabled}>
-        <CounterTickets
+        {!resourceQueueEnabled && <CounterTickets
           onEdit={openQueueDetails}
           snapshot={legacyCounterSnapshot}
           selectedTicketId={activeTicket?.id}
@@ -6109,8 +6213,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
               },
             })
           }
-        />
-        </VendorQueueCounterTickets>
+        />}
 
         <div className="queue-stack">
           <Accordion>
@@ -6124,106 +6227,13 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                 <QueueCardContent className="queue-stack">
                   <QueueViewPicker data={[{value:"current",label:"Current queue"},{value:"overflow",label:"Carried over"},{value:"recovery",label:"Missed recovery"}]} value={queueView} onChange={value => setQueueView(value as QueueView)} />
 
-                    <>
-                      <div className="queue-table-wrapper">
-                        <QueueTable aria-label="Waiting queue" role="table">
-                          <QueueTableHeader>
-                            <QueueTableRow>
-                              <QueueTableHead scope="col">ID</QueueTableHead>
-                              <QueueTableHead scope="col">Up next</QueueTableHead>
-                              <QueueTableHead scope="col">Channel</QueueTableHead>
-                              <QueueTableHead scope="col">Source</QueueTableHead>
-                              <QueueTableHead scope="col">Joined</QueueTableHead>
-                              <QueueTableHead scope="col">Actions</QueueTableHead>
-                            </QueueTableRow>
-                          </QueueTableHeader>
-                          <QueueTableBody>
-                            {currentQueueTickets.length ? (
-                              currentQueueTickets.map((ticket) => (
-                                <QueueTableRow key={ticket.id}>
-                                  <QueueTableCell data-label="ID">
-                                    {ticket.id}
-                                  </QueueTableCell>
-                                  <QueueTableCell data-label="Ticket">
-                                    <p className="queue-text queue-strong">
-                                      {ticket.ticketNumber}
-                                    </p>
-                                    <p className="queue-text queue-muted queue-small">
-                                      {getQueueCustomerFullNameLabel(
-                                        ticket.customerName,
-                                        ticket.customerDisplayName,
-                                      )}
-                                    </p>
-                                    {ticket.linkedBookingReference ? (
-                                      <div className="queue-stack">
-                                        <p className="queue-text queue-muted queue-small">
-                                          Booking {ticket.linkedBookingReference}
-                                        </p>
-                                        {ticket.bookingScheduledStartAt ? (
-                                          <p className="queue-text queue-muted queue-small">
-                                            Earliest call:{" "}
-                                            {formatDateTime(
-                                              ticket.bookingScheduledStartAt,
-                                            )}
-                                          </p>
-                                        ) : null}
-                                      </div>
-                                    ) : null}
-                                  </QueueTableCell>
-                                  <QueueTableCell data-label="Channel">
-                                    <QueueBadge variant="outline">
-                                      {ticket.joinChannel}
-                                    </QueueBadge>
-                                  </QueueTableCell>
-                                  <QueueTableCell data-label="Source">
-                                    <div className="queue-row">
-                                      {isCheckedInBookingTicket(ticket) ? (
-                                        <QueueBadge variant="outline">
-                                          Booking
-                                        </QueueBadge>
-                                      ) : null}
-                                      <QueueBadge variant="outline">
-                                        {ticket.isCarriedOver
-                                          ? "Carry-over"
-                                          : "Same-day"}
-                                      </QueueBadge>
-                                    </div>
-                                  </QueueTableCell>
-                                  <QueueTableCell data-label="Joined">
-                                    {formatDateTime(ticket.createdAt)}
-                                  </QueueTableCell>
-                                  <QueueTableCell data-label="Actions">
-                                    {selectedTenantRole && ticket.status === "waiting" ? <QueueButton variant="outline" disabled={queueActionBusy} onClick={()=>openQueueDetails(ticket.id)} aria-label={`Edit queue details for ${ticket.ticketNumber}`}>Edit queue details</QueueButton> : null}
-                                    {selectedTenantRole &&
-                                    ticket.status === "waiting" ? (
-                                      <QueueButton
-                                        variant="destructive"
-                                        disabled={queueActionBusy}
-                                        aria-label={`Cancel waiting ticket ${ticket.ticketNumber}`}
-                                        onClick={() =>
-                                          openWaitingTicketCancellation(ticket)
-                                        }
-                                      >
-                                        Cancel ticket
-                                      </QueueButton>
-                                    ) : null}
-                                  </QueueTableCell>
-                                </QueueTableRow>
-                              ))
-                            ) : (
-                              <QueueTableRow>
-                                <QueueTableCell colSpan={6}>
-                                  <QueueEmptyState
-                                    title="No one is waiting right now."
-                                    text="Fresh same-day joins will appear here once the carry-over backlog is cleared."
-                                  />
-                                </QueueTableCell>
-                              </QueueTableRow>
-                            )}
-                          </QueueTableBody>
-                        </QueueTable>
-                      </div>
-                    </>
+                  <VendorWaitingTickets
+                    tickets={currentQueueTickets}
+                    canManage={Boolean(selectedTenantRole)}
+                    busy={queueActionBusy}
+                    onEdit={openQueueDetails}
+                    onCancel={openWaitingTicketCancellation}
+                  />
 
                 </QueueCardContent>
               </QueueCard>
