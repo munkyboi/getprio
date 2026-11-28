@@ -92,27 +92,7 @@ import { VendorResourceConfiguration } from "../components/VendorResourceConfigu
 import { VendorRatingsPanel } from "../components/VendorRatingsPanel";
 import { useCallback, useContext, useEffect, useMemo, useRef, useState, type CSSProperties, type ElementType, type FormEvent, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  Badge,
-  Button,
-  Card,
-  Checkbox,
-  ColorInput,
-  FileInput,
-  Group,
-  Modal,
-  NumberInput,
-  Paper,
-  Select,
-  SimpleGrid,
-  Slider,
-  Stack,
-  Text,
-  TextInput,
-  ThemeIcon,
-  Title,
-  Tooltip
-} from "@mantine/core";
+import { Tooltip, TooltipTrigger, TooltipContent } from "../vendor/components/ui/tooltip";
 import {
   IconBellRinging,
   IconBuildingBank,
@@ -246,9 +226,9 @@ function QueueQrUnavailable() {
   return (
     <div aria-label="Queue QR unavailable" className="vendor-empty-art" role="img">
       <IconQrcode size={42} stroke={1.5} />
-      <Text c="dimmed" fw={700} mt="sm" size="sm">
+      <p className="v:text-muted-foreground v:text-sm v:font-bold v:mt-3">
         Queue QR unavailable
-      </Text>
+      </p>
     </div>
   );
 }
@@ -804,7 +784,7 @@ function renderVendorRatingsSection(selectedTenantSlug: string, token: string | 
 }
 
 function renderVendorAccountSection(requiresMfaEnrollment: boolean, boardApprovalReturn: string | null, renderAccountPage: () => React.ReactNode) {
-  return <Stack gap="md">{!requiresMfaEnrollment && boardApprovalReturn ? <Button component={NavLink} to={boardApprovalReturn} mih={44}>Continue to display approval</Button> : null}{renderAccountPage()}</Stack>;
+  return <div className="v:flex v:flex-col v:gap-4">{!requiresMfaEnrollment && boardApprovalReturn ? <NavLink to={boardApprovalReturn} className={queueButtonVariants()}>Continue to display approval</NavLink> : null}{renderAccountPage()}</div>;
 }
 
 function renderVendorSimpleSection(section: string, renderers: Record<string, () => React.ReactNode>, fallback: () => React.ReactNode) {
@@ -931,7 +911,7 @@ function VendorDashboardQueueTray({ visible, currentSection, busyAction, canOper
 }
 
 function VendorDashboardErrorMessage({ error }: { error: string }) {
-  return error ? <Text c="red" fw={700}>{error}</Text> : null;
+  return error ? <p className="v:text-destructive v:font-bold">{error}</p> : null;
 }
 
 function VendorDashboardTicketEditor({ ticket, tenantSlug, locationSlug, token, discard, setBusy, refresh }: { ticket: { id: string; tenant: string; location: string } | null; tenantSlug: string; locationSlug: string; token: string | null; discard: () => void; setBusy: (busy: string) => void; refresh: () => Promise<void> }) {
@@ -947,6 +927,22 @@ function buildVendorShellProps({ workspace, canAdmin, items, businessName, locat
   return { workspace, canAdmin, items, businessName, locationName, publicVendorUrl, title, eyebrow, description };
 }
 
+function ThemeColorField({ name, label, value, onChange }: {
+  name: string;
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <div className="v:flex v:items-end v:gap-2">
+      <div className="v:flex-1">
+        <ConfigurationInput name={name} label={label} value={value} onChange={event => onChange(event.currentTarget.value)} />
+      </div>
+      <QueueInput type="color" className="v:w-12" aria-label={`Choose ${label.toLowerCase()} color`} value={value} onChange={event => onChange(event.currentTarget.value)} />
+    </div>
+  );
+}
+
 function ModalSection({
   title,
   description,
@@ -957,19 +953,19 @@ function ModalSection({
   children: React.ReactNode;
 }) {
   return (
-    <Card withBorder radius="xl" p="md" className="service-dialog__panel vendor-location-modal__section">
-      <Stack gap="sm">
+    <QueueCard className="service-dialog__panel vendor-location-modal__section v:p-4">
+      <div className="v:flex v:flex-col v:gap-3">
         <div>
-          <Group gap="xs" align="center" wrap="nowrap">
-            <Text className="service-dialog__label">{title}</Text>
-          </Group>
-          <Text c="dimmed" size="sm" mt={4}>
+          <div className="v:flex v:flex-nowrap v:items-center v:gap-2">
+            <p className="service-dialog__label">{title}</p>
+          </div>
+          <p className="v:text-muted-foreground v:text-sm v:mt-1">
             {description}
-          </Text>
+          </p>
         </div>
         {children}
-      </Stack>
-    </Card>
+      </div>
+    </QueueCard>
   );
 }
 
@@ -5842,27 +5838,24 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     }
 
     return (
-      <Tooltip
-        multiline
-        label={
-          <Stack gap={8} style={{ maxWidth: 300 }}>
-            <Text fw={700}>
+      <Tooltip>
+        <TooltipTrigger className="neura-plan-trigger">{activeSubscription.planName}</TooltipTrigger>
+        <TooltipContent side="bottom" align="start">
+          <div className="v:flex v:flex-col v:gap-2" style={{ maxWidth: 300 }}>
+            <p className="v:font-bold">
               {currentPlan ? getPlanPriceDisplay(currentPlan) : activeSubscription.planName}
-            </Text>
-            <Text size="sm">
+            </p>
+            <p className="v:text-sm">
               {activeSubscription.status} via {activeSubscription.provider}
               {activeSubscription.currentPeriodEnd
                 ? ` | Renews ${formatDate(activeSubscription.currentPeriodEnd)}`
                 : ""}
-            </Text>
+            </p>
             {currentPlan?.included.slice(0, 6).map((item) => (
-              <Text key={item} size="xs">• {item}</Text>
+              <p className="v:text-xs" key={item}>• {item}</p>
             ))}
-          </Stack>
-        }
-        position="bottom-start"
-      >
-        <Text component="span" className="neura-plan-trigger">{activeSubscription.planName}</Text>
+          </div>
+        </TooltipContent>
       </Tooltip>
     );
   }
@@ -6526,80 +6519,77 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     const heroQrTarget = previewLocation?.qrJoinUrl || "";
 
     return (
-      <Stack className="vendor-profile-page" gap="xl" style={themeStyle}>
-        <Paper className="vendor-hero-shell" p={{ base: "lg", md: "xl" }}>
-          <SimpleGrid cols={{ base: 1, lg: 2 }} spacing={{ base: "xl", lg: 48 }}>
-            <Stack gap="lg" justify="center">
+      <div className="vendor-profile-page v:flex v:flex-col v:gap-8" style={themeStyle}>
+        <div className="vendor-hero-shell v:p-5 v:md:p-8">
+          <div className="v:grid v:grid-cols-1 v:lg:grid-cols-2 v:gap-8 v:lg:gap-12">
+            <div className="v:flex v:flex-col v:gap-5 v:justify-center">
               <div>
-                <Group gap="sm" wrap="wrap">
-                  <Badge className="vendor-theme-badge vendor-theme-badge-primary" size="lg" variant="light">
+                <div className="v:flex v:flex-wrap v:items-center v:gap-3">
+                  <QueueBadge className="vendor-theme-badge vendor-theme-badge-primary" variant="secondary">
                     Generic Service Business
-                  </Badge>
-                </Group>
-                <Stack gap="sm" mt="md">
-                  <Title className="vendor-hero-title" order={2}>
+                  </QueueBadge>
+                </div>
+                <div className="v:flex v:flex-col v:gap-3 v:mt-4">
+                  <h2 className="vendor-hero-title v:font-semibold v:text-2xl">
                     {previewVendorName}
-                  </Title>
+                  </h2>
                   {settings.publicProfileDescription ? <RichCampaignDescription className="vendor-hero-description" content={settings.publicProfileDescription} /> : null}
-                </Stack>
+                </div>
               </div>
 
-              <Stack gap="xs">
-                <Group c="dimmed" gap={8} wrap="nowrap">
+              <div className="v:flex v:flex-col v:gap-2">
+                <div className="v:flex v:flex-nowrap v:items-center v:gap-2 v:text-muted-foreground">
                   <IconMapPin size={18} />
-                  <Text>{previewLocationLabel}</Text>
-                </Group>
-                <Group c="dimmed" gap={8} wrap="nowrap">
+                  <p>{previewLocationLabel}</p>
+                </div>
+                <div className="v:flex v:flex-nowrap v:items-center v:gap-2 v:text-muted-foreground">
                   <IconClock size={18} />
-                  <Text>{previewHoursLabel}</Text>
-                </Group>
-              </Stack>
+                  <p>{previewHoursLabel}</p>
+                </div>
+              </div>
 
-              <Group gap="md">
-                <Button
-                  className="vendor-theme-button"
-                  leftSection={<IconTicket size={18} />}
-                  size="lg"
-                >
+              <div className="v:flex v:flex-wrap v:items-center v:gap-4">
+                <QueueButton className="vendor-theme-button" size="lg">
+                  <IconTicket size={18} />
                   Join queue
-                </Button>
-                <Button className="vendor-theme-button vendor-theme-button-outline" size="lg" variant="outline">
+                </QueueButton>
+                <QueueButton className="vendor-theme-button vendor-theme-button-outline" size="lg" variant="outline">
                   Start booking
-                </Button>
-                <Button className="vendor-theme-button vendor-theme-button-ghost" size="lg" variant="subtle">
+                </QueueButton>
+                <QueueButton className="vendor-theme-button vendor-theme-button-ghost" size="lg" variant="ghost">
                   Contact vendor
-                </Button>
-              </Group>
+                </QueueButton>
+              </div>
 
-              <Group gap="lg" className="vendor-trust-row">
-                <Group gap={8} wrap="nowrap">
-                  <ThemeIcon className="vendor-theme-icon" radius="xl" size={32} variant="light">
+              <div className="vendor-trust-row v:flex v:flex-wrap v:items-center v:gap-5">
+                <div className="v:flex v:flex-nowrap v:items-center v:gap-2">
+                  <span className="vendor-theme-icon v:inline-flex v:size-8 v:items-center v:justify-center v:rounded-full">
                     <IconSparkles size={16} />
-                  </ThemeIcon>
-                  <Text fw={700} size="sm">
+                  </span>
+                  <p className="v:text-sm v:font-bold">
                     Verified public profile
-                  </Text>
-                </Group>
-                <Group gap={8} wrap="nowrap">
-                  <ThemeIcon className="vendor-theme-icon" radius="xl" size={32} variant="light">
+                  </p>
+                </div>
+                <div className="v:flex v:flex-nowrap v:items-center v:gap-2">
+                  <span className="vendor-theme-icon v:inline-flex v:size-8 v:items-center v:justify-center v:rounded-full">
                     <IconClock size={16} />
-                  </ThemeIcon>
-                  <Text fw={700} size="sm">
+                  </span>
+                  <p className="v:text-sm v:font-bold">
                     Same-day queue
-                  </Text>
-                </Group>
-                <Group gap={8} wrap="nowrap">
-                  <ThemeIcon className="vendor-theme-icon" radius="xl" size={32} variant="light">
+                  </p>
+                </div>
+                <div className="v:flex v:flex-nowrap v:items-center v:gap-2">
+                  <span className="vendor-theme-icon v:inline-flex v:size-8 v:items-center v:justify-center v:rounded-full">
                     <IconCalendar size={16} />
-                  </ThemeIcon>
-                  <Text fw={700} size="sm">
+                  </span>
+                  <p className="v:text-sm v:font-bold">
                     Book ahead
-                  </Text>
-                </Group>
-              </Group>
-            </Stack>
+                  </p>
+                </div>
+              </div>
+            </div>
 
-            <Paper className="vendor-hero-visual" p="xl" style={themedMediaStyle}>
+            <div className="vendor-hero-visual v:p-8" style={themedMediaStyle}>
               <div className="vendor-hero-media-shell">
                 <div className="vendor-hero-media-slide vendor-hero-media-slide-logo is-active">
                   {themeForm.logoUrl ? (
@@ -6609,9 +6599,9 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   ) : (
                     <div className="vendor-empty-art" aria-label="Vendor image placeholder" role="img">
                       <IconPhoto size={42} stroke={1.5} />
-                      <Text c="dimmed" fw={700} mt="sm" size="sm">
+                      <p className="v:text-muted-foreground v:text-sm v:font-bold v:mt-3">
                         Vendor image placeholder
-                      </Text>
+                      </p>
                     </div>
                   )}
                 </div>
@@ -6626,42 +6616,42 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       )}
                     </div>
                     <div className="vendor-hero-qr-copy">
-                      <Text className="vendor-hero-qr-kicker">Scan to join</Text>
-                      <Text className="vendor-hero-qr-title" fw={900}>
+                      <p className="vendor-hero-qr-kicker">Scan to join</p>
+                      <p className="vendor-hero-qr-title v:font-black">
                         Queue QR
-                      </Text>
-                      <Text c="dimmed" size="sm">
+                      </p>
+                      <p className="v:text-muted-foreground v:text-sm">
                         Scan this code to join the public queue for the selected branch.
-                      </Text>
+                      </p>
                     </div>
                   </div>
                 </div>
               </div>
 
-              <Paper className="vendor-hero-status-card" p="lg">
-                <Text fw={800}>Public queue status</Text>
-                <Text c="dimmed" size="sm">
+              <div className="vendor-hero-status-card v:p-5">
+                <p className="v:font-extrabold">Public queue status</p>
+                <p className="v:text-muted-foreground v:text-sm">
                   {previewLocation ? `${previewLocation.name} • ${previewHoursLabel}` : "Choose a branch to continue."}
-                </Text>
-                <SimpleGrid cols={2} mt="md" spacing="sm">
+                </p>
+                <div className="v:grid v:grid-cols-2 v:gap-3 v:mt-4">
                   <div className="prio-dashboard-tile">
-                    <Text c="dimmed" size="xs">
+                    <p className="v:text-muted-foreground v:text-xs">
                       Queue entry
-                    </Text>
-                    <Text className="prio-dashboard-number">Open</Text>
+                    </p>
+                    <p className="prio-dashboard-number">Open</p>
                   </div>
                   <div className="prio-dashboard-tile">
-                    <Text c="dimmed" size="xs">
+                    <p className="v:text-muted-foreground v:text-xs">
                       Booking
-                    </Text>
-                    <Text fw={800}>Available</Text>
+                    </p>
+                    <p className="v:font-extrabold">Available</p>
                   </div>
-                </SimpleGrid>
-              </Paper>
-            </Paper>
-          </SimpleGrid>
-        </Paper>
-      </Stack>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
     );
   }
 
@@ -6673,30 +6663,31 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     );
 
     return (
-      <Modal
-        centered
-        className="theme-editor-modal"
+      <TaskDialog
+        className="theme-editor-modal v:sm:max-w-6xl"
         opened={themeDialogOpen}
         onClose={() => setThemeDialogOpen(false)}
-        size="xl"
-        title={
-          <Stack className="getprio-modal-title" gap={2}>
-            <Text className="getprio-modal-heading">
-              {`Setup theme${themeLocation ? `: ${themeLocation.name}` : ""}`}
-            </Text>
-          </Stack>
+        title={`Setup theme${themeLocation ? `: ${themeLocation.name}` : ""}`}
+        footer={
+          <>
+            <QueueButton onClick={() => setThemeDialogOpen(false)} variant="outline">
+              Close
+            </QueueButton>
+            <QueueButton className="neura-primary-button" onClick={handleSaveTheme} disabled={busyAction === "theme-save"}>
+              {busyAction === "theme-save" ? "Saving..." : "Save theme"}
+            </QueueButton>
+          </>
         }
       >
         <div className="theme-editor-modal__shell">
           <div className="theme-editor-layout theme-editor-modal__main">
           <div className="theme-editor-modal__editor">
-            <Stack gap="md">
+            <div className="v:flex v:flex-col v:gap-4">
               <ModalSection
                 title="Preset"
                 description="Choose the role-based visual system used as the starting point for this public vendor page."
               >
-                <Select
-                  label="Theme preset"
+                <ConfigurationSelect label="Theme preset"
                   description="Changing this updates colors, button styling, and any built-in preset background."
                   data={[
                     { value: "generic", label: "Generic" },
@@ -6706,16 +6697,14 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                     { value: "food", label: "Food and Beverage" }
                   ]}
                   value={themeForm.presetId}
-                  onChange={(value) => value && applyThemePreset(value)}
-                />
+                  onChange={(value) => value && applyThemePreset(value)} />
               </ModalSection>
 
               <ModalSection
                 title="Page background"
                 description="Controls the full-page artwork behind the public vendor profile."
               >
-                <Checkbox
-                  checked={presetBackgroundEnabled}
+                <ConfigurationCheck checked={presetBackgroundEnabled}
                   disabled={!presetBackgroundImageUrl}
                   label="Use preset background image"
                   description={
@@ -6730,10 +6719,8 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       pageBackgroundImageUrl: checked ? presetBackgroundImageUrl : "",
                       pageBackgroundImageFit: checked ? activePreset.pageBackgroundImageFit : current.pageBackgroundImageFit
                     }));
-                  }}
-                />
-                <Select
-                  name="pageBackgroundImageFit"
+                  }} />
+                <ConfigurationSelect name="pageBackgroundImageFit"
                   label="Page background fit"
                   description="Cover fills the page. Contain shows the full preset artwork."
                   data={[
@@ -6742,45 +6729,33 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   ]}
                   disabled={!themeForm.pageBackgroundImageUrl}
                   value={themeForm.pageBackgroundImageFit}
-                  onChange={(value) => setThemeField("pageBackgroundImageFit", value === "contain" ? "contain" : "cover")}
-                />
-                <SimpleGrid cols={1}>
-                  <FileInput
-                    name="pageBackgroundImageFile"
-                    accept="image/png,image/jpeg,image/webp"
-                    clearable
+                  onChange={(value) => setThemeField("pageBackgroundImageFit", value === "contain" ? "contain" : "cover")} />
+                <div className="v:grid v:grid-cols-1 v:gap-4">
+                  <ConfigurationFile accept="image/png,image/jpeg,image/webp"
                     label="Page background"
                     description="Upload a custom full-page background when preset background is disabled."
                     disabled={presetBackgroundEnabled || busyAction === "theme-upload:background"}
-                    onChange={(file) => uploadThemeAsset("background", file, "pageBackgroundImageUrl")}
-                  />
-                  <TextInput
-                    name="pageBackgroundImageUrl"
+                    onChange={(file) => uploadThemeAsset("background", file, "pageBackgroundImageUrl")} />
+                  <ConfigurationInput name="pageBackgroundImageUrl"
                     label="Page background URL"
                     description="Paste a hosted full-page background URL."
                     disabled={presetBackgroundEnabled}
                     value={themeForm.pageBackgroundImageUrl}
-                    onChange={(event) => setThemeField("pageBackgroundImageUrl", event.target.value)}
-                  />
-                </SimpleGrid>
+                    onChange={(event) => setThemeField("pageBackgroundImageUrl", event.target.value)} />
+                </div>
               </ModalSection>
 
               <ModalSection
                 title="Profile media"
                 description="Set the profile logo and hero background shown inside the public vendor hero."
               >
-                <SimpleGrid cols={1}>
-                  <FileInput
-                    name="backgroundImageFile"
-                    accept="image/png,image/jpeg,image/webp"
-                    clearable
+                <div className="v:grid v:grid-cols-1 v:gap-4">
+                  <ConfigurationFile accept="image/png,image/jpeg,image/webp"
                     label="Profile background"
                     description="Upload a custom image for the hero visual area."
                     disabled={busyAction === "theme-upload:background"}
-                    onChange={(file) => uploadThemeAsset("background", file)}
-                  />
-                  <Select
-                    name="backgroundImageFit"
+                    onChange={(file) => uploadThemeAsset("background", file)} />
+                  <ConfigurationSelect name="backgroundImageFit"
                     label="Profile background fit"
                     description="Cover fills the hero. Contain shows the full image."
                     data={[
@@ -6788,36 +6763,26 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       { value: "contain", label: "Contain" }
                     ]}
                     value={themeForm.backgroundImageFit}
-                    onChange={(value) => setThemeField("backgroundImageFit", value === "contain" ? "contain" : "cover")}
-                  />
-                </SimpleGrid>
-                <SimpleGrid cols={1}>
-                  <TextInput
-                    name="backgroundImageUrl"
+                    onChange={(value) => setThemeField("backgroundImageFit", value === "contain" ? "contain" : "cover")} />
+                </div>
+                <div className="v:grid v:grid-cols-1 v:gap-4">
+                  <ConfigurationInput name="backgroundImageUrl"
                     label="Profile background URL"
                     description="Paste a hosted image URL for the hero visual area."
                     value={themeForm.backgroundImageUrl}
-                    onChange={(event) => setThemeField("backgroundImageUrl", event.target.value)}
-                  />
-                  <FileInput
-                    name="logoFile"
-                    accept="image/png,image/jpeg,image/webp"
-                    clearable
+                    onChange={(event) => setThemeField("backgroundImageUrl", event.target.value)} />
+                  <ConfigurationFile accept="image/png,image/jpeg,image/webp"
                     label="Company logo"
                     disabled={busyAction === "theme-upload:logo"}
-                    onChange={(file) => uploadThemeAsset("logo", file)}
-                  />
-                </SimpleGrid>
-                <SimpleGrid cols={1}>
-                  <TextInput
-                    name="logoUrl"
+                    onChange={(file) => uploadThemeAsset("logo", file)} />
+                </div>
+                <div className="v:grid v:grid-cols-1 v:gap-4">
+                  <ConfigurationInput name="logoUrl"
                     label="Logo URL"
                     description="Paste a hosted logo URL when not uploading a file."
                     value={themeForm.logoUrl}
-                    onChange={(event) => setThemeField("logoUrl", event.target.value)}
-                  />
-                  <Select
-                    name="logoFit"
+                    onChange={(event) => setThemeField("logoUrl", event.target.value)} />
+                  <ConfigurationSelect name="logoFit"
                     label="Profile logo fit"
                     description="Contain shows the full logo. Cover fills the circular frame."
                     data={[
@@ -6825,70 +6790,54 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                       { value: "cover", label: "Cover" }
                     ]}
                     value={themeForm.logoFit}
-                    onChange={(value) => setThemeField("logoFit", value === "cover" ? "cover" : "contain")}
-                  />
-                </SimpleGrid>
+                    onChange={(value) => setThemeField("logoFit", value === "cover" ? "cover" : "contain")} />
+                </div>
               </ModalSection>
 
               <ModalSection
                 title="Colors"
                 description="Tune text, page, and action colors used across the public vendor page and preview states."
               >
-                <SimpleGrid cols={1}>
-                  <ColorInput name="pageBackgroundColor" label="Page background" value={themeForm.pageBackgroundColor} onChange={(value) => setThemeField("pageBackgroundColor", value)} />
-                  <ColorInput name="headerColor" label="Heading text" value={themeForm.headerColor} onChange={(value) => setThemeField("headerColor", value)} />
-                  <ColorInput name="subheaderColor" label="Accent text" value={themeForm.subheaderColor} onChange={(value) => setThemeField("subheaderColor", value)} />
-                  <ColorInput name="bodyColor" label="Body text" value={themeForm.bodyColor} onChange={(value) => setThemeField("bodyColor", value)} />
-                  <ColorInput name="buttonBackgroundColor" label="Button background" value={themeForm.buttonBackgroundColor} onChange={(value) => setThemeField("buttonBackgroundColor", value)} />
-                  <ColorInput name="buttonTextColor" label="Button text" value={themeForm.buttonTextColor} onChange={(value) => setThemeField("buttonTextColor", value)} />
-                </SimpleGrid>
+                <div className="v:grid v:grid-cols-1 v:gap-4">
+                  <ThemeColorField name="pageBackgroundColor" label="Page background" value={themeForm.pageBackgroundColor} onChange={(value) => setThemeField("pageBackgroundColor", value)} />
+                  <ThemeColorField name="headerColor" label="Heading text" value={themeForm.headerColor} onChange={(value) => setThemeField("headerColor", value)} />
+                  <ThemeColorField name="subheaderColor" label="Accent text" value={themeForm.subheaderColor} onChange={(value) => setThemeField("subheaderColor", value)} />
+                  <ThemeColorField name="bodyColor" label="Body text" value={themeForm.bodyColor} onChange={(value) => setThemeField("bodyColor", value)} />
+                  <ThemeColorField name="buttonBackgroundColor" label="Button background" value={themeForm.buttonBackgroundColor} onChange={(value) => setThemeField("buttonBackgroundColor", value)} />
+                  <ThemeColorField name="buttonTextColor" label="Button text" value={themeForm.buttonTextColor} onChange={(value) => setThemeField("buttonTextColor", value)} />
+                </div>
               </ModalSection>
 
               <ModalSection
                 title="Cards and borders"
                 description="Controls the surfaces used by the hero, service cards, branch cards, and status panels."
               >
-                <SimpleGrid cols={1}>
-                  <ColorInput name="cardBackgroundColor" label="Card background" value={themeForm.cardBackgroundColor} onChange={(value) => setThemeField("cardBackgroundColor", value)} />
-                  <ColorInput name="cardBorderColor" label="Card border" value={themeForm.cardBorderColor} onChange={(value) => setThemeField("cardBorderColor", value)} />
-                  <NumberInput name="cardBorderSize" label="Border size" min={0} max={12} value={themeForm.cardBorderSize} onChange={(value) => setThemeField("cardBorderSize", Number(value) || 0)} />
-                  <NumberInput name="cardBorderRadius" label="Border radius" min={0} max={48} value={themeForm.cardBorderRadius} onChange={(value) => setThemeField("cardBorderRadius", Number(value) || 0)} />
-                </SimpleGrid>
+                <div className="v:grid v:grid-cols-1 v:gap-4">
+                  <ThemeColorField name="cardBackgroundColor" label="Card background" value={themeForm.cardBackgroundColor} onChange={(value) => setThemeField("cardBackgroundColor", value)} />
+                  <ThemeColorField name="cardBorderColor" label="Card border" value={themeForm.cardBorderColor} onChange={(value) => setThemeField("cardBorderColor", value)} />
+                  <ConfigurationNumber name="cardBorderSize" label="Border size" min={0} max={12} value={themeForm.cardBorderSize} onChange={(value) => setThemeField("cardBorderSize", Number(value) || 0)} />
+                  <ConfigurationNumber name="cardBorderRadius" label="Border radius" min={0} max={48} value={themeForm.cardBorderRadius} onChange={(value) => setThemeField("cardBorderRadius", Number(value) || 0)} />
+                </div>
                 <div>
-                  <Text size="sm" fw={600}>Card opacity</Text>
-                  <Slider
+                  <ConfigurationInput label="Card opacity" type="range"
                     min={0.15}
                     max={1}
                     step={0.05}
                     value={themeForm.cardAlpha}
-                    onChange={(value) => setThemeField("cardAlpha", value)}
+                    onChange={(event) => setThemeField("cardAlpha", event.currentTarget.valueAsNumber)}
                   />
                 </div>
               </ModalSection>
-              <Checkbox
-                name="applyThemeToAllLocations"
+              <ConfigurationCheck name="applyThemeToAllLocations"
                 checked={applyThemeToAllLocations}
                 label="Apply to all current and future locations"
-                onChange={(event) => setApplyThemeToAllLocations(event.target.checked)}
-              />
-            </Stack>
+                onChange={(event) => setApplyThemeToAllLocations(event.target.checked)} />
+            </div>
           </div>
           {renderThemePreview()}
           </div>
-          <Group justify="flex-end" className="service-dialog__footer theme-editor-modal__footer">
-            <Button variant="default" onClick={() => setThemeDialogOpen(false)}>
-              Close
-            </Button>
-            <Button
-              className="neura-primary-button"
-              disabled={busyAction === "theme-save"}
-              onClick={handleSaveTheme}
-            >
-              {busyAction === "theme-save" ? "Saving..." : "Save theme"}
-            </Button>
-          </Group>
         </div>
-      </Modal>
+      </TaskDialog>
     );
   }
 
@@ -9789,15 +9738,16 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     } as CSSProperties;
 
     return (
-      <Stack className="vendor-profile-preview-shell" data-preview-theme={profilePreviewMode} gap="xs">
-        <Group justify="space-between" align="flex-start" gap="sm">
-          <div><Text fw={700}>Profile preview</Text><Text c="dimmed" size="sm">This is how the default profile media will appear on public profile cards.</Text></div>
-          <Button size="xs" variant="subtle" leftSection={profilePreviewMode === "light" ? <IconMoon size={16} /> : <IconSun size={16} />} onClick={() => setProfilePreviewMode((mode) => mode === "light" ? "dark" : "light")}>
+      <div className="vendor-profile-preview-shell v:flex v:flex-col v:gap-2" data-preview-theme={profilePreviewMode}>
+        <div className="v:flex v:flex-wrap v:items-start v:gap-3 v:justify-between">
+          <div><p className="v:font-bold">Profile preview</p><p className="v:text-muted-foreground v:text-sm">This is how the default profile media will appear on public profile cards.</p></div>
+          <QueueButton size="xs" onClick={() => setProfilePreviewMode((mode) => mode === "light" ? "dark" : "light")} variant="ghost">
+                  {profilePreviewMode === "light" ? <IconMoon size={16} /> : <IconSun size={16} />}
             {profilePreviewMode === "light" ? "Dark preview" : "Light preview"}
-          </Button>
-        </Group>
-        <Paper className="vendor-card vendor-profile-settings-preview" component="div" p={{ base: "md", sm: "lg" }}>
-          <Stack gap="md">
+          </QueueButton>
+        </div>
+        <div className="vendor-card vendor-profile-settings-preview v:p-4 v:sm:p-5">
+          <div className="v:flex v:flex-col v:gap-4">
             <div
               className={businessProfileTheme.backgroundImageUrl || businessProfileTheme.logoUrl
                 ? "vendor-card-image vendor-card-image-themed"
@@ -9810,18 +9760,18 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                 </div>
               ) : <IconTicket aria-hidden="true" size={42} />}
             </div>
-            {settings.publicProfileCategory ? <Badge color="orange" variant="light">{settings.publicProfileCategory}</Badge> : null}
-            <Title order={3}>{previewName}</Title>
-            <Group c="dimmed" gap={6} wrap="nowrap">
+            {settings.publicProfileCategory ? <QueueBadge variant="warning">{settings.publicProfileCategory}</QueueBadge> : null}
+            <h3 className="v:font-semibold v:text-xl">{previewName}</h3>
+            <div className="v:flex v:flex-nowrap v:items-center v:gap-1.5 v:text-muted-foreground">
               <IconMapPin size={16} />
-              <Text size="sm">{previewLocation || "Philippines"}</Text>
-            </Group>
+              <p className="v:text-sm">{previewLocation || "Philippines"}</p>
+            </div>
             {settings.publicProfileDescription ? (
               <RichCampaignDescription className="vendor-profile-preview-description" content={settings.publicProfileDescription} />
             ) : null}
-          </Stack>
-        </Paper>
-      </Stack>
+          </div>
+        </div>
+      </div>
     );
   }
 
