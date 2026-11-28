@@ -90,7 +90,7 @@ import { BookingCheckInNotice } from "../components/BookingCheckInNotice";
 import { getBookingCheckInState } from "../utils/bookingCheckIn";
 import { VendorResourceConfiguration } from "../components/VendorResourceConfiguration";
 import { VendorRatingsPanel } from "../components/VendorRatingsPanel";
-import { useCallback, useContext, useEffect, useMemo, useRef, useState, type CSSProperties, type ElementType, type FormEvent } from "react";
+import { useCallback, useContext, useEffect, useMemo, useRef, useState, type CSSProperties, type ElementType, type FormEvent, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Badge,
@@ -386,6 +386,25 @@ function VendorQueueAlerts({ queueDayUnopened, queueDayActuallyClosed, snapshot 
         {snapshot.queueDay.outcomeCounts.pendingCarryOver} saved for carry-over · {snapshot.queueDay.outcomeCounts.expired} expired · {snapshot.queueDay.outcomeCounts.unserved} unserved · {snapshot.queueDay.outcomeCounts.skipped} skipped recovery ended. Reopening does not reverse these outcomes.
       </QueueAlertDescription>
     </QueueAlert> : null}
+  </>;
+}
+
+type VendorQueueFeedbackProps = {
+  scope: string;
+  linearCommandError: { scope: string; message: string } | null;
+  startPlanErrorScope: string | null;
+  missingServicePlanGuidance: ReactNode;
+  resourceQueueEnabled: boolean;
+  queueActionBusy: boolean;
+  resourceStatus: ReactNode;
+  onRefresh: () => void;
+};
+
+function VendorQueueFeedback({ scope, linearCommandError, startPlanErrorScope, missingServicePlanGuidance, resourceQueueEnabled, queueActionBusy, resourceStatus, onRefresh }: VendorQueueFeedbackProps) {
+  return <>
+    {linearCommandError?.scope === scope ? <OperationAlert color="orange" title="Queue action needs review">{linearCommandError.message}<OperationButton variant="outline" disabled={queueActionBusy} onClick={onRefresh}>Refresh queue</OperationButton></OperationAlert> : null}
+    {startPlanErrorScope === scope ? <OperationAlert color="orange" title="Service selection required">{missingServicePlanGuidance}</OperationAlert> : null}
+    {resourceQueueEnabled ? resourceStatus : null}
   </>;
 }
 
@@ -5877,9 +5896,16 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         {resourceManagementEnabled && selectedTenantSlug && selectedLocationSlug ? <NamedQueuePanel onSetupReady={(ready,scope)=>{if(scope===localPoolScopeRef.current)setQueueSetupRead(current=>current.scope===scope&&current.ready===ready?current:{scope,ready});}} managementOnly={!resourceQueueEnabled} onManagementReady={(ready,scope)=>{if(scope===localPoolScopeRef.current)setNamedManagementRead({scope,ready});}} hasUnsavedEdits={()=>unsavedForm.current.hasEdits()} key={`named:${selectedTenantSlug}:${selectedLocationSlug}`} token={token} tenant={selectedTenantSlug} location={selectedLocationSlug} counterSlug={selectedCounterSlug} staffMode={selectedTenantRole === "staff"} onReviewQueueSetup={resourceSetupAllowed&&(isOwner||isAdmin)&&visibleNavItems.some(item=>item.section==="services")?()=>{if(!canLeaveFeature())return;setServicesTab("queue-policy");navigate(workspacePath("services","administration",location.search));}:undefined} newRequestSequence={resourceQueueEnabled?serviceRequestSequence:0} onIntakeAvailability={setServiceRequestAvailable} onTicketIds={(ids,scope)=>{if(scope===localPoolScopeRef.current)setNamedInventory({scope,ids});}} onEditForm={form=>unsavedForm.current.mark(form)} onCloseForm={()=>unsavedForm.current.discardId("named-queue-plan")} onBusy={busy=>setBusyAction(busy?"named-queue-plan":"")} onNotice={showSuccessNotification}/>:null}
 
 
-        {linearCommandError?.scope === `${selectedTenantSlug}:${selectedLocationSlug}` ? <OperationAlert color="orange" title="Queue action needs review">{linearCommandError.message}<OperationButton variant="outline" disabled={queueActionBusy} onClick={() => { void Promise.all([queueLifecycleSnapshotQuery.refetch(), resourceQueueEnabled ? localPoolQuery.refetch() : Promise.resolve()]); }}>Refresh queue</OperationButton></OperationAlert> : null}
-        {startPlanErrorScope === `${selectedTenantSlug}:${selectedLocationSlug}` ? <OperationAlert color="orange" title="Service selection required">{missingServicePlanGuidance}</OperationAlert> : null}
-        {resourceQueueEnabled ? <ResourceReadStatus state={localPoolReadState(snapshot,localPoolQuery.data,selectedTenantSlug,selectedLocationSlug,localPoolQuery.isPending,localPoolQuery.isError,localPoolQuery.error)} refreshing={localPoolQuery.isFetching} onRetry={()=>void localPoolQuery.refetch()}/> : null}
+        <VendorQueueFeedback
+          scope={`${selectedTenantSlug}:${selectedLocationSlug}`}
+          linearCommandError={linearCommandError}
+          startPlanErrorScope={startPlanErrorScope}
+          missingServicePlanGuidance={missingServicePlanGuidance}
+          resourceQueueEnabled={resourceQueueEnabled}
+          queueActionBusy={queueActionBusy}
+          resourceStatus={<ResourceReadStatus state={localPoolReadState(snapshot,localPoolQuery.data,selectedTenantSlug,selectedLocationSlug,localPoolQuery.isPending,localPoolQuery.isError,localPoolQuery.error)} refreshing={localPoolQuery.isFetching} onRetry={()=>void localPoolQuery.refetch()}/>} 
+          onRefresh={() => { void Promise.all([queueLifecycleSnapshotQuery.refetch(), resourceQueueEnabled ? localPoolQuery.refetch() : Promise.resolve()]); }}
+        />
         {resourceQueueEnabled && localPoolData?.reconciliation.required ? <OperationAlert color="red" title="Resource records need review">Refresh and reconcile these records before starting more work. Active sessions continue to hold capacity.</OperationAlert> : null}
         {!resourceQueueEnabled ? <>
         <CounterTickets
