@@ -424,13 +424,14 @@ function VendorQueueCounterTickets({ enabled, children }: VendorQueueCounterTick
   return enabled ? <>{children}</> : null;
 }
 
-interface VendorQueueCurrentActionsProps {
-  disabled: boolean;
-  children: ReactNode;
-}
-
+interface VendorQueueCurrentActionsProps { disabled: boolean; children: ReactNode; }
 function VendorQueueCurrentActions({ disabled, children }: VendorQueueCurrentActionsProps) {
   return <ButtonGroup className="vendor-queue-primary-actions" aria-label="Ticket actions" data-disabled={disabled}>{children}</ButtonGroup>;
+}
+
+type VendorQueueCallNextButtonProps = { disabled: boolean; busy: boolean; onCall: () => void };
+function VendorQueueCallNextButton({ disabled, busy, onCall }: VendorQueueCallNextButtonProps) {
+  return <QueueButton variant="default" disabled={disabled} onClick={onCall}>{busy ? "Calling..." : "Call next"}</QueueButton>;
 }
 
 type VendorQueueStatusColumnsProps = {
@@ -5687,33 +5688,15 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
               </div>
               {(intakeMode === "workflow" && !rawCounterTicket) || scopedResourceIds(localPoolScope,workflowInventory).includes(rawCounterTicket?.id||"") ? <p className="ops-muted">Use the station actions in Workflow journeys below.</p> : workPresentation.resourceCounters ? <CounterQueueControls token={token} tenant={selectedTenantSlug} location={selectedLocationSlug} counterSlug={selectedCounterSlug} busy={queueActionBusy||ticketScannerOpen} onScan={command=>{setTicketScannerError("");setScannerTarget({ticketId:command.ticketId,ticketNumber:command.ticketNumber,counterSlug:command.counterSlug,tenantSlug:selectedTenantSlug,locationQuery});setTicketScannerOpen(true);}}/> : <VendorQueueCurrentActions disabled={queueActionBusy}>
                 <ButtonGroupSeparator className="queue-walkin-separator" aria-hidden="true" />
-                <QueueButton
-                  variant="default"
-                  disabled={Boolean(
-                    (queueActionBusy || workPresentation.currentResource) ||
-                    !selectedLane?.canCallNext ||
-                    queueDayClosed ||
-                    Boolean(activeTicket),
-                  )}
-                  onClick={async () => {
-                    const success = await runAction("call-next", () =>
-                      vendorDashboardQueue.callNextTicket(
-                        token,
-                        selectedTenantSlug,
-                        locationQuery,
-                        selectedCounterSlug,
-                      ),
-                    );
-                    if (success) {
-                      showSuccessNotification(
-                        "Customer called",
-                        "The next customer has been called to the counter.",
-                      );
-                    }
+                <VendorQueueCallNextButton
+                  disabled={Boolean((queueActionBusy || workPresentation.currentResource) || !selectedLane?.canCallNext || queueDayClosed || Boolean(activeTicket))}
+                  busy={busyAction === "call-next"}
+                  onCall={() => {
+                    void runAction("call-next", () => vendorDashboardQueue.callNextTicket(token, selectedTenantSlug, locationQuery, selectedCounterSlug)).then((success) => {
+                      if (success) showSuccessNotification("Customer called", "The next customer has been called to the counter.");
+                    });
                   }}
-                >
-                  {busyAction === "call-next" ? "Calling..." : "Call next"}
-                </QueueButton>
+                />
                 {activeTicket &&
                 (activeTicket.customerConfirmedAt ||
                   activeTicket.joinChannel === "vendor") ? (
