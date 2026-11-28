@@ -424,14 +424,50 @@ function VendorQueueCounterTickets({ enabled, children }: VendorQueueCounterTick
   return enabled ? <>{children}</> : null;
 }
 
-interface VendorQueueCurrentActionsProps { disabled: boolean; children: ReactNode; }
-function VendorQueueCurrentActions({ disabled, children }: VendorQueueCurrentActionsProps) {
-  return <ButtonGroup className="vendor-queue-primary-actions" aria-label="Ticket actions" data-disabled={disabled}>{children}</ButtonGroup>;
+interface VendorQueueCurrentActionsProps {
+  ticket?: QueueCurrentTicket | null;
+  busy: boolean;
+  locked: boolean;
+  canCallNext: boolean;
+  calling: boolean;
+  serviceBusy: boolean;
+  resourcePlanBlocked: boolean;
+  timingEnabled: boolean;
+  showWalkIn: boolean;
+  walkInDisabled: boolean;
+  onCall: () => void;
+  onServe: (ticket: QueueCurrentTicket) => void;
+  onConfirm: () => void;
+  onSkip: () => void;
+  onInterrupt: (ticket: QueueCurrentTicket) => void;
+  onWalkIn: () => void;
 }
 
-type VendorQueueCallNextButtonProps = { disabled: boolean; busy: boolean; onCall: () => void };
-function VendorQueueCallNextButton({ disabled, busy, onCall }: VendorQueueCallNextButtonProps) {
-  return <QueueButton variant="default" disabled={disabled} onClick={onCall}>{busy ? "Calling..." : "Call next"}</QueueButton>;
+function VendorQueueCurrentActions(props: Readonly<VendorQueueCurrentActionsProps>) {
+  const {ticket, locked} = props;
+  const serviceLabel = ticket?.serviceStartedAt ? "Complete service" : props.timingEnabled ? "Start service" : "Serve customer";
+  return (
+    <ButtonGroup className="vendor-queue-primary-actions" aria-label="Ticket actions" data-disabled={props.busy}>
+      <ButtonGroupSeparator className="queue-walkin-separator" aria-hidden="true" />
+      <QueueButton variant="default" disabled={locked || !props.canCallNext || Boolean(ticket)} onClick={props.onCall}>
+        {props.calling ? "Calling..." : "Call next"}
+      </QueueButton>
+      {ticket && (ticket.customerConfirmedAt || ticket.joinChannel === "vendor") ? (
+        <QueueButton variant="outline" disabled={locked || props.resourcePlanBlocked || props.serviceBusy} aria-busy={props.serviceBusy} onClick={() => props.onServe(ticket)}>
+          <IconCheck data-icon="inline-start" />{serviceLabel}
+        </QueueButton>
+      ) : (
+        <QueueButton variant="outline" disabled={!ticket || locked} onClick={props.onConfirm}>
+          <IconQrcode data-icon="inline-start" />Confirm ticket
+        </QueueButton>
+      )}
+      <QueueButton variant="outline" disabled={locked || !ticket || Boolean(ticket.serviceStartedAt)} onClick={props.onSkip}>Skip current</QueueButton>
+      {ticket?.serviceStartedAt && <QueueButton variant="outline" disabled={locked} onClick={() => props.onInterrupt(ticket)}>Interrupt service</QueueButton>}
+      {props.showWalkIn && <QueueButton variant="default" disabled={props.walkInDisabled} onClick={props.onWalkIn}>
+        <IconUserPlus data-icon="inline-start" />Add walk-in
+      </QueueButton>}
+    </ButtonGroup>
+  );
 }
 
 type VendorQueueStatusColumnsProps = {
@@ -5570,6 +5606,127 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     </div></OperationPanel>;
   }
 
+  function callNextTicket() {
+    void runAction("call-next", () => vendorDashboardQueue.callNextTicket(token, selectedTenantSlug, locationQuery, selectedCounterSlug)).then((success) => {
+      if (success) showSuccessNotification("Customer called", "The next customer has been called to the counter.");
+    });
+  }
+
+  async function serveSelectedTicket(activeTicket: QueueCurrentTicket) {
+    const tracking =
+      snapshot?.location?.serviceTimingEnabled ||
+      Boolean(activeTicket.serviceStartedAt);
+    const action = activeTicket.serviceStartedAt
+      ? "complete"
+      : "start";
+    const execute = async () => {
+      const success = await runAction(
+        tracking ? `service-${action}` : "serve-current",
+        () =>
+          tracking
+            ? vendorDashboardQueue.recordTicketService(
+                token,
+                selectedTenantSlug,
+                locationQuery,
+                activeTicket.id,
+                action,
+              )
+            : vendorDashboardQueue.serveCurrentTicket(
+                token,
+                selectedTenantSlug,
+                locationQuery,
+                activeTicket.id,
+                selectedLane?.counterSlug ?? null,
+              ),
+      );
+      if (success) {
+        showSuccessNotification(
+          tracking && action === "start"
+            ? "Service started"
+            : "Customer served",
+          tracking && action === "start"
+            ? "The actual service start has been recorded."
+            : "The ticket was marked as served.",
+        );
+      }
+    };
+    if (activeTicket.serviceStartedAt) {
+      setConfirmAction({
+        title: "Complete service?",
+        description: `Mark ticket ${activeTicket.ticketNumber} as served and record the service end time.`,
+        confirmLabel: "Complete service",
+        confirmColor: "blue",
+        onConfirm: execute,
+      });
+    } else {
+      await execute();
+    }
+  }
+
+  function confirmSelectedTicket() {
+    const activeTicket = selectedCalledTicket;
+    setTicketScannerError("");
+    if (activeTicket)
+      setScannerTarget({
+        ticketId: activeTicket.id,
+        ticketNumber: activeTicket.ticketNumber,
+        counterSlug: selectedLane?.counterSlug ?? null,
+        tenantSlug: selectedTenantSlug,
+        locationQuery,
+      });
+    setTicketScannerOpen(true);
+  }
+
+  function skipSelectedTicket() {
+    const activeTicket = selectedCalledTicket;
+    if (!activeTicket) return;
+    setConfirmAction({
+      title: "Skip current ticket?",
+      description: `Skip ticket ${activeTicket.ticketNumber} at the selected counter.`,
+      confirmLabel: "Skip ticket",
+      confirmColor: "orange",
+      onConfirm: async () => {
+        const success = await runAction("skip-current", () =>
+          vendorDashboardQueue.skipCurrentTicket(
+            token,
+            selectedTenantSlug,
+            locationQuery,
+            activeTicket.id,
+            selectedLane?.counterSlug ?? null,
+          ),
+        );
+        if (success) {
+          showSuccessNotification(
+            "Ticket skipped",
+            "The current ticket was skipped.",
+          );
+          setQueueView("current");
+        }
+      },
+    });
+  }
+
+  function interruptSelectedTicket(activeTicket: QueueCurrentTicket) {
+    setConfirmAction({
+      title: "Interrupt service?",
+      description:
+        "Record that service ended without completion and mark the called ticket unserved. This is excluded from completed service duration samples.",
+      confirmLabel: "Record interruption",
+      confirmColor: "orange",
+      onConfirm: async () => {
+        await runAction("service-interrupt", () =>
+          vendorDashboardQueue.recordTicketService(
+            token,
+            selectedTenantSlug,
+            locationQuery,
+            activeTicket.id,
+            "interrupt",
+          ),
+        );
+      },
+    });
+  }
+
   function renderQueuePage() {
     if (intakeMode === "loading") {
       const queryError = effectiveEntitlementsQuery.error || queueTypeQuery.error;
@@ -5685,192 +5842,24 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   </QueueButton>
                 </> : null}
               </div>
-              {(intakeMode === "workflow" && !rawCounterTicket) || scopedResourceIds(localPoolScope,workflowInventory).includes(rawCounterTicket?.id||"") ? <p className="ops-muted">Use the station actions in Workflow journeys below.</p> : workPresentation.resourceCounters ? <CounterQueueControls token={token} tenant={selectedTenantSlug} location={selectedLocationSlug} counterSlug={selectedCounterSlug} busy={queueActionBusy||ticketScannerOpen} onScan={command=>{setTicketScannerError("");setScannerTarget({ticketId:command.ticketId,ticketNumber:command.ticketNumber,counterSlug:command.counterSlug,tenantSlug:selectedTenantSlug,locationQuery});setTicketScannerOpen(true);}}/> : <VendorQueueCurrentActions disabled={queueActionBusy}>
-                <ButtonGroupSeparator className="queue-walkin-separator" aria-hidden="true" />
-                <VendorQueueCallNextButton
-                  disabled={Boolean((queueActionBusy || workPresentation.currentResource) || !selectedLane?.canCallNext || queueDayClosed || Boolean(activeTicket))}
-                  busy={busyAction === "call-next"}
-                  onCall={() => {
-                    void runAction("call-next", () => vendorDashboardQueue.callNextTicket(token, selectedTenantSlug, locationQuery, selectedCounterSlug)).then((success) => {
-                      if (success) showSuccessNotification("Customer called", "The next customer has been called to the counter.");
-                    });
-                  }}
-                />
-                {activeTicket &&
-                (activeTicket.customerConfirmedAt ||
-                  activeTicket.joinChannel === "vendor") ? (
-                  <QueueButton
-                    variant="outline"
-                    disabled={
-                      (queueActionBusy || workPresentation.currentResource) ||
-                      (resourceQueueEnabled && !activeTicket.serviceStartedAt &&
-                        (!hasExecutableLocalPlan(localPoolData?.called.find(work => work.id === activeTicket.id)) || Boolean(localPoolData?.reconciliation.required))) ||
-                      Boolean(
-                        [
-                          "serve-current",
-                          "service-start",
-                          "service-complete",
-                        ].includes(busyAction || ""),
-                      )
-                    }
-                    aria-busy={[
-                      "serve-current",
-                      "service-start",
-                      "service-complete",
-                    ].includes(busyAction || "")}
-                    onClick={async () => {
-                      const tracking =
-                        snapshot?.location?.serviceTimingEnabled ||
-                        Boolean(activeTicket.serviceStartedAt);
-                      const action = activeTicket.serviceStartedAt
-                        ? "complete"
-                        : "start";
-                      const execute = async () => {
-                        const success = await runAction(
-                          tracking ? `service-${action}` : "serve-current",
-                          () =>
-                            tracking
-                              ? vendorDashboardQueue.recordTicketService(
-                                  token,
-                                  selectedTenantSlug,
-                                  locationQuery,
-                                  activeTicket.id,
-                                  action,
-                                )
-                              : vendorDashboardQueue.serveCurrentTicket(
-                                  token,
-                                  selectedTenantSlug,
-                                  locationQuery,
-                                  activeTicket.id,
-                                  selectedLane?.counterSlug ?? null,
-                                ),
-                        );
-                        if (success) {
-                          showSuccessNotification(
-                            tracking && action === "start"
-                              ? "Service started"
-                              : "Customer served",
-                            tracking && action === "start"
-                              ? "The actual service start has been recorded."
-                              : "The ticket was marked as served.",
-                          );
-                        }
-                      };
-                      if (activeTicket.serviceStartedAt) {
-                        setConfirmAction({
-                          title: "Complete service?",
-                          description: `Mark ticket ${activeTicket.ticketNumber} as served and record the service end time.`,
-                          confirmLabel: "Complete service",
-                          confirmColor: "blue",
-                          onConfirm: execute,
-                        });
-                      } else {
-                        await execute();
-                      }
-                    }}
-                  >
-                    <IconCheck data-icon="inline-start" />
-                    {activeTicket.serviceStartedAt
-                      ? "Complete service"
-                      : snapshot?.location?.serviceTimingEnabled
-                        ? "Start service"
-                        : "Serve customer"}
-                  </QueueButton>
-                ) : (
-                  <QueueButton
-                    variant="outline"
-                    disabled={Boolean(!activeTicket || (queueActionBusy || workPresentation.currentResource))}
-                    onClick={() => {
-                      setTicketScannerError("");
-                      if (activeTicket)
-                        setScannerTarget({
-                          ticketId: activeTicket.id,
-                          ticketNumber: activeTicket.ticketNumber,
-                          counterSlug: selectedLane?.counterSlug ?? null,
-                          tenantSlug: selectedTenantSlug,
-                          locationQuery,
-                        });
-                      setTicketScannerOpen(true);
-                    }}
-                  >
-                    <IconQrcode data-icon="inline-start" />
-                    Confirm ticket
-                  </QueueButton>
-                )}
-                <QueueButton
-                  variant="outline"
-                  disabled={Boolean(
-                    (queueActionBusy || workPresentation.currentResource) ||
-                    !activeTicket ||
-                    Boolean(activeTicket.serviceStartedAt),
-                  )}
-                  onClick={() => {
-                    if (!activeTicket) return;
-                    setConfirmAction({
-                      title: "Skip current ticket?",
-                      description: `Skip ticket ${activeTicket.ticketNumber} at the selected counter.`,
-                      confirmLabel: "Skip ticket",
-                      confirmColor: "orange",
-                      onConfirm: async () => {
-                        const success = await runAction("skip-current", () =>
-                          vendorDashboardQueue.skipCurrentTicket(
-                            token,
-                            selectedTenantSlug,
-                            locationQuery,
-                            activeTicket.id,
-                            selectedLane?.counterSlug ?? null,
-                          ),
-                        );
-                        if (success) {
-                          showSuccessNotification(
-                            "Ticket skipped",
-                            "The current ticket was skipped.",
-                          );
-                          setQueueView("current");
-                        }
-                      },
-                    });
-                  }}
-                >
-                  Skip current
-                </QueueButton>
-                {activeTicket?.serviceStartedAt ? (
-                  <QueueButton
-                    variant="outline"
-                    disabled={(queueActionBusy || workPresentation.currentResource)}
-                    onClick={() =>
-                      setConfirmAction({
-                        title: "Interrupt service?",
-                        description:
-                          "Record that service ended without completion and mark the called ticket unserved. This is excluded from completed service duration samples.",
-                        confirmLabel: "Record interruption",
-                        confirmColor: "orange",
-                        onConfirm: async () => {
-                          await runAction("service-interrupt", () =>
-                            vendorDashboardQueue.recordTicketService(
-                              token,
-                              selectedTenantSlug,
-                              locationQuery,
-                              activeTicket.id,
-                              "interrupt",
-                            ),
-                          );
-                        },
-                      })
-                    }
-                  >
-                    Interrupt service
-                  </QueueButton>
-                ) : null}
-                {intakeMode === "legacy" && <QueueButton
-                        variant="default"
-                        disabled={Boolean(queueDayClosed || queueDayPaused || busyAction) || boardScannerBusy || (resourceQueueEnabled && !serviceRequestAvailable)}
-                        onClick={() => resourceQueueEnabled ? setServiceRequestSequence(value=>value+1) : setWalkInDialogOpen(true)}
-                      >
-                        <IconUserPlus data-icon="inline-start" />
-                        Add walk-in
-                      </QueueButton>}
-              </VendorQueueCurrentActions>}
+              {(intakeMode === "workflow" && !rawCounterTicket) || scopedResourceIds(localPoolScope,workflowInventory).includes(rawCounterTicket?.id||"") ? <p className="ops-muted">Use the station actions in Workflow journeys below.</p> : workPresentation.resourceCounters ? <CounterQueueControls token={token} tenant={selectedTenantSlug} location={selectedLocationSlug} counterSlug={selectedCounterSlug} busy={queueActionBusy||ticketScannerOpen} onScan={command=>{setTicketScannerError("");setScannerTarget({ticketId:command.ticketId,ticketNumber:command.ticketNumber,counterSlug:command.counterSlug,tenantSlug:selectedTenantSlug,locationQuery});setTicketScannerOpen(true);}}/> : <VendorQueueCurrentActions
+                ticket={activeTicket}
+                busy={queueActionBusy}
+                locked={Boolean(queueActionBusy || workPresentation.currentResource)}
+                canCallNext={Boolean(selectedLane?.canCallNext && !queueDayClosed)}
+                calling={busyAction === "call-next"}
+                serviceBusy={["serve-current", "service-start", "service-complete"].includes(busyAction || "")}
+                resourcePlanBlocked={Boolean(resourceQueueEnabled && activeTicket && !activeTicket.serviceStartedAt && (!hasExecutableLocalPlan(localPoolData?.called.find(work => work.id === activeTicket.id)) || localPoolData?.reconciliation.required))}
+                timingEnabled={Boolean(snapshot?.location?.serviceTimingEnabled)}
+                showWalkIn={intakeMode === "legacy"}
+                walkInDisabled={Boolean(queueDayClosed || queueDayPaused || busyAction) || boardScannerBusy || (resourceQueueEnabled && !serviceRequestAvailable)}
+                onCall={callNextTicket}
+                onServe={serveSelectedTicket}
+                onConfirm={confirmSelectedTicket}
+                onSkip={skipSelectedTicket}
+                onInterrupt={interruptSelectedTicket}
+                onWalkIn={() => resourceQueueEnabled ? setServiceRequestSequence(value => value + 1) : setWalkInDialogOpen(true)}
+              />}
             </ButtonGroup>
             {snapshot?.queueDay?.closureReason ? (
               <p className="queue-text queue-muted queue-small">
