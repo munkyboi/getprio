@@ -1,4 +1,5 @@
 import { ActionIcon, Button, Divider, Group, SimpleGrid, Stack, Text, Tooltip } from "@mantine/core";
+import { Button as VendorButton } from "../vendor/components/ui/button";
 import { IconBrandFacebook, IconBrandGoogle } from "@tabler/icons-react";
 import type { OAuthProviderId } from "@shared";
 import { useAuth } from "../context/AuthContext";
@@ -9,9 +10,32 @@ const PROVIDER_OPTIONS: Array<{ id: OAuthProviderId; label: string; Icon: typeof
   { id: "facebook", label: "Facebook", Icon: IconBrandFacebook }
 ];
 
-export default function SocialAuthButtons({ iconOnly = false, intent }: SocialAuthButtonsProps) {
+export default function SocialAuthButtons({ iconOnly = false, intent, vendor = false, disabled, returnPath }: SocialAuthButtonsProps) {
   const { oauthLoading, oauthProviders, startOAuth } = useAuth();
   const hasConfiguredProvider = PROVIDER_OPTIONS.some(({ id }) => Boolean(oauthProviders[id]));
+
+  if (vendor) {
+    return (
+      <div className="queue-stack">
+        <div className="v:flex v:items-center v:gap-3 v:text-xs v:text-muted-foreground">
+          <span className="v:h-px v:flex-1 v:bg-border" />Or continue with<span className="v:h-px v:flex-1 v:bg-border" />
+        </div>
+        <div className="v:flex v:justify-center v:gap-3">
+          {PROVIDER_OPTIONS.map(({ id, label, Icon }) => (
+            <VendorButton
+              key={id} type="button" variant="outline" size={iconOnly ? "icon" : "default"}
+              data-provider={id} aria-label={`Continue with ${label}`}
+              disabled={disabled || oauthLoading || !oauthProviders[id]}
+              onClick={() => startOAuth(id, intent, returnPath)}
+            >
+              <Icon size={20} aria-hidden />{!iconOnly && `Continue with ${label}`}
+            </VendorButton>
+          ))}
+        </div>
+        {!oauthLoading && !hasConfiguredProvider && <p className="ops-muted">Social sign-in is currently unavailable.</p>}
+      </div>
+    );
+  }
 
   return (
     <Stack gap="md">

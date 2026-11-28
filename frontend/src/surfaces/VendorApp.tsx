@@ -1,5 +1,4 @@
 import { useRef, type ReactNode } from "react";
-import { Text } from "@mantine/core";
 import { Route, Routes, Navigate, useLocation } from "react-router-dom";
 import { readPreference, preferenceKey, workspacePath, activeMemberships } from "../vendor/workspace";
 import { VendorNavigationGuard } from "../vendor/navigationGuard";
@@ -27,7 +26,7 @@ function DashboardRedirect() {
   const role = tenant?.role;
   const saved = user?.id && tenant?.slug ? readPreference(preferenceKey(user.id, tenant.slug)) : null;
   const workspace = (role === "owner" || role === "admin") && saved === "administration" ? "administration" : "operations";
-  if (loading) return <Text>Loading vendor workspace...</Text>;
+  if (loading) return <VendorAuthLayout><p role="status">Loading vendor workspace...</p></VendorAuthLayout>;
 
   return (
     <Navigate

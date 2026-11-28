@@ -1352,8 +1352,8 @@ test("signup forms use provider icons, helpful labels, and touch-friendly action
   assert.match(labelSource, /IconInfoCircle/);
   assert.match(labelSource, /signup-label-required/);
   assert.match(vendorSource, /<BusinessCategorySelect required/);
-  assert.match(fs.readFileSync(path.join(frontendRoot, "src", "components", "BusinessCategorySelect.tsx"), "utf8"), /withAsterisk=\{false\}/);
-  assert.match(vendorSource, /<SignupFieldLabel label="Phone"/);
+  assert.match(fs.readFileSync(path.join(frontendRoot, "src", "components", "BusinessCategorySelect.tsx"), "utf8"), /<ConfigurationSelect[\s\S]*?label="Business category"[\s\S]*?required=\{required\}/);
+  assert.match(vendorSource, /<ConfigurationPhone\s+label="Phone"\s+description="Add a Philippine mobile number/);
   assert.match(vendorSource, /className="auth-primary-action"/);
   assert.match(vendorSource, /navigate\("\/dashboard\/account", \{ replace: true \}\)/);
   assert.match(customerSource, /<SignupFieldLabel label="Phone"/);
