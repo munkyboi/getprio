@@ -362,6 +362,15 @@ function VendorQueueRenderer({ render }: VendorQueueRendererContext) {
   return <>{render()}</>;
 }
 
+type VendorQueueLoadingStateProps = {
+  error: unknown;
+  onRetry: () => void;
+};
+
+function VendorQueueLoadingState({ error, onRetry }: VendorQueueLoadingStateProps) {
+  return <OperationQueryState loading={!error} error={error} onRetry={onRetry} />;
+}
+
 type VendorQueueStatusColumnsProps = {
   activeTicket: QueueCurrentTicket | null | undefined;
   intakeState: QueueSnapshot["queueIntake"] | null | undefined;
@@ -5502,7 +5511,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
   function renderQueuePage() {
     if (intakeMode === "loading") {
       const queryError = effectiveEntitlementsQuery.error || queueTypeQuery.error;
-      return <OperationQueryState loading={!queryError} error={queryError} onRetry={() => void Promise.all([effectiveEntitlementsQuery.error ? effectiveEntitlementsQuery.refetch() : Promise.resolve(), queueTypeQuery.error ? queueTypeQuery.refetch() : Promise.resolve()])} />;
+      return <VendorQueueLoadingState error={queryError} onRetry={() => void Promise.all([effectiveEntitlementsQuery.error ? effectiveEntitlementsQuery.refetch() : Promise.resolve(), queueTypeQuery.error ? queueTypeQuery.refetch() : Promise.resolve()])} />;
     }
     const queueActionBusy = Boolean(busyAction) || managementReadPending;
     const activeCounters = serviceCounters.filter((counter) => counter.isActive);
