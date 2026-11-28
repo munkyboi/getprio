@@ -5,13 +5,13 @@ import { VendorPortal } from "../../portal";
 import { Combobox as ComboboxPrimitive } from "@base-ui/react";
 import { cn } from "cn";
 
-import { Button } from "@vendor/components/ui/button";
+import { Button } from "./button";
 import {
   InputGroup,
   InputGroupAddon,
   InputGroupButton,
   InputGroupInput,
-} from "@vendor/components/ui/input-group";
+} from "./input-group";
 import { IconChevronDown, IconX, IconCheck } from "@tabler/icons-react";
 
 const Combobox = ComboboxPrimitive.Root;

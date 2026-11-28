@@ -105,13 +105,15 @@ test("public login remains Mantine presentation outside Vendor shell", () => {
 });
 test("Vendor provider controls disable unavailable web providers", () => {
   const unavailable = render(React.createElement(Social, { vendor: true, intent: "login" }));
-  assert.match(unavailable, /Social sign-in buttons stay disabled/);
+  assert.match(unavailable, /Social sign-in is currently unavailable/);
   assert.match(unavailable, /data-provider="google"/);
   assert.match(unavailable, /disabled=""/);
   auth = { ...auth, oauthProviders: { google: true } };
   const html = render(React.createElement(Social, { vendor: true, intent: "login" }));
   assert.match(html, /data-provider="google"/);
-  assert.doesNotMatch(html, /data-provider="google"[^>]*disabled/);
+  const googleButton = html.match(/<button\b[^>]*data-provider="google"[^>]*>/)?.[0];
+  assert.ok(googleButton);
+  assert.doesNotMatch(googleButton, /\sdisabled=""/);
   assert.match(html, /data-provider="facebook"/);
   assert.match(html, /disabled=""/);
   auth = { ...auth, oauthProviders: {} };
@@ -119,7 +121,8 @@ test("Vendor provider controls disable unavailable web providers", () => {
 test("guest registration retains all fields in one form with account/business legends and return sign-in", () => {
   const html = render(React.createElement(Register));
   assert.equal((html.match(/<form\b/g) || []).length, 1);
-  assert.match(html, /finazze-auth-card-wide/);
+  assert.match(html, /vendor-auth-main-wide/);
+  assert.doesNotMatch(html, /mantine-(?:TextInput|Select|PasswordInput)-root/);
   assert.match(html, /Build your booking business/);
   for (const name of [
     "tenantName",

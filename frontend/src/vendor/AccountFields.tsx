@@ -1,5 +1,6 @@
 import {
   useState,
+  useId,
   forwardRef,
   type ComponentProps,
   type CSSProperties,
@@ -8,7 +9,15 @@ import {
 import * as Mantine from "@mantine/core";
 import { accountGridColumns } from "./accountGridState";
 import { useVendorAccount } from "./AccountPresentation";
-import { ConfigurationInput } from "./ConfigurationUi";
+import { ConfigurationInput, useConfigurationBusy } from "./ConfigurationUi";
+import { Field, FieldDescription, FieldError, FieldLabel } from "./components/ui/field";
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupButton,
+  InputGroupInput,
+} from "./components/ui/input-group";
+import { IconEye, IconEyeOff } from "@tabler/icons-react";
 import {
   OperationAlert,
   OperationButton,
@@ -23,23 +32,38 @@ export const ConfigurationPassword = forwardRef<
   ComponentProps<typeof ConfigurationInput>
 >(function ConfigurationPassword(props, ref) {
   const [visible, setVisible] = useState(false);
+  const busy = useConfigurationBusy();
+  const id = useId();
+  const helpId = props.description || props.error ? `${id}-help` : undefined;
+  const { label, description, error, ...inputProps } = props;
   return (
-    <div className="queue-stack">
-      <ConfigurationInput
-        {...props}
-        ref={ref}
-        type={visible ? "text" : "password"}
-      />
-      <OperationButton
-        variant="ghost"
-        disabled={props.disabled}
-        aria-pressed={visible}
-        aria-label={`${visible ? "Hide" : "Show"} ${String(props.label).toLowerCase()}`}
-        onClick={() => setVisible((value) => !value)}
-      >
-        {visible ? "Hide password" : "Show password"}
-      </OperationButton>
-    </div>
+    <Field data-invalid={Boolean(error)}>
+      <FieldLabel htmlFor={id}>{label}</FieldLabel>
+      <InputGroup className="v:h-11">
+        <InputGroupInput
+          {...inputProps}
+          ref={ref}
+          id={id}
+          type={visible ? "text" : "password"}
+          disabled={inputProps.disabled || busy}
+          aria-invalid={Boolean(error)}
+          aria-describedby={helpId}
+        />
+        <InputGroupAddon align="inline-end">
+          <InputGroupButton
+            variant="ghost"
+            size="icon-xs"
+            disabled={inputProps.disabled || busy}
+            aria-pressed={visible}
+            aria-label={`${visible ? "Hide" : "Show"} ${String(label).toLowerCase()}`}
+            onClick={() => setVisible((value) => !value)}
+          >
+            {visible ? <IconEyeOff aria-hidden="true" /> : <IconEye aria-hidden="true" />}
+          </InputGroupButton>
+        </InputGroupAddon>
+      </InputGroup>
+      {helpId ? <div id={helpId}>{error ? <FieldError>{error}</FieldError> : <FieldDescription>{description}</FieldDescription>}</div> : null}
+    </Field>
   );
 });
 

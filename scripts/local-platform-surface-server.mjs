@@ -13,12 +13,12 @@ const identity = validateLocalSurfaceArtifact(artifact);
 const source = verifyLocalSurfaceSource(sourceRoot, artifact.sourceManifest, artifact.manifestSha256);
 Object.assign(process.env, artifact.env);
 // No network-capable application import precedes this guard.
-installLocalDemoNetworkGuard();
+installLocalDemoNetworkGuard({ mailTransport: artifact.env.RESEND_API_KEY ? artifact.env.RESEND_API_URL : null });
 const env = require('../backend/src/config/env.js');
 for (const [key, value] of [['databaseUrl', artifact.env.DATABASE_URL], ['port', identity.port], ['localApiProfile', identity.profile], ['jwtSecret', artifact.env.JWT_SECRET], ['csrfSecret', artifact.env.CSRF_SECRET], ['developerApiKeyPepper', artifact.env.DEVELOPER_API_KEY_PEPPER]]) {
   if (env[key] !== value) throw new Error('Effective configuration differs from the guarded artifact.');
 }
-assertLocalDemoProvidersEmpty(env);
+assertLocalDemoProvidersEmpty(env, process.env, { allowMailTransport: true });
 const { pool } = require('../backend/src/config/db.js');
 const client = await pool.connect();
 try { await verifyLocalSurfaceDatabase(client, identity); } finally { client.release(); }

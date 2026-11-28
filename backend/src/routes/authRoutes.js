@@ -35,6 +35,7 @@ const mfaFlowService = require("../services/mfaFlowService");
 const customerRegistrationOtpService = require("../services/customerRegistrationOtpService");
 const securityRateLimitService = require("../services/securityRateLimitService");
 const { userRequiresPrivilegedMfa } = require("../services/mfaService");
+const { localRateLimit } = require("../services/localRateLimitPolicy");
 const { buildBaseAuthUserPayload } = require("../services/authUserPayloadService");
 const { assertPublicTextFieldsAllowed } = require("../services/contentModeration");
 const { normalizePhilippineMobileNumber } = require("../utils/phone");
@@ -51,7 +52,7 @@ const {
 const router = express.Router();
 const authHttpLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  limit: Math.max(1, env.authHttpRateLimit || 100),
+  limit: Math.max(1, localRateLimit(env.authHttpRateLimit || 100, 10_000, env)),
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: (req) => ipKeyGenerator(req.ip || req.socket?.remoteAddress || "unknown"),

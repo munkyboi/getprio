@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useRef, useState, type ComponentType, type ReactNode } from "react";
 import { Button, Modal, Stack, Text, Title } from "@mantine/core";
 import type {
   AuthActionResponse,
@@ -34,7 +34,29 @@ const EMPTY_OAUTH_PROVIDERS: OAuthProviderAvailability = {
   apple: false
 };
 
-export function AuthProvider({ children, publicOnly = false }: { children: ReactNode; publicOnly?: boolean }) {
+export type SessionExpiryActions = {
+  onContinue: () => Promise<void>;
+  onSignOut: () => void;
+};
+
+function DefaultSessionExpiry({ onContinue, onSignOut }: SessionExpiryActions) {
+  return (
+    <Modal centered closeOnClickOutside={false} closeOnEscape={false} opened onClose={() => undefined}
+      title={<div><Text c="orange" fw={700} size="xs">SESSION SECURITY</Text><Title order={3}>Your session will expire soon</Title></div>}>
+      <Stack>
+        <Text>For your security, you’ll be signed out soon. Continue your session to keep working without losing your place.</Text>
+        <Button onClick={onContinue}>Continue session</Button>
+        <Button variant="subtle" onClick={onSignOut}>Sign out now</Button>
+      </Stack>
+    </Modal>
+  );
+}
+
+export function AuthProvider({ children, publicOnly = false, sessionExpiry: SessionExpiry = DefaultSessionExpiry }: {
+  children: ReactNode;
+  publicOnly?: boolean;
+  sessionExpiry?: ComponentType<SessionExpiryActions>;
+}) {
   const [token, setToken] = useState("");
   const [refreshToken, setRefreshToken] = useState("");
   const [user, setUser] = useState<UserSummary | null>(null);
@@ -363,7 +385,24 @@ export function AuthProvider({ children, publicOnly = false }: { children: React
     }
   };
 
-  return <AuthContext.Provider value={value}>{children}<Modal centered closeOnClickOutside={false} closeOnEscape={false} opened={expiryWarningOpen} onClose={() => undefined} title={<div><Text c="orange" fw={700} size="xs">SESSION SECURITY</Text><Title order={3}>Your session will expire soon</Title></div>}><Stack><Text>For your security, you’ll be signed out soon. Continue your session to keep working without losing your place.</Text><Button onClick={async () => { const observed = nextRevision(); const next = await sessionRequest<AuthResponse, Record<string, never>>("/auth/refresh", { method: "POST", body: {}, skipAuthRefresh: true }); if (revision.current === observed) { applySession(next); publishAuthChange("signed-in"); setExpiryWarningOpen(false); } }}>Continue session</Button><Button variant="subtle" onClick={() => void value.logout()}>Sign out now</Button></Stack></Modal></AuthContext.Provider>;
+  async function continueSession() {
+    const observed = nextRevision();
+    const next = await sessionRequest<AuthResponse, Record<string, never>>("/auth/refresh", {
+      method: "POST", body: {}, skipAuthRefresh: true,
+    });
+    if (revision.current === observed) {
+      applySession(next);
+      publishAuthChange("signed-in");
+      setExpiryWarningOpen(false);
+    }
+  }
+
+  return (
+    <AuthContext.Provider value={value}>
+      {children}
+      {expiryWarningOpen && <SessionExpiry onContinue={continueSession} onSignOut={() => void value.logout()} />}
+    </AuthContext.Provider>
+  );
 }
 
 export function useAuth(): AuthContextValue {

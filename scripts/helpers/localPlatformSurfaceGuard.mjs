@@ -36,7 +36,7 @@ export function validateLocalSurfaceArtifact(artifact) {
   if (profile === 'sandbox' && env.LOCAL_BROWSER_COOKIE_PREFIX) throw new Error('Sandbox must not use browser sessions.');
   if (!/^[a-f0-9]{64,}$/.test(artifact.databaseNonce || '')) throw new Error('Private database ownership nonce required.');
   if (!/^[a-f0-9]{64}$/.test(artifact.manifestSha256 || '')) throw new Error('Pinned source manifest hash required.');
-  assertLocalDemoProvidersEmpty({}, env);
+  assertLocalDemoProvidersEmpty({}, env, { allowMailTransport: true });
   return { profile, port, databaseName, topology: topology || null, comment: `getprio-local-surfaces:${profile}:${artifact.databaseNonce}` };
 }
 

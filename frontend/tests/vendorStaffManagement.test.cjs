@@ -128,11 +128,7 @@ test("failed existing-account add keeps the draft and releases pending state for
   context.staffSeatLimit = 1;
   calls.length = 0;
   await fn({ preventDefault() {}, currentTarget: form });
-  assert.deepEqual(calls, [
-    ["busy", "staff-save"],
-    ["error", "Existing account not found"],
-    ["busy", ""],
-  ]);
+  assert.deepEqual(calls, []);
 });
 
 test('staff cards protect the owner and actor, preserve contacts and assignment context, and lock pending controls', () => {

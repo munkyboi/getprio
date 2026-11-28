@@ -1,3 +1,4 @@
+import React from "react";
 import { orderedDateRange, boundedPage } from "./operationsState";
 import {
   createContext,

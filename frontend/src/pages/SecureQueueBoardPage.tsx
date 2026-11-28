@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { Alert, Button, Card, Code, Stack, Text, Title } from "@mantine/core";
+import { OperationAlert, OperationButton, OperationPanel } from "../vendor/OperationsUi";
+import { VendorAuthLayout } from "../vendor/VendorAuthLayout";
 import { useParams } from "react-router-dom";
 import type { QueueSnapshot } from "@shared";
 import { API_BASE_URL, apiRequest } from "../api/client";
@@ -75,18 +76,22 @@ export default function SecureQueueBoardPage() {
     return () => { active = false; source?.close(); window.clearInterval(timer); };
   }, [boardId, attempt]);
   if (snapshot) return <PublicQueuePage initialSnapshot={snapshot} />;
-  return <Card maw={560} mx="auto" my="xl" padding="xl" withBorder>
-    <Stack align="center" gap="md">
-      <Title order={1} ta="center">Queue board access</Title>
-      {error ? <Alert color="red" role="alert">{error}</Alert> : null}
-      {pairing ? <>
-        <Text ta="center">Ask authorized staff at {pairing.locationName} to scan this QR in the vendor dashboard and approve this display.</Text>
-        <StyledQRCode size={220} value={pairing.approvalUrl} />
-        <Text>Match code: <Code>{pairing.matchCode}</Code></Text>
-        <Text size="sm" ta="center">Compare this code on both screens before approving. Request expires at {new Date(pairing.expiresAt).toLocaleTimeString()}.</Text>
-        <Text size="sm">Manual pairing code</Text><Code style={{ overflowWrap: "anywhere" }}>{pairing.code}</Code>
-      </> : <Text ta="center">Checking board access…</Text>}
-      <Button mih={44} variant="default" onClick={() => setAttempt((value) => value + 1)}>Refresh access request</Button>
-    </Stack>
-  </Card>;
+  return (
+    <VendorAuthLayout>
+      <OperationPanel>
+        <div className="queue-stack v:items-center v:text-center">
+          <h1>Queue board access</h1>
+          {error && <OperationAlert color="red">{error}</OperationAlert>}
+          {pairing ? <>
+            <p>Ask authorized staff at {pairing.locationName} to scan this QR in the vendor dashboard and approve this display.</p>
+            <StyledQRCode size={220} value={pairing.approvalUrl} />
+            <p>Match code: <code>{pairing.matchCode}</code></p>
+            <p className="ops-muted">Compare this code on both screens before approving. Request expires at {new Date(pairing.expiresAt).toLocaleTimeString()}.</p>
+            <p>Manual pairing code</p><code className="v:wrap-anywhere">{pairing.code}</code>
+          </> : <p role="status">Checking board access…</p>}
+          <OperationButton variant="outline" onClick={() => setAttempt(value => value + 1)}>Refresh access request</OperationButton>
+        </div>
+      </OperationPanel>
+    </VendorAuthLayout>
+  );
 }

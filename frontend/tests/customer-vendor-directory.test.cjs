@@ -94,6 +94,15 @@ test("vendor detail keeps Book available before service selection", () => {
   assert.doesNotMatch(page, /vendor\.capabilities\.booking && selected && selectedServiceSlugs\.length/);
 });
 
+test("resource and workflow queues route to booking instead of simple Join Queue", () => {
+  const page = fs.readFileSync(path.resolve(__dirname, "../src/customer/pages/CustomerVendorDetailsPage.tsx"), "utf8");
+  assert.match(page, /const queueType = currentQueue\?\.location\?\.queueType \|\| "simple"/);
+  assert.match(page, /simpleQueueAvailable &&\s*isQueueAcceptingJoins\(currentQueue\)/);
+  assert.match(page, /queueType === "simple" \? "Book" : "Book services"/);
+  assert.doesNotMatch(page, /data-booking-flow-trigger/);
+  assert.match(page, /queueType === "simple" \? \(/);
+});
+
 test("Customer entry scopes the initial theme and keeps color-scheme synchronized", () => {
   const main = fs.readFileSync(path.resolve(__dirname, "../src/customer/main.tsx"), "utf8");
   const theme = fs.readFileSync(path.resolve(__dirname, "../src/customer/CustomerTheme.tsx"), "utf8");
