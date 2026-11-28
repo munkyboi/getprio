@@ -1998,6 +1998,106 @@ function useVendorActivityQueries({
   return { historyQuery, clientsQuery, bookingListQuery, bookingAlertsQuery };
 }
 
+function getVendorLocationAccess({
+  locations, selectedLocationSlug, snapshot, availabilityBlockForm, activeTenants, selectedTenantSlug, billing, user,
+}: {
+  locations: StoreLocationWithHours[];
+  selectedLocationSlug: string;
+  snapshot: QueueSnapshot | null;
+  availabilityBlockForm: SaveVendorAvailabilityBlockRequest;
+  activeTenants: ReturnType<typeof useVendorDashboardMemberships>;
+  selectedTenantSlug: string;
+  billing: BillingOverviewResponse | null;
+  user: ReturnType<typeof useAuth>["user"];
+}) {
+  const selectedLocation =
+    locations.find((locationItem) => locationItem.slug === selectedLocationSlug) ||
+    snapshot?.location ||
+    null;
+  const availabilityBlockLocation =
+    locations.find((locationItem) => locationItem.slug === availabilityBlockForm.locationSlug) ||
+    selectedLocation;
+  const selectedTenantRole =
+    activeTenants.find((tenant) => tenant.slug === selectedTenantSlug)?.role || null;
+  const hasActiveSubscription =
+    selectedTenantRole === "staff" || billing?.subscription?.status === "active";
+  const isOwner = selectedTenantRole === "owner";
+  const isAdmin = selectedTenantRole === "admin";
+  const requiresMfaEnrollment = Boolean(user?.mfaRequired && !user.mfaEnabled);
+  return { selectedLocation, availabilityBlockLocation, selectedTenantRole, hasActiveSubscription, isOwner, isAdmin, requiresMfaEnrollment };
+}
+
+function getVendorQueueDispatch({
+  intakeMode, queueTypeConfiguration, selectedTenantSlug, selectedLocationSlug, selectedCounterSlug, snapshot, namedTicketIds, namedManagementRead, workflowManagementRead, localPoolScope, localPoolData,
+}: {
+  intakeMode: ReturnType<typeof queueIntakeMode>;
+  queueTypeConfiguration: ReturnType<typeof useVendorQueueConfiguration>["queueTypeConfiguration"];
+  selectedTenantSlug: string;
+  selectedLocationSlug: string;
+  selectedCounterSlug: string;
+  snapshot: QueueSnapshot | null;
+  namedTicketIds: string[];
+  namedManagementRead: { scope: string; ready: boolean };
+  workflowManagementRead: { scope: string; ready: boolean };
+  localPoolScope: string;
+  localPoolData: ReturnType<typeof scopedLocalPoolData> | null;
+}) {
+  const resourceQueueEnabled = intakeMode === "resource";
+  const resourceSetupAllowed=queueTypeConfiguration?.capabilities.resource===true;
+  const resourceManagementEnabled = resourceQueueOptIn && intakeMode !== "loading" && Boolean(selectedTenantSlug&&selectedLocationSlug);
+  const rawCounterTicket = selectCounterDispatch(snapshot, selectedTenantSlug, selectedLocationSlug, selectedCounterSlug).ticket;
+  const workPresentation = queueWorkPresentation({resourceIntake:resourceQueueEnabled,managementAllowed:resourceManagementEnabled,resourceTicketIds:namedTicketIds,currentTicketId:rawCounterTicket?.id});
+  const managementReadPending = resourceManagementEnabled && !resourceQueueEnabled && (namedManagementRead.scope !== localPoolScope || !namedManagementRead.ready || workflowManagementRead.scope !== localPoolScope || !workflowManagementRead.ready);
+  const legacyCounterSnapshot = legacyQueueWork(snapshot,namedTicketIds);
+  const dispatchSnapshot = workPresentation.resourceCounters ? localPoolDispatchSnapshot(snapshot, localPoolData) : snapshot;
+  const {lane: selectedLane, ticket: selectedCalledTicket} = selectCounterDispatch(dispatchSnapshot, selectedTenantSlug, selectedLocationSlug, selectedCounterSlug);
+  return { resourceQueueEnabled, resourceSetupAllowed, resourceManagementEnabled, rawCounterTicket, workPresentation, managementReadPending, legacyCounterSnapshot, selectedLane, selectedCalledTicket };
+}
+
+function getVendorQueueDayStatus({
+  snapshot, selectedLocationSlug, selectedTenantSlug,
+}: {
+  snapshot: QueueSnapshot | null;
+  selectedLocationSlug: string;
+  selectedTenantSlug: string;
+}) {
+  const queueDayState = resolveQueueDayState(snapshot?.queueDay);
+  const queueDayClosed = queueDayState !== "open";
+  const queueDayPaused = Boolean(snapshot?.queueDay?.isPaused);
+  const bookingSnapshotMatchesLocation = Boolean(selectedLocationSlug && snapshot?.location?.slug === selectedLocationSlug && snapshot.tenant.slug === selectedTenantSlug);
+  const bookingCheckInBlocked = !bookingSnapshotMatchesLocation || queueDayClosed || queueDayPaused || snapshot?.queueDay?.intakeMode === "paused";
+  let bookingCheckInGuidance = "Resume queue intake before checking in customers.";
+  if (!bookingSnapshotMatchesLocation) {
+    bookingCheckInGuidance = "Loading this location's queue status. Please wait.";
+  } else if (queueDayClosed) {
+    bookingCheckInGuidance = "Open the queue before checking in customers.";
+  }
+  const queueDayUnopened = queueDayState === "unopened";
+  const queueDayActuallyClosed = queueDayState === "closed";
+  const queueDayReconciling =
+    snapshot?.queueDay?.availabilityReason === "reconciling" ||
+    snapshot?.queueDay?.autoClosePhase === "overdue";
+  const queueDayExtended = snapshot?.queueDay?.autoClosePhase === "extended";
+  const intakeState = snapshot?.queueIntake || null;
+  const restoreBlockedByThreshold = Boolean(
+    intakeState?.autoPauseEnabled &&
+      intakeState.autoPauseThreshold &&
+      intakeState.currentWaitingCount >= intakeState.autoPauseThreshold
+  );
+  return { queueDayClosed, queueDayPaused, bookingCheckInBlocked, bookingCheckInGuidance, queueDayUnopened, queueDayActuallyClosed, queueDayReconciling, queueDayExtended, intakeState, restoreBlockedByThreshold };
+}
+
+function getServedToday(snapshot: QueueSnapshot | null, tenantSlug: string, locationSlug: string, bootstrapFailed: boolean) {
+  if (bootstrapFailed || snapshot?.tenant.slug !== tenantSlug || snapshot.location?.slug !== locationSlug) return "—";
+  return snapshot.stats.servedToday;
+}
+
+function averageIntervalMinutes(intervals: ReturnType<typeof servedTicketIntervals>) {
+  if (!intervals.length) return 0;
+  const total = intervals.reduce((sum, interval) => sum + interval.minutes, 0);
+  return Math.round(total / intervals.length * 10) / 10;
+}
+
 function VendorDashboardContent() {
   const notifications = useVendorNotifications();
   const showSuccessNotification = useCallback((title: string, message: string) => {
@@ -2242,20 +2342,9 @@ function VendorDashboardContent() {
   const [rescheduleBlockModalOpen, setRescheduleBlockModalOpen] = useState(false);
 
   const [groupFundedProofError] = useState("");
-  const selectedLocation =
-    locations.find((locationItem) => locationItem.slug === selectedLocationSlug) ||
-    snapshot?.location ||
-    null;
-  const availabilityBlockLocation =
-    locations.find((locationItem) => locationItem.slug === availabilityBlockForm.locationSlug) ||
-    selectedLocation;
-  const selectedTenantRole =
-    activeTenants.find((tenant) => tenant.slug === selectedTenantSlug)?.role || null;
-  const hasActiveSubscription =
-    selectedTenantRole === "staff" || billing?.subscription?.status === "active";
-  const isOwner = selectedTenantRole === "owner";
-  const isAdmin = selectedTenantRole === "admin";
-  const requiresMfaEnrollment = Boolean(user?.mfaRequired && !user.mfaEnabled);
+  const { selectedLocation, availabilityBlockLocation, selectedTenantRole, hasActiveSubscription, isOwner, isAdmin, requiresMfaEnrollment } = getVendorLocationAccess({
+    locations, selectedLocationSlug, snapshot, availabilityBlockForm, activeTenants, selectedTenantSlug, billing, user,
+  });
   const canLoadProtectedDashboard = !requiresMfaEnrollment;
   const localPoolQuery = useLocalPoolOperations(token, selectedTenantSlug, selectedLocationSlug, canLoadProtectedDashboard && currentSection === "queue");
   const localPoolData = !localPoolQuery.isError ? scopedLocalPoolData(snapshot, localPoolQuery.data, selectedTenantSlug, selectedLocationSlug) : null;
@@ -2312,15 +2401,9 @@ function VendorDashboardContent() {
   const { queueTypeQuery, queueTypeConfiguration, queueTypeBusy, setQueueTypeBusy, setQueueSetupRead, intakeMode } = useVendorQueueConfiguration({
     token, selectedTenantSlug, selectedLocationSlug, requiresMfaEnrollment, effectiveEntitlementsQuery, tenantPlan,
   });
-  const resourceQueueEnabled = intakeMode === "resource";
-  const resourceSetupAllowed=queueTypeConfiguration?.capabilities.resource===true;
-  const resourceManagementEnabled = resourceQueueOptIn && intakeMode !== "loading" && Boolean(selectedTenantSlug&&selectedLocationSlug);
-  const rawCounterTicket = selectCounterDispatch(snapshot, selectedTenantSlug, selectedLocationSlug, selectedCounterSlug).ticket;
-  const workPresentation = queueWorkPresentation({resourceIntake:resourceQueueEnabled,managementAllowed:resourceManagementEnabled,resourceTicketIds:namedTicketIds,currentTicketId:rawCounterTicket?.id});
-  const managementReadPending = resourceManagementEnabled && !resourceQueueEnabled && (namedManagementRead.scope !== localPoolScope || !namedManagementRead.ready || workflowManagementRead.scope !== localPoolScope || !workflowManagementRead.ready);
-  const legacyCounterSnapshot = legacyQueueWork(snapshot,namedTicketIds);
-  const dispatchSnapshot = workPresentation.resourceCounters ? localPoolDispatchSnapshot(snapshot, localPoolData) : snapshot;
-  const {lane: selectedLane, ticket: selectedCalledTicket} = selectCounterDispatch(dispatchSnapshot, selectedTenantSlug, selectedLocationSlug, selectedCounterSlug);
+  const { resourceQueueEnabled, resourceSetupAllowed, resourceManagementEnabled, rawCounterTicket, workPresentation, managementReadPending, legacyCounterSnapshot, selectedLane, selectedCalledTicket } = getVendorQueueDispatch({
+    intakeMode, queueTypeConfiguration, selectedTenantSlug, selectedLocationSlug, selectedCounterSlug, snapshot, namedTicketIds, namedManagementRead, workflowManagementRead, localPoolScope, localPoolData,
+  });
 
   const { visibleNavItems, defaultDashboardPath } = getVendorVisibleNavigation({
     requiresMfaEnrollment, isOwner, isAdmin, effectiveEntitlements, tenantPlan,
@@ -3349,10 +3432,10 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
       ""
   };
   const periodTicketMetric = getPeriodTicketMetric(periodUsageQuery.data?.usage, periodUsageQuery.isError);
-  const ticketUsage = !dashboardBootstrapQuery.error && snapshot?.tenant.slug === selectedTenantSlug && snapshot?.location?.slug === selectedLocationSlug ? snapshot.stats.servedToday : "—";
+  const ticketUsage = getServedToday(snapshot, selectedTenantSlug, selectedLocationSlug, Boolean(dashboardBootstrapQuery.error));
   const historyTickets = useMemo(() => history?.tickets || snapshot?.history || [], [history, snapshot]);
   const recordedIntervals = useMemo(() => servedTicketIntervals(snapshot?.history || [], RECORDED_INTERVAL_TICKET_LIMIT), [snapshot?.history]);
-  const averageRecordedInterval = recordedIntervals.length ? Math.round(recordedIntervals.reduce((total, bar)=>total+bar.minutes,0)/recordedIntervals.length*10)/10 : 0;
+  const averageRecordedInterval = averageIntervalMinutes(recordedIntervals);
   const intervalMaximum = Math.max(...recordedIntervals.map(bar=>bar.minutes),averageRecordedInterval,1);
   const overflowTickets = useMemo(() => (snapshot?.overflow || []).filter(ticket=>!namedTicketIds.includes(String(ticket.id))), [snapshot,namedTicketIds]);
   const currentQueueTickets = useMemo(
@@ -3465,29 +3548,9 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
         .filter((ticket): ticket is QueueListTicket => Boolean(ticket && ticket.status === "waiting")),
     [queueAlertIds, snapshot?.nextUp]
   );
-  const queueDayState = resolveQueueDayState(snapshot?.queueDay);
-  const queueDayClosed = queueDayState !== "open";
-  const queueDayPaused = Boolean(snapshot?.queueDay?.isPaused);
-  const bookingSnapshotMatchesLocation = Boolean(selectedLocationSlug && snapshot?.location?.slug === selectedLocationSlug && snapshot.tenant.slug === selectedTenantSlug);
-  const bookingCheckInBlocked = !bookingSnapshotMatchesLocation || queueDayClosed || queueDayPaused || snapshot?.queueDay?.intakeMode === "paused";
-  let bookingCheckInGuidance = "Resume queue intake before checking in customers.";
-  if (!bookingSnapshotMatchesLocation) {
-    bookingCheckInGuidance = "Loading this location's queue status. Please wait.";
-  } else if (queueDayClosed) {
-    bookingCheckInGuidance = "Open the queue before checking in customers.";
-  }
-  const queueDayUnopened = queueDayState === "unopened";
-  const queueDayActuallyClosed = queueDayState === "closed";
-  const queueDayReconciling =
-    snapshot?.queueDay?.availabilityReason === "reconciling" ||
-    snapshot?.queueDay?.autoClosePhase === "overdue";
-  const queueDayExtended = snapshot?.queueDay?.autoClosePhase === "extended";
-  const intakeState = snapshot?.queueIntake || null;
-  const restoreBlockedByThreshold = Boolean(
-    intakeState?.autoPauseEnabled &&
-      intakeState.autoPauseThreshold &&
-      intakeState.currentWaitingCount >= intakeState.autoPauseThreshold
-  );
+  const { queueDayClosed, queueDayPaused, bookingCheckInBlocked, bookingCheckInGuidance, queueDayUnopened, queueDayActuallyClosed, queueDayReconciling, queueDayExtended, intakeState, restoreBlockedByThreshold } = getVendorQueueDayStatus({
+    snapshot, selectedLocationSlug, selectedTenantSlug,
+  });
   const [weeklyServiceOptions, exceptionServiceOptions] = useMemo(
     () => [availabilityBlockForm.serviceSlug, availabilityExceptionForm.serviceSlug].map((selectedServiceSlug) => [
       { value: "", label: "All services" },
