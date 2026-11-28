@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { Box, Text } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import { IconCheck, IconInfoCircle } from "@tabler/icons-react";
@@ -162,11 +162,33 @@ function getPublicQueuePresentation(snapshot: QueueSnapshot | null, tenantSlug: 
   };
 }
 
+function publicBoardStyle(theme: ReturnType<typeof resolveVendorProfileMedia>): CSSProperties {
+  return {
+    "--public-board-bg": theme?.pageBackgroundColor || "#f5efe6",
+    "--public-board-card": theme
+      ? hexToRgba(theme.cardBackgroundColor, theme.cardAlpha)
+      : "rgba(255, 250, 244, 0.9)",
+    "--public-board-border": theme?.cardBorderColor || "rgba(33, 25, 20, 0.12)",
+    "--public-board-ink": theme?.headerColor || "#211914",
+    "--public-board-body": theme?.bodyColor || "#3f3027",
+    "--public-board-muted": theme?.subheaderColor || "#786b61",
+    "--public-board-primary": theme?.buttonBackgroundColor || "#ff7a1a",
+    "--public-board-primary-ink": theme?.buttonTextColor || "#ffffff",
+    backgroundColor: theme?.pageBackgroundColor || undefined,
+    backgroundImage: theme?.backgroundImageUrl
+      ? `linear-gradient(rgba(255,255,255,0.36), rgba(255,255,255,0.36)), url(${theme.backgroundImageUrl})`
+      : undefined
+  } as CSSProperties;
+}
+
 export default function PublicQueuePage({ initialSnapshot }: { initialSnapshot?: QueueSnapshot } = {}) {
   const { tenantSlug, locationSlug } = useParams<{ tenantSlug: string; locationSlug?: string }>();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const [snapshot, setSnapshot] = useState<QueueSnapshot | null>(initialSnapshot || null);
+  const [publicSnapshot, setSnapshot] = useState<QueueSnapshot | null>(null);
+  const snapshot = initialSnapshot ?? publicSnapshot;
+  const BoardShell = initialSnapshot ? "div" : Box;
+  const BoardLabel = initialSnapshot ? "p" : Text;
   const [error, setError] = useState("");
   const [paymentSyncing, setPaymentSyncing] = useState(false);
   const [clockNow, setClockNow] = useState(() => new Date());
@@ -190,26 +212,7 @@ export default function PublicQueuePage({ initialSnapshot }: { initialSnapshot?:
   const averageServiceMinutes = snapshot?.tenant.averageServiceMinutes || 5;
   const topTickets = visibleTickets.slice(0, 3);
   const gridTickets = visibleTickets.slice(3, 19);
-  const pageStyle = useMemo(
-    () =>
-      ({
-        "--public-board-bg": theme?.pageBackgroundColor || "#f5efe6",
-        "--public-board-card": theme
-          ? hexToRgba(theme.cardBackgroundColor, theme.cardAlpha)
-          : "rgba(255, 250, 244, 0.9)",
-        "--public-board-border": theme?.cardBorderColor || "rgba(33, 25, 20, 0.12)",
-        "--public-board-ink": theme?.headerColor || "#211914",
-        "--public-board-body": theme?.bodyColor || "#3f3027",
-        "--public-board-muted": theme?.subheaderColor || "#786b61",
-        "--public-board-primary": theme?.buttonBackgroundColor || "#ff7a1a",
-        "--public-board-primary-ink": theme?.buttonTextColor || "#ffffff",
-        backgroundColor: theme?.pageBackgroundColor || undefined,
-        backgroundImage: theme?.backgroundImageUrl
-          ? `linear-gradient(rgba(255,255,255,0.36), rgba(255,255,255,0.36)), url(${theme.backgroundImageUrl})`
-          : undefined
-      }) as CSSProperties,
-    [theme]
-  );
+  const pageStyle = publicBoardStyle(theme);
 
   useEffect(() => {
     const intervalId = window.setInterval(() => setClockNow(new Date()), 30_000);
@@ -222,7 +225,7 @@ export default function PublicQueuePage({ initialSnapshot }: { initialSnapshot?:
   useQueueSnapshot({ locationSlug, lookupCode, setError, setSnapshot, tenantSlug });
 
   return (
-    <Box className="public-board-tv-shell" style={pageStyle}>
+    <BoardShell className="public-board-tv-shell" style={pageStyle}>
       <main className="public-board-tv-frame">
         <section className="public-board-tv-screen">
           <header className="public-board-tv-header">
@@ -266,7 +269,7 @@ export default function PublicQueuePage({ initialSnapshot }: { initialSnapshot?:
             <aside className="public-board-tv-left">
               <section className="public-board-tv-current">
                 <div className="public-board-tv-current-inner">
-                  <Text className="public-board-tv-eyebrow">Now serving</Text>
+                  <BoardLabel className="public-board-tv-eyebrow">Now serving</BoardLabel>
                   <strong>{snapshot?.current?.ticketNumber || "--"}</strong>
                   <span>{snapshot?.current ? "Please proceed when called" : "Waiting for next ticket"}</span>
                 </div>
@@ -277,7 +280,7 @@ export default function PublicQueuePage({ initialSnapshot }: { initialSnapshot?:
                   <StyledQRCode size={124} value={joinQrUrl} />
                 </div>
                 <div>
-                  <Text className="public-board-tv-eyebrow">Join from phone</Text>
+                  <BoardLabel className="public-board-tv-eyebrow">Join from phone</BoardLabel>
                   <h2>{canJoinQueue ? "Scan to get a queue ticket" : "Queue joins unavailable"}</h2>
                   <p>
                     {canJoinQueue
@@ -302,7 +305,7 @@ export default function PublicQueuePage({ initialSnapshot }: { initialSnapshot?:
             <section className="public-board-tv-queue">
               <div className="public-board-tv-queue-heading">
                 <div>
-                  <Text className="public-board-tv-eyebrow">Public queue list</Text>
+                  <BoardLabel className="public-board-tv-eyebrow">Public queue list</BoardLabel>
                   <h2>Up next and waiting</h2>
                 </div>
                 <div className="public-board-tv-count">
@@ -361,6 +364,6 @@ export default function PublicQueuePage({ initialSnapshot }: { initialSnapshot?:
           </section>
         </section>
       </main>
-    </Box>
+    </BoardShell>
   );
 }

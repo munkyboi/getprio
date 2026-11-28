@@ -10,7 +10,7 @@ import OAuthCallbackPage from "../pages/OAuthCallbackPage";
 import VendorDashboardPage from "../pages/VendorDashboardPage";
 import QueueAutoClosePrototype from "../pages/prototypes/QueueAutoClosePrototype";
 import SecureQueueBoardPage from "../pages/SecureQueueBoardPage";
-import NotFoundPage from "../pages/NotFoundPage";
+import { VendorMaintenance, VendorNotFound } from "../vendor/VendorStatusPages";
 import MaintenanceBoundary from "../components/MaintenanceBoundary";
 function WorkspaceShell({ children }: { children: ReactNode }) {
   const guard = useRef<(() => boolean) | null>(null);
@@ -73,7 +73,7 @@ function VendorEntryRoute() {
 
 
 export default function VendorApp() {
-  return <MaintenanceBoundary><Routes>
+  return <MaintenanceBoundary renderPresentation={model => <VendorMaintenance {...model} />}><Routes>
     <Route path="/" element={<VendorEntryRoute />} />
     <Route path="/login" element={<LoginPage />} />
     <Route path="/register" element={<RegisterVendorPage />} />
@@ -84,6 +84,6 @@ export default function VendorApp() {
     <Route path="/dashboard/locations/:locationSlug/edit" element={<WorkspaceShell><VendorDashboardRoute /></WorkspaceShell>} />
     <Route path="/dashboard/:section" element={<WorkspaceShell><VendorDashboardRoute /></WorkspaceShell>} />
     <Route path="/queue-board/:boardId" element={<SecureQueueBoardPage />} />
-    <Route path="*" element={<VendorAuthLayout><NotFoundPage /></VendorAuthLayout>} />
+    <Route path="*" element={<VendorNotFound />} />
   </Routes></MaintenanceBoundary>;
 }
