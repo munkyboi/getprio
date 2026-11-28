@@ -1635,6 +1635,369 @@ export default function VendorDashboardPage() {
   return <VendorToastProvider><VendorDashboardContent /></VendorToastProvider>;
 }
 
+function useVendorAccessQueries({
+  token, selectedTenantSlug, selectedLocationSlug, locationQuery, isOwner, isAdmin, requiresMfaEnrollment, selectedTenantRole, currentSection, accountTab, user,
+}: {
+  token: string | null;
+  selectedTenantSlug: string;
+  selectedLocationSlug: string;
+  locationQuery: string;
+  isOwner: boolean;
+  isAdmin: boolean;
+  requiresMfaEnrollment: boolean;
+  selectedTenantRole: string | null;
+  currentSection: DashboardSection;
+  accountTab: AccountTab;
+  user: ReturnType<typeof useAuth>["user"];
+}) {
+  const dashboardBootstrapQuery = useQuery({
+    queryKey: ["vendor-dashboard-bootstrap", token, selectedTenantSlug, selectedLocationSlug, locationQuery, selectedTenantRole],
+    queryFn: async () => {
+      if (!token || !selectedTenantSlug) {
+        throw new Error("Missing dashboard context.");
+      }
+
+      return vendorDashboardBootstrap.getBootstrap(
+        token,
+        selectedTenantSlug,
+        locationQuery,
+        isOwner || isAdmin
+      );
+    },
+    enabled: shouldEnableVendorDashboardBootstrap(token, selectedTenantSlug, requiresMfaEnrollment)
+  });
+  const billingOverviewQuery = useQuery({
+    queryKey: ["vendor-dashboard-billing", token, selectedTenantSlug],
+    queryFn: async () => {
+      if (!token || !selectedTenantSlug) {
+        throw new Error("Missing billing context.");
+      }
+
+      return {...await vendorDashboardBootstrap.getBillingOverview(token, selectedTenantSlug), clientTenantSlug: selectedTenantSlug};
+    },
+    enabled: Boolean(
+      shouldEnableVendorDashboardBootstrap(token, selectedTenantSlug, requiresMfaEnrollment) &&
+      (isOwner || isAdmin)
+    )
+  });
+  const periodUsageQuery = useQuery({
+    queryKey: ["vendor-period-usage", user?.id, token, selectedTenantSlug, selectedTenantRole],
+    queryFn: () => vendorDashboardBootstrap.getPeriodUsage(token!, selectedTenantSlug),
+    enabled: Boolean(
+      shouldEnableVendorDashboardBootstrap(token, selectedTenantSlug, requiresMfaEnrollment) &&
+      shouldLoadPeriodUsage({ isOwner, isAdmin, section: currentSection, accountTab })
+    ),
+    refetchInterval: 30_000
+  });
+  const effectiveEntitlementsQuery = useQuery({
+    queryKey: ["vendor-dashboard-effective-entitlements", token, selectedTenantSlug],
+    queryFn: async () => {
+      if (!token || !selectedTenantSlug) {
+        throw new Error("Missing entitlement context.");
+      }
+
+      return {...await vendorDashboardBootstrap.getEffectiveEntitlements(token, selectedTenantSlug), clientTenantSlug: selectedTenantSlug};
+    },
+    enabled: shouldEnableVendorDashboardBootstrap(token, selectedTenantSlug, requiresMfaEnrollment)
+  });
+  const effectiveBilling = billingOverviewQuery.data?.clientTenantSlug === selectedTenantSlug ? billingOverviewQuery.data : null;
+  const activeSubscription =
+    effectiveBilling?.subscription?.status === "active" ? effectiveBilling.subscription : null;
+  const currentPlan = activeSubscription
+    ? effectiveBilling?.plans.find((plan) => plan.slug === activeSubscription.planSlug)
+    : null;
+  const effectiveEntitlements =
+    activeSubscription?.entitlements ||
+    currentPlan?.entitlements ||
+    effectiveEntitlementsQuery.data?.entitlements;
+  const tenantPlan = effectiveEntitlementsQuery.data?.plan;
+  const bookingSettingsAllowed = effectiveEntitlementsQuery.isSuccess && !effectiveEntitlementsQuery.isPlaceholderData && effectiveEntitlementsQuery.data?.clientTenantSlug === selectedTenantSlug && effectiveEntitlementsQuery.data?.entitlements?.serviceBookingAccess === true;
+  return { dashboardBootstrapQuery, billingOverviewQuery, periodUsageQuery, effectiveEntitlementsQuery, activeSubscription, currentPlan, effectiveEntitlements, tenantPlan, bookingSettingsAllowed };
+}
+
+function useVendorQueueConfiguration({
+  token, selectedTenantSlug, selectedLocationSlug, requiresMfaEnrollment, effectiveEntitlementsQuery, tenantPlan,
+}: {
+  token: string | null;
+  selectedTenantSlug: string;
+  selectedLocationSlug: string;
+  requiresMfaEnrollment: boolean;
+  effectiveEntitlementsQuery: ReturnType<typeof useVendorAccessQueries>["effectiveEntitlementsQuery"];
+  tenantPlan: ReturnType<typeof useVendorAccessQueries>["tenantPlan"];
+}) {
+  const queueTypeQuery = useQuery({
+    queryKey:["vendor-queue-type",selectedTenantSlug,selectedLocationSlug,token],
+    queryFn:({signal})=>getQueueType(token!,selectedTenantSlug,selectedLocationSlug,signal),
+    enabled:Boolean(token&&selectedTenantSlug&&selectedLocationSlug&&!requiresMfaEnrollment),
+  });
+  const queueTypeConfiguration = !queueTypeQuery.isPlaceholderData && queueTypeQuery.data && queueTypeQuery.data.scope.tenantSlug === selectedTenantSlug && queueTypeQuery.data.scope.locationSlug === selectedLocationSlug ? queueTypeQuery.data : null;
+  const refetchQueueType = queueTypeQuery.refetch;
+  useEffect(()=>{
+    if(!token||!selectedTenantSlug||!selectedLocationSlug)return;
+    const refresh=()=>{if(document.visibilityState==='visible')void refetchQueueType();};
+    const interval=window.setInterval(refresh,15000);
+    window.addEventListener('queue-plans-updated',refresh);window.addEventListener('focus',refresh);window.addEventListener('online',refresh);
+    return()=>{window.clearInterval(interval);window.removeEventListener('queue-plans-updated',refresh);window.removeEventListener('focus',refresh);window.removeEventListener('online',refresh);};
+  },[token,selectedTenantSlug,selectedLocationSlug,refetchQueueType]);
+  const [queueTypeBusy,setQueueTypeBusy]=useState(false);
+  const [queueSetupRead,setQueueSetupRead] = useState<{scope:string;ready:boolean}>({scope:"",ready:false});
+  const intakeMode = queueIntakeMode({
+    optedIn: resourceQueueOptIn, tenantSlug: selectedTenantSlug,
+    entitlementTenantSlug: effectiveEntitlementsQuery.data?.clientTenantSlug,
+    loaded: Boolean(effectiveEntitlementsQuery.data?.entitlements) && !effectiveEntitlementsQuery.isPlaceholderData,
+    entitlements: effectiveEntitlementsQuery.data?.entitlements, plan: tenantPlan,
+    queueType:queueTypeConfiguration,
+    locationSlug:selectedLocationSlug, setup:queueSetupRead,
+  });
+  return { queueTypeQuery, queueTypeConfiguration, queueTypeBusy, setQueueTypeBusy, setQueueSetupRead, intakeMode };
+}
+
+function getVendorVisibleNavigation({
+  requiresMfaEnrollment, isOwner, isAdmin, effectiveEntitlements, tenantPlan,
+}: {
+  requiresMfaEnrollment: boolean;
+  isOwner: boolean;
+  isAdmin: boolean;
+  effectiveEntitlements: Parameters<typeof canAccessVendorSection>[1];
+  tenantPlan: ReturnType<typeof useVendorAccessQueries>["tenantPlan"];
+}) {
+  const roleVisibleNavItems = requiresMfaEnrollment
+    ? navItems.filter((item) => item.section === "account")
+    : isOwner
+      ? navItems
+      : isAdmin
+        ? navItems.filter((item) => adminAllowedSections.has(item.section))
+        : navItems.filter((item) => staffAllowedSections.has(item.section));
+  const visibleNavItems = roleVisibleNavItems.filter((item) =>
+    item.section === "queue" || canAccessVendorSection(item.section, effectiveEntitlements, tenantPlan)
+  );
+  const defaultDashboardPath = `/dashboard/${visibleNavItems[0]?.section || "settings"}`;
+  return { visibleNavItems, defaultDashboardPath };
+}
+
+function useVendorCatalogQueries({
+  token, selectedTenantSlug, selectedLocationSlug, locationQuery, isOwner, isAdmin, canLoadProtectedDashboard, effectiveEntitlements, walkInDialogOpen, resourceQueueEnabled, currentSection, bookingSettingsAllowed, serviceDialogOpen, routeServiceSlug,
+}: {
+  token: string | null;
+  selectedTenantSlug: string;
+  selectedLocationSlug: string;
+  locationQuery: string;
+  isOwner: boolean;
+  isAdmin: boolean;
+  canLoadProtectedDashboard: boolean;
+  effectiveEntitlements: Parameters<typeof canAccessVendorSection>[1];
+  walkInDialogOpen: boolean;
+  resourceQueueEnabled: boolean;
+  currentSection: DashboardSection;
+  bookingSettingsAllowed: boolean;
+  serviceDialogOpen: boolean;
+  routeServiceSlug: string | undefined;
+}) {
+  const staffQuery = useQuery({
+    queryKey: ["vendor-dashboard-staff", token, selectedTenantSlug],
+    queryFn: async () => {
+      if (!token || !selectedTenantSlug) {
+        throw new Error("Missing dashboard context.");
+      }
+
+      return vendorDashboardOperations.getStaff(token, selectedTenantSlug);
+    },
+    enabled: Boolean(
+      canLoadProtectedDashboard &&
+      token &&
+      selectedTenantSlug &&
+      canAccessVendorSection("staff", effectiveEntitlements)
+    )
+  });
+  const servicesQuery = useQuery({
+    queryKey: ["vendor-dashboard-services", token, selectedTenantSlug, isOwner, isAdmin],
+    queryFn: async () => {
+      if (!token || !selectedTenantSlug) {
+        throw new Error("Missing dashboard context.");
+      }
+
+      return vendorDashboardCatalog.getServices(token, selectedTenantSlug);
+    },
+    enabled: Boolean(
+      canLoadProtectedDashboard &&
+      token &&
+      selectedTenantSlug &&
+      (isOwner || isAdmin) &&
+      canAccessVendorSection("services", effectiveEntitlements)
+    )
+  });
+  const ticketServiceOptionsQuery = useQuery({
+    queryKey: ["vendor-ticket-service-options", token, selectedTenantSlug, selectedLocationSlug],
+    queryFn: () => vendorDashboardQueue.getServiceOptions(token!, selectedTenantSlug, locationQuery),
+    enabled: Boolean(canLoadProtectedDashboard && (walkInDialogOpen || (resourceQueueEnabled && currentSection === "queue")) && token && selectedTenantSlug && selectedLocationSlug)
+  });
+  const locationServicesQuery = useQuery({
+    queryKey: ["vendor-dashboard-location-services", token, selectedTenantSlug, isOwner, isAdmin],
+    queryFn: async () => {
+      if (!token || !selectedTenantSlug) {
+        throw new Error("Missing dashboard context.");
+      }
+
+      return vendorDashboardCatalog.getLocationServices(token, selectedTenantSlug);
+    },
+    enabled: Boolean(
+      canLoadProtectedDashboard &&
+      token &&
+      selectedTenantSlug &&
+      (isOwner || isAdmin) &&
+      canAccessVendorSection("services", effectiveEntitlements)
+    )
+  });
+  const bookingConfigurationQuery=useQuery({
+    queryKey:['vendor-booking-configuration',token,selectedTenantSlug],
+    queryFn:()=>apiRequest<{locations:Array<{locationSlug:string;serviceId:string;contractVersion:4;capabilityEnabled:boolean;resourceConfigured:boolean;ready:boolean;assignment:string|null;duration:{baseMinutes:number;defaultCount:number}|null;extrasCount:number;workflowSupported:boolean}>}>(`/vendor/tenant/${selectedTenantSlug}/booking-configuration`,{token: token ?? undefined}),
+    enabled:Boolean(canLoadProtectedDashboard&&token&&selectedTenantSlug&&(isOwner||isAdmin)&&bookingSettingsAllowed&&(serviceDialogOpen||routeServiceSlug)),
+  });
+  const availabilityQuery = useQuery({
+    queryKey: ["vendor-dashboard-availability", token, selectedTenantSlug, selectedLocationSlug, isOwner, isAdmin],
+    queryFn: async () => {
+      if (!token || !selectedTenantSlug || !selectedLocationSlug) {
+        throw new Error("Missing dashboard context.");
+      }
+
+      return vendorDashboardCatalog.getAvailability(token, selectedTenantSlug, selectedLocationSlug);
+    },
+    enabled: Boolean(
+      canLoadProtectedDashboard &&
+      token &&
+      selectedTenantSlug &&
+      selectedLocationSlug &&
+      (isOwner || isAdmin) &&
+      bookingSettingsAllowed
+    )
+  });
+  const countersQuery = useQuery({
+    queryKey: ["vendor-dashboard-counters", token, selectedTenantSlug, selectedLocationSlug],
+    queryFn: async () => {
+      if (!token || !selectedTenantSlug || !selectedLocationSlug) {
+        throw new Error("Missing dashboard context.");
+      }
+
+      return vendorDashboardCatalog.getCounters(token, selectedTenantSlug, selectedLocationSlug);
+    },
+    enabled: Boolean(canLoadProtectedDashboard && token && selectedTenantSlug && selectedLocationSlug)
+  });
+  return { staffQuery, servicesQuery, ticketServiceOptionsQuery, locationServicesQuery, bookingConfigurationQuery, availabilityQuery, countersQuery };
+}
+
+function useVendorActivityQueries({
+  token, selectedTenantSlug, selectedLocationSlug, locationQuery, canLoadProtectedDashboard, currentSection, hasActiveSubscription, effectiveEntitlements, canOperateBookingQueue, bookingPage, bookingSearch, bookingStatusFilter, hideNonActiveBookings, bookingDateRange,
+}: {
+  token: string | null;
+  selectedTenantSlug: string;
+  selectedLocationSlug: string;
+  locationQuery: string;
+  canLoadProtectedDashboard: boolean;
+  currentSection: DashboardSection;
+  hasActiveSubscription: boolean;
+  effectiveEntitlements: Parameters<typeof canAccessVendorSection>[1];
+  canOperateBookingQueue: boolean;
+  bookingPage: number;
+  bookingSearch: string;
+  bookingStatusFilter: BookingStatusFilter;
+  hideNonActiveBookings: boolean;
+  bookingDateRange: [Date | null, Date | null];
+}) {
+  const historyQuery = useQuery({
+    queryKey: ["vendor-dashboard-history", token, selectedTenantSlug, selectedLocationSlug, currentSection, hasActiveSubscription],
+    queryFn: async () => {
+      if (!token || !selectedTenantSlug || !selectedLocationSlug) {
+        throw new Error("Missing dashboard context.");
+      }
+
+      return vendorDashboardOperations.getHistory(token, selectedTenantSlug, selectedLocationSlug);
+    },
+    enabled: Boolean(
+      canLoadProtectedDashboard &&
+      token &&
+      selectedTenantSlug &&
+      selectedLocationSlug &&
+      currentSection === "history" &&
+      hasActiveSubscription &&
+      canAccessVendorSection("history", effectiveEntitlements)
+    )
+  });
+  const clientsQuery = useQuery({
+    queryKey: ["vendor-dashboard-clients", token, selectedTenantSlug, selectedLocationSlug, currentSection, hasActiveSubscription, locationQuery],
+    queryFn: async () => {
+      if (!token || !selectedTenantSlug || !selectedLocationSlug) {
+        throw new Error("Missing dashboard context.");
+      }
+
+      return vendorDashboardOperations.getClients(token, selectedTenantSlug, locationQuery);
+    },
+    enabled: Boolean(
+      canLoadProtectedDashboard &&
+      token &&
+      selectedTenantSlug &&
+      selectedLocationSlug &&
+      currentSection === "clients" &&
+      hasActiveSubscription &&
+      canAccessVendorSection("clients", effectiveEntitlements)
+    )
+  });
+  const bookingListQuery = useQuery({
+    queryKey: [
+      "vendor-dashboard-bookings",
+      token,
+      selectedTenantSlug,
+      selectedLocationSlug,
+      bookingPage,
+      bookingSearch,
+      bookingStatusFilter,
+      hideNonActiveBookings,
+      bookingDateRange
+    ],
+    queryFn: async () => {
+      if (!token || !selectedTenantSlug || !selectedLocationSlug) {
+        throw new Error("Missing dashboard context.");
+      }
+
+      return vendorDashboardBookings.getBookings(token, selectedTenantSlug, selectedLocationSlug, bookingPage, bookingSearch, bookingStatusFilter, [
+        bookingDateRange[0] ? formatDateInputValue(bookingDateRange[0]) : null,
+        bookingDateRange[1] ? formatDateInputValue(bookingDateRange[1]) : null
+      ]);
+    },
+    enabled: Boolean(
+      canLoadProtectedDashboard &&
+      token &&
+      selectedTenantSlug &&
+      selectedLocationSlug &&
+      currentSection === "bookings" &&
+      hasActiveSubscription &&
+      canOperateBookingQueue &&
+      canAccessVendorSection("bookings", effectiveEntitlements)
+    )
+  });
+
+  const bookingAlertsQuery = useQuery({
+    queryKey: ["vendor-dashboard-booking-alerts", token, selectedTenantSlug, selectedLocationSlug],
+    queryFn: async () => {
+      if (!token || !selectedTenantSlug || !selectedLocationSlug) {
+        throw new Error("Missing dashboard context.");
+      }
+
+      return vendorDashboardBookings.getBookingAlerts(token, selectedTenantSlug, selectedLocationSlug);
+    },
+    enabled: Boolean(
+      canLoadProtectedDashboard &&
+      token &&
+      selectedTenantSlug &&
+      selectedLocationSlug &&
+      hasActiveSubscription &&
+      canOperateBookingQueue &&
+      canAccessVendorSection("bookings", effectiveEntitlements)
+    ),
+    refetchInterval: 15000
+  });
+  return { historyQuery, clientsQuery, bookingListQuery, bookingAlertsQuery };
+}
+
 function VendorDashboardContent() {
   const notifications = useVendorNotifications();
   const showSuccessNotification = useCallback((title: string, message: string) => {
@@ -1943,91 +2306,11 @@ function VendorDashboardContent() {
     });
   }, [dashboardErrorMessage, notifications]);
 
-  const dashboardBootstrapQuery = useQuery({
-    queryKey: ["vendor-dashboard-bootstrap", token, selectedTenantSlug, selectedLocationSlug, locationQuery, selectedTenantRole],
-    queryFn: async () => {
-      if (!token || !selectedTenantSlug) {
-        throw new Error("Missing dashboard context.");
-      }
-
-      return vendorDashboardBootstrap.getBootstrap(
-        token,
-        selectedTenantSlug,
-        locationQuery,
-        isOwner || isAdmin
-      );
-    },
-    enabled: shouldEnableVendorDashboardBootstrap(token, selectedTenantSlug, requiresMfaEnrollment)
+  const { dashboardBootstrapQuery, billingOverviewQuery, periodUsageQuery, effectiveEntitlementsQuery, activeSubscription, currentPlan, effectiveEntitlements, tenantPlan, bookingSettingsAllowed } = useVendorAccessQueries({
+    token, selectedTenantSlug, selectedLocationSlug, locationQuery, isOwner, isAdmin, requiresMfaEnrollment, selectedTenantRole, currentSection, accountTab, user,
   });
-  const billingOverviewQuery = useQuery({
-    queryKey: ["vendor-dashboard-billing", token, selectedTenantSlug],
-    queryFn: async () => {
-      if (!token || !selectedTenantSlug) {
-        throw new Error("Missing billing context.");
-      }
-
-      return {...await vendorDashboardBootstrap.getBillingOverview(token, selectedTenantSlug), clientTenantSlug: selectedTenantSlug};
-    },
-    enabled: Boolean(
-      shouldEnableVendorDashboardBootstrap(token, selectedTenantSlug, requiresMfaEnrollment) &&
-      (isOwner || isAdmin)
-    )
-  });
-  const periodUsageQuery = useQuery({
-    queryKey: ["vendor-period-usage", user?.id, token, selectedTenantSlug, selectedTenantRole],
-    queryFn: () => vendorDashboardBootstrap.getPeriodUsage(token!, selectedTenantSlug),
-    enabled: Boolean(
-      shouldEnableVendorDashboardBootstrap(token, selectedTenantSlug, requiresMfaEnrollment) &&
-      shouldLoadPeriodUsage({ isOwner, isAdmin, section: currentSection, accountTab })
-    ),
-    refetchInterval: 30_000
-  });
-  const effectiveEntitlementsQuery = useQuery({
-    queryKey: ["vendor-dashboard-effective-entitlements", token, selectedTenantSlug],
-    queryFn: async () => {
-      if (!token || !selectedTenantSlug) {
-        throw new Error("Missing entitlement context.");
-      }
-
-      return {...await vendorDashboardBootstrap.getEffectiveEntitlements(token, selectedTenantSlug), clientTenantSlug: selectedTenantSlug};
-    },
-    enabled: shouldEnableVendorDashboardBootstrap(token, selectedTenantSlug, requiresMfaEnrollment)
-  });
-  const effectiveBilling = billingOverviewQuery.data?.clientTenantSlug === selectedTenantSlug ? billingOverviewQuery.data : null;
-  const activeSubscription =
-    effectiveBilling?.subscription?.status === "active" ? effectiveBilling.subscription : null;
-  const currentPlan = activeSubscription
-    ? effectiveBilling?.plans.find((plan) => plan.slug === activeSubscription.planSlug)
-    : null;
-  const effectiveEntitlements =
-    activeSubscription?.entitlements ||
-    currentPlan?.entitlements ||
-    effectiveEntitlementsQuery.data?.entitlements;
-  const tenantPlan = effectiveEntitlementsQuery.data?.plan;
-  const bookingSettingsAllowed = effectiveEntitlementsQuery.isSuccess && !effectiveEntitlementsQuery.isPlaceholderData && effectiveEntitlementsQuery.data?.clientTenantSlug === selectedTenantSlug && effectiveEntitlementsQuery.data?.entitlements?.serviceBookingAccess === true;
-  const queueTypeQuery = useQuery({
-    queryKey:["vendor-queue-type",selectedTenantSlug,selectedLocationSlug,token],
-    queryFn:({signal})=>getQueueType(token!,selectedTenantSlug,selectedLocationSlug,signal),
-    enabled:Boolean(token&&selectedTenantSlug&&selectedLocationSlug&&!requiresMfaEnrollment),
-  });
-  const queueTypeConfiguration = !queueTypeQuery.isPlaceholderData && queueTypeQuery.data && queueTypeQuery.data.scope.tenantSlug === selectedTenantSlug && queueTypeQuery.data.scope.locationSlug === selectedLocationSlug ? queueTypeQuery.data : null;
-  const refetchQueueType = queueTypeQuery.refetch;
-  useEffect(()=>{
-    if(!token||!selectedTenantSlug||!selectedLocationSlug)return;
-    const refresh=()=>{if(document.visibilityState==='visible')void refetchQueueType();};
-    const interval=window.setInterval(refresh,15000);
-    window.addEventListener('queue-plans-updated',refresh);window.addEventListener('focus',refresh);window.addEventListener('online',refresh);
-    return()=>{window.clearInterval(interval);window.removeEventListener('queue-plans-updated',refresh);window.removeEventListener('focus',refresh);window.removeEventListener('online',refresh);};
-  },[token,selectedTenantSlug,selectedLocationSlug,refetchQueueType]);
-  const [queueTypeBusy,setQueueTypeBusy]=useState(false);
-  const [queueSetupRead,setQueueSetupRead] = useState<{scope:string;ready:boolean}>({scope:"",ready:false});
-  const intakeMode = queueIntakeMode({
-    optedIn: resourceQueueOptIn, tenantSlug: selectedTenantSlug,
-    entitlementTenantSlug: effectiveEntitlementsQuery.data?.clientTenantSlug,
-    loaded: Boolean(effectiveEntitlementsQuery.data?.entitlements) && !effectiveEntitlementsQuery.isPlaceholderData,
-    entitlements: effectiveEntitlementsQuery.data?.entitlements, plan: tenantPlan,
-    queueType:queueTypeConfiguration,
-    locationSlug:selectedLocationSlug, setup:queueSetupRead,
+  const { queueTypeQuery, queueTypeConfiguration, queueTypeBusy, setQueueTypeBusy, setQueueSetupRead, intakeMode } = useVendorQueueConfiguration({
+    token, selectedTenantSlug, selectedLocationSlug, requiresMfaEnrollment, effectiveEntitlementsQuery, tenantPlan,
   });
   const resourceQueueEnabled = intakeMode === "resource";
   const resourceSetupAllowed=queueTypeConfiguration?.capabilities.resource===true;
@@ -2039,17 +2322,9 @@ function VendorDashboardContent() {
   const dispatchSnapshot = workPresentation.resourceCounters ? localPoolDispatchSnapshot(snapshot, localPoolData) : snapshot;
   const {lane: selectedLane, ticket: selectedCalledTicket} = selectCounterDispatch(dispatchSnapshot, selectedTenantSlug, selectedLocationSlug, selectedCounterSlug);
 
-  const roleVisibleNavItems = requiresMfaEnrollment
-    ? navItems.filter((item) => item.section === "account")
-    : isOwner
-      ? navItems
-      : isAdmin
-        ? navItems.filter((item) => adminAllowedSections.has(item.section))
-        : navItems.filter((item) => staffAllowedSections.has(item.section));
-  const visibleNavItems = roleVisibleNavItems.filter((item) =>
-    item.section === "queue" || canAccessVendorSection(item.section, effectiveEntitlements, tenantPlan)
-  );
-  const defaultDashboardPath = `/dashboard/${visibleNavItems[0]?.section || "settings"}`;
+  const { visibleNavItems, defaultDashboardPath } = getVendorVisibleNavigation({
+    requiresMfaEnrollment, isOwner, isAdmin, effectiveEntitlements, tenantPlan,
+  });
   useEffect(() => {
     if (!user?.id || !selectedTenantSlug || !selectedTenantRole || requiresMfaEnrollment || effectiveEntitlementsQuery.isPending) return;
     savePreference(preferenceKey(user.id, selectedTenantSlug), sectionWorkspace(currentSection,
@@ -2067,186 +2342,11 @@ function VendorDashboardContent() {
     enabled: shouldEnableVendorDashboardBootstrap(token, selectedTenantSlug, requiresMfaEnrollment),
     refetchInterval: 30_000
   });
-  const staffQuery = useQuery({
-    queryKey: ["vendor-dashboard-staff", token, selectedTenantSlug],
-    queryFn: async () => {
-      if (!token || !selectedTenantSlug) {
-        throw new Error("Missing dashboard context.");
-      }
-
-      return vendorDashboardOperations.getStaff(token, selectedTenantSlug);
-    },
-    enabled: Boolean(
-      canLoadProtectedDashboard &&
-      token &&
-      selectedTenantSlug &&
-      canAccessVendorSection("staff", effectiveEntitlements)
-    )
+  const { staffQuery, servicesQuery, ticketServiceOptionsQuery, locationServicesQuery, bookingConfigurationQuery, availabilityQuery, countersQuery } = useVendorCatalogQueries({
+    token, selectedTenantSlug, selectedLocationSlug, locationQuery, isOwner, isAdmin, canLoadProtectedDashboard, effectiveEntitlements, walkInDialogOpen, resourceQueueEnabled, currentSection, bookingSettingsAllowed, serviceDialogOpen, routeServiceSlug,
   });
-  const servicesQuery = useQuery({
-    queryKey: ["vendor-dashboard-services", token, selectedTenantSlug, isOwner, isAdmin],
-    queryFn: async () => {
-      if (!token || !selectedTenantSlug) {
-        throw new Error("Missing dashboard context.");
-      }
-
-      return vendorDashboardCatalog.getServices(token, selectedTenantSlug);
-    },
-    enabled: Boolean(
-      canLoadProtectedDashboard &&
-      token &&
-      selectedTenantSlug &&
-      (isOwner || isAdmin) &&
-      canAccessVendorSection("services", effectiveEntitlements)
-    )
-  });
-  const ticketServiceOptionsQuery = useQuery({
-    queryKey: ["vendor-ticket-service-options", token, selectedTenantSlug, selectedLocationSlug],
-    queryFn: () => vendorDashboardQueue.getServiceOptions(token!, selectedTenantSlug, locationQuery),
-    enabled: Boolean(canLoadProtectedDashboard && (walkInDialogOpen || (resourceQueueEnabled && currentSection === "queue")) && token && selectedTenantSlug && selectedLocationSlug)
-  });
-  const locationServicesQuery = useQuery({
-    queryKey: ["vendor-dashboard-location-services", token, selectedTenantSlug, isOwner, isAdmin],
-    queryFn: async () => {
-      if (!token || !selectedTenantSlug) {
-        throw new Error("Missing dashboard context.");
-      }
-
-      return vendorDashboardCatalog.getLocationServices(token, selectedTenantSlug);
-    },
-    enabled: Boolean(
-      canLoadProtectedDashboard &&
-      token &&
-      selectedTenantSlug &&
-      (isOwner || isAdmin) &&
-      canAccessVendorSection("services", effectiveEntitlements)
-    )
-  });
-  const bookingConfigurationQuery=useQuery({
-    queryKey:['vendor-booking-configuration',token,selectedTenantSlug],
-    queryFn:()=>apiRequest<{locations:Array<{locationSlug:string;serviceId:string;contractVersion:4;capabilityEnabled:boolean;resourceConfigured:boolean;ready:boolean;assignment:string|null;duration:{baseMinutes:number;defaultCount:number}|null;extrasCount:number;workflowSupported:boolean}>}>(`/vendor/tenant/${selectedTenantSlug}/booking-configuration`,{token}),
-    enabled:Boolean(canLoadProtectedDashboard&&token&&selectedTenantSlug&&(isOwner||isAdmin)&&bookingSettingsAllowed&&(serviceDialogOpen||routeServiceSlug)),
-  });
-  const availabilityQuery = useQuery({
-    queryKey: ["vendor-dashboard-availability", token, selectedTenantSlug, selectedLocationSlug, isOwner, isAdmin],
-    queryFn: async () => {
-      if (!token || !selectedTenantSlug || !selectedLocationSlug) {
-        throw new Error("Missing dashboard context.");
-      }
-
-      return vendorDashboardCatalog.getAvailability(token, selectedTenantSlug, selectedLocationSlug);
-    },
-    enabled: Boolean(
-      canLoadProtectedDashboard &&
-      token &&
-      selectedTenantSlug &&
-      selectedLocationSlug &&
-      (isOwner || isAdmin) &&
-      bookingSettingsAllowed
-    )
-  });
-  const countersQuery = useQuery({
-    queryKey: ["vendor-dashboard-counters", token, selectedTenantSlug, selectedLocationSlug],
-    queryFn: async () => {
-      if (!token || !selectedTenantSlug || !selectedLocationSlug) {
-        throw new Error("Missing dashboard context.");
-      }
-
-      return vendorDashboardCatalog.getCounters(token, selectedTenantSlug, selectedLocationSlug);
-    },
-    enabled: Boolean(canLoadProtectedDashboard && token && selectedTenantSlug && selectedLocationSlug)
-  });
-  const historyQuery = useQuery({
-    queryKey: ["vendor-dashboard-history", token, selectedTenantSlug, selectedLocationSlug, currentSection, hasActiveSubscription],
-    queryFn: async () => {
-      if (!token || !selectedTenantSlug || !selectedLocationSlug) {
-        throw new Error("Missing dashboard context.");
-      }
-
-      return vendorDashboardOperations.getHistory(token, selectedTenantSlug, selectedLocationSlug);
-    },
-    enabled: Boolean(
-      canLoadProtectedDashboard &&
-      token &&
-      selectedTenantSlug &&
-      selectedLocationSlug &&
-      currentSection === "history" &&
-      hasActiveSubscription &&
-      canAccessVendorSection("history", effectiveEntitlements)
-    )
-  });
-  const clientsQuery = useQuery({
-    queryKey: ["vendor-dashboard-clients", token, selectedTenantSlug, selectedLocationSlug, currentSection, hasActiveSubscription, locationQuery],
-    queryFn: async () => {
-      if (!token || !selectedTenantSlug || !selectedLocationSlug) {
-        throw new Error("Missing dashboard context.");
-      }
-
-      return vendorDashboardOperations.getClients(token, selectedTenantSlug, locationQuery);
-    },
-    enabled: Boolean(
-      canLoadProtectedDashboard &&
-      token &&
-      selectedTenantSlug &&
-      selectedLocationSlug &&
-      currentSection === "clients" &&
-      hasActiveSubscription &&
-      canAccessVendorSection("clients", effectiveEntitlements)
-    )
-  });
-  const bookingListQuery = useQuery({
-    queryKey: [
-      "vendor-dashboard-bookings",
-      token,
-      selectedTenantSlug,
-      selectedLocationSlug,
-      bookingPage,
-      bookingSearch,
-      bookingStatusFilter,
-      hideNonActiveBookings,
-      bookingDateRange
-    ],
-    queryFn: async () => {
-      if (!token || !selectedTenantSlug || !selectedLocationSlug) {
-        throw new Error("Missing dashboard context.");
-      }
-
-      return vendorDashboardBookings.getBookings(token, selectedTenantSlug, selectedLocationSlug, bookingPage, bookingSearch, bookingStatusFilter, [
-        bookingDateRange[0] ? formatDateInputValue(bookingDateRange[0]) : null,
-        bookingDateRange[1] ? formatDateInputValue(bookingDateRange[1]) : null
-      ]);
-    },
-    enabled: Boolean(
-      canLoadProtectedDashboard &&
-      token &&
-      selectedTenantSlug &&
-      selectedLocationSlug &&
-      currentSection === "bookings" &&
-      hasActiveSubscription &&
-      canOperateBookingQueue &&
-      canAccessVendorSection("bookings", effectiveEntitlements)
-    )
-  });
-
-  const bookingAlertsQuery = useQuery({
-    queryKey: ["vendor-dashboard-booking-alerts", token, selectedTenantSlug, selectedLocationSlug],
-    queryFn: async () => {
-      if (!token || !selectedTenantSlug || !selectedLocationSlug) {
-        throw new Error("Missing dashboard context.");
-      }
-
-      return vendorDashboardBookings.getBookingAlerts(token, selectedTenantSlug, selectedLocationSlug);
-    },
-    enabled: Boolean(
-      canLoadProtectedDashboard &&
-      token &&
-      selectedTenantSlug &&
-      selectedLocationSlug &&
-      hasActiveSubscription &&
-      canOperateBookingQueue &&
-      canAccessVendorSection("bookings", effectiveEntitlements)
-    ),
-    refetchInterval: 15000
+  const { historyQuery, clientsQuery, bookingListQuery, bookingAlertsQuery } = useVendorActivityQueries({
+    token, selectedTenantSlug, selectedLocationSlug, locationQuery, canLoadProtectedDashboard, currentSection, hasActiveSubscription, effectiveEntitlements, canOperateBookingQueue, bookingPage, bookingSearch, bookingStatusFilter, hideNonActiveBookings, bookingDateRange,
   });
   useEffect(() => {
     if (!bookingDetailOpen || !bookingDetailModalId || !token || !selectedTenantSlug) {
