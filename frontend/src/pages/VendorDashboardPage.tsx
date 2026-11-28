@@ -499,7 +499,6 @@ function vendorQueueDayTitle({
 function vendorQueueDayDescription({
   queueDayReconciling: reconciling,
   queueDayUnopened: unopened,
-  queueDayActuallyClosed: actuallyClosed,
   queueDayPaused: paused,
   queueDayClosed,
   snapshot,
@@ -8499,8 +8498,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                                         Pending timeout
                                       </QueueBadge>
                                     ) : null}
-                                    {!manualPaymentRequired &&
-                                    !manualPaymentRequired ? (
+                                    {!manualPaymentRequired ? (
                                       <QueueBadge variant="outline">No manual payment</QueueBadge>
                                     ) : null}
                                   </div>
