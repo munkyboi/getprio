@@ -184,7 +184,6 @@ import * as vendorDashboardBilling from "../api/vendorDashboardBilling";
 import * as vendorDashboardBootstrap from "../api/vendorDashboardBootstrap";
 import * as vendorDashboardExport from "../api/vendorDashboardExport";
 import { useAuth } from "../context/AuthContext";
-import { ConfirmActionModal } from "../components/ConfirmActionModal";
 import EmailChangePanel from "../components/EmailChangePanel";
 import PhoneChangePanel from "../components/PhoneChangePanel";
 import {
@@ -10482,7 +10481,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
   }
 
   function renderDashboardAlertOverlay() {
-    const Confirmation = (["queue", "bookings", "clients", "history", "tenants", "services", "staff"].includes(currentSection) || bookingDetailOpen || rescheduleDialogOpen) ? QueueConfirmation : ConfirmActionModal;
+    const editingSettings = !["queue", "bookings", "clients", "history", "tenants", "services", "staff"].includes(currentSection) && !bookingDetailOpen && !rescheduleDialogOpen;
     const overlayAlerts = [
       ...activeQueueAlerts.map((ticket) => ({
         actionLabel: "Open queue",
@@ -10976,7 +10975,9 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
             ) : null}
           </OperationScope>
         </TaskDialog>
-        <Confirmation
+        <QueueConfirmation
+          cancelLabel={editingSettings ? "Keep editing" : "Cancel"}
+          eyebrow={editingSettings ? "" : undefined}
           opened={Boolean(confirmAction)}
           title={confirmAction?.title || ""}
           description={confirmAction?.description || ""}
