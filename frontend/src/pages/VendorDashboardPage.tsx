@@ -418,6 +418,12 @@ function VendorQueueManagementPanels({ enabled, workflowPanel, namedPanel }: Ven
   return enabled ? <>{workflowPanel}{namedPanel}</> : null;
 }
 
+type VendorQueueCounterTicketsProps = { enabled: boolean; children: ReactNode };
+
+function VendorQueueCounterTickets({ enabled, children }: VendorQueueCounterTicketsProps) {
+  return enabled ? <>{children}</> : null;
+}
+
 type VendorQueueStatusColumnsProps = {
   activeTicket: QueueCurrentTicket | null | undefined;
   intakeState: QueueSnapshot["queueIntake"] | null | undefined;
@@ -5920,7 +5926,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
           onRefresh={() => { void Promise.all([queueLifecycleSnapshotQuery.refetch(), resourceQueueEnabled ? localPoolQuery.refetch() : Promise.resolve()]); }}
         />
         {resourceQueueEnabled && localPoolData?.reconciliation.required ? <OperationAlert color="red" title="Resource records need review">Refresh and reconcile these records before starting more work. Active sessions continue to hold capacity.</OperationAlert> : null}
-        {!resourceQueueEnabled ? <>
+        <VendorQueueCounterTickets enabled={!resourceQueueEnabled}>
         <CounterTickets
           onEdit={openQueueDetails}
           snapshot={legacyCounterSnapshot}
@@ -5962,7 +5968,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
             })
           }
         />
-        </> : null}
+        </VendorQueueCounterTickets>
 
         <div className="queue-stack">
           <Accordion>
