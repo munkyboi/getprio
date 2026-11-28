@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { Alert, Button, Group, Modal, Stack, Text, TextInput } from "@mantine/core";
-import { IconBarcode, IconCamera, IconRefresh } from "@tabler/icons-react";
+import { IconRefresh } from "@tabler/icons-react";
+import { TaskDialog } from "../vendor/TaskDialog";
+import { ConfigurationInput } from "../vendor/ConfigurationUi";
+import { OperationAlert } from "../vendor/OperationsUi";
+import { Button } from "../vendor/components/ui/button";
 import type { IScannerControls } from "@zxing/browser";
 
 type TicketScannerModalProps = {
@@ -20,7 +23,7 @@ export default function TicketScannerModal({
   opened,
   ticketNumber
 }: TicketScannerModalProps) {
-  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const [video, setVideo] = useState<HTMLVideoElement | null>(null);
   const controlsRef = useRef<IScannerControls | null>(null);
   const [lookupCode, setLookupCode] = useState("");
   const [cameraError, setCameraError] = useState("");
@@ -28,7 +31,7 @@ export default function TicketScannerModal({
   const [scanning, setScanning] = useState(false);
 
   useEffect(() => {
-    if (!opened || !videoRef.current) {
+    if (!opened || !video) {
       return undefined;
     }
 
@@ -38,12 +41,12 @@ export default function TicketScannerModal({
 
     void import("@zxing/browser")
       .then(({ BrowserMultiFormatReader }) => {
-        if (!active || !videoRef.current) {
+        if (!active) {
           return undefined;
         }
 
         const reader = new BrowserMultiFormatReader();
-        return reader.decodeFromVideoDevice(undefined, videoRef.current, (result, _error, controls) => {
+        return reader.decodeFromVideoDevice(undefined, video, (result, _error, controls) => {
           if (!active || !result) {
             return;
           }
@@ -77,7 +80,7 @@ export default function TicketScannerModal({
       controlsRef.current = null;
       setScanning(false);
     };
-  }, [opened, scanSession]);
+  }, [opened, scanSession, video]);
 
   useEffect(() => {
     if (!opened) {
@@ -100,72 +103,52 @@ export default function TicketScannerModal({
   }
 
   return (
-    <Modal
-      centered
-      className="customer-modal ticket-scanner-modal"
-      closeOnClickOutside={!loading}
-      closeOnEscape={!loading}
-      onClose={onClose}
+    <TaskDialog
       opened={opened}
-      radius="xl"
-      size="md"
-      title={
-        <div>
-          <Text className="neura-label">QUEUE CHECK-IN</Text>
-          <Text fw={800} size="xl">Confirm {ticketNumber || "called ticket"}</Text>
-        </div>
-      }
-    >
-      <Stack gap="md">
-        <Text c="dimmed" size="sm">
-          Scan the barcode on the customer&apos;s ticket. Only the currently called ticket can be confirmed.
-        </Text>
-
-        <div className="ticket-scanner-camera">
-          <video aria-label="Ticket barcode camera preview" autoPlay muted playsInline ref={videoRef} />
-          <div className="ticket-scanner-guide" aria-hidden="true" />
-          <Text className="ticket-scanner-status" size="xs">
-            {scanning ? "Point the barcode inside the frame" : lookupCode ? "Barcode captured" : "Camera stopped"}
-          </Text>
-        </div>
-
-        {cameraError ? <Alert color="orange" icon={<IconCamera size={18} />}>{cameraError}</Alert> : null}
-        {error ? <Alert color="red" icon={<IconBarcode size={18} />}>{error}</Alert> : null}
-
-        <TextInput
-          autoCapitalize="characters"
-          description="Use this if camera access is unavailable."
-          label="Manual ticket code"
-          maxLength={8}
-          onChange={(event) => setLookupCode(event.currentTarget.value.toUpperCase())}
-          placeholder="For example, 3C7DF54B"
-          value={lookupCode}
-        />
-
-        <Group className="customer-modal-actions" justify="space-between">
+      busy={loading}
+      onClose={onClose}
+      title={`Confirm ${ticketNumber || "called ticket"}`}
+      description="Scan the barcode on the customer's ticket. Only the currently called ticket can be confirmed."
+      footer={
+        <>
           <Button
+            variant="outline"
             disabled={loading || scanning}
-            leftSection={<IconRefresh size={16} />}
             onClick={() => {
               controlsRef.current?.stop();
               controlsRef.current = null;
               setLookupCode("");
-              setScanSession((current) => current + 1);
+              setScanSession(current => current + 1);
             }}
-            variant="default"
           >
-            Scan again
+            <IconRefresh size={16} aria-hidden /> Scan again
           </Button>
-          <Button
-            className="neura-primary-button"
-            disabled={!lookupCode.trim()}
-            loading={loading}
-            onClick={() => void submitCode()}
-          >
+          <Button disabled={loading || !lookupCode.trim()} aria-busy={loading} onClick={() => void submitCode()}>
             Confirm ticket
           </Button>
-        </Group>
-      </Stack>
-    </Modal>
+        </>
+      }
+    >
+      <div className="queue-stack">
+        <div className="ticket-scanner-camera">
+          <video aria-label="Ticket barcode camera preview" autoPlay muted playsInline ref={setVideo} />
+          <div className="ticket-scanner-guide" aria-hidden="true" />
+          <p className="ticket-scanner-status v:text-xs">
+            {scanning ? "Point the barcode inside the frame" : lookupCode ? "Barcode captured" : "Camera stopped"}
+          </p>
+        </div>
+        {cameraError && <OperationAlert color="orange">{cameraError}</OperationAlert>}
+        {error && <OperationAlert color="red">{error}</OperationAlert>}
+        <ConfigurationInput
+          autoCapitalize="characters"
+          description="Use this if camera access is unavailable."
+          label="Manual ticket code"
+          maxLength={8}
+          onChange={event => setLookupCode(event.currentTarget.value.toUpperCase())}
+          placeholder="For example, 3C7DF54B"
+          value={lookupCode}
+        />
+      </div>
+    </TaskDialog>
   );
 }

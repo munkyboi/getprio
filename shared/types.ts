@@ -273,6 +273,7 @@ export interface StoreLocationSummary {
   paymentQrImageUrl: string;
   paymentQrActive: boolean;
   queueLifecycleMode?: "legacy" | "shadow" | "enforced";
+  queueType?: "simple" | "resource" | "workflow";
   customerSelfCheckInEnabled?: boolean;
   serviceTimingEnabled?: boolean;
   isPrimary: boolean;

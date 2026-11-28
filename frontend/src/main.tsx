@@ -8,6 +8,7 @@ import App from "@surface-app";
 import AppErrorBoundary from "./components/AppErrorBoundary";
 import ModalWheelBridge from "./components/ModalWheelBridge";
 import { AuthProvider } from "./context/AuthContext";
+import { VendorSessionExpiry } from "./vendor/VendorSessionExpiry";
 import { queryClient } from "./lib/queryClient";
 import "@mantine/core/styles.css";
 import "@mantine/tiptap/styles.css";
@@ -16,6 +17,8 @@ import "@mantine/dates/styles.css";
 import "@mantine/carousel/styles.css";
 import "../../shared/typography.css";
 import "./styles.css";
+
+const isVendor = import.meta.env.VITE_APP_SURFACE === "vendor";
 
 const theme = createTheme({
   fontFamily: 'Inter, Aptos, "Segoe UI", sans-serif',
@@ -93,12 +96,12 @@ const theme = createTheme({
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
     <MantineProvider theme={theme}>
-      <Notifications position="top-right" />
+      {!isVendor && <Notifications position="top-right" />}
       <ModalWheelBridge />
       <QueryClientProvider client={queryClient}>
         <BrowserRouter>
           <AppErrorBoundary>
-            <AuthProvider>
+            <AuthProvider sessionExpiry={isVendor ? VendorSessionExpiry : undefined}>
               <App />
             </AuthProvider>
           </AppErrorBoundary>

@@ -132,6 +132,8 @@ export default function CustomerVendorDetailsPage() {
   const cover = media?.backgroundImageUrl || fallbackCover;
   const logo = media?.logoUrl || vendor.imageUrl || fallbackLogo;
   const currentQueue = data.queue.data;
+  const queueType = currentQueue?.location?.queueType || "simple";
+  const simpleQueueAvailable = queueType === "simple";
   const queueSummary = currentQueue ? getQueueStateSummary(currentQueue) : null;
   const bookingQuery = new URLSearchParams();
   if (selected) bookingQuery.set("location", selected.slug);
@@ -529,7 +531,7 @@ export default function CustomerVendorDetailsPage() {
       <footer className="customer-vendor-actions">
         {vendor.capabilities.booking && selected ? (
           <Button variant="outline" render={<Link to={bookingPath} />}>
-            Book
+            {queueType === "simple" ? "Book" : "Book services"}
           </Button>
         ) : (
           <Button variant="outline" disabled>
@@ -540,6 +542,7 @@ export default function CustomerVendorDetailsPage() {
         selected &&
         currentQueue &&
         !data.queue.error &&
+        simpleQueueAvailable &&
         isQueueAcceptingJoins(currentQueue) ? (
           <Button
             data-join-queue-trigger
@@ -551,9 +554,9 @@ export default function CustomerVendorDetailsPage() {
           >
             Join queue
           </Button>
-        ) : (
+        ) : queueType === "simple" ? (
           <Button disabled>Join queue</Button>
-        )}
+        ) : null}
       </footer>
     </section>
   );

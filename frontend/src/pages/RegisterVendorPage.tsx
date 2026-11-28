@@ -2,15 +2,16 @@ import { useEffect, useMemo, useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm, useWatch } from "react-hook-form";
 import { z } from "zod";
-import { Alert, Button, Paper, PasswordInput, SimpleGrid, Stack, Text, TextInput, Title } from "@mantine/core";
+import { OperationAlert, OperationButton, OperationPanel } from "../vendor/OperationsUi";
+import { ConfigurationInput, ConfigurationPhone } from "../vendor/ConfigurationUi";
+import { ConfigurationPassword } from "../vendor/AccountFields";
+import { VendorAuthLayout } from "../vendor/VendorAuthLayout";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import type {
   OAuthProviderId,
   TenantSlugAvailabilityResponse,
   UsernameAvailabilityResponse
 } from "@shared";
-import PhilippineMobileInput from "../components/PhilippineMobileInput";
-import SignupFieldLabel from "../components/SignupFieldLabel";
 import SocialAuthButtons from "../components/SocialAuthButtons";
 import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
@@ -230,7 +231,7 @@ export default function RegisterVendorPage() {
   }, [searchParams]);
 
   if (loading) {
-    return <Paper className="finazze-auth-card" p="xl">Loading session...</Paper>;
+    return <VendorAuthLayout><p className="ops-muted" role="status">Loading session...</p></VendorAuthLayout>;
   }
 
   const isAuthenticatedFlow = Boolean(user);
@@ -273,32 +274,33 @@ export default function RegisterVendorPage() {
   });
 
   return (
-    <Paper className="finazze-auth-card finazze-auth-card-wide onboarding-shell" p={{ base: "xl", md: 44 }}>
+    <VendorAuthLayout wide>
+      <OperationPanel className="vendor-auth-card">
       <div className="onboarding-layout">
-        <Stack gap="lg">
+        <div className="queue-stack">
           <div>
-            <Text className="finazze-section-label">
+            <p className="vendor-eyebrow">
               {isAuthenticatedFlow ? "Your vendor workspace" : "Build your booking business"}
-            </Text>
-            <Title order={1}>
+            </p>
+            <h1>
               {isAuthenticatedFlow
                 ? hasTenantMemberships
                   ? "Add another business workspace."
                   : "Finish setting up your workspace."
                 : "Set up your vendor workspace."}
-            </Title>
-            <Text c="dimmed" mt="sm">
+            </h1>
+            <p className="ops-muted">
               {isAuthenticatedFlow
                 ? oauthProviderLabel
                   ? `Signed in with ${oauthProviderLabel}. Add the final business details to get started.`
                   : "You're signed in. Add the final business details to get started."
                 : "Create your business profile, choose a shareable link, and start accepting bookings."}
-            </Text>
+            </p>
           </div>
-          {!isAuthenticatedFlow ? <SocialAuthButtons iconOnly intent="register_vendor" /> : null}
+          {!isAuthenticatedFlow ? <SocialAuthButtons vendor iconOnly intent="register_vendor" /> : null}
           <form onSubmit={handleSubmit}>
-            <SimpleGrid cols={{ base: 1, md: 2 }} spacing="md">
-              <TextInput
+            <div className="v:grid v:gap-4 v:md:grid-cols-2">
+              <ConfigurationInput
                 label="Business name"
                 required
                 error={form.formState.errors.tenantName?.message}
@@ -307,7 +309,7 @@ export default function RegisterVendorPage() {
               <BusinessCategorySelect required value={category || null}
                 error={form.formState.errors.category?.message}
                 onChange={(id) => form.setValue("category", id, { shouldValidate: true })} />
-              <TextInput
+              <ConfigurationInput
                 description={checkingTenantSlug ? "Checking tenant slug..." : tenantSlugMessage}
                 error={form.formState.errors.tenantSlug?.message || (tenantSlug && tenantSlugMessage && !tenantSlugAvailable ? tenantSlugMessage : undefined)}
                 label="Tenant slug"
@@ -320,13 +322,13 @@ export default function RegisterVendorPage() {
                   }
                 })}
               />
-              <TextInput
+              <ConfigurationInput
                 label="Owner name"
                 required
                 error={form.formState.errors.name?.message}
                 {...form.register("name")}
               />
-              <TextInput
+              <ConfigurationInput
                 description={checkingUsername ? "Checking username..." : usernameMessage}
                 error={form.formState.errors.username?.message || (username && usernameMessage && !usernameAvailable ? usernameMessage : undefined)}
                 label="Username"
@@ -339,35 +341,33 @@ export default function RegisterVendorPage() {
                   }
                 })}
               />
-              <TextInput
+              <ConfigurationInput
                 label="Email"
                 required
                 type="email"
                 error={form.formState.errors.email?.message}
                 {...form.register("email")}
               />
-              <PhilippineMobileInput
-                label={<SignupFieldLabel label="Phone" tooltip="Add a Philippine mobile number for account and booking updates." />}
-                description=""
+              <ConfigurationPhone
+                label="Phone"
+                description="Add a Philippine mobile number for account and booking updates."
                 error={form.formState.errors.phone?.message}
                 value={phone}
                 onChange={(nextValue) => form.setValue("phone", nextValue, { shouldValidate: true })}
               />
               {!isAuthenticatedFlow ? (
-                <PasswordInput
+                <ConfigurationPassword
                   label="Password"
                   required
                   error={form.formState.errors.password?.message}
                   {...form.register("password")}
                 />
               ) : null}
-            </SimpleGrid>
-            <Stack gap="md" mt="md">
-              {error ? <Alert color="red">{error}</Alert> : null}
-              <Button
-                color="dark"
+            </div>
+            <div className="queue-stack v:mt-4">
+              {error ? <OperationAlert color="red">{error}</OperationAlert> : null}
+              <OperationButton
                 className="auth-primary-action"
-                fullWidth
                 loading={form.formState.isSubmitting || checkingUsername || checkingTenantSlug}
                 type="submit"
                 size="lg"
@@ -377,25 +377,26 @@ export default function RegisterVendorPage() {
                     ? "Create workspace"
                     : "Finish workspace setup"
                   : "Create workspace"}
-              </Button>
-            </Stack>
+              </OperationButton>
+            </div>
           </form>
-        </Stack>
-        <Stack className="onboarding-art-panel" justify="space-between" gap="lg">
+        </div>
+        <div className="queue-stack v:self-start v:rounded-xl v:border v:border-border v:bg-muted v:p-5">
           <img
             alt="Illustration of a vendor setting up a GetPrio workspace"
             className="onboarding-art"
             src="/illustrations/generated/vendor-onboarding.png"
           />
           <div>
-            <Text className="finazze-section-label">Ready when you are</Text>
-            <Title order={2}>Everything in one place.</Title>
-            <Text c="dimmed">
+            <p className="vendor-eyebrow">Ready when you are</p>
+            <h2>Everything in one place.</h2>
+            <p className="ops-muted">
               Manage your profile, services, availability, team, and bookings from one secure workspace.
-            </Text>
+            </p>
           </div>
-        </Stack>
+        </div>
       </div>
-    </Paper>
+    </OperationPanel>
+    </VendorAuthLayout>
   );
 }

@@ -29,6 +29,7 @@ import csrfProtectionModule from "./middleware/csrfProtection";
 import requestLogPathModule from "./middleware/requestLogPath";
 import browserSurfaceUrlsModule from "./services/browserSurfaceUrls";
 import developerApiEnvironmentModule from "./services/developerApiEnvironment";
+import localRateLimitPolicy from "./services/localRateLimitPolicy";
 
 const allowedOrigins = new Set([
   ...browserSurfaceUrlsModule.browserAllowedOrigins(env),
@@ -38,12 +39,13 @@ const app = express();
 app.use(developerApiEnvironmentModule.localApiRequestGuard());
 const { createRequestContextMiddleware } = requestContextModule;
 const { createCsrfProtection } = csrfProtectionModule;
+const localRateLimit = localRateLimitPolicy.localRateLimit;
 const apiRateLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   // The disposable local preview may have several browser tabs open while
   // validating the dashboard. Keep production protection unchanged, but do
   // not let the preview throttle its own read-only polling.
-  limit: localPoolDemoScopeModule.localPoolDemoConfiguration() ? 10_000 : 1_000,
+  limit: localRateLimit(1_000, 10_000, process.env),
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: (req) => ipKeyGenerator(req.ip || req.socket.remoteAddress || "unknown"),
@@ -54,7 +56,10 @@ const apiRateLimiter = rateLimit({
 // existing quota; preflights are excluded so CORS behavior is unchanged.
 const globalRateLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  limit: 1_000,
+  // Keep the local core/sandbox preview responsive while several browser
+  // surfaces poll in parallel. Production and non-loopback profiles retain
+  // the default global request budget.
+  limit: localRateLimit(1_000, 10_000, process.env),
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: (req) => ipKeyGenerator(req.ip || req.socket.remoteAddress || "unknown"),

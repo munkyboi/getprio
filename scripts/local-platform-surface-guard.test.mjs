@@ -7,6 +7,13 @@ test('launcher accepts only guarded new core / sandbox profiles',()=>{
  for(const patch of [{NODE_ENV:'production'},{LOCAL_API_PROFILE:'other'},{PORT:'5007'},{LOCAL_API_ORIGIN:'http://evil.example:5091'},{DATABASE_URL:'postgresql://local@127.0.0.1:5432/getprio_local_pool_demo_vendor_5187_clone_20261023'},{DATABASE_URL:'postgresql://local@db.example:5432/getprio_local_pool_demo_surfaces_core_20261023'},{DATABASE_URL:valid.env.DATABASE_URL+'?host=remote.example'},{API_ENVIRONMENT:'sandbox'},{CSRF_SECRET:valid.env.JWT_SECRET},{SMTP_HOST:'smtp.example'},{PAYMONGO_SECRET_KEY:'not-allowed'}]) assert.throws(()=>validateLocalSurfaceArtifact({...valid,env:{...valid.env,...patch}}));
  assert.throws(()=>validateLocalSurfaceArtifact({...valid,databaseNonce:'short'}));assert.throws(()=>validateLocalSurfaceArtifact({...valid,manifestSha256:'bad'}));
 });
+test('core launcher permits only the approved Resend mail transport',()=>{
+ const mail={RESEND_API_KEY:'local-secret',RESEND_API_URL:'https://api.resend.com/emails',RESEND_FROM_EMAIL:'hello@getprio.online',RESEND_FROM_NAME:'GetPrio'};
+ assert.equal(validateLocalSurfaceArtifact({...valid,env:{...valid.env,...mail}}).port,5091);
+ for(const patch of [{RESEND_API_URL:'https://evil.example/emails'},{RESEND_API_URL:'https://api.resend.com/v1/emails'},{RESEND_FROM_EMAIL:'hello@example.com'},{SMTP_HOST:'127.0.0.1'}]) {
+   assert.throws(()=>validateLocalSurfaceArtifact({...valid,env:{...valid.env,...mail,...patch}}));
+ }
+});
 test('artifact must be regular mode600 outside source and source manifest hash must match',()=>{
  const temp=fs.mkdtempSync(path.join(os.tmpdir(),'getprio-local-surface-unit-'));try {
  const source=path.join(temp,'source');fs.mkdirSync(source);const filename=path.join(temp,'artifact.json');fs.writeFileSync(filename,JSON.stringify(valid),{mode:0o600});assert.equal(readPrivateArtifact(filename,source).databaseNonce,valid.databaseNonce);

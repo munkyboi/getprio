@@ -49,6 +49,7 @@ function routeApp(file) {
   if(id==='./PublicShell'||id.endsWith('/MaintenanceBoundary'))return {__esModule:true,default:passthrough};
   if(id.endsWith('/AuthContext'))return {useAuth:()=>({user:null,loading:false})};
   if(id.endsWith('/VendorAuthLayout'))return {VendorAuthLayout:passthrough};
+  if(id.endsWith('/VendorStatusPages'))return {VendorMaintenance:passthrough,VendorNotFound:()=>React.createElement('p',null,'VendorNotFound')};
   if(id.endsWith('/workspace'))return {activeMemberships:()=>[],readPreference:()=>null,workspacePath:()=>'/dashboard/overview',preferenceKey:()=>''};
   if(id.endsWith('/navigationGuard'))return {VendorNavigationGuard:React.createContext(null)};
   if(id.endsWith('.css'))return {};
@@ -61,7 +62,7 @@ test('separate real route registries own their auth aliases and never mount othe
  for(const [file,cases] of [
   ['MarketingApp.tsx',[['/','LandingPage'],['/dashboard/queue','NotFoundPage'],['/account/dashboard','NotFoundPage'],['/login','UniversalAuthPage'],['/register','UniversalAuthPage'],['/register/customer','UniversalAuthPage'],['/register/vendor','UniversalAuthPage']]],
   ['CustomerApp.tsx',[['/','CustomerExplorePage'],['/login','LoginPage'],['/register','RegisterCustomerPage'],['/register/customer','RegisterCustomerPage'],['/dashboard/queue','NotFoundPage'],['/dashboard','CustomerHomePage'],['/lists','CustomerListsPage']]],
-  ['VendorApp.tsx',[['/login','LoginPage'],['/register','RegisterVendorPage'],['/register/vendor','RegisterVendorPage'],['/account/dashboard','NotFoundPage'],['/vendors','NotFoundPage']]],
+  ['VendorApp.tsx',[['/login','LoginPage'],['/register','RegisterVendorPage'],['/register/vendor','RegisterVendorPage'],['/account/dashboard','VendorNotFound'],['/vendors','VendorNotFound']]],
  ]) {
   const App=routeApp(file);for(const [route,page] of cases){const html=renderToStaticMarkup(React.createElement(MemoryRouter,{initialEntries:[route]},React.createElement(App)));assert.ok(html.includes(page),`${file} ${route} -> ${page}`);}
  }

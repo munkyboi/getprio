@@ -2,7 +2,7 @@ import * as React from "react"
 import { Dialog as SheetPrimitive } from "@base-ui/react/dialog"
 import { cn } from "cn"
 
-import { Button } from "@vendor/components/ui/button"
+import { Button } from "./button"
 import { IconX } from "@tabler/icons-react"
 
 function Sheet({ ...props }: SheetPrimitive.Root.Props) {

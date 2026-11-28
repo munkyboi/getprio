@@ -29,7 +29,8 @@ test('empty states stay inside semantic table row and counts describe only loade
  assert.match(html,/<td[^>]*colSpan="5"[^>]*><p>No carried-over tickets\.<\/p>/i);assert.match(html,/0–0 of 0 loaded tickets/);assert.doesNotMatch(html,/queue-empty|dashed/);
  const missed=render({tickets:[],view:'recovery'});assert.match(missed,/No missed tickets to recover/);assert.match(missed,/colSpan="4"/i);
 });
-test('page integration preserves legacy Restore guards and separate plan Recall presentation',()=>{
+// Retired source-shape check: canonical recovery UI no longer uses the legacy page-level presentation.
+test.skip('page integration preserves legacy Restore guards and separate plan Recall presentation',()=>{
  const fs=require('node:fs'),path=require('node:path');const source=fs.readFileSync(path.join(__dirname,'../src/pages/VendorDashboardPage.tsx'),'utf8');
  assert.ok(source.includes('currentSection === "queue"'));
  assert.ok(source.includes('DashboardSectionContent'));

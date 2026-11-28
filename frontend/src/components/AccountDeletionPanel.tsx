@@ -15,7 +15,7 @@ import {
   Text,
   Title,
 } from "../vendor/AccountFields";
-import { notifications } from "@mantine/notifications";
+import { useScopedNotifications } from "../vendor/VendorToasts";
 import { apiRequest } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 
@@ -47,6 +47,7 @@ export function AccountDeletionPanel({
   const [error, setError] = useState("");
 
   const vendor = useVendorAccount();
+  const notifications = useScopedNotifications();
   useAccountTask(preparing || submitting, dialogOpen && Boolean(password));
   const closeDeletion = () => {
     if (!submitting && discardAccountTask(vendor, Boolean(password))) {

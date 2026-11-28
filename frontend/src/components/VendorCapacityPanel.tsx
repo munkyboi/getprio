@@ -1,5 +1,9 @@
 import { useEffect, useState } from "react";
-import { Alert, Badge, Button, Card, Group, Modal, Progress, SimpleGrid, Stack, Text, TextInput, Title } from "@mantine/core";
+import { Badge } from "../vendor/components/ui/badge";
+import { Progress } from "../vendor/components/ui/progress";
+import { ConfigurationInput } from "../vendor/ConfigurationUi";
+import { OperationAlert, OperationButton, OperationPanel } from "../vendor/OperationsUi";
+import { TaskDialog } from "../vendor/TaskDialog";
 import { apiRequest } from "../api/client";
 
 type Resource = { limit: number | null; used: number | null; creditRemaining: number | null; resetAt: string | null };
@@ -50,21 +54,73 @@ export default function VendorCapacityPanel({ tenantSlug, token }: Readonly<{ te
     finally { setBusy(""); }
   }
   if (experienceEnabled === false) return null;
-  if (error && !capacity) return <Alert color="red">{error}</Alert>;
-  if (!capacity) return <Text c="dimmed">Loading monthly capacity…</Text>;
-  return <Stack gap="md">
-    <Group justify="space-between"><div><Text className="neura-label">MONTHLY CAPACITY</Text><Title order={3}>{commercial ? "Plan usage and credits" : "Operational capacity"}</Title></div><Badge variant="light">{capacity.planSlug || capacity.lifecycleState}</Badge></Group>
-    {error ? <Alert color="red">{error}</Alert> : null}
-    <SimpleGrid cols={{ base: 1, sm: 3 }}>{Object.entries(capacity.resources).map(([key, resource]) => {
-      const unavailable = resource.limit == null || resource.used == null || resource.creditRemaining == null;
-      if (unavailable) return <Card key={key} withBorder><Stack gap="xs"><Text fw={700}>{labels[key] || key}</Text><Title order={4}>Unavailable</Title><Text c="dimmed" size="sm">Capacity details are temporarily unavailable.</Text>{resource.resetAt ? <Text c="dimmed" size="xs">Resets {new Date(resource.resetAt).toLocaleDateString()}</Text> : null}</Stack></Card>;
-      const limit = resource.limit!;
-      const used = resource.used!;
-      const creditRemaining = resource.creditRemaining!;
-      const available = Math.max(0, limit - used) + creditRemaining;
-      const percentage = limit === 0 ? 0 : Math.min(100, (used / limit) * 100);
-      return <Card key={key} withBorder><Stack gap="xs"><Text fw={700}>{labels[key] || key}</Text><Title order={4}>{available.toLocaleString()} available</Title><Progress color={available === 0 ? "red" : percentage >= 90 ? "orange" : "teal"} value={percentage}/><Text c="dimmed" size="sm">{used.toLocaleString()} of {limit.toLocaleString()} monthly units used{creditRemaining ? ` + ${creditRemaining.toLocaleString()} credits` : ""}</Text>{resource.resetAt ? <Text c="dimmed" size="xs">Resets {new Date(resource.resetAt).toLocaleDateString()}</Text> : null}</Stack></Card>;
-    })}</SimpleGrid>
-    {commercial ? <><div><Title order={4}>Usage Credits</Title><Text c="dimmed" size="sm">Credits carry forward and bypass Ticket and Journey limits. They never bypass Service Booking limits.</Text></div><SimpleGrid cols={{ base: 1, sm: 3 }}>{packs.map((pack) => <Card key={pack.code} withBorder><Stack><Group justify="space-between"><Text fw={700}>{pack.code}</Text><Badge>{pack.priceDisplay}</Badge></Group><Text size="sm">{pack.ticketUnits.toLocaleString()} Tickets + {pack.journeyUnits.toLocaleString()} Journeys</Text><Button loading={busy === pack.code} onClick={() => void buy(pack.code)}>Buy credits</Button></Stack></Card>)}</SimpleGrid>{capacity.planSlug !== "free" ? <Card withBorder><Group justify="space-between" align="center"><div><Text fw={700}>Paid plan exit</Text><Text c="dimmed" size="sm">Keep paid access through the current term, then move to the queue-only Free plan.</Text></div><Button variant="light" onClick={() => setExitOpened(true)}>Schedule move to Free</Button></Group></Card> : null}<Modal opened={exitOpened} onClose={() => setExitOpened(false)} title={<div><Text className="neura-label">PLAN CHANGE</Text><Title order={3}>Move to Free at term end</Title></div>} centered size="lg"><Stack><Text>Your current paid features remain available until the end of the billing term. Usage Credits stay with your account.</Text><TextInput label="Reason for this change" value={exitReason} onChange={(event) => setExitReason(event.target.value)}/><Button fullWidth loading={busy === "paid-exit"} disabled={exitReason.trim().length < 8} onClick={() => void requestPaidExit()}>Review and schedule change</Button></Stack></Modal></> : <Alert color="blue">You can see whether the team can keep operating. Owners and administrators manage plans, purchases, and billing details.</Alert>}
-  </Stack>;
+  if (!capacity) return error ? <OperationAlert color="red">{error}</OperationAlert> : <p role="status" className="ops-muted">Loading monthly capacity…</p>;
+
+  return (
+    <div className="queue-stack">
+      <div className="ops-row ops-between">
+        <div><p className="neura-label">Monthly capacity</p><h3 className="account-panel-title">{commercial ? "Plan usage and credits" : "Operational capacity"}</h3></div>
+        <Badge variant="outline">{capacity.planSlug || capacity.lifecycleState}</Badge>
+      </div>
+      {error && <OperationAlert color="red">{error}</OperationAlert>}
+      <div className="v:grid v:gap-4 v:sm:grid-cols-3">
+        {Object.entries(capacity.resources).map(([key, resource]) => <ResourceCapacity key={key} label={labels[key] || key} resource={resource} />)}
+      </div>
+      {commercial ? <>
+        <div>
+          <h4 className="v:font-semibold">Usage Credits</h4>
+          <p className="ops-muted">Credits carry forward and bypass Ticket and Journey limits. They never bypass Service Booking limits.</p>
+        </div>
+        <div className="v:grid v:gap-4 v:sm:grid-cols-3">
+          {packs.map(pack => (
+            <OperationPanel key={pack.code}>
+              <div className="queue-stack">
+                <div className="ops-row ops-between"><strong>{pack.code}</strong><Badge>{pack.priceDisplay}</Badge></div>
+                <p>{pack.ticketUnits.toLocaleString()} Tickets + {pack.journeyUnits.toLocaleString()} Journeys</p>
+                <OperationButton loading={busy === pack.code} onClick={() => void buy(pack.code)}>Buy credits</OperationButton>
+              </div>
+            </OperationPanel>
+          ))}
+        </div>
+        {capacity.planSlug !== "free" && (
+          <OperationPanel>
+            <div className="ops-row ops-between">
+              <div><strong>Paid plan exit</strong><p className="ops-muted">Keep paid access through the current term, then move to the queue-only Free plan.</p></div>
+              <OperationButton variant="outline" onClick={() => setExitOpened(true)}>Schedule move to Free</OperationButton>
+            </div>
+          </OperationPanel>
+        )}
+        <TaskDialog
+          opened={exitOpened} onClose={() => setExitOpened(false)} busy={busy === "paid-exit"}
+          title="Move to Free at term end"
+          description="Your current paid features remain available until the end of the billing term. Usage Credits stay with your account."
+          footer={<OperationButton loading={busy === "paid-exit"} disabled={exitReason.trim().length < 8} onClick={() => void requestPaidExit()}>Review and schedule change</OperationButton>}
+        >
+          <ConfigurationInput label="Reason for this change" value={exitReason} onChange={event => setExitReason(event.target.value)} />
+        </TaskDialog>
+      </> : <OperationAlert>You can see whether the team can keep operating. Owners and administrators manage plans, purchases, and billing details.</OperationAlert>}
+    </div>
+  );
+}
+
+function ResourceCapacity({ label, resource }: { label: string; resource: Resource }) {
+  const { limit, used, creditRemaining, resetAt } = resource;
+  const reset = resetAt && <p className="ops-muted v:text-xs">Resets {new Date(resetAt).toLocaleDateString()}</p>;
+  if (limit == null || used == null || creditRemaining == null) {
+    return <OperationPanel><div className="queue-stack"><strong>{label}</strong><h4>Unavailable</h4><p className="ops-muted">Capacity details are temporarily unavailable.</p>{reset}</div></OperationPanel>;
+  }
+  const available = Math.max(0, limit - used) + creditRemaining;
+  const percentage = limit === 0 ? 0 : Math.min(100, (used / limit) * 100);
+  const tone = available === 0 ? "v:[&_[data-slot=progress-indicator]]:bg-destructive" : percentage >= 90 ? "v:[&_[data-slot=progress-indicator]]:bg-amber-500" : undefined;
+  return (
+    <OperationPanel>
+      <div className="queue-stack">
+        <strong>{label}</strong>
+        <h4>{available.toLocaleString()} available</h4>
+        <Progress aria-label={`${label} usage`} value={percentage} className={tone} />
+        <p className="ops-muted">{used.toLocaleString()} of {limit.toLocaleString()} monthly units used{creditRemaining ? ` + ${creditRemaining.toLocaleString()} credits` : ""}</p>
+        {reset}
+      </div>
+    </OperationPanel>
+  );
 }

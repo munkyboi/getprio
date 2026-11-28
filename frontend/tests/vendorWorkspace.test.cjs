@@ -32,3 +32,33 @@ test('Dashboard belongs to Operations for staff and appears before Live queue', 
   assert.deepEqual(workspaceItems(items, 'operations'), items.slice(0,2));
   assert.equal(workspacePath('overview','operations','?next=keep','#pool'), '/dashboard/overview?next=keep&workspace=operations#pool');
 });
+
+test('workspace switch items invoke navigation directly for reliable route changes', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const source = fs.readFileSync(path.resolve(__dirname, '../src/vendor/VendorWorkspaceShell.tsx'), 'utf8');
+  assert.match(source, /multiple=\{false\}/);
+  assert.match(source, /value="administration" onClick=\{\(\) => \{ if \(props\.workspace !== "administration"\) props\.onWorkspace\("administration"\); \}\}/);
+});
+
+test('locations route alias is not treated as an invalid dashboard section', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const source = fs.readFileSync(path.resolve(__dirname, '../src/pages/VendorDashboardPage.tsx'), 'utf8');
+  assert.match(source, /section !== "locations" && !dashboardSections\.has\(section\)/);
+});
+
+test('workspace changes use an in-app transition across route aliases', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const source = fs.readFileSync(path.resolve(__dirname, '../src/pages/VendorDashboardPage.tsx'), 'utf8');
+  assert.match(source, /navigate\(workspacePath\(destination, next, (?:location\.search|search), (?:location\.hash|hash)\)\)/);
+  assert.doesNotMatch(source, /window\.location\.assign\(workspacePath\(destination, next/);
+});
+
+test('side-menu items remain router links with the navigation guard', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const source = fs.readFileSync(path.resolve(__dirname, '../src/vendor/VendorWorkspaceShell.tsx'), 'utf8');
+  assert.match(source, /<NavLink key=\{section\}[\s\S]*?to=\{workspacePath\(section, props\.workspace, props\.search, props\.hash\)\}[\s\S]*?onClick=\{guardNavigation\}/);
+});

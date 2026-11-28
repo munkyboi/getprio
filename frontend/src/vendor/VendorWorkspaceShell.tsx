@@ -75,11 +75,9 @@ export function VendorWorkspaceShell(props: Props) {
       <header className="vendor-workspace-header">
         <Button className="vendor-menu-trigger" variant="ghost" size="icon" aria-label="Open dashboard navigation" onClick={() => setOpened(true)}><IconMenu2 /></Button>
         <span className="vendor-mobile-brand">GetPrio</span>
-        {props.canAdmin ? <ToggleGroup className="vendor-workspace-switch" aria-label="Vendor workspace" value={[props.workspace]} onValueChange={(values) => {
-          if (values[0] && values[0] !== props.workspace) { props.onWorkspace(values[0] as Workspace); }
-        }} variant="workspace" spacing={1}>
-          <ToggleGroupItem value="operations">Operations</ToggleGroupItem>
-          <ToggleGroupItem value="administration">Administration</ToggleGroupItem>
+        {props.canAdmin ? <ToggleGroup className="vendor-workspace-switch" aria-label="Vendor workspace" value={[props.workspace]} multiple={false} variant="workspace" spacing={1}>
+          <ToggleGroupItem value="operations" onClick={() => { if (props.workspace !== "operations") props.onWorkspace("operations"); }}>Operations</ToggleGroupItem>
+          <ToggleGroupItem value="administration" onClick={() => { if (props.workspace !== "administration") props.onWorkspace("administration"); }}>Administration</ToggleGroupItem>
         </ToggleGroup> : <span className="vendor-workspace-label">{workspaceLabel}</span>}
         <div className="vendor-header-tools">
           <Button variant="ghost" size="icon" aria-label={`Use ${theme === "light" ? "dark" : "light"} theme`} onClick={() => {

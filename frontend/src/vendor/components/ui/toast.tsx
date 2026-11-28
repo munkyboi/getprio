@@ -2,7 +2,7 @@ import * as React from "react"
 import { Toast as ToastPrimitive } from "@base-ui/react/toast"
 import { cn } from "cn"
 
-import { Button } from "@vendor/components/ui/button"
+import { Button } from "./button"
 import { IconX, IconCircleCheck, IconInfoCircle, IconAlertTriangle, IconAlertOctagon, IconLoader } from "@tabler/icons-react"
 
 const toast = ToastPrimitive.createToastManager()

@@ -49,7 +49,7 @@ test('explicit service sessions under scoped PostgreSQL transaction', {skip:!dat
       CREATE TABLE tenant_membership_locations(tenant_membership_id BIGINT,location_id BIGINT,assignment_source TEXT DEFAULT 'explicit',assigned_by_user_id BIGINT,UNIQUE(tenant_membership_id,location_id));
       CREATE TABLE service_counters(id BIGINT,tenant_id BIGINT,location_id BIGINT,is_active BOOLEAN,slug TEXT,name TEXT);
       CREATE TABLE service_counter_assignments(user_id BIGINT,counter_id BIGINT);
-      CREATE TABLE store_locations(id BIGINT PRIMARY KEY,queue_board_id UUID DEFAULT gen_random_uuid(),queue_board_public BOOLEAN DEFAULT FALSE,tenant_id BIGINT,is_active BOOLEAN,service_timing_enabled BOOLEAN,UNIQUE(id,tenant_id));
+      CREATE TABLE store_locations(id BIGINT PRIMARY KEY,queue_board_id UUID DEFAULT gen_random_uuid(),queue_board_public BOOLEAN DEFAULT FALSE,tenant_id BIGINT,is_active BOOLEAN,service_timing_enabled BOOLEAN,queue_type TEXT NOT NULL DEFAULT 'simple',queue_type_revision BIGINT NOT NULL DEFAULT 1,UNIQUE(id,tenant_id));
       CREATE TABLE queue_workflow_versions(tenant_id BIGINT,location_id BIGINT,revision BIGINT,mode TEXT,stations JSONB,stages JSONB,actor_role TEXT,PRIMARY KEY(tenant_id,location_id,revision));
       CREATE TABLE queue_workflow_configurations(tenant_id BIGINT,location_id BIGINT,revision BIGINT,PRIMARY KEY(tenant_id,location_id));
       ALTER TABLE tenant_membership_locations ADD FOREIGN KEY(tenant_membership_id) REFERENCES tenant_memberships(id) ON DELETE CASCADE,

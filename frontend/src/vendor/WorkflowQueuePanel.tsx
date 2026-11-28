@@ -44,7 +44,14 @@ export function WorkflowQueuePanel({token,tenant,location,counterSlug,configurat
 
  const rendered=[...(plans.data?.pages.flatMap(page=>page.plans)||[]),...(skipped.data?.pages.flatMap(page=>page.plans)||[])].filter(plan=>plan.contractVersion===2&&plan.workflow.mode==='multi_station');
  useEffect(()=>{if(setup.data&&!draft){const workflow=setup.data.workflow;draftRevision.current=workflow.configurationRevision;setDraft({mode:workflow.mode,stations:structuredClone(workflow.stations),stages:structuredClone(workflow.stages)});}},[setup.data,draft]);
- useEffect(()=>{onTicketIds?.(rendered.map(plan=>plan.ticketId),scope);onManagementReady?.(plans.isSuccess&&!plans.hasNextPage&&!plans.isFetchingNextPage&&skipped.isSuccess&&!skipped.hasNextPage&&!skipped.isFetchingNextPage,scope);},[rendered,scope,onTicketIds,onManagementReady,plans,plans.data,plans.isSuccess,plans.hasNextPage,plans.isFetchingNextPage,skipped,skipped.data,skipped.isSuccess,skipped.hasNextPage,skipped.isFetchingNextPage]);
+ const emittedIds = useRef<string[]>([]);
+ const emittedReady = useRef<boolean | null>(null);
+ useEffect(()=>{
+   const ids = rendered.map(plan=>plan.ticketId);
+   const ready = plans.isSuccess&&!plans.hasNextPage&&!plans.isFetchingNextPage&&skipped.isSuccess&&!skipped.hasNextPage&&!skipped.isFetchingNextPage;
+   if (JSON.stringify(emittedIds.current) !== JSON.stringify(ids)) { emittedIds.current = ids; onTicketIds?.(ids,scope); }
+   if (emittedReady.current !== ready) { emittedReady.current = ready; onManagementReady?.(ready,scope); }
+ },[rendered,scope,onTicketIds,onManagementReady,plans.isSuccess,plans.hasNextPage,plans.isFetchingNextPage,skipped.isSuccess,skipped.hasNextPage,skipped.isFetchingNextPage]);
  useEffect(()=>{if(configurationOnly)return;const refresh=()=>{if(document.visibilityState!=='visible')return;void plans.refetch();void skipped.refetch();void drafts.refetch();void catalog.refetch();};const interval=window.setInterval(refresh,15000);window.addEventListener('queue-plans-updated',refresh);window.addEventListener('focus',refresh);window.addEventListener('online',refresh);return()=>{window.clearInterval(interval);window.removeEventListener('queue-plans-updated',refresh);window.removeEventListener('focus',refresh);window.removeEventListener('online',refresh);};},[configurationOnly,scope,plans,skipped,drafts,catalog,plans.refetch,skipped.refetch,drafts.refetch,catalog.refetch]);
  async function write<T>(command:{path:string;method?:'POST'|'PUT'|'PATCH';body:object;key:string}){
   pending.current=command;

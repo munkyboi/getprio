@@ -13,6 +13,8 @@ export function canAccessVendorSection(section, entitlements, plan = null) {
   }
 
   switch (section) {
+    case "overview":
+      return entitlements.basicDashboard === true;
     case "queue":
       return entitlements.queueSystemAccess === true;
     case "tenants":
