@@ -8247,16 +8247,6 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
     const actionableBookings = vendorBookings.filter((booking) =>
       ["pending", "confirmed", "rescheduled"].includes(booking.status),
     ).length;
-    if (bookingListQuery.isError || (bookingListQuery.isPending && !bookingListQuery.data && vendorBookings.length === 0))
-      return (
-        <OperationScope>
-          <OperationQueryState
-            loading={bookingListQuery.isPending}
-            error={bookingListQuery.error}
-            onRetry={() => void bookingListQuery.refetch()}
-          />
-        </OperationScope>
-      );
     return (
       <OperationScope busy={Boolean(busyAction)}>
         <section className="request-data-table booking-request-data-table" aria-label="Booking requests">
@@ -8319,7 +8309,12 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
               </div>
             </div>
 
-              {filteredBookings.length ? (
+              <OperationQueryState
+                loading={bookingListQuery.isPending}
+                error={bookingListQuery.error}
+                onRetry={() => void bookingListQuery.refetch()}
+              />
+              {bookingListQuery.isSuccess && (filteredBookings.length ? (
                 <>
                   <div className="ops-table">
                     <QueueTable role="table" className="ops-data-table">
@@ -8709,7 +8704,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
                   title="No booking requests"
                   text="Incoming service booking requests for this location will appear here."
                 />
-              )}
+              ))}
           </div>
         </section>
       </OperationScope>
