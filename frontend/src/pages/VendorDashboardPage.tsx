@@ -371,6 +371,24 @@ function VendorQueueLoadingState({ error, onRetry }: VendorQueueLoadingStateProp
   return <OperationQueryState loading={!error} error={error} onRetry={onRetry} />;
 }
 
+type VendorQueueAlertsProps = {
+  queueDayUnopened: boolean;
+  queueDayActuallyClosed: boolean;
+  snapshot: QueueSnapshot | null | undefined;
+};
+
+function VendorQueueAlerts({ queueDayUnopened, queueDayActuallyClosed, snapshot }: VendorQueueAlertsProps) {
+  return <>
+    {queueDayUnopened ? <QueueAlert><QueueAlertDescription>Store hours make this Queue Day eligible, but they do not open it automatically. An authorized operator must open the queue before customers can join.</QueueAlertDescription></QueueAlert> : null}
+    {queueDayActuallyClosed && snapshot?.queueDay?.outcomeCounts ? <QueueAlert>
+      <QueueAlertTitle>Close reconciliation completed</QueueAlertTitle>
+      <QueueAlertDescription>
+        {snapshot.queueDay.outcomeCounts.pendingCarryOver} saved for carry-over · {snapshot.queueDay.outcomeCounts.expired} expired · {snapshot.queueDay.outcomeCounts.unserved} unserved · {snapshot.queueDay.outcomeCounts.skipped} skipped recovery ended. Reopening does not reverse these outcomes.
+      </QueueAlertDescription>
+    </QueueAlert> : null}
+  </>;
+}
+
 type VendorQueueStatusColumnsProps = {
   activeTicket: QueueCurrentTicket | null | undefined;
   intakeState: QueueSnapshot["queueIntake"] | null | undefined;
@@ -5571,27 +5589,7 @@ function getDismissedAlertStorageKey(tenantSlug: string, locationSlug: string | 
             </div>
           </QueueCardHeader>
           <QueueCardContent className="queue-stack queue-controls-surface">
-            {queueDayUnopened ? (
-              <QueueAlert>
-                <QueueAlertDescription>
-                  Store hours make this Queue Day eligible, but they do not open
-                  it automatically. An authorized operator must open the queue
-                  before customers can join.
-                </QueueAlertDescription>
-              </QueueAlert>
-            ) : null}
-            {queueDayActuallyClosed && snapshot?.queueDay?.outcomeCounts ? (
-              <QueueAlert>
-                <QueueAlertTitle>Close reconciliation completed</QueueAlertTitle>
-                <QueueAlertDescription>
-                  {snapshot.queueDay.outcomeCounts.pendingCarryOver} saved for
-                  carry-over · {snapshot.queueDay.outcomeCounts.expired} expired ·{" "}
-                  {snapshot.queueDay.outcomeCounts.unserved} unserved ·{" "}
-                  {snapshot.queueDay.outcomeCounts.skipped} skipped recovery
-                  ended. Reopening does not reverse these outcomes.
-                </QueueAlertDescription>
-              </QueueAlert>
-            ) : null}
+            <VendorQueueAlerts queueDayUnopened={queueDayUnopened} queueDayActuallyClosed={queueDayActuallyClosed} snapshot={snapshot} />
             <ButtonGroup className="vendor-queue-action-layout" aria-label="Queue controls actions">
               <div className="vendor-queue-serving-row">
               <QueueCounterPicker
